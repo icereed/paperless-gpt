@@ -52,11 +52,12 @@ type GetDocumentsApiResponse struct {
 }
 
 type Document struct {
-	ID             int    `json:"id"`
-	Title          string `json:"title"`
-	Content        string `json:"content"`
-	Tags           []int  `json:"tags"`
-	SuggestedTitle string `json:"suggested_title,omitempty"`
+	ID             int      `json:"id"`
+	Title          string   `json:"title"`
+	Content        string   `json:"content"`
+	Tags           []int    `json:"tags"`
+	SuggestedTitle string   `json:"suggested_title,omitempty"`
+	SuggestedTags  []string `json:"suggested_tags,omitempty"`
 }
 
 var (
@@ -128,6 +129,46 @@ func createLLM() (llms.Model, error) {
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", llmProvider)
 	}
+}
+
+func getAllTags(ctx context.Context, baseURL, apiToken string) (map[string]int, error) {
+	url := fmt.Sprintf("%s/api/tags/", baseURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Token %s", apiToken))
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Error fetching tags: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var tagsResponse struct {
+		Results []struct {
+			ID   int    `json:"id"`
+			Name string `json:"name"`
+		} `json:"results"`
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&tagsResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	tagIDMapping := make(map[string]int)
+	for _, tag := range tagsResponse.Results {
+		tagIDMapping[tag.Name] = tag.ID
+	}
+
+	return tagIDMapping, nil
 }
 
 // documentsHandler returns documents with the specific tag
@@ -290,6 +331,18 @@ func processDocuments(ctx context.Context, documents []Document) ([]Document, er
 		return nil, fmt.Errorf("failed to create LLM client: %v", err)
 	}
 
+	// Fetch all available tags from paperless-ngx
+	availableTags, err := getAllTags(ctx, paperlessBaseURL, paperlessAPIToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch available tags: %v", err)
+	}
+
+	// Prepare a list of tag names
+	availableTagNames := make([]string, 0, len(availableTags))
+	for tagName := range availableTags {
+		availableTagNames = append(availableTagNames, tagName)
+	}
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	errors := make([]error, 0)
@@ -315,8 +368,18 @@ func processDocuments(ctx context.Context, documents []Document) ([]Document, er
 				return
 			}
 
+			suggestedTags, err := getSuggestedTags(ctx, llm, content, suggestedTitle, availableTagNames)
+			if err != nil {
+				mu.Lock()
+				errors = append(errors, fmt.Errorf("Document %d: %v", documentID, err))
+				mu.Unlock()
+				log.Printf("Error generating tags for document %d: %v", documentID, err)
+				return
+			}
+
 			mu.Lock()
 			doc.SuggestedTitle = suggestedTitle
+			doc.SuggestedTags = suggestedTags
 			mu.Unlock()
 			log.Printf("Document %d processed successfully.", documentID)
 		}(&documents[i])
@@ -329,6 +392,47 @@ func processDocuments(ctx context.Context, documents []Document) ([]Document, er
 	}
 
 	return documents, nil
+}
+
+func getSuggestedTags(ctx context.Context, llm llms.Model, content string, suggestedTitle string, availableTags []string) ([]string, error) {
+	likelyLanguage := os.Getenv("LLM_LANGUAGE")
+	if likelyLanguage == "" {
+		likelyLanguage = "English"
+	}
+
+	prompt := fmt.Sprintf(`I will provide you with the content and suggested title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information. The content is likely in %s.
+
+Available Tags:
+%s
+
+Suggested Title:
+%s
+
+Content:
+%s
+`, likelyLanguage, strings.Join(availableTags, ", "), suggestedTitle, content)
+
+	completion, err := llm.GenerateContent(ctx, []llms.MessageContent{
+		{
+			Parts: []llms.ContentPart{
+				llms.TextContent{
+					Text: prompt,
+				},
+			},
+			Role: llms.ChatMessageTypeHuman,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("Error getting response from LLM: %v", err)
+	}
+
+	response := strings.TrimSpace(completion.Choices[0].Content)
+	suggestedTags := strings.Split(response, ",")
+	for i, tag := range suggestedTags {
+		suggestedTags[i] = strings.TrimSpace(tag)
+	}
+
+	return suggestedTags, nil
 }
 
 func getSuggestedTitle(ctx context.Context, llm llms.Model, content string) (string, error) {
@@ -366,6 +470,13 @@ Content:
 func updateDocuments(ctx context.Context, baseURL, apiToken string, documents []Document, paperlessGptTagID int) error {
 	client := &http.Client{}
 
+	// Fetch all available tags
+	availableTags, err := getAllTags(ctx, baseURL, apiToken)
+	if err != nil {
+		log.Printf("Error fetching available tags: %v", err)
+		return err
+	}
+
 	for _, document := range documents {
 		documentID := document.ID
 
@@ -375,6 +486,15 @@ func updateDocuments(ctx context.Context, baseURL, apiToken string, documents []
 		for _, tagID := range document.Tags {
 			if tagID != paperlessGptTagID {
 				newTags = append(newTags, tagID)
+			}
+		}
+
+		// Map suggested tag names to IDs
+		for _, tagName := range document.SuggestedTags {
+			if tagID, exists := availableTags[tagName]; exists {
+				newTags = append(newTags, tagID)
+			} else {
+				log.Printf("Tag '%s' does not exist in paperless-ngx, skipping.", tagName)
 			}
 		}
 

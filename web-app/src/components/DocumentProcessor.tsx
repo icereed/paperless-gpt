@@ -13,6 +13,7 @@ interface Document {
   title: string;
   content: string;
   suggested_title?: string;
+  suggested_tags?: string[];
 }
 
 const DocumentProcessor: React.FC = () => {
@@ -30,7 +31,7 @@ const DocumentProcessor: React.FC = () => {
     } catch (error) {
       console.error("Error fetching filter tag:", error);
     }
-  }
+  };
 
   const fetchDocuments = async () => {
     try {
@@ -109,8 +110,10 @@ const DocumentProcessor: React.FC = () => {
         <div className="flex items-center justify-center h-screen">
           <div className="text-xl font-semibold">
             No documents found with filter tag{" "}
-            <span className="bg-blue-100 text-blue-800 text-sm font-medium me-2 px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300bg-blue-100 text-blue-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full dark:bg-blue-900 dark:text-blue-300">{filterTag}</span>            
-            {" "}found. Try{" "}
+            <span className="bg-blue-100 text-blue-800 text-sm font-medium me-2 px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300bg-blue-100 text-blue-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded-full dark:bg-blue-900 dark:text-blue-300">
+              {filterTag}
+            </span>{" "}
+            found. Try{" "}
             <button
               onClick={() => {
                 setDocuments([]);
@@ -199,6 +202,9 @@ const DocumentProcessor: React.FC = () => {
                   <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">
                     Suggested Title
                   </th>
+                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">
+                    Suggested Tags
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -220,6 +226,26 @@ const DocumentProcessor: React.FC = () => {
                               const updatedDocuments = documents.map((d) =>
                                 d.id === doc.id
                                   ? { ...d, suggested_title: e.target.value }
+                                  : d
+                              );
+                              setDocuments(updatedDocuments);
+                            }}
+                            className="w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-900">
+                          <input
+                            type="text"
+                            value={doc.suggested_tags?.join(", ")}
+                            onChange={(e) => {
+                              const updatedDocuments = documents.map((d) =>
+                                d.id === doc.id
+                                  ? {
+                                      ...d,
+                                      suggested_tags: e.target.value
+                                        .split(",")
+                                        .map((tag) => tag.trim()),
+                                    }
                                   : d
                               );
                               setDocuments(updatedDocuments);
