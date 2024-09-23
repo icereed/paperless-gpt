@@ -59,7 +59,7 @@ services:
       PAPERLESS_BASE_URL: 'http://paperless-ngx:8000'
       PAPERLESS_API_TOKEN: 'your_paperless_api_token'
       LLM_PROVIDER: 'openai' # or 'ollama'
-      LLM_MODEL: 'gpt-4'     # or 'llama2'
+      LLM_MODEL: 'gpt-4o'     # or 'llama2'
       OPENAI_API_KEY: 'your_openai_api_key' # Required if using OpenAI
       LLM_LANGUAGE: 'English' # Optional, default is 'English'
     ports:
@@ -77,7 +77,7 @@ If you prefer to run the application manually:
 1. **Clone the Repository:**
 
    ```bash
-   git clone https://github.com/yourusername/paperless-gpt.git
+   git clone https://github.com/icereed/paperless-gpt.git
    cd paperless-gpt
    ```
 
@@ -94,7 +94,7 @@ If you prefer to run the application manually:
      -e PAPERLESS_BASE_URL='http://your_paperless_ngx_url' \
      -e PAPERLESS_API_TOKEN='your_paperless_api_token' \
      -e LLM_PROVIDER='openai' \
-     -e LLM_MODEL='gpt-4' \
+     -e LLM_MODEL='gpt-4o' \
      -e OPENAI_API_KEY='your_openai_api_key' \
      -e LLM_LANGUAGE='English' \
      -p 8080:8080 \
