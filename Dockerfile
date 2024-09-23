@@ -53,8 +53,5 @@ COPY --from=frontend /app/dist /root/web-app/dist
 # Expose the port the app runs on
 EXPOSE 8080
 
-# Validate that the binary is executable
-RUN chmod +x paperless-gpt
-
 # Command to run the binary
 CMD ["./paperless-gpt"]
