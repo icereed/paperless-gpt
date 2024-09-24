@@ -123,8 +123,13 @@ func createLLM() (llms.Model, error) {
 			openai.WithToken(openaiAPIKey),
 		)
 	case "ollama":
+		host := os.Getenv("OLLAMA_HOST")
+		if host == "" {
+			host = "http://127.0.0.1:11434"
+		}
 		return ollama.New(
 			ollama.WithModel(llmModel),
+			ollama.WithServerURL(host),
 		)
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", llmProvider)
