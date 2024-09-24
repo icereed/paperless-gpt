@@ -62,6 +62,7 @@ services:
       LLM_MODEL: 'gpt-4o'     # or 'llama2'
       OPENAI_API_KEY: 'your_openai_api_key' # Required if using OpenAI
       LLM_LANGUAGE: 'English' # Optional, default is 'English'
+      OLLAMA_HOST: http://host.docker.internal:11434 # Useful if using Ollama
     ports:
       - '8080:8080'
     depends_on:
@@ -113,6 +114,7 @@ If you prefer to run the application manually:
 | `LLM_MODEL`           | The model name to use (e.g., `gpt-4`, `gpt-3.5-turbo`, `llama2`).                                  | Yes      |
 | `OPENAI_API_KEY`      | Your OpenAI API key. Required if using OpenAI as the LLM provider.                                  | Cond.    |
 | `LLM_LANGUAGE`        | The likely language of your documents (e.g., `English`, `German`). Default is `English`.            | No       |
+| `OLLAMA_HOST`         | The URL of the Ollama server (e.g., `http://host.docker.internal:11434`). Useful if using Ollama. Default is `http://127.0.0.1:11434`  | No    |
 
 **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
 
