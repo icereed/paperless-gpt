@@ -345,6 +345,9 @@ func processDocuments(ctx context.Context, documents []Document) ([]Document, er
 	// Prepare a list of tag names
 	availableTagNames := make([]string, 0, len(availableTags))
 	for tagName := range availableTags {
+		if tagName == tagToFilter {
+			continue
+		}
 		availableTagNames = append(availableTagNames, tagName)
 	}
 
@@ -400,22 +403,22 @@ func processDocuments(ctx context.Context, documents []Document) ([]Document, er
 }
 
 func getSuggestedTags(ctx context.Context, llm llms.Model, content string, suggestedTitle string, availableTags []string) ([]string, error) {
-	likelyLanguage := os.Getenv("LLM_LANGUAGE")
-	if likelyLanguage == "" {
-		likelyLanguage = "English"
-	}
+	likelyLanguage := getLikelyLanguage()
 
-	prompt := fmt.Sprintf(`I will provide you with the content and suggested title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information. The content is likely in %s.
+	prompt := fmt.Sprintf(`I will provide you with the content and the title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information. The content is likely in %s.
 
 Available Tags:
 %s
 
-Suggested Title:
+Title:
 %s
 
 Content:
 %s
-`, likelyLanguage, strings.Join(availableTags, ", "), suggestedTitle, content)
+
+Please concisely select the %s tags from the list above that best describe the document.
+Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
+`, likelyLanguage, strings.Join(availableTags, ", "), suggestedTitle, content, likelyLanguage)
 
 	completion, err := llm.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -437,16 +440,30 @@ Content:
 		suggestedTags[i] = strings.TrimSpace(tag)
 	}
 
-	return suggestedTags, nil
+	// Filter out tags that are not in the available tags list
+	filteredTags := []string{}
+	for _, tag := range suggestedTags {
+		for _, availableTag := range availableTags {
+			if strings.EqualFold(tag, availableTag) {
+				filteredTags = append(filteredTags, availableTag)
+				break
+			}
+		}
+	}
+
+	return filteredTags, nil
+}
+
+func getLikelyLanguage() string {
+	likelyLanguage := os.Getenv("LLM_LANGUAGE")
+	if likelyLanguage == "" {
+		likelyLanguage = "English"
+	}
+	return strings.Title(strings.ToLower(likelyLanguage))
 }
 
 func getSuggestedTitle(ctx context.Context, llm llms.Model, content string) (string, error) {
-	likelyLanguage, ok := os.LookupEnv("LLM_LANGUAGE")
-	if !ok {
-		likelyLanguage = "English"
-	} else {
-		likelyLanguage = strings.Title(strings.ToLower(likelyLanguage))
-	}
+	likelyLanguage := getLikelyLanguage()
 
 	prompt := fmt.Sprintf(`I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
 Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
