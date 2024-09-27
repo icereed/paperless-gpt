@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/github/license/icereed/paperless-gpt)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/icereed/paperless-gpt)](https://hub.docker.com/r/icereed/paperless-gpt)
 
-**paperless-gpt** is a tool designed to generate accurate and meaningful document titles for [paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) using Large Language Models (LLMs). It supports multiple LLM providers, including **OpenAI** and **Ollama**. With paperless-gpt, you can streamline your document management by automatically suggesting appropriate titles based on the content of your scanned documents.
+**paperless-gpt** is a tool designed to generate accurate and meaningful document titles for [paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) using Large Language Models (LLMs). It supports multiple LLM providers, including **OpenAI** and **Ollama**. With paperless-gpt, you can streamline your document management by automatically suggesting appropriate titles and tags based on the content of your scanned documents.
 
 [![Demo](./demo.gif)](./demo.gif)
 
@@ -132,7 +132,7 @@ If you prefer to run the application manually:
 
    - Click on **"Generate Suggestions"** to let the LLM generate title suggestions based on the document content.
 
-4. **Review and Apply Titles:**
+4. **Review and Apply Titles and Tags:**
 
    - Review the suggested titles. You can edit them if necessary.
    - Click on **"Apply Suggestions"** to update the document titles in paperless-ngx.
