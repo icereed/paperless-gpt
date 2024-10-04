@@ -55,7 +55,7 @@ type Document struct {
 	ID             int      `json:"id"`
 	Title          string   `json:"title"`
 	Content        string   `json:"content"`
-	Tags           []int    `json:"tags"`
+	Tags           []string `json:"tags"`
 	SuggestedTitle string   `json:"suggested_title,omitempty"`
 	SuggestedTags  []string `json:"suggested_tags,omitempty"`
 }
@@ -93,6 +93,19 @@ func main() {
 		api.PATCH("/update-documents", updateDocumentsHandler)
 		api.GET("/filter-tag", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"tag": tagToFilter})
+		})
+		// get all tags
+		api.GET("/tags", func(c *gin.Context) {
+			ctx := c.Request.Context()
+
+			tags, err := getAllTags(ctx, paperlessBaseURL, paperlessAPIToken)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching tags: %v", err)})
+				log.Printf("Error fetching tags: %v", err)
+				return
+			}
+
+			c.JSON(http.StatusOK, tags)
 		})
 	}
 
@@ -214,15 +227,6 @@ func generateSuggestionsHandler(c *gin.Context) {
 // updateDocumentsHandler updates documents with new titles
 func updateDocumentsHandler(c *gin.Context) {
 	ctx := c.Request.Context()
-
-	tagIDMapping, err := getIDMappingForTags(ctx, paperlessBaseURL, paperlessAPIToken, []string{tagToFilter})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching tag ID: %v", err)})
-		log.Printf("Error fetching tag ID: %v", err)
-		return
-	}
-	paperlessGptTagID := tagIDMapping[tagToFilter]
-
 	var documents []Document
 	if err := c.ShouldBindJSON(&documents); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request payload: %v", err)})
@@ -230,7 +234,7 @@ func updateDocumentsHandler(c *gin.Context) {
 		return
 	}
 
-	err = updateDocuments(ctx, paperlessBaseURL, paperlessAPIToken, documents, paperlessGptTagID)
+	err := updateDocuments(ctx, paperlessBaseURL, paperlessAPIToken, documents)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error updating documents: %v", err)})
 		log.Printf("Error updating documents: %v", err)
@@ -317,13 +321,27 @@ func getDocumentsByTags(ctx context.Context, baseURL, apiToken string, tags []st
 		return nil, err
 	}
 
+	allTags, err := getAllTags(ctx, baseURL, apiToken)
+	if err != nil {
+		return nil, err
+	}
 	documents := make([]Document, 0, len(documentsResponse.Results))
 	for _, result := range documentsResponse.Results {
+		tagNames := make([]string, len(result.Tags))
+		for i, resultTagID := range result.Tags {
+			for tagName, tagID := range allTags {
+				if resultTagID == tagID {
+					tagNames[i] = tagName
+					break
+				}
+			}
+		}
+
 		documents = append(documents, Document{
 			ID:      result.ID,
 			Title:   result.Title,
 			Content: result.Content,
-			Tags:    result.Tags,
+			Tags:    tagNames,
 		})
 	}
 
@@ -489,7 +507,7 @@ Content:
 	return strings.TrimSpace(strings.Trim(completion.Choices[0].Content, "\"")), nil
 }
 
-func updateDocuments(ctx context.Context, baseURL, apiToken string, documents []Document, paperlessGptTagID int) error {
+func updateDocuments(ctx context.Context, baseURL, apiToken string, documents []Document) error {
 	client := &http.Client{}
 
 	// Fetch all available tags
@@ -505,15 +523,14 @@ func updateDocuments(ctx context.Context, baseURL, apiToken string, documents []
 		updatedFields := make(map[string]interface{})
 
 		newTags := []int{}
-		for _, tagID := range document.Tags {
-			if tagID != paperlessGptTagID {
-				newTags = append(newTags, tagID)
-			}
-		}
 
 		// Map suggested tag names to IDs
 		for _, tagName := range document.SuggestedTags {
 			if tagID, exists := availableTags[tagName]; exists {
+				// Skip the tag that we are filtering
+				if tagName == tagToFilter {
+					continue
+				}
 				newTags = append(newTags, tagID)
 			} else {
 				log.Printf("Tag '%s' does not exist in paperless-ngx, skipping.", tagName)
@@ -528,6 +545,7 @@ func updateDocuments(ctx context.Context, baseURL, apiToken string, documents []
 		}
 		updatedFields["title"] = suggestedTitle
 
+		// Send the update request
 		url := fmt.Sprintf("%s/api/documents/%d/", baseURL, documentID)
 
 		jsonData, err := json.Marshal(updatedFields)
