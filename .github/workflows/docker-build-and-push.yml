@@ -68,6 +68,17 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
 
+      - name: Set Docker tags
+        id: set_tags
+        run: |
+          echo "TAGS=icereed/paperless-gpt:unreleased" >> $GITHUB_ENV
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "TAGS=icereed/paperless-gpt:unreleased" >> $GITHUB_ENV
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            echo "TAGS=icereed/paperless-gpt:latest,icereed/paperless-gpt:${VERSION}" >> $GITHUB_ENV
+          fi
+
       - name: Build and push Docker images
         id: docker_build
         uses: docker/build-push-action@v4
@@ -77,8 +88,4 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          tags: |
-            icereed/paperless-gpt:unreleased
-            ${{ github.ref == 'refs/heads/main' && 'icereed/paperless-gpt:unreleased' }}
-            ${{ github.ref_type == 'tag' && 'icereed/paperless-gpt:latest' }}
-            ${{ github.ref_type == 'tag' && 'icereed/paperless-gpt:${{ github.ref_name }}' }}
+          tags: ${{ env.TAGS }}
