@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	retryablehttp "github.com/hashicorp/go-retryablehttp"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
@@ -141,22 +140,23 @@ func createLLM() (llms.Model, error) {
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
-		// custom http client (retryable http client) if bearer token is wanted
-		retryClient := retryablehttp.NewClient()
-		retryClient.RetryMax = 10
+		ollamaOptions := []ollama.Option{
+			ollama.WithModel(llmModel),
+			ollama.WithServerURL(host),
+		}
 		bearerToken := os.Getenv("OLLAMA_BEARER_TOKEN")
 		if bearerToken != "" {
-			retryClient.RequestLogHook = func(l retryablehttp.Logger, r *http.Request, i int) {
-				r.Header.Set("Authorization", fmt.Sprintf("Bearer %s", bearerToken))
-				shortenedBearerToken := fmt.Sprintf("%s...", r.Header.Get("Authorization")[:5])
-				log.Printf("Request with bearer %s token to %s %s", shortenedBearerToken, r.Method, r.URL)
-			}
+			log.Println("Using bearer token for OLLAMA authentication")
+			ollamaOptions = append(
+				ollamaOptions,
+				ollama.WithHTTPClient(
+					NewHttpClientWithBearerTransport(bearerToken),
+				),
+			)
 		}
 
 		return ollama.New(
-			ollama.WithModel(llmModel),
-			ollama.WithServerURL(host),
-			ollama.WithHTTPClient(retryClient.StandardClient()),
+			ollamaOptions...,
 		)
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", llmProvider)
