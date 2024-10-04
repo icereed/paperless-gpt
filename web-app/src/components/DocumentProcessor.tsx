@@ -7,30 +7,111 @@ import {
 import { ArrowPathIcon, CheckCircleIcon } from "@heroicons/react/24/outline";
 import axios from "axios";
 import React, { Fragment, useEffect, useState } from "react";
+import { ReactTags } from "react-tag-autocomplete";
+import "react-tag-autocomplete/example/src/styles.css"; // Ensure styles are loaded
 
 interface Document {
   id: number;
   title: string;
   content: string;
+  tags: string[];
   suggested_title?: string;
-  suggested_tags?: string[];
+  suggested_tags?: { value: string; label: string }[];
 }
+
+type ApiDocument = Omit<Document, "suggested_tags"> & {
+  suggested_tags?: string[];
+};
 
 const DocumentProcessor: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [availableTags, setAvailableTags] = useState<{ value: string; label: string }[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [processing, setProcessing] = useState<boolean>(false);
   const [updating, setUpdating] = useState<boolean>(false);
   const [successModalOpen, setSuccessModalOpen] = useState<boolean>(false);
   const [filterTag, setFilterTag] = useState<string | undefined>(undefined);
 
-  const fetchFilterTag = async () => {
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [filterTagResponse, documentsResponse, tagsResponse] =
+          await Promise.all([
+            axios.get("/api/filter-tag"),
+            axios.get("/api/documents"),
+            axios.get("/api/tags"),
+          ]);
+
+        setFilterTag(filterTagResponse.data?.tag);
+        const rawDocuments = documentsResponse.data as ApiDocument[];
+        const documents = rawDocuments.map((doc) => ({
+          ...doc,
+          suggested_tags: doc.tags.map((tag) => ({ value: tag, label: tag })),
+        }));
+        console.log(documents);
+        setDocuments(documents);
+
+        // Store available tags as objects with value and label
+        // tagsResponse.data is a map of name to id
+        const tags = Object.entries(tagsResponse.data).map(([name]) => ({
+          value: name,
+          label: name,
+        }));
+        setAvailableTags(tags);
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const handleProcessDocuments = async () => {
+    setProcessing(true);
     try {
-      const response = await axios.get("/api/filter-tag"); // API endpoint to fetch filter tag
-      setFilterTag(response.data?.tag);
+      const apiDocuments: ApiDocument[] = documents.map((doc) => ({
+        ...doc,
+        suggested_tags: doc.suggested_tags?.map((tag) => tag.value) || [],
+      }));
+
+      const response = await axios.post<ApiDocument[]>("/api/generate-suggestions", apiDocuments);
+      setDocuments(response.data.map((doc) => ({
+        ...doc,
+        suggested_tags: doc.suggested_tags?.map((tag) => ({ value: tag, label: tag })) || [],
+      })));
     } catch (error) {
-      console.error("Error fetching filter tag:", error);
+      console.error("Error generating suggestions:", error);
+    } finally {
+      setProcessing(false);
     }
+  };
+
+  const handleUpdateDocuments = async () => {
+    setUpdating(true);
+    try {
+      const apiDocuments: ApiDocument[] = documents.map((doc) => ({
+        ...doc,
+        tags: [], // Remove tags from the API document
+        suggested_tags: doc.suggested_tags?.map((tag) => tag.value) || [],
+      }));
+      await axios.patch("/api/update-documents", apiDocuments);
+      setSuccessModalOpen(true);
+    } catch (error) {
+      console.error("Error updating documents:", error);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const resetSuggestions = () => {
+    const resetDocs = documents.map((doc) => ({
+      ...doc,
+      suggested_title: undefined,
+      suggested_tags: [],
+    }));
+    setDocuments(resetDocs);
   };
 
   const fetchDocuments = async () => {
@@ -44,44 +125,6 @@ const DocumentProcessor: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    fetchFilterTag();
-    fetchDocuments();
-  }, []);
-
-  const handleProcessDocuments = async () => {
-    setProcessing(true);
-    try {
-      const response = await axios.post("/api/generate-suggestions", documents);
-      setDocuments(response.data);
-    } catch (error) {
-      console.error("Error generating suggestions:", error);
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handleUpdateDocuments = async () => {
-    setUpdating(true);
-    try {
-      await axios.patch("/api/update-documents", documents);
-      setSuccessModalOpen(true);
-    } catch (error) {
-      console.error("Error updating documents:", error);
-    } finally {
-      setUpdating(false);
-    }
-  };
-
-  const resetSuggestions = () => {
-    const resetDocs = documents.map((doc) => ({
-      ...doc,
-      suggested_title: undefined,
-    }));
-    setDocuments(resetDocs);
-  };
-
-  // while no documents are found we keep refreshing in the background
   useEffect(() => {
     if (documents.length === 0) {
       const interval = setInterval(() => {
@@ -105,7 +148,6 @@ const DocumentProcessor: React.FC = () => {
         Paperless GPT
       </h1>
 
-      {/* Handle empty documents with reload button */}
       {documents.length === 0 && (
         <div className="flex items-center justify-center h-screen">
           <div className="text-xl font-semibold">
@@ -128,7 +170,7 @@ const DocumentProcessor: React.FC = () => {
           </div>
         </div>
       )}
-      {/* Step 1: Document Preview */}
+
       {!documents.some((doc) => doc.suggested_title) && (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
@@ -183,7 +225,6 @@ const DocumentProcessor: React.FC = () => {
         </div>
       )}
 
-      {/* Step 2: Review Suggestions */}
       {documents.some((doc) => doc.suggested_title) && (
         <div className="space-y-6">
           <h2 className="text-2xl font-semibold text-gray-700">
@@ -234,23 +275,32 @@ const DocumentProcessor: React.FC = () => {
                           />
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900">
-                          <input
-                            type="text"
-                            value={doc.suggested_tags?.join(", ")}
-                            onChange={(e) => {
+                          <ReactTags
+                            selected={doc.suggested_tags || []}
+                            suggestions={availableTags}
+
+                            onAdd={(tag) => {
+                              const updatedTags = [...(doc.suggested_tags || []), { value: tag.value as string, label: tag.label }];
                               const updatedDocuments = documents.map((d) =>
                                 d.id === doc.id
-                                  ? {
-                                      ...d,
-                                      suggested_tags: e.target.value
-                                        .split(",")
-                                        .map((tag) => tag.trim()),
-                                    }
+                                  ? { ...d, suggested_tags: updatedTags }
                                   : d
                               );
                               setDocuments(updatedDocuments);
                             }}
-                            className="w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            onDelete={(i) => {
+                              const updatedTags = doc.suggested_tags?.filter(
+                                (_, index) => index !== i
+                              );
+                              const updatedDocuments = documents.map((d) =>
+                                d.id === doc.id
+                                  ? { ...d, suggested_tags: updatedTags }
+                                  : d
+                              );
+                              setDocuments(updatedDocuments);
+                            }}
+                            allowNew={false}
+                            placeholderText="Add a tag"
                           />
                         </td>
                       </tr>
@@ -279,7 +329,6 @@ const DocumentProcessor: React.FC = () => {
         </div>
       )}
 
-      {/* Success Modal */}
       <Transition show={successModalOpen} as={Fragment}>
         <Dialog
           as="div"
@@ -289,7 +338,6 @@ const DocumentProcessor: React.FC = () => {
           onClose={setSuccessModalOpen}
         >
           <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            {/* Background overlay */}
             <TransitionChild
               as="div"
               enter="ease-out duration-300"
@@ -302,7 +350,6 @@ const DocumentProcessor: React.FC = () => {
               <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
             </TransitionChild>
 
-            {/* Centering trick */}
             <span
               className="hidden sm:inline-block sm:align-middle sm:h-screen"
               aria-hidden="true"
@@ -310,7 +357,6 @@ const DocumentProcessor: React.FC = () => {
               &#8203;
             </span>
 
-            {/* Modal content */}
             <TransitionChild
               as={Fragment}
               enter="ease-out duration-300"
@@ -347,7 +393,6 @@ const DocumentProcessor: React.FC = () => {
                   <button
                     onClick={() => {
                       setSuccessModalOpen(false);
-                      // Optionally reset or fetch documents again
                       setDocuments([]);
                       setLoading(true);
                       axios.get("/api/documents").then((response) => {
