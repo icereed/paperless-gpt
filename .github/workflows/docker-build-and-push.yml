@@ -33,6 +33,14 @@ jobs:
         with:
           node-version: 20
 
+      - name: Cache npm dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
       - name: Install frontend dependencies
         run: npm install
         working-directory: web-app
@@ -67,6 +75,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             icereed/paperless-gpt:unreleased
             ${{ github.ref == 'refs/heads/main' && 'icereed/paperless-gpt:unreleased' }}
