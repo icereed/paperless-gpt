@@ -1,5 +1,5 @@
 import React from 'react';
-import DocumentProcessor from './components/DocumentProcessor';
+import DocumentProcessor from './DocumentProcessor';
 import './index.css';
 
 const App: React.FC = () => {
