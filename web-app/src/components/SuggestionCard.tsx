@@ -19,7 +19,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
 }) => {
   const document = suggestion.original_document;
   return (
-    <div className="bg-white shadow shadow-blue-500/50 rounded-md p-4 relative flex flex-col justify-between h-full">
+    <div className="bg-white shadow-lg shadow-blue-500/50 rounded-md p-4 relative flex flex-col justify-between h-full">
       <div className="flex items-center group relative">
         <div className="relative">
           <h3 className="text-lg font-semibold text-gray-800">
