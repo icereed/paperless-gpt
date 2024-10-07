@@ -259,50 +259,6 @@ func updateDocumentsHandler(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-func getIDMappingForTags(ctx context.Context, baseURL, apiToken string, tagsToFilter []string) (map[string]int, error) {
-	url := fmt.Sprintf("%s/api/tags/", baseURL)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", fmt.Sprintf("Token %s", apiToken))
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Error fetching tags: %d, %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var tagsResponse struct {
-		Results []struct {
-			ID   int    `json:"id"`
-			Name string `json:"name"`
-		} `json:"results"`
-	}
-
-	err = json.NewDecoder(resp.Body).Decode(&tagsResponse)
-	if err != nil {
-		return nil, err
-	}
-
-	tagIDMapping := make(map[string]int)
-	for _, tag := range tagsResponse.Results {
-		for _, filterTag := range tagsToFilter {
-			if tag.Name == filterTag {
-				tagIDMapping[tag.Name] = tag.ID
-			}
-		}
-	}
-
-	return tagIDMapping, nil
-}
-
 func getDocumentsByTags(ctx context.Context, baseURL, apiToken string, tags []string) ([]Document, error) {
 	tagQueries := make([]string, len(tags))
 	for i, tag := range tags {
@@ -593,11 +549,8 @@ func updateDocuments(ctx context.Context, baseURL, apiToken string, documents []
 			}
 		}
 
-		if len(newTags) > 0 {
-			updatedFields["tags"] = newTags
-		} else {
-			log.Printf("No valid tags found for document %d, skipping.", documentID)
-		}
+		updatedFields["tags"] = newTags
+
 		suggestedTitle := document.SuggestedTitle
 		if len(suggestedTitle) > 128 {
 			suggestedTitle = suggestedTitle[:128]
