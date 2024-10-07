@@ -15,44 +15,58 @@ interface Document {
   title: string;
   content: string;
   tags: string[];
-  suggested_title?: string;
-  suggested_tags?: { value: string; label: string }[];
 }
 
-type ApiDocument = Omit<Document, "suggested_tags"> & {
+interface GenerateSuggestionsRequest {
+  documents: Document[];
+  generate_titles?: boolean;
+  generate_tags?: boolean;
+}
+
+interface DocumentSuggestion {
+  id: number;
+  original_document: Document;
+  suggested_title?: string;
   suggested_tags?: string[];
-};
+}
 
 const DocumentProcessor: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [availableTags, setAvailableTags] = useState<{ value: string; label: string }[]>([]);
+  const [documentSuggestions, setDocumentSuggestions] = useState<
+    DocumentSuggestion[]
+  >([]);
+  const [availableTags, setAvailableTags] = useState<
+    { value: string; label: string }[]
+  >([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [processing, setProcessing] = useState<boolean>(false);
   const [updating, setUpdating] = useState<boolean>(false);
   const [successModalOpen, setSuccessModalOpen] = useState<boolean>(false);
   const [filterTag, setFilterTag] = useState<string | undefined>(undefined);
+  const [generateTitles, setGenerateTitles] = useState<boolean>(true);
+  const [generateTags, setGenerateTags] = useState<boolean>(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const [filterTagResponse, documentsResponse, tagsResponse] =
           await Promise.all([
-            axios.get("/api/filter-tag"),
-            axios.get("/api/documents"),
-            axios.get("/api/tags"),
+            axios.get<
+              { tag: string } | undefined
+            >
+            ("/api/filter-tag"),
+            axios.get<
+              Document[]
+            >("/api/documents"),
+            axios.get<{
+              [tag: string]: number;
+            }>("/api/tags"),
           ]);
 
         setFilterTag(filterTagResponse.data?.tag);
-        const rawDocuments = documentsResponse.data as ApiDocument[];
-        const documents = rawDocuments.map((doc) => ({
-          ...doc,
-          suggested_tags: doc.tags.map((tag) => ({ value: tag, label: tag })),
-        }));
-        console.log(documents);
-        setDocuments(documents);
+        setDocuments(documentsResponse.data);
 
         // Store available tags as objects with value and label
-        // tagsResponse.data is a map of name to id
         const tags = Object.entries(tagsResponse.data).map(([name]) => ({
           value: name,
           label: name,
@@ -71,16 +85,17 @@ const DocumentProcessor: React.FC = () => {
   const handleProcessDocuments = async () => {
     setProcessing(true);
     try {
-      const apiDocuments: ApiDocument[] = documents.map((doc) => ({
-        ...doc,
-        suggested_tags: doc.suggested_tags?.map((tag) => tag.value) || [],
-      }));
+      const requestPayload: GenerateSuggestionsRequest = {
+        documents,
+        generate_titles: generateTitles,
+        generate_tags: generateTags,
+      };
 
-      const response = await axios.post<ApiDocument[]>("/api/generate-suggestions", apiDocuments);
-      setDocuments(response.data.map((doc) => ({
-        ...doc,
-        suggested_tags: doc.suggested_tags?.map((tag) => ({ value: tag, label: tag })) || [],
-      })));
+      const response = await axios.post<DocumentSuggestion[]>(
+        "/api/generate-suggestions",
+        requestPayload
+      );
+      setDocumentSuggestions(response.data);
     } catch (error) {
       console.error("Error generating suggestions:", error);
     } finally {
@@ -91,13 +106,9 @@ const DocumentProcessor: React.FC = () => {
   const handleUpdateDocuments = async () => {
     setUpdating(true);
     try {
-      const apiDocuments: ApiDocument[] = documents.map((doc) => ({
-        ...doc,
-        tags: [], // Remove tags from the API document
-        suggested_tags: doc.suggested_tags?.map((tag) => tag.value) || [],
-      }));
-      await axios.patch("/api/update-documents", apiDocuments);
+      await axios.patch("/api/update-documents", documentSuggestions);
       setSuccessModalOpen(true);
+      resetSuggestions();
     } catch (error) {
       console.error("Error updating documents:", error);
     } finally {
@@ -106,17 +117,12 @@ const DocumentProcessor: React.FC = () => {
   };
 
   const resetSuggestions = () => {
-    const resetDocs = documents.map((doc) => ({
-      ...doc,
-      suggested_title: undefined,
-      suggested_tags: [],
-    }));
-    setDocuments(resetDocs);
+    setDocumentSuggestions([]);
   };
 
   const fetchDocuments = async () => {
     try {
-      const response = await axios.get("/api/documents"); // API endpoint to fetch documents
+      const response = await axios.get("/api/documents");
       setDocuments(response.data);
     } catch (error) {
       console.error("Error fetching documents:", error);
@@ -171,7 +177,7 @@ const DocumentProcessor: React.FC = () => {
         </div>
       )}
 
-      {!documents.some((doc) => doc.suggested_title) && (
+      {documentSuggestions.length === 0 && (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <h2 className="text-2xl font-semibold text-gray-700">
@@ -196,120 +202,130 @@ const DocumentProcessor: React.FC = () => {
               {processing ? "Processing..." : "Generate Suggestions"}
             </button>
           </div>
-          <div className="bg-white shadow rounded-md overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
-                    ID
-                  </th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-500">
-                    Title
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {documents.map((doc) => (
-                  <tr key={doc.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {doc.id}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {doc.title}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex space-x-4 mt-4">
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={generateTitles}
+                onChange={(e) => setGenerateTitles(e.target.checked)}
+              />
+              <span>Generate Titles</span>
+            </label>
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={generateTags}
+                onChange={(e) => setGenerateTags(e.target.checked)}
+              />
+              <span>Generate Tags</span>
+            </label>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+            {documents.map((doc) => (
+              <div key={doc.id} className="bg-white shadow shadow-blue-500/50 rounded-md p-4 relative group overflow-hidden">
+                <h3 className="text-lg font-semibold text-gray-800">{doc.title}</h3>
+                <pre className="text-sm text-gray-600 mt-2 truncate">
+                  {doc.content.length > 100 ? `${doc.content.substring(0, 100)}...` : doc.content}
+                </pre>
+                <div className="mt-4">
+                  {doc.tags.map((tag, index) => (
+                    <span
+                      key={index}
+                      className="bg-blue-100 text-blue-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full dark:bg-blue-900 dark:text-blue-300"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-4 rounded-md overflow-hidden">
+                  <div className="text-sm text-white p-2 bg-gray-800 rounded-md w-full max-h-full overflow-y-auto">
+                    <h3 className="text-lg font-semibold text-white">{doc.title}</h3>
+                    <pre className="mt-2 whitespace-pre-wrap">
+                      {doc.content}
+                    </pre>
+                    <div className="mt-4">
+                      {doc.tags.map((tag, index) => (
+                        <span
+                          key={index}
+                          className="bg-blue-100 text-blue-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full dark:bg-blue-900 dark:text-blue-300"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {documents.some((doc) => doc.suggested_title) && (
+      {documentSuggestions.length > 0 && (
         <div className="space-y-6">
           <h2 className="text-2xl font-semibold text-gray-700">
             Review and Edit Suggested Titles
           </h2>
-          <div className="bg-white shadow rounded-md overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">
-                    ID
-                  </th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">
-                    Original Title
-                  </th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">
-                    Suggested Title
-                  </th>
-                  <th className="px-4 py-2 text-left text-sm font-medium text-gray-500">
-                    Suggested Tags
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {documents.map(
-                  (doc) =>
-                    doc.suggested_title && (
-                      <tr key={doc.id}>
-                        <td className="px-4 py-3 text-sm text-gray-500">
-                          {doc.id}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-900">
-                          {doc.title}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-900">
-                          <input
-                            type="text"
-                            value={doc.suggested_title}
-                            onChange={(e) => {
-                              const updatedDocuments = documents.map((d) =>
-                                d.id === doc.id
-                                  ? { ...d, suggested_title: e.target.value }
-                                  : d
-                              );
-                              setDocuments(updatedDocuments);
-                            }}
-                            className="w-full border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-900">
-                          <ReactTags
-                            selected={doc.suggested_tags || []}
-                            suggestions={availableTags}
-
-                            onAdd={(tag) => {
-                              const updatedTags = [...(doc.suggested_tags || []), { value: tag.value as string, label: tag.label }];
-                              const updatedDocuments = documents.map((d) =>
-                                d.id === doc.id
-                                  ? { ...d, suggested_tags: updatedTags }
-                                  : d
-                              );
-                              setDocuments(updatedDocuments);
-                            }}
-                            onDelete={(i) => {
-                              const updatedTags = doc.suggested_tags?.filter(
-                                (_, index) => index !== i
-                              );
-                              const updatedDocuments = documents.map((d) =>
-                                d.id === doc.id
-                                  ? { ...d, suggested_tags: updatedTags }
-                                  : d
-                              );
-                              setDocuments(updatedDocuments);
-                            }}
-                            allowNew={false}
-                            placeholderText="Add a tag"
-                          />
-                        </td>
-                      </tr>
-                    )
-                )}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {documentSuggestions.map((doc) => (
+              <div key={doc.id} className="bg-white shadow shadow-blue-500/50 rounded-md p-4">
+                <h3 className="text-lg font-semibold text-gray-800">
+                  {doc.original_document.title}
+                </h3>
+                <input
+                  type="text"
+                  value={doc.suggested_title || ""}
+                  onChange={(e) => {
+                    const updatedSuggestions = documentSuggestions.map((d) =>
+                      d.id === doc.id
+                        ? { ...d, suggested_title: e.target.value }
+                        : d
+                    );
+                    setDocumentSuggestions(updatedSuggestions);
+                  }}
+                  className="w-full border border-gray-300 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <div className="mt-4">
+                  <ReactTags
+                    selected={
+                      doc.suggested_tags?.map((tag) => ({
+                        value: tag,
+                        label: tag,
+                      })) || []
+                    }
+                    suggestions={availableTags}
+                    onAdd={(tag) => {
+                      const tagValue = tag.value as string;
+                      const updatedTags = [
+                        ...(doc.suggested_tags || []),
+                        tagValue,
+                      ];
+                      const updatedSuggestions = documentSuggestions.map((d) =>
+                        d.id === doc.id
+                          ? { ...d, suggested_tags: updatedTags }
+                          : d
+                      );
+                      setDocumentSuggestions(updatedSuggestions);
+                    }}
+                    onDelete={(i) => {
+                      const updatedTags = doc.suggested_tags?.filter(
+                        (_, index) => index !== i
+                      );
+                      const updatedSuggestions = documentSuggestions.map((d) =>
+                        d.id === doc.id
+                          ? { ...d, suggested_tags: updatedTags }
+                          : d
+                      );
+                      setDocumentSuggestions(updatedSuggestions);
+                    }}
+                    allowNew={false}
+                    placeholderText="Add a tag"
+                  />
+                </div>
+              </div>
+            ))}
           </div>
-          <div className="flex justify-end space-x-4">
+          <div className="flex justify-end space-x-4 mt-6">
             <button
               onClick={resetSuggestions}
               className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300 focus:outline-none"
