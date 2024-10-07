@@ -185,22 +185,20 @@ const DocumentProcessor: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-xl font-semibold">Loading documents...</div>
+      <div className="flex items-center justify-center min-h-screen bg-white dark:bg-gray-900">
+        <div className="text-xl font-semibold text-gray-800 dark:text-gray-200">Loading documents...</div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-5xl mx-auto p-6">
+    <div className="max-w-5xl mx-auto p-6 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200">
       <header className="text-center">
-        <h1 className="text-4xl font-bold mb-8 text-gray-800">
-          Paperless GPT
-        </h1>
+        <h1 className="text-4xl font-bold mb-8">Paperless GPT</h1>
       </header>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-100 text-red-800 rounded">
+        <div className="mb-4 p-4 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 rounded">
           {error}
         </div>
       )}
