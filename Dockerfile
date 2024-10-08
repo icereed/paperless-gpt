@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # Build the Go binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o paperless-gpt main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o paperless-gpt .
 
 # Stage 2: Build Vite frontend
 FROM node:20 AS frontend

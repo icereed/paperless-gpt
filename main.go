@@ -155,9 +155,23 @@ func createLLM() (llms.Model, error) {
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
-		return ollama.New(
+		ollamaOptions := []ollama.Option{
 			ollama.WithModel(llmModel),
 			ollama.WithServerURL(host),
+		}
+		bearerToken := os.Getenv("OLLAMA_BEARER_TOKEN")
+		if bearerToken != "" {
+			log.Println("Using bearer token for OLLAMA authentication")
+			ollamaOptions = append(
+				ollamaOptions,
+				ollama.WithHTTPClient(
+					NewHttpClientWithBearerTransport(bearerToken),
+				),
+			)
+		}
+
+		return ollama.New(
+			ollamaOptions...,
 		)
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", llmProvider)
