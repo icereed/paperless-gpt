@@ -5,15 +5,16 @@
 
 ![Screenshot](./paperless-gpt-screenshot.png)
 
-**paperless-gpt** is a tool designed to generate accurate and meaningful document titles for [paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) using Large Language Models (LLMs). It supports multiple LLM providers, including **OpenAI** and **Ollama**. With paperless-gpt, you can streamline your document management by automatically suggesting appropriate titles and tags based on the content of your scanned documents.
+**paperless-gpt** is a tool designed to generate accurate and meaningful document titles and tags for [paperless-ngx](https://github.com/paperless-ngx/paperless-ngx) using Large Language Models (LLMs). It supports multiple LLM providers, including **OpenAI** and **Ollama**. With paperless-gpt, you can streamline your document management by automatically suggesting appropriate titles and tags based on the content of your scanned documents.
 
 [![Demo](./demo.gif)](./demo.gif)
 
 ## Features
 
-- **Multiple LLM Support**: Choose between OpenAI and Ollama for generating document titles.
+- **Multiple LLM Support**: Choose between OpenAI and Ollama for generating document titles and tags.
+- **Customizable Prompts**: Modify the prompt templates to suit your specific needs.
 - **Easy Integration**: Works seamlessly with your existing paperless-ngx setup.
-- **User-Friendly Interface**: Intuitive web interface for reviewing and applying suggested titles.
+- **User-Friendly Interface**: Intuitive web interface for reviewing and applying suggested titles and tags.
 - **Dockerized Deployment**: Simple setup using Docker and Docker Compose.
 
 ## Table of Contents
@@ -28,6 +29,11 @@
       - [Manual Setup](#manual-setup)
   - [Configuration](#configuration)
     - [Environment Variables](#environment-variables)
+    - [Custom Prompt Templates](#custom-prompt-templates)
+      - [Prompt Templates Directory](#prompt-templates-directory)
+      - [Mounting the Prompts Directory](#mounting-the-prompts-directory)
+      - [Editing the Prompt Templates](#editing-the-prompt-templates)
+      - [Template Syntax and Variables](#template-syntax-and-variables)
   - [Usage](#usage)
   - [Contributing](#contributing)
   - [License](#license)
@@ -64,7 +70,9 @@ services:
       LLM_MODEL: 'gpt-4o'     # or 'llama2'
       OPENAI_API_KEY: 'your_openai_api_key' # Required if using OpenAI
       LLM_LANGUAGE: 'English' # Optional, default is 'English'
-      OLLAMA_HOST: http://host.docker.internal:11434 # Useful if using Ollama
+      OLLAMA_HOST: 'http://host.docker.internal:11434' # If using Ollama
+    volumes:
+      - ./prompts:/app/prompts # Mount the prompts directory
     ports:
       - '8080:8080'
     depends_on:
@@ -84,13 +92,19 @@ If you prefer to run the application manually:
    cd paperless-gpt
    ```
 
-2. **Build the Docker Image:**
+2. **Create a `prompts` Directory:**
+
+   ```bash
+   mkdir prompts
+   ```
+
+3. **Build the Docker Image:**
 
    ```bash
    docker build -t paperless-gpt .
    ```
 
-3. **Run the Container:**
+4. **Run the Container:**
 
    ```bash
    docker run -d \
@@ -100,6 +114,7 @@ If you prefer to run the application manually:
      -e LLM_MODEL='gpt-4o' \
      -e OPENAI_API_KEY='your_openai_api_key' \
      -e LLM_LANGUAGE='English' \
+     -v $(pwd)/prompts:/app/prompts \  # Mount the prompts directory
      -p 8080:8080 \
      paperless-gpt
    ```
@@ -108,17 +123,117 @@ If you prefer to run the application manually:
 
 ### Environment Variables
 
-| Variable              | Description                                                                                         | Required |
-|-----------------------|-----------------------------------------------------------------------------------------------------|----------|
-| `PAPERLESS_BASE_URL`  | The base URL of your paperless-ngx instance (e.g., `http://paperless-ngx:8000`).                   | Yes      |
-| `PAPERLESS_API_TOKEN` | API token for accessing paperless-ngx. You can generate one in the paperless-ngx admin interface.   | Yes      |
-| `LLM_PROVIDER`        | The LLM provider to use (`openai` or `ollama`).                                                     | Yes      |
-| `LLM_MODEL`           | The model name to use (e.g., `gpt-4`, `gpt-3.5-turbo`, `llama2`).                                  | Yes      |
-| `OPENAI_API_KEY`      | Your OpenAI API key. Required if using OpenAI as the LLM provider.                                  | Cond.    |
-| `LLM_LANGUAGE`        | The likely language of your documents (e.g., `English`, `German`). Default is `English`.            | No       |
-| `OLLAMA_HOST`         | The URL of the Ollama server (e.g., `http://host.docker.internal:11434`). Useful if using Ollama. Default is `http://127.0.0.1:11434`  | No    |
+| Variable              | Description                                                                                                                                               | Required |
+|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|----------|
+| `PAPERLESS_BASE_URL`  | The base URL of your paperless-ngx instance (e.g., `http://paperless-ngx:8000`).                                                                          | Yes      |
+| `PAPERLESS_API_TOKEN` | API token for accessing paperless-ngx. You can generate one in the paperless-ngx admin interface.                                                         | Yes      |
+| `LLM_PROVIDER`        | The LLM provider to use (`openai` or `ollama`).                                                                                                           | Yes      |
+| `LLM_MODEL`           | The model name to use (e.g., `gpt-4o`, `gpt-3.5-turbo`, `llama2`).                                                                                        | Yes      |
+| `OPENAI_API_KEY`      | Your OpenAI API key. Required if using OpenAI as the LLM provider.                                                                                        | Cond.    |
+| `LLM_LANGUAGE`        | The likely language of your documents (e.g., `English`, `German`). Default is `English`.                                                                  | No       |
+| `OLLAMA_HOST`         | The URL of the Ollama server (e.g., `http://host.docker.internal:11434`). Useful if using Ollama. Default is `http://127.0.0.1:11434`.                    | No       |
 
 **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
+
+### Custom Prompt Templates
+
+You can customize the prompt templates used by paperless-gpt to generate titles and tags. By default, the application uses built-in templates, but you can modify them by editing the template files.
+
+#### Prompt Templates Directory
+
+The prompt templates are stored in the `prompts` directory inside the application. The two main template files are:
+
+- `title_prompt.tmpl`: Template used for generating document titles.
+- `tag_prompt.tmpl`: Template used for generating document tags.
+
+#### Mounting the Prompts Directory
+
+To modify the prompt templates, you need to mount a local `prompts` directory into the container.
+
+**Docker Compose Example:**
+
+```yaml
+services:
+  paperless-gpt:
+    image: icereed/paperless-gpt:latest
+    # ... (other configurations)
+    volumes:
+      - ./prompts:/app/prompts # Mount the prompts directory
+```
+
+**Docker Run Command Example:**
+
+```bash
+docker run -d \
+  # ... (other configurations)
+  -v $(pwd)/prompts:/app/prompts \
+  paperless-gpt
+```
+
+#### Editing the Prompt Templates
+
+1. **Start the Container:**
+
+   When you first start the container with the `prompts` directory mounted, it will automatically create the default template files in your local `prompts` directory if they do not exist.
+
+2. **Edit the Template Files:**
+
+   - Open `prompts/title_prompt.tmpl` and `prompts/tag_prompt.tmpl` with your favorite text editor.
+   - Modify the templates using Go's `text/template` syntax.
+   - Save the changes.
+
+3. **Restart the Container (if necessary):**
+
+   The application automatically reloads the templates when it starts. If the container is already running, you may need to restart it to apply the changes.
+
+#### Template Syntax and Variables
+
+The templates use Go's `text/template` syntax and have access to the following variables:
+
+- **For `title_prompt.tmpl`:**
+
+  - `{{.Language}}`: The language specified in `LLM_LANGUAGE` (default is `English`).
+  - `{{.Content}}`: The content of the document.
+
+- **For `tag_prompt.tmpl`:**
+
+  - `{{.Language}}`: The language specified in `LLM_LANGUAGE`.
+  - `{{.AvailableTags}}`: A list (array) of available tags from paperless-ngx.
+  - `{{.Title}}`: The suggested title for the document.
+  - `{{.Content}}`: The content of the document.
+
+**Example `title_prompt.tmpl`:**
+
+```text
+I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
+Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
+Respond only with the title, without any additional information. The content is likely in {{.Language}}.
+
+Be sure to add one fitting emoji at the beginning of the title to make it more visually appealing.
+
+Content:
+{{.Content}}
+```
+
+**Example `tag_prompt.tmpl`:**
+
+```text
+I will provide you with the content and the title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information. The content is likely in {{.Language}}.
+
+Available Tags:
+{{.AvailableTags | join ","}}
+
+Title:
+{{.Title}}
+
+Content:
+{{.Content}}
+
+Please concisely select the {{.Language}} tags from the list above that best describe the document.
+Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
+```
+
+**Note:** Advanced users can utilize additional functions from the [Sprig](http://masterminds.github.io/sprig/) template library, as it is included in the application.
 
 ## Usage
 

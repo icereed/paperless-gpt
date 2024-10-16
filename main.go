@@ -9,71 +9,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
-	"time"
+	"text/template"
 
+	"github.com/Masterminds/sprig/v3"
 	"github.com/gin-gonic/gin"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 )
-
-type GetDocumentsApiResponse struct {
-	Count    int         `json:"count"`
-	Next     interface{} `json:"next"`
-	Previous interface{} `json:"previous"`
-	All      []int       `json:"all"`
-	Results  []struct {
-		ID                  int           `json:"id"`
-		Correspondent       interface{}   `json:"correspondent"`
-		DocumentType        interface{}   `json:"document_type"`
-		StoragePath         interface{}   `json:"storage_path"`
-		Title               string        `json:"title"`
-		Content             string        `json:"content"`
-		Tags                []int         `json:"tags"`
-		Created             time.Time     `json:"created"`
-		CreatedDate         string        `json:"created_date"`
-		Modified            time.Time     `json:"modified"`
-		Added               time.Time     `json:"added"`
-		ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
-		OriginalFileName    string        `json:"original_file_name"`
-		ArchivedFileName    string        `json:"archived_file_name"`
-		Owner               int           `json:"owner"`
-		UserCanChange       bool          `json:"user_can_change"`
-		Notes               []interface{} `json:"notes"`
-		SearchHit           struct {
-			Score          float64 `json:"score"`
-			Highlights     string  `json:"highlights"`
-			NoteHighlights string  `json:"note_highlights"`
-			Rank           int     `json:"rank"`
-		} `json:"__search_hit__"`
-	} `json:"results"`
-}
-
-// Document is a stripped down version of the document object from paperless-ngx.
-// Response payload for /documents endpoint and part of request payload for /generate-suggestions endpoint
-type Document struct {
-	ID      int      `json:"id"`
-	Title   string   `json:"title"`
-	Content string   `json:"content"`
-	Tags    []string `json:"tags"`
-}
-
-// GenerateSuggestionsRequest is the request payload for generating suggestions for /generate-suggestions endpoint
-type GenerateSuggestionsRequest struct {
-	Documents      []Document `json:"documents"`
-	GenerateTitles bool       `json:"generate_titles,omitempty"`
-	GenerateTags   bool       `json:"generate_tags,omitempty"`
-}
-
-// DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
-type DocumentSuggestion struct {
-	ID               int      `json:"id"`
-	OriginalDocument Document `json:"original_document"`
-	SuggestedTitle   string   `json:"suggested_title,omitempty"`
-	SuggestedTags    []string `json:"suggested_tags,omitempty"`
-}
 
 var (
 	paperlessBaseURL  = os.Getenv("PAPERLESS_BASE_URL")
@@ -82,6 +28,35 @@ var (
 	tagToFilter       = "paperless-gpt"
 	llmProvider       = os.Getenv("LLM_PROVIDER")
 	llmModel          = os.Getenv("LLM_MODEL")
+
+	// Templates
+	titleTemplate *template.Template
+	tagTemplate   *template.Template
+	templateMutex sync.RWMutex
+
+	// Default templates
+	defaultTitleTemplate = `I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
+Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
+Respond only with the title, without any additional information. The content is likely in {{.Language}}.
+
+Content:
+{{.Content}}
+`
+
+	defaultTagTemplate = `I will provide you with the content and the title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information. The content is likely in {{.Language}}.
+
+Available Tags:
+{{.AvailableTags | join ", "}}
+
+Title:
+{{.Title}}
+
+Content:
+{{.Content}}
+
+Please concisely select the {{.Language}} tags from the list above that best describe the document.
+Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
+`
 )
 
 func main() {
@@ -96,6 +71,8 @@ func main() {
 	if llmProvider == "openai" && openaiAPIKey == "" {
 		log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
 	}
+
+	loadTemplates()
 
 	// Create a Gin router with default middleware (logger and recovery)
 	router := gin.Default()
@@ -122,6 +99,8 @@ func main() {
 
 			c.JSON(http.StatusOK, tags)
 		})
+		api.GET("/prompts", getPromptsHandler)
+		api.POST("/prompts", updatePromptsHandler)
 	}
 
 	// Serve static files for the frontend under /static
@@ -136,6 +115,113 @@ func main() {
 	log.Println("Server started on port :8080")
 	if err := router.Run(":8080"); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
+	}
+}
+
+func getPromptsHandler(c *gin.Context) {
+	templateMutex.RLock()
+	defer templateMutex.RUnlock()
+
+	// Read the templates from files or use default content
+	titleTemplateContent, err := os.ReadFile("title_prompt.tmpl")
+	if err != nil {
+		titleTemplateContent = []byte(defaultTitleTemplate)
+	}
+
+	tagTemplateContent, err := os.ReadFile("tag_prompt.tmpl")
+	if err != nil {
+		tagTemplateContent = []byte(defaultTagTemplate)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"title_template": string(titleTemplateContent),
+		"tag_template":   string(tagTemplateContent),
+	})
+}
+
+func updatePromptsHandler(c *gin.Context) {
+	var req struct {
+		TitleTemplate string `json:"title_template"`
+		TagTemplate   string `json:"tag_template"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	templateMutex.Lock()
+	defer templateMutex.Unlock()
+
+	// Update title template
+	if req.TitleTemplate != "" {
+		t, err := template.New("title").Parse(req.TitleTemplate)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid title template: %v", err)})
+			return
+		}
+		titleTemplate = t
+		err = os.WriteFile("title_prompt.tmpl", []byte(req.TitleTemplate), 0644)
+		if err != nil {
+			log.Printf("Failed to write title_prompt.tmpl: %v", err)
+		}
+	}
+
+	// Update tag template
+	if req.TagTemplate != "" {
+		t, err := template.New("tag").Parse(req.TagTemplate)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid tag template: %v", err)})
+			return
+		}
+		tagTemplate = t
+		err = os.WriteFile("tag_prompt.tmpl", []byte(req.TagTemplate), 0644)
+		if err != nil {
+			log.Printf("Failed to write tag_prompt.tmpl: %v", err)
+		}
+	}
+
+	c.Status(http.StatusOK)
+}
+
+func loadTemplates() {
+	templateMutex.Lock()
+	defer templateMutex.Unlock()
+
+	// Ensure prompts directory exists
+	promptsDir := "prompts"
+	if err := os.MkdirAll(promptsDir, os.ModePerm); err != nil {
+		log.Fatalf("Failed to create prompts directory: %v", err)
+	}
+
+	// Load title template
+	titleTemplatePath := filepath.Join(promptsDir, "title_prompt.tmpl")
+	titleTemplateContent, err := os.ReadFile(titleTemplatePath)
+	if err != nil {
+		log.Printf("Could not read %s, using default template: %v", titleTemplatePath, err)
+		titleTemplateContent = []byte(defaultTitleTemplate)
+		if err := os.WriteFile(titleTemplatePath, titleTemplateContent, os.ModePerm); err != nil {
+			log.Fatalf("Failed to write default title template to disk: %v", err)
+		}
+	}
+	titleTemplate, err = template.New("title").Funcs(sprig.FuncMap()).Parse(string(titleTemplateContent))
+	if err != nil {
+		log.Fatalf("Failed to parse title template: %v", err)
+	}
+
+	// Load tag template
+	tagTemplatePath := filepath.Join(promptsDir, "tag_prompt.tmpl")
+	tagTemplateContent, err := os.ReadFile(tagTemplatePath)
+	if err != nil {
+		log.Printf("Could not read %s, using default template: %v", tagTemplatePath, err)
+		tagTemplateContent = []byte(defaultTagTemplate)
+		if err := os.WriteFile(tagTemplatePath, tagTemplateContent, os.ModePerm); err != nil {
+			log.Fatalf("Failed to write default tag template to disk: %v", err)
+		}
+	}
+	tagTemplate, err = template.New("tag").Funcs(sprig.FuncMap()).Parse(string(tagTemplateContent))
+	if err != nil {
+		log.Fatalf("Failed to parse tag template: %v", err)
 	}
 }
 
@@ -437,20 +523,22 @@ func removeTagFromList(tags []string, tagToRemove string) []string {
 func getSuggestedTags(ctx context.Context, llm llms.Model, content string, suggestedTitle string, availableTags []string) ([]string, error) {
 	likelyLanguage := getLikelyLanguage()
 
-	prompt := fmt.Sprintf(`I will provide you with the content and the title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information. The content is likely in %s.
+	templateMutex.RLock()
+	defer templateMutex.RUnlock()
 
-Available Tags:
-%s
+	var promptBuffer bytes.Buffer
+	err := tagTemplate.Execute(&promptBuffer, map[string]interface{}{
+		"Language":      likelyLanguage,
+		"AvailableTags": availableTags,
+		"Title":         suggestedTitle,
+		"Content":       content,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error executing tag template: %v", err)
+	}
 
-Title:
-%s
-
-Content:
-%s
-
-Please concisely select the %s tags from the list above that best describe the document.
-Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
-`, likelyLanguage, strings.Join(availableTags, ", "), suggestedTitle, content, likelyLanguage)
+	prompt := promptBuffer.String()
+	log.Printf("Tag suggestion prompt: %s", prompt)
 
 	completion, err := llm.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -463,7 +551,7 @@ Be very selective and only choose the most relevant tags since too many tags wil
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("Error getting response from LLM: %v", err)
+		return nil, fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
 	response := strings.TrimSpace(completion.Choices[0].Content)
@@ -497,13 +585,22 @@ func getLikelyLanguage() string {
 func getSuggestedTitle(ctx context.Context, llm llms.Model, content string) (string, error) {
 	likelyLanguage := getLikelyLanguage()
 
-	prompt := fmt.Sprintf(`I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
-Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
-Respond only with the title, without any additional information. The content is likely in %s.
+	templateMutex.RLock()
+	defer templateMutex.RUnlock()
 
-Content:
-%s
-`, likelyLanguage, content)
+	var promptBuffer bytes.Buffer
+	err := titleTemplate.Execute(&promptBuffer, map[string]interface{}{
+		"Language": likelyLanguage,
+		"Content":  content,
+	})
+	if err != nil {
+		return "", fmt.Errorf("error executing title template: %v", err)
+	}
+
+	prompt := promptBuffer.String()
+
+	log.Printf("Title suggestion prompt: %s", prompt)
+
 	completion, err := llm.GenerateContent(ctx, []llms.MessageContent{
 		{
 			Parts: []llms.ContentPart{
@@ -515,7 +612,7 @@ Content:
 		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("Error getting response from LLM: %v", err)
+		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
 	return strings.TrimSpace(strings.Trim(completion.Choices[0].Content, "\"")), nil
