@@ -17,6 +17,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onTagAddition,
   onTagDeletion,
 }) => {
+  const sortedAvailableTags = availableTags.sort((a, b) => a.name.localeCompare(b.name));
   const document = suggestion.original_document;
   return (
     <div className="bg-white dark:bg-gray-800 shadow-lg shadow-blue-500/50 rounded-md p-4 relative flex flex-col justify-between h-full">
@@ -64,7 +65,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                 value: index.toString(),
               })) || []
             }
-            suggestions={availableTags.map((tag) => ({
+            suggestions={sortedAvailableTags.map((tag) => ({
               id: tag.id,
               name: tag.name,
               label: tag.name,

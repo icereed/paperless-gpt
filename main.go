@@ -165,40 +165,47 @@ func createLLM() (llms.Model, error) {
 }
 
 func getAllTags(ctx context.Context, baseURL, apiToken string) (map[string]int, error) {
+	tagIDMapping := make(map[string]int)
 	url := fmt.Sprintf("%s/api/tags/", baseURL)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", fmt.Sprintf("Token %s", apiToken))
 
 	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Error fetching tags: %d, %s", resp.StatusCode, string(bodyBytes))
-	}
+	for url != "" {
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", fmt.Sprintf("Token %s", apiToken))
 
-	var tagsResponse struct {
-		Results []struct {
-			ID   int    `json:"id"`
-			Name string `json:"name"`
-		} `json:"results"`
-	}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
 
-	err = json.NewDecoder(resp.Body).Decode(&tagsResponse)
-	if err != nil {
-		return nil, err
-	}
+		if resp.StatusCode != http.StatusOK {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("Error fetching tags: %d, %s", resp.StatusCode, string(bodyBytes))
+		}
 
-	tagIDMapping := make(map[string]int)
-	for _, tag := range tagsResponse.Results {
-		tagIDMapping[tag.Name] = tag.ID
+		var tagsResponse struct {
+			Results []struct {
+				ID   int    `json:"id"`
+				Name string `json:"name"`
+			} `json:"results"`
+			Next string `json:"next"`
+		}
+
+		err = json.NewDecoder(resp.Body).Decode(&tagsResponse)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, tag := range tagsResponse.Results {
+			tagIDMapping[tag.Name] = tag.ID
+		}
+
+		url = tagsResponse.Next
 	}
 
 	return tagIDMapping, nil
