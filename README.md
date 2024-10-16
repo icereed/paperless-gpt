@@ -284,6 +284,10 @@ Contributions are welcome! Please read the [contributing guidelines](CONTRIBUTIN
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=icereed/paperless-gpt&type=Date)](https://star-history.com/#icereed/paperless-gpt&Date)
+
 ---
 
 **Disclaimer:** This project is not affiliated with the official paperless-ngx project. Use at your own discretion.
