@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"time"
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/gin-gonic/gin"
@@ -25,7 +26,8 @@ var (
 	paperlessBaseURL  = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken = os.Getenv("PAPERLESS_API_TOKEN")
 	openaiAPIKey      = os.Getenv("OPENAI_API_KEY")
-	tagToFilter       = "paperless-gpt"
+	manualTag         = "paperless-gpt"
+	autoTag           = "paperless-gpt-auto"
 	llmProvider       = os.Getenv("LLM_PROVIDER")
 	llmModel          = os.Getenv("LLM_MODEL")
 
@@ -74,6 +76,13 @@ func main() {
 
 	loadTemplates()
 
+	go func() {
+		for {
+			processAutoTagDocuments()
+			time.Sleep(10 * time.Second)
+		}
+	}()
+
 	// Create a Gin router with default middleware (logger and recovery)
 	router := gin.Default()
 
@@ -84,7 +93,7 @@ func main() {
 		api.POST("/generate-suggestions", generateSuggestionsHandler)
 		api.PATCH("/update-documents", updateDocumentsHandler)
 		api.GET("/filter-tag", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{"tag": tagToFilter})
+			c.JSON(http.StatusOK, gin.H{"tag": manualTag})
 		})
 		// get all tags
 		api.GET("/tags", func(c *gin.Context) {
@@ -115,6 +124,38 @@ func main() {
 	log.Println("Server started on port :8080")
 	if err := router.Run(":8080"); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
+	}
+}
+
+func processAutoTagDocuments() {
+	ctx := context.Background()
+
+	documents, err := getDocumentsByTags(ctx, paperlessBaseURL, paperlessAPIToken, []string{autoTag})
+	if err != nil {
+		log.Printf("Error fetching documents with autoTag: %v", err)
+		return
+	}
+
+	suggestionRequest := GenerateSuggestionsRequest{
+		Documents:      documents,
+		GenerateTitles: true,
+		GenerateTags:   true,
+	}
+
+	suggestions, err := generateDocumentSuggestions(ctx, suggestionRequest)
+	if err != nil {
+		log.Printf("Error generating suggestions: %v", err)
+		return
+	}
+
+	for i := range suggestions {
+		log.Printf("Processing document ID %d with autoTag", suggestions[i].ID)
+		suggestions[i].SuggestedTags = removeTagFromList(suggestions[i].SuggestedTags, autoTag)
+	}
+
+	err = updateDocuments(ctx, paperlessBaseURL, paperlessAPIToken, suggestions)
+	if err != nil {
+		log.Printf("Error updating documents: %v", err)
 	}
 }
 
@@ -301,7 +342,7 @@ func getAllTags(ctx context.Context, baseURL, apiToken string) (map[string]int, 
 func documentsHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	documents, err := getDocumentsByTags(ctx, paperlessBaseURL, paperlessAPIToken, []string{tagToFilter})
+	documents, err := getDocumentsByTags(ctx, paperlessBaseURL, paperlessAPIToken, []string{manualTag})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching documents: %v", err)})
 		log.Printf("Error fetching documents: %v", err)
@@ -427,7 +468,7 @@ func generateDocumentSuggestions(ctx context.Context, suggestionRequest Generate
 	// Prepare a list of tag names
 	availableTagNames := make([]string, 0, len(availableTags))
 	for tagName := range availableTags {
-		if tagName == tagToFilter {
+		if tagName == manualTag {
 			continue
 		}
 		availableTagNames = append(availableTagNames, tagName)
@@ -493,7 +534,7 @@ func generateDocumentSuggestions(ctx context.Context, suggestionRequest Generate
 			if suggestionRequest.GenerateTags {
 				suggestion.SuggestedTags = suggestedTags
 			} else {
-				suggestion.SuggestedTags = removeTagFromList(doc.Tags, tagToFilter)
+				suggestion.SuggestedTags = removeTagFromList(doc.Tags, manualTag)
 			}
 			documentSuggestions = append(documentSuggestions, suggestion)
 			mu.Unlock()
@@ -640,11 +681,14 @@ func updateDocuments(ctx context.Context, baseURL, apiToken string, documents []
 			tags = document.OriginalDocument.Tags
 		}
 
+		// Remove the autoTag to prevent infinite loop
+		tags = removeTagFromList(tags, autoTag)
+
 		// Map suggested tag names to IDs
 		for _, tagName := range tags {
 			if tagID, exists := availableTags[tagName]; exists {
 				// Skip the tag that we are filtering
-				if tagName == tagToFilter {
+				if tagName == manualTag {
 					continue
 				}
 				newTags = append(newTags, tagID)
