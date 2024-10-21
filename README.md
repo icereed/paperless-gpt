@@ -17,6 +17,8 @@
 - **Easy Integration**: Works seamlessly with your existing paperless-ngx setup.
 - **User-Friendly Interface**: Intuitive web interface for reviewing and applying suggested titles and tags.
 - **Dockerized Deployment**: Simple setup using Docker and Docker Compose.
+- **Automatic Document Processing**: Automatically apply generated suggestions for documents with the `paperless-gpt-auto` tag.
+
 
 ## Table of Contents
 
