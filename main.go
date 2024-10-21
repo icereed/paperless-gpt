@@ -60,12 +60,20 @@ Be very selective and only choose the most relevant tags since too many tags wil
 )
 
 func main() {
-	if paperlessBaseURL == "" || paperlessAPIToken == "" {
-		log.Fatal("Please set the PAPERLESS_BASE_URL and PAPERLESS_API_TOKEN environment variables.")
+	if paperlessBaseURL == "" {
+		log.Fatal("Please set the PAPERLESS_BASE_URL environment variable.")
 	}
 
-	if llmProvider == "" || llmModel == "" {
-		log.Fatal("Please set the LLM_PROVIDER and LLM_MODEL environment variables.")
+	if paperlessAPIToken == "" {
+		log.Fatal("Please set the PAPERLESS_API_TOKEN environment variable.")
+	}
+
+	if llmProvider == "" {
+		log.Fatal("Please set the LLM_PROVIDER environment variable.")
+	}
+
+	if llmModel == "" {
+		log.Fatal("Please set the LLM_MODEL environment variable.")
 	}
 
 	if llmProvider == "openai" && openaiAPIKey == "" {
