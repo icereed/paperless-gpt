@@ -183,6 +183,8 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 		if len(tags) == 0 {
 			tags = document.OriginalDocument.Tags
 		}
+		// remove autoTag to prevent infinite loop (even if it is in the original tags)
+		tags = removeTagFromList(tags, autoTag)
 
 		// Map suggested tag names to IDs
 		for _, tagName := range tags {

@@ -90,9 +90,25 @@ func main() {
 
 	// Start background process for auto-tagging
 	go func() {
+
+		minBackoffDuration := time.Second
+		maxBackoffDuration := time.Hour
+		pollingInterval := 10 * time.Second
+
+		backoffDuration := minBackoffDuration
 		for {
-			app.processAutoTagDocuments()
-			time.Sleep(10 * time.Second)
+			if err := app.processAutoTagDocuments(); err != nil {
+				log.Printf("Error in processAutoTagDocuments: %v", err)
+				time.Sleep(backoffDuration)
+				backoffDuration *= 2 // Exponential backoff
+				if backoffDuration > maxBackoffDuration {
+					log.Printf("Repeated errors in processAutoTagDocuments detected. Setting backoff to %v", maxBackoffDuration)
+					backoffDuration = maxBackoffDuration
+				}
+			} else {
+				backoffDuration = minBackoffDuration
+			}
+			time.Sleep(pollingInterval)
 		}
 	}()
 
@@ -153,17 +169,16 @@ func validateEnvVars() {
 }
 
 // processAutoTagDocuments handles the background auto-tagging of documents
-func (app *App) processAutoTagDocuments() {
+func (app *App) processAutoTagDocuments() error {
 	ctx := context.Background()
 
 	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag})
 	if err != nil {
-		log.Printf("Error fetching documents with autoTag: %v", err)
-		return
+		return fmt.Errorf("error fetching documents with autoTag: %w", err)
 	}
 
 	if len(documents) == 0 {
-		return // No documents to process
+		return nil // No documents to process
 	}
 
 	suggestionRequest := GenerateSuggestionsRequest{
@@ -174,19 +189,15 @@ func (app *App) processAutoTagDocuments() {
 
 	suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest)
 	if err != nil {
-		log.Printf("Error generating suggestions: %v", err)
-		return
-	}
-
-	for i := range suggestions {
-		log.Printf("Processing document ID %d with autoTag", suggestions[i].ID)
-		suggestions[i].SuggestedTags = removeTagFromList(suggestions[i].SuggestedTags, autoTag)
+		return fmt.Errorf("error generating suggestions: %w", err)
 	}
 
 	err = app.Client.UpdateDocuments(ctx, suggestions)
 	if err != nil {
-		log.Printf("Error updating documents: %v", err)
+		return fmt.Errorf("error updating documents: %w", err)
 	}
+
+	return nil
 }
 
 // getAllTagsHandler handles the GET /api/tags endpoint
