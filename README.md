@@ -2,6 +2,7 @@
 
 [![License](https://img.shields.io/github/license/icereed/paperless-gpt)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/icereed/paperless-gpt)](https://hub.docker.com/r/icereed/paperless-gpt)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](code_of_conduct.md)
 
 ![Screenshot](./paperless-gpt-screenshot.png)
 
