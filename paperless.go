@@ -5,17 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/jpeg"
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/gen2brain/go-fitz"
 )
 
 // PaperlessClient struct to interact with the Paperless-NGX API
 type PaperlessClient struct {
-	BaseURL    string
-	APIToken   string
-	HTTPClient *http.Client
+	BaseURL     string
+	APIToken    string
+	HTTPClient  *http.Client
+	CacheFolder string
 }
 
 // NewPaperlessClient creates a new instance of PaperlessClient with a default HTTP client
@@ -237,6 +243,112 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 	}
 
 	return nil
+}
+
+// DownloadDocumentAsImages downloads the PDF file of the specified document and converts it to images
+func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, document Document) ([]string, error) {
+	// Create a directory named after the document ID
+	docDir := filepath.Join(c.GetCacheFolder(), fmt.Sprintf("/document-%d", document.ID))
+	if _, err := os.Stat(docDir); os.IsNotExist(err) {
+		err = os.MkdirAll(docDir, 0755)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Check if images already exist
+	var imagePaths []string
+	for n := 0; ; n++ {
+		imagePath := filepath.Join(docDir, fmt.Sprintf("page%03d.jpg", n))
+		if _, err := os.Stat(imagePath); os.IsNotExist(err) {
+			break
+		}
+		imagePaths = append(imagePaths, imagePath)
+	}
+
+	// If images exist, return them
+	if len(imagePaths) > 0 {
+		return imagePaths, nil
+	}
+
+	// Proceed with downloading and converting the document to images
+	path := fmt.Sprintf("api/documents/%d/download/", document.ID)
+	resp, err := c.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error downloading document %d: %d, %s", document.ID, resp.StatusCode, string(bodyBytes))
+	}
+
+	pdfData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	tmpFile, err := os.CreateTemp("", "document-*.pdf")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	_, err = tmpFile.Write(pdfData)
+	if err != nil {
+		return nil, err
+	}
+	tmpFile.Close()
+
+	doc, err := fitz.New(tmpFile.Name())
+	if err != nil {
+		return nil, err
+	}
+	defer doc.Close()
+
+	for n := 0; n < doc.NumPage(); n++ {
+		img, err := doc.Image(n)
+		if err != nil {
+			return nil, err
+		}
+
+		imagePath := filepath.Join(docDir, fmt.Sprintf("page%03d.jpg", n))
+		f, err := os.Create(imagePath)
+		if err != nil {
+			return nil, err
+		}
+
+		err = jpeg.Encode(f, img, &jpeg.Options{Quality: jpeg.DefaultQuality})
+		if err != nil {
+			return nil, err
+		}
+		f.Close()
+
+		// Verify the JPEG file
+		file, err := os.Open(imagePath)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		_, err = jpeg.Decode(file)
+		if err != nil {
+			return nil, fmt.Errorf("invalid JPEG file: %s", imagePath)
+		}
+
+		imagePaths = append(imagePaths, imagePath)
+	}
+
+	return imagePaths, nil
+}
+
+// GetCacheFolder returns the cache folder for the PaperlessClient
+func (c *PaperlessClient) GetCacheFolder() string {
+	if c.CacheFolder == "" {
+		c.CacheFolder = filepath.Join(os.TempDir(), "paperless-gpt")
+	}
+	return c.CacheFolder
 }
 
 // urlEncode encodes a string for safe URL usage
