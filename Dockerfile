@@ -42,13 +42,13 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 
 # Set the working directory inside the container
-WORKDIR /root/
+WORKDIR /app/
 
 # Copy the Go binary from the builder stage
 COPY --from=builder /app/paperless-gpt .
 
 # Copy the frontend build
-COPY --from=frontend /app/dist /root/web-app/dist
+COPY --from=frontend /app/dist /app/web-app/dist
 
 # Expose the port the app runs on
 EXPOSE 8080
