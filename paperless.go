@@ -12,8 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/gen2brain/go-fitz"
+	"golang.org/x/sync/errgroup"
 )
 
 // PaperlessClient struct to interact with the Paperless-NGX API
@@ -307,37 +309,52 @@ func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, document
 	}
 	defer doc.Close()
 
+	var mu sync.Mutex
+	var g errgroup.Group
+
 	for n := 0; n < doc.NumPage(); n++ {
-		img, err := doc.Image(n)
-		if err != nil {
-			return nil, err
-		}
+		n := n // capture loop variable
+		g.Go(func() error {
+			img, err := doc.Image(n)
+			if err != nil {
+				return err
+			}
 
-		imagePath := filepath.Join(docDir, fmt.Sprintf("page%03d.jpg", n))
-		f, err := os.Create(imagePath)
-		if err != nil {
-			return nil, err
-		}
+			imagePath := filepath.Join(docDir, fmt.Sprintf("page%03d.jpg", n))
+			f, err := os.Create(imagePath)
+			if err != nil {
+				return err
+			}
 
-		err = jpeg.Encode(f, img, &jpeg.Options{Quality: jpeg.DefaultQuality})
-		if err != nil {
-			return nil, err
-		}
-		f.Close()
+			err = jpeg.Encode(f, img, &jpeg.Options{Quality: jpeg.DefaultQuality})
+			if err != nil {
+				f.Close()
+				return err
+			}
+			f.Close()
 
-		// Verify the JPEG file
-		file, err := os.Open(imagePath)
-		if err != nil {
-			return nil, err
-		}
-		defer file.Close()
+			// Verify the JPEG file
+			file, err := os.Open(imagePath)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
 
-		_, err = jpeg.Decode(file)
-		if err != nil {
-			return nil, fmt.Errorf("invalid JPEG file: %s", imagePath)
-		}
+			_, err = jpeg.Decode(file)
+			if err != nil {
+				return fmt.Errorf("invalid JPEG file: %s", imagePath)
+			}
 
-		imagePaths = append(imagePaths, imagePath)
+			mu.Lock()
+			imagePaths = append(imagePaths, imagePath)
+			mu.Unlock()
+
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
 	return imagePaths, nil
