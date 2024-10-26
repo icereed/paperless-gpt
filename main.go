@@ -29,6 +29,8 @@ var (
 	autoTag           = "paperless-gpt-auto"
 	llmProvider       = os.Getenv("LLM_PROVIDER")
 	llmModel          = os.Getenv("LLM_MODEL")
+	visionLlmProvider = os.Getenv("VISION_LLM_PROVIDER")
+	visionLlmModel    = os.Getenv("VISION_LLM_MODEL")
 
 	// Templates
 	titleTemplate *template.Template
@@ -62,8 +64,9 @@ Be very selective and only choose the most relevant tags since too many tags wil
 
 // App struct to hold dependencies
 type App struct {
-	Client *PaperlessClient
-	LLM    llms.Model
+	Client    *PaperlessClient
+	LLM       llms.Model
+	VisionLLM llms.Model
 }
 
 func main() {
@@ -82,10 +85,17 @@ func main() {
 		log.Fatalf("Failed to create LLM client: %v", err)
 	}
 
+	// Initialize Vision LLM
+	visionLlm, err := createVisionLLM()
+	if err != nil {
+		log.Fatalf("Failed to create Vision LLM client: %v", err)
+	}
+
 	// Initialize App with dependencies
 	app := &App{
-		Client: client,
-		LLM:    llm,
+		Client:    client,
+		LLM:       llm,
+		VisionLLM: visionLlm,
 	}
 
 	// Start background process for auto-tagging
@@ -139,9 +149,26 @@ func main() {
 		c.File("./web-app/dist/index.html")
 	})
 
-	log.Println("Server started on port :8080")
-	if err := router.Run(":8080"); err != nil {
-		log.Fatalf("Failed to run server: %v", err)
+	// log.Println("Server started on port :8080")
+	// if err := router.Run(":8080"); err != nil {
+	// 	log.Fatalf("Failed to run server: %v", err)
+	// }
+	images, err := client.DownloadDocumentAsImages(context.Background(), Document{
+		// Insert the document ID here to test OCR
+		ID: 531,
+	})
+	if err != nil {
+		log.Fatalf("Failed to download document: %v", err)
+	}
+	for _, image := range images {
+		content, err := os.ReadFile(image)
+		if err != nil {
+			log.Fatalf("Failed to read image: %v", err)
+		}
+		_, err = app.doOCRViaLLM(context.Background(), content)
+		if err != nil {
+			log.Fatalf("Failed to OCR image: %v", err)
+		}
 	}
 }
 
@@ -438,6 +465,26 @@ func getLikelyLanguage() string {
 	return strings.Title(strings.ToLower(likelyLanguage))
 }
 
+func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte) (string, error) {
+	// Convert the image to text
+	completion, err := app.VisionLLM.GenerateContent(ctx, []llms.MessageContent{
+		{
+			Parts: []llms.ContentPart{
+				llms.BinaryPart("image/jpeg", jpegBytes),
+				llms.TextPart("Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format."),
+			},
+			Role: llms.ChatMessageTypeHuman,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("error getting response from LLM: %v", err)
+	}
+
+	result := completion.Choices[0].Content
+	fmt.Println(result)
+	return result, nil
+}
+
 // getSuggestedTitle generates a suggested title for a document using the LLM
 func (app *App) getSuggestedTitle(ctx context.Context, content string) (string, error) {
 	likelyLanguage := getLikelyLanguage()
@@ -535,6 +582,30 @@ func createLLM() (llms.Model, error) {
 		}
 		return ollama.New(
 			ollama.WithModel(llmModel),
+			ollama.WithServerURL(host),
+		)
+	default:
+		return nil, fmt.Errorf("unsupported LLM provider: %s", llmProvider)
+	}
+}
+
+func createVisionLLM() (llms.Model, error) {
+	switch strings.ToLower(visionLlmProvider) {
+	case "openai":
+		if openaiAPIKey == "" {
+			return nil, fmt.Errorf("OpenAI API key is not set")
+		}
+		return openai.New(
+			openai.WithModel(visionLlmModel),
+			openai.WithToken(openaiAPIKey),
+		)
+	case "ollama":
+		host := os.Getenv("OLLAMA_HOST")
+		if host == "" {
+			host = "http://127.0.0.1:11434"
+		}
+		return ollama.New(
+			ollama.WithModel(visionLlmModel),
 			ollama.WithServerURL(host),
 		)
 	default:
