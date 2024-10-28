@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -410,6 +411,9 @@ func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, document
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
+
+	// sort the image paths to ensure they are in order
+	slices.Sort(imagePaths)
 
 	return imagePaths, nil
 }
