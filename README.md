@@ -18,7 +18,7 @@
 - **User-Friendly Interface**: Intuitive web interface for reviewing and applying suggested titles and tags.
 - **Dockerized Deployment**: Simple setup using Docker and Docker Compose.
 - **Automatic Document Processing**: Automatically apply generated suggestions for documents with the `paperless-gpt-auto` tag.
-
+- **Experimental OCR Feature**: Send documents to a vision LLM for OCR processing.
 
 ## Table of Contents
 
@@ -40,6 +40,7 @@
   - [Usage](#usage)
   - [Contributing](#contributing)
   - [License](#license)
+  - [Star History](#star-history)
 
 ## Getting Started
 
@@ -74,6 +75,8 @@ services:
       OPENAI_API_KEY: 'your_openai_api_key' # Required if using OpenAI
       LLM_LANGUAGE: 'English' # Optional, default is 'English'
       OLLAMA_HOST: 'http://host.docker.internal:11434' # If using Ollama
+      VISION_LLM_PROVIDER: 'ollama' # Optional, for OCR
+      VISION_LLM_MODEL: 'minicpm-v' # Optional, for OCR
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
     ports:
@@ -117,6 +120,8 @@ If you prefer to run the application manually:
      -e LLM_MODEL='gpt-4o' \
      -e OPENAI_API_KEY='your_openai_api_key' \
      -e LLM_LANGUAGE='English' \
+     -e VISION_LLM_PROVIDER='ollama' \
+     -e VISION_LLM_MODEL='minicpm-v' \
      -v $(pwd)/prompts:/app/prompts \  # Mount the prompts directory
      -p 8080:8080 \
      paperless-gpt
@@ -135,6 +140,8 @@ If you prefer to run the application manually:
 | `OPENAI_API_KEY`      | Your OpenAI API key. Required if using OpenAI as the LLM provider.                                                                                        | Cond.    |
 | `LLM_LANGUAGE`        | The likely language of your documents (e.g., `English`, `German`). Default is `English`.                                                                  | No       |
 | `OLLAMA_HOST`         | The URL of the Ollama server (e.g., `http://host.docker.internal:11434`). Useful if using Ollama. Default is `http://127.0.0.1:11434`.                    | No       |
+| `VISION_LLM_PROVIDER` | The vision LLM provider to use for OCR (`openai` or `ollama`).                                                                                            | No       |
+| `VISION_LLM_MODEL`    | The model name to use for OCR (e.g., `minicpm-v`).                                                                                                        | No       |
 
 **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
 
@@ -256,6 +263,15 @@ Be very selective and only choose the most relevant tags since too many tags wil
 
    - Review the suggested titles. You can edit them if necessary.
    - Click on **"Apply Suggestions"** to update the document titles in paperless-ngx.
+
+5. **Experimental OCR Feature:**
+
+   - Send documents to a vision LLM for OCR processing.
+   - Example configuration to enable OCR with Ollama:
+     ```env
+     VISION_LLM_PROVIDER=ollama
+     VISION_LLM_MODEL=minicpm-v
+     ```
 
 ## Contributing
 
