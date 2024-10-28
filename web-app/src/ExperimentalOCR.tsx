@@ -14,6 +14,18 @@ const ExperimentalOCR: React.FC = () => {
   const [saving, setSaving] = useState(false); // New state for saving
   const [documentDetails, setDocumentDetails] = useState<Document | null>(null); // New state for document details
 
+  const fetchDocumentDetails = useCallback(async () => {
+    if (!documentId) return;
+
+    try {
+      const response = await axios.get<Document>(`/api/documents/${documentId}`);
+      setDocumentDetails(response.data);
+    } catch (err) {
+      console.error("Error fetching document details:", err);
+      setError("Failed to fetch document details.");
+    }
+  }, [documentId]);
+
   const submitOCRJob = async () => {
     setStatus('');
     setError('');
@@ -22,6 +34,9 @@ const ExperimentalOCR: React.FC = () => {
     setPagesDone(0); // Reset pages done
 
     try {
+      setStatus('Fetching document details...');
+      await fetchDocumentDetails(); // Fetch document details before submitting the job
+
       setStatus('Submitting OCR job...');
       const response = await axios.post(`/api/documents/${documentId}/ocr`);
       setJobId(response.data.job_id);
@@ -79,23 +94,6 @@ const ExperimentalOCR: React.FC = () => {
       setSaving(false);
     }
   };
-
-  const fetchDocumentDetails = useCallback(async () => {
-    if (!documentId) return;
-
-    try {
-      const response = await axios.get<Document>(`/api/documents/${documentId}`);
-      setDocumentDetails(response.data);
-    } catch (err) {
-      console.error("Error fetching document details:", err);
-      setError("Failed to fetch document details.");
-    }
-  }, [documentId]);
-
-  // Fetch document details when documentId changes
-  useEffect(() => {
-    fetchDocumentDetails();
-  }, [documentId, fetchDocumentDetails]);
 
   // Start checking job status when jobId is set
   useEffect(() => {
