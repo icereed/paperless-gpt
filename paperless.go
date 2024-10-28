@@ -175,6 +175,48 @@ func (c *PaperlessClient) DownloadPDF(ctx context.Context, document Document) ([
 	return io.ReadAll(resp.Body)
 }
 
+func (c *PaperlessClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
+	path := fmt.Sprintf("api/documents/%d/", documentID)
+	resp, err := c.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return Document{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return Document{}, fmt.Errorf("error fetching document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+	}
+
+	var documentResponse GetDocumentApiResponse
+	err = json.NewDecoder(resp.Body).Decode(&documentResponse)
+	if err != nil {
+		return Document{}, err
+	}
+
+	allTags, err := c.GetAllTags(ctx)
+	if err != nil {
+		return Document{}, err
+	}
+
+	tagNames := make([]string, len(documentResponse.Tags))
+	for i, resultTagID := range documentResponse.Tags {
+		for tagName, tagID := range allTags {
+			if resultTagID == tagID {
+				tagNames[i] = tagName
+				break
+			}
+		}
+	}
+
+	return Document{
+		ID:      documentResponse.ID,
+		Title:   documentResponse.Title,
+		Content: documentResponse.Content,
+		Tags:    tagNames,
+	}, nil
+}
+
 // UpdateDocuments updates the specified documents with suggested changes
 func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion) error {
 	// Fetch all available tags

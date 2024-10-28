@@ -225,3 +225,21 @@ func (app *App) getAllJobsHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, jobList)
 }
+
+// getDocumentHandler handles the retrieval of a document by its ID
+func (app *App) getDocumentHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		parsedID, err := strconv.Atoi(id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid document ID"})
+			return
+		}
+		document, err := app.Client.GetDocument(c, parsedID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, document)
+	}
+}

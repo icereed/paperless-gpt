@@ -131,6 +131,8 @@ func main() {
 	api := router.Group("/api")
 	{
 		api.GET("/documents", app.documentsHandler)
+		// http://localhost:8080/api/documents/544
+		api.GET("/documents/:id", app.getDocumentHandler())
 		api.POST("/generate-suggestions", app.generateSuggestionsHandler)
 		api.PATCH("/update-documents", app.updateDocumentsHandler)
 		api.GET("/filter-tag", func(c *gin.Context) {
