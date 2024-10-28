@@ -70,7 +70,7 @@ const ExperimentalOCR: React.FC = () => {
         suggested_content: ocrResult,
       };
 
-      await axios.post("/api/save-content", requestPayload);
+      await axios.patch("/api/update-documents", [requestPayload]);
       setStatus('Content saved successfully.');
     } catch (err) {
       console.error("Error saving content:", err);
