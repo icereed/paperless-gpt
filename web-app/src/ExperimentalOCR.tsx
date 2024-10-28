@@ -10,7 +10,6 @@ const ExperimentalOCR: React.FC = () => {
   const [ocrResult, setOcrResult] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
   const submitOCRJob = async () => {
     setStatus('');
@@ -31,7 +30,6 @@ const ExperimentalOCR: React.FC = () => {
 
   const checkJobStatus = async () => {
     if (!jobId) return;
-    setIsCheckingStatus(true);
 
     try {
       const response = await axios.get(`/api/jobs/ocr/${jobId}`);
@@ -50,9 +48,7 @@ const ExperimentalOCR: React.FC = () => {
     } catch (err) {
       console.error(err);
       setError('Failed to check job status.');
-    } finally {
-      setIsCheckingStatus(false);
-    }
+    } 
   };
 
   // Start checking job status when jobId is set
