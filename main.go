@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -138,6 +137,11 @@ func main() {
 		api.GET("/tags", app.getAllTagsHandler)
 		api.GET("/prompts", getPromptsHandler)
 		api.POST("/prompts", updatePromptsHandler)
+
+		// OCR endpoints
+		api.POST("/documents/:id/ocr", app.submitOCRJobHandler)
+		api.GET("/jobs/ocr/:job_id", app.getJobStatusHandler)
+		api.GET("/jobs/ocr", app.getAllJobsHandler)
 	}
 
 	// Serve static files for the frontend under /assets
@@ -149,26 +153,13 @@ func main() {
 		c.File("./web-app/dist/index.html")
 	})
 
-	// log.Println("Server started on port :8080")
-	// if err := router.Run(":8080"); err != nil {
-	// 	log.Fatalf("Failed to run server: %v", err)
-	// }
-	images, err := client.DownloadDocumentAsImages(context.Background(), Document{
-		// Insert the document ID here to test OCR
-		ID: 531,
-	})
-	if err != nil {
-		log.Fatalf("Failed to download document: %v", err)
-	}
-	for _, image := range images {
-		content, err := os.ReadFile(image)
-		if err != nil {
-			log.Fatalf("Failed to read image: %v", err)
-		}
-		_, err = app.doOCRViaLLM(context.Background(), content)
-		if err != nil {
-			log.Fatalf("Failed to OCR image: %v", err)
-		}
+	// Start OCR worker pool
+	numWorkers := 1 // Number of workers to start
+	startWorkerPool(app, numWorkers)
+
+	log.Println("Server started on port :8080")
+	if err := router.Run(":8080"); err != nil {
+		log.Fatalf("Failed to run server: %v", err)
 	}
 }
 
@@ -227,169 +218,6 @@ func (app *App) processAutoTagDocuments() error {
 	return nil
 }
 
-// getAllTagsHandler handles the GET /api/tags endpoint
-func (app *App) getAllTagsHandler(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	tags, err := app.Client.GetAllTags(ctx)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching tags: %v", err)})
-		log.Printf("Error fetching tags: %v", err)
-		return
-	}
-
-	c.JSON(http.StatusOK, tags)
-}
-
-// documentsHandler handles the GET /api/documents endpoint
-func (app *App) documentsHandler(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{manualTag})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching documents: %v", err)})
-		log.Printf("Error fetching documents: %v", err)
-		return
-	}
-
-	c.JSON(http.StatusOK, documents)
-}
-
-// generateSuggestionsHandler handles the POST /api/generate-suggestions endpoint
-func (app *App) generateSuggestionsHandler(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	var suggestionRequest GenerateSuggestionsRequest
-	if err := c.ShouldBindJSON(&suggestionRequest); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request payload: %v", err)})
-		log.Printf("Invalid request payload: %v", err)
-		return
-	}
-
-	results, err := app.generateDocumentSuggestions(ctx, suggestionRequest)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error processing documents: %v", err)})
-		log.Printf("Error processing documents: %v", err)
-		return
-	}
-
-	c.JSON(http.StatusOK, results)
-}
-
-// updateDocumentsHandler handles the PATCH /api/update-documents endpoint
-func (app *App) updateDocumentsHandler(c *gin.Context) {
-	ctx := c.Request.Context()
-	var documents []DocumentSuggestion
-	if err := c.ShouldBindJSON(&documents); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request payload: %v", err)})
-		log.Printf("Invalid request payload: %v", err)
-		return
-	}
-
-	err := app.Client.UpdateDocuments(ctx, documents)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error updating documents: %v", err)})
-		log.Printf("Error updating documents: %v", err)
-		return
-	}
-
-	c.Status(http.StatusOK)
-}
-
-// generateDocumentSuggestions generates suggestions for a set of documents
-func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionRequest GenerateSuggestionsRequest) ([]DocumentSuggestion, error) {
-	// Fetch all available tags from paperless-ngx
-	availableTagsMap, err := app.Client.GetAllTags(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch available tags: %v", err)
-	}
-
-	// Prepare a list of tag names
-	availableTagNames := make([]string, 0, len(availableTagsMap))
-	for tagName := range availableTagsMap {
-		if tagName == manualTag {
-			continue
-		}
-		availableTagNames = append(availableTagNames, tagName)
-	}
-
-	documents := suggestionRequest.Documents
-	documentSuggestions := []DocumentSuggestion{}
-
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	errorsList := make([]error, 0)
-
-	for i := range documents {
-		wg.Add(1)
-		go func(doc Document) {
-			defer wg.Done()
-			documentID := doc.ID
-			log.Printf("Processing Document ID %d...", documentID)
-
-			content := doc.Content
-			if len(content) > 5000 {
-				content = content[:5000]
-			}
-
-			var suggestedTitle string
-			var suggestedTags []string
-
-			if suggestionRequest.GenerateTitles {
-				suggestedTitle, err = app.getSuggestedTitle(ctx, content)
-				if err != nil {
-					mu.Lock()
-					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
-					mu.Unlock()
-					log.Printf("Error processing document %d: %v", documentID, err)
-					return
-				}
-			}
-
-			if suggestionRequest.GenerateTags {
-				suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, availableTagNames)
-				if err != nil {
-					mu.Lock()
-					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
-					mu.Unlock()
-					log.Printf("Error generating tags for document %d: %v", documentID, err)
-					return
-				}
-			}
-
-			mu.Lock()
-			suggestion := DocumentSuggestion{
-				ID:               documentID,
-				OriginalDocument: doc,
-			}
-			// Titles
-			if suggestionRequest.GenerateTitles {
-				suggestion.SuggestedTitle = suggestedTitle
-			} else {
-				suggestion.SuggestedTitle = doc.Title
-			}
-
-			// Tags
-			if suggestionRequest.GenerateTags {
-				suggestion.SuggestedTags = suggestedTags
-			} else {
-				suggestion.SuggestedTags = removeTagFromList(doc.Tags, manualTag)
-			}
-			documentSuggestions = append(documentSuggestions, suggestion)
-			mu.Unlock()
-			log.Printf("Document %d processed successfully.", documentID)
-		}(documents[i])
-	}
-
-	wg.Wait()
-
-	if len(errorsList) > 0 {
-		return nil, errorsList[0] // Return the first error encountered
-	}
-
-	return documentSuggestions, nil
-}
-
 // removeTagFromList removes a specific tag from a list of tags
 func removeTagFromList(tags []string, tagToRemove string) []string {
 	filteredTags := []string{}
@@ -401,61 +229,6 @@ func removeTagFromList(tags []string, tagToRemove string) []string {
 	return filteredTags
 }
 
-// getSuggestedTags generates suggested tags for a document using the LLM
-func (app *App) getSuggestedTags(ctx context.Context, content string, suggestedTitle string, availableTags []string) ([]string, error) {
-	likelyLanguage := getLikelyLanguage()
-
-	templateMutex.RLock()
-	defer templateMutex.RUnlock()
-
-	var promptBuffer bytes.Buffer
-	err := tagTemplate.Execute(&promptBuffer, map[string]interface{}{
-		"Language":      likelyLanguage,
-		"AvailableTags": availableTags,
-		"Title":         suggestedTitle,
-		"Content":       content,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error executing tag template: %v", err)
-	}
-
-	prompt := promptBuffer.String()
-	log.Printf("Tag suggestion prompt: %s", prompt)
-
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error getting response from LLM: %v", err)
-	}
-
-	response := strings.TrimSpace(completion.Choices[0].Content)
-	suggestedTags := strings.Split(response, ",")
-	for i, tag := range suggestedTags {
-		suggestedTags[i] = strings.TrimSpace(tag)
-	}
-
-	// Filter out tags that are not in the available tags list
-	filteredTags := []string{}
-	for _, tag := range suggestedTags {
-		for _, availableTag := range availableTags {
-			if strings.EqualFold(tag, availableTag) {
-				filteredTags = append(filteredTags, availableTag)
-				break
-			}
-		}
-	}
-
-	return filteredTags, nil
-}
-
 // getLikelyLanguage determines the likely language of the document content
 func getLikelyLanguage() string {
 	likelyLanguage := os.Getenv("LLM_LANGUAGE")
@@ -463,63 +236,6 @@ func getLikelyLanguage() string {
 		likelyLanguage = "English"
 	}
 	return strings.Title(strings.ToLower(likelyLanguage))
-}
-
-func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte) (string, error) {
-	// Convert the image to text
-	completion, err := app.VisionLLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.BinaryPart("image/jpeg", jpegBytes),
-				llms.TextPart("Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format."),
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("error getting response from LLM: %v", err)
-	}
-
-	result := completion.Choices[0].Content
-	fmt.Println(result)
-	return result, nil
-}
-
-// getSuggestedTitle generates a suggested title for a document using the LLM
-func (app *App) getSuggestedTitle(ctx context.Context, content string) (string, error) {
-	likelyLanguage := getLikelyLanguage()
-
-	templateMutex.RLock()
-	defer templateMutex.RUnlock()
-
-	var promptBuffer bytes.Buffer
-	err := titleTemplate.Execute(&promptBuffer, map[string]interface{}{
-		"Language": likelyLanguage,
-		"Content":  content,
-	})
-	if err != nil {
-		return "", fmt.Errorf("error executing title template: %v", err)
-	}
-
-	prompt := promptBuffer.String()
-
-	log.Printf("Title suggestion prompt: %s", prompt)
-
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("error getting response from LLM: %v", err)
-	}
-
-	return strings.TrimSpace(strings.Trim(completion.Choices[0].Content, "\"")), nil
 }
 
 // loadTemplates loads the title and tag templates from files or uses default templates
@@ -611,72 +327,4 @@ func createVisionLLM() (llms.Model, error) {
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", llmProvider)
 	}
-}
-
-// getPromptsHandler handles the GET /api/prompts endpoint
-func getPromptsHandler(c *gin.Context) {
-	templateMutex.RLock()
-	defer templateMutex.RUnlock()
-
-	// Read the templates from files or use default content
-	titleTemplateContent, err := os.ReadFile("prompts/title_prompt.tmpl")
-	if err != nil {
-		titleTemplateContent = []byte(defaultTitleTemplate)
-	}
-
-	tagTemplateContent, err := os.ReadFile("prompts/tag_prompt.tmpl")
-	if err != nil {
-		tagTemplateContent = []byte(defaultTagTemplate)
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"title_template": string(titleTemplateContent),
-		"tag_template":   string(tagTemplateContent),
-	})
-}
-
-// updatePromptsHandler handles the POST /api/prompts endpoint
-func updatePromptsHandler(c *gin.Context) {
-	var req struct {
-		TitleTemplate string `json:"title_template"`
-		TagTemplate   string `json:"tag_template"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
-		return
-	}
-
-	templateMutex.Lock()
-	defer templateMutex.Unlock()
-
-	// Update title template
-	if req.TitleTemplate != "" {
-		t, err := template.New("title").Parse(req.TitleTemplate)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid title template: %v", err)})
-			return
-		}
-		titleTemplate = t
-		err = os.WriteFile("prompts/title_prompt.tmpl", []byte(req.TitleTemplate), 0644)
-		if err != nil {
-			log.Printf("Failed to write title_prompt.tmpl: %v", err)
-		}
-	}
-
-	// Update tag template
-	if req.TagTemplate != "" {
-		t, err := template.New("tag").Parse(req.TagTemplate)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid tag template: %v", err)})
-			return
-		}
-		tagTemplate = t
-		err = os.WriteFile("prompts/tag_prompt.tmpl", []byte(req.TagTemplate), 0644)
-		if err != nil {
-			log.Printf("Failed to write tag_prompt.tmpl: %v", err)
-		}
-	}
-
-	c.Status(http.StatusOK)
 }

@@ -28,10 +28,13 @@ type PaperlessClient struct {
 
 // NewPaperlessClient creates a new instance of PaperlessClient with a default HTTP client
 func NewPaperlessClient(baseURL, apiToken string) *PaperlessClient {
+	cacheFolder := os.Getenv("PAPERLESS_GPT_CACHE_DIR")
+
 	return &PaperlessClient{
-		BaseURL:    strings.TrimRight(baseURL, "/"),
-		APIToken:   apiToken,
-		HTTPClient: &http.Client{},
+		BaseURL:     strings.TrimRight(baseURL, "/"),
+		APIToken:    apiToken,
+		HTTPClient:  &http.Client{},
+		CacheFolder: cacheFolder,
 	}
 }
 
@@ -248,9 +251,9 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 }
 
 // DownloadDocumentAsImages downloads the PDF file of the specified document and converts it to images
-func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, document Document) ([]string, error) {
+func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentId int) ([]string, error) {
 	// Create a directory named after the document ID
-	docDir := filepath.Join(c.GetCacheFolder(), fmt.Sprintf("/document-%d", document.ID))
+	docDir := filepath.Join(c.GetCacheFolder(), fmt.Sprintf("/document-%d", documentId))
 	if _, err := os.Stat(docDir); os.IsNotExist(err) {
 		err = os.MkdirAll(docDir, 0755)
 		if err != nil {
@@ -274,7 +277,7 @@ func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, document
 	}
 
 	// Proceed with downloading and converting the document to images
-	path := fmt.Sprintf("api/documents/%d/download/", document.ID)
+	path := fmt.Sprintf("api/documents/%d/download/", documentId)
 	resp, err := c.Do(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, err
@@ -283,7 +286,7 @@ func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, document
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("error downloading document %d: %d, %s", document.ID, resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("error downloading document %d: %d, %s", documentId, resp.StatusCode, string(bodyBytes))
 	}
 
 	pdfData, err := io.ReadAll(resp.Body)
@@ -315,7 +318,10 @@ func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, document
 	for n := 0; n < doc.NumPage(); n++ {
 		n := n // capture loop variable
 		g.Go(func() error {
+			mu.Lock()
+			// I assume the libmupdf library is not thread-safe
 			img, err := doc.Image(n)
+			mu.Unlock()
 			if err != nil {
 				return err
 			}

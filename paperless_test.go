@@ -361,7 +361,7 @@ func TestDownloadDocumentAsImages(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	imagePaths, err := env.client.DownloadDocumentAsImages(ctx, document)
+	imagePaths, err := env.client.DownloadDocumentAsImages(ctx, document.ID)
 	require.NoError(t, err)
 
 	// Verify that exatly one page was extracted
@@ -398,7 +398,7 @@ func TestDownloadDocumentAsImages_ManyPages(t *testing.T) {
 	env.client.CacheFolder = "tests/tmp"
 	// Clean the cache folder
 	os.RemoveAll(env.client.CacheFolder)
-	imagePaths, err := env.client.DownloadDocumentAsImages(ctx, document)
+	imagePaths, err := env.client.DownloadDocumentAsImages(ctx, document.ID)
 	require.NoError(t, err)
 
 	// Verify that exatly 52 pages were extracted
