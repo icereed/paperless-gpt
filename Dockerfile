@@ -39,7 +39,7 @@ RUN npm run build
 FROM alpine:latest
 
 # Install necessary CA certificates
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates mupdf-dev
 
 # Set the working directory inside the container
 WORKDIR /app/
