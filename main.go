@@ -34,6 +34,7 @@ var (
 	// Templates
 	titleTemplate *template.Template
 	tagTemplate   *template.Template
+	ocrTemplate   *template.Template
 	templateMutex sync.RWMutex
 
 	// Default templates
@@ -59,6 +60,8 @@ Content:
 Please concisely select the {{.Language}} tags from the list above that best describe the document.
 Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
 `
+
+	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format.`
 )
 
 // App struct to hold dependencies
@@ -142,6 +145,12 @@ func main() {
 		api.POST("/documents/:id/ocr", app.submitOCRJobHandler)
 		api.GET("/jobs/ocr/:job_id", app.getJobStatusHandler)
 		api.GET("/jobs/ocr", app.getAllJobsHandler)
+
+		// Endpoint to see if user enabled OCR
+		api.GET("/experimental/ocr", func(c *gin.Context) {
+			enabled := isOcrEnabled()
+			c.JSON(http.StatusOK, gin.H{"enabled": enabled})
+		})
 	}
 
 	// Serve static files for the frontend under /assets
@@ -161,6 +170,10 @@ func main() {
 	if err := router.Run(":8080"); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
 	}
+}
+
+func isOcrEnabled() bool {
+	return visionLlmModel != "" && visionLlmProvider != ""
 }
 
 // validateEnvVars ensures all necessary environment variables are set
@@ -278,6 +291,21 @@ func loadTemplates() {
 	if err != nil {
 		log.Fatalf("Failed to parse tag template: %v", err)
 	}
+
+	// Load OCR template
+	ocrTemplatePath := filepath.Join(promptsDir, "ocr_prompt.tmpl")
+	ocrTemplateContent, err := os.ReadFile(ocrTemplatePath)
+	if err != nil {
+		log.Printf("Could not read %s, using default template: %v", ocrTemplatePath, err)
+		ocrTemplateContent = []byte(defaultOcrPrompt)
+		if err := os.WriteFile(ocrTemplatePath, ocrTemplateContent, os.ModePerm); err != nil {
+			log.Fatalf("Failed to write default OCR template to disk: %v", err)
+		}
+	}
+	ocrTemplate, err = template.New("ocr").Funcs(sprig.FuncMap()).Parse(string(ocrTemplateContent))
+	if err != nil {
+		log.Fatalf("Failed to parse OCR template: %v", err)
+	}
 }
 
 // createLLM creates the appropriate LLM client based on the provider
@@ -325,6 +353,7 @@ func createVisionLLM() (llms.Model, error) {
 			ollama.WithServerURL(host),
 		)
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s", llmProvider)
+		log.Printf("No Vision LLM provider created: %s", visionLlmProvider)
+		return nil, nil
 	}
 }

@@ -21,6 +21,7 @@ type Job struct {
 	Result     string // OCR result or error message
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	PagesDone  int // Number of pages processed
 }
 
 // JobStore manages jobs and their statuses
@@ -44,6 +45,7 @@ func generateJobID() string {
 func (store *JobStore) addJob(job *Job) {
 	store.Lock()
 	defer store.Unlock()
+	job.PagesDone = 0 // Initialize PagesDone to 0
 	store.jobs[job.ID] = job
 	logger.Printf("Job added: %v", job)
 }
@@ -84,6 +86,16 @@ func (store *JobStore) updateJobStatus(jobID, status, result string) {
 	}
 }
 
+func (store *JobStore) updatePagesDone(jobID string, pagesDone int) {
+	store.Lock()
+	defer store.Unlock()
+	if job, exists := store.jobs[jobID]; exists {
+		job.PagesDone = pagesDone
+		job.UpdatedAt = time.Now()
+		logger.Printf("Job pages done updated: %v", job)
+	}
+}
+
 func startWorkerPool(app *App, numWorkers int) {
 	for i := 0; i < numWorkers; i++ {
 		go func(workerID int) {
@@ -110,7 +122,7 @@ func processJob(app *App, job *Job) {
 	}
 
 	var ocrTexts []string
-	for _, imagePath := range imagePaths {
+	for i, imagePath := range imagePaths {
 		imageContent, err := os.ReadFile(imagePath)
 		if err != nil {
 			logger.Printf("Error reading image file for job %s: %v", job.ID, err)
@@ -126,6 +138,7 @@ func processJob(app *App, job *Job) {
 		}
 
 		ocrTexts = append(ocrTexts, ocrText)
+		jobStore.updatePagesDone(job.ID, i+1) // Update PagesDone after each page is processed
 	}
 
 	// Combine the OCR texts

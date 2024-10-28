@@ -189,6 +189,7 @@ func (app *App) getJobStatusHandler(c *gin.Context) {
 		"status":     job.Status,
 		"created_at": job.CreatedAt,
 		"updated_at": job.UpdatedAt,
+		"pages_done": job.PagesDone,
 	}
 
 	if job.Status == "completed" {
@@ -210,6 +211,7 @@ func (app *App) getAllJobsHandler(c *gin.Context) {
 			"status":     job.Status,
 			"created_at": job.CreatedAt,
 			"updated_at": job.UpdatedAt,
+			"pages_done": job.PagesDone,
 		}
 
 		if job.Status == "completed" {

@@ -1,21 +1,25 @@
-// ExperimentalOCR.tsx
 import axios from 'axios';
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { FaSpinner } from 'react-icons/fa';
-
+import { Document, DocumentSuggestion } from './DocumentProcessor';
 
 const ExperimentalOCR: React.FC = () => {
-  const [documentId, setDocumentId] = useState('');
+  const refreshInterval = 1000; // Refresh interval in milliseconds
+  const [documentId, setDocumentId] = useState(0);
   const [jobId, setJobId] = useState('');
   const [ocrResult, setOcrResult] = useState('');
   const [status, setStatus] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>('');
+  const [pagesDone, setPagesDone] = useState(0); // New state for pages done
+  const [saving, setSaving] = useState(false); // New state for saving
+  const [documentDetails, setDocumentDetails] = useState<Document | null>(null); // New state for document details
 
   const submitOCRJob = async () => {
     setStatus('');
     setError('');
     setJobId('');
     setOcrResult('');
+    setPagesDone(0); // Reset pages done
 
     try {
       setStatus('Submitting OCR job...');
@@ -34,6 +38,7 @@ const ExperimentalOCR: React.FC = () => {
     try {
       const response = await axios.get(`/api/jobs/ocr/${jobId}`);
       const jobStatus = response.data.status;
+      setPagesDone(response.data.pages_done); // Update pages done
       if (jobStatus === 'completed') {
         setOcrResult(response.data.result);
         setStatus('OCR completed successfully.');
@@ -43,7 +48,7 @@ const ExperimentalOCR: React.FC = () => {
       } else {
         setStatus(`Job status: ${jobStatus}. This may take a few minutes.`);
         // Automatically check again after a delay
-        setTimeout(checkJobStatus, 5000);
+        setTimeout(checkJobStatus, refreshInterval);
       }
     } catch (err) {
       console.error(err);
@@ -51,8 +56,49 @@ const ExperimentalOCR: React.FC = () => {
     } 
   };
 
+  const handleSaveContent = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      if (!documentDetails) {
+        setError('Document details not fetched.');
+        throw new Error('Document details not fetched.');
+      }
+      const requestPayload: DocumentSuggestion = {
+        id: documentId,
+        original_document: documentDetails, // Use fetched document details
+        suggested_content: ocrResult,
+      };
+
+      await axios.post("/api/save-content", requestPayload);
+      setStatus('Content saved successfully.');
+    } catch (err) {
+      console.error("Error saving content:", err);
+      setError("Failed to save content.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fetchDocumentDetails = useCallback(async () => {
+    if (!documentId) return;
+
+    try {
+      const response = await axios.get<Document>(`/api/documents/${documentId}`);
+      setDocumentDetails(response.data);
+    } catch (err) {
+      console.error("Error fetching document details:", err);
+      setError("Failed to fetch document details.");
+    }
+  }, [documentId]);
+
+  // Fetch document details when documentId changes
+  useEffect(() => {
+    fetchDocumentDetails();
+  }, [documentId, fetchDocumentDetails]);
+
   // Start checking job status when jobId is set
-  React.useEffect(() => {
+  useEffect(() => {
     if (jobId) {
       checkJobStatus();
     }
@@ -71,10 +117,10 @@ const ExperimentalOCR: React.FC = () => {
             Document ID:
           </label>
           <input
-            type="text"
+            type="number"
             id="documentId"
             value={documentId}
-            onChange={(e) => setDocumentId(e.target.value)}
+            onChange={(e) => setDocumentId(Number(e.target.value))}
             className="border border-gray-300 dark:border-gray-700 rounded w-full p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="Enter the document ID"
           />
@@ -102,6 +148,11 @@ const ExperimentalOCR: React.FC = () => {
               </span>
             )}
             {!status.includes('in_progress') && status}
+            {pagesDone > 0 && (
+              <div className="mt-2">
+                Pages processed: {pagesDone}
+              </div>
+            )}
           </div>
         )}
         {error && (
@@ -115,6 +166,20 @@ const ExperimentalOCR: React.FC = () => {
             <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded border border-gray-200 dark:border-gray-700 overflow-auto max-h-96">
               <pre className="whitespace-pre-wrap">{ocrResult}</pre>
             </div>
+            <button
+              onClick={handleSaveContent}
+              className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded transition duration-200 mt-4"
+              disabled={saving}
+            >
+              {saving ? (
+                <span className="flex items-center justify-center">
+                  <FaSpinner className="animate-spin mr-2" />
+                  Saving...
+                </span>
+              ) : (
+                'Save Content'
+              )}
+            </button>
           </div>
         )}
       </div>

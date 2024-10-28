@@ -222,6 +222,12 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 			log.Printf("No valid title found for document %d, skipping.", documentID)
 		}
 
+		// Suggested Content
+		suggestedContent := document.SuggestedContent
+		if suggestedContent != "" {
+			updatedFields["content"] = suggestedContent
+		}
+
 		// Marshal updated fields to JSON
 		jsonData, err := json.Marshal(updatedFields)
 		if err != nil {

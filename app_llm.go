@@ -67,12 +67,27 @@ func (app *App) getSuggestedTags(ctx context.Context, content string, suggestedT
 }
 
 func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte) (string, error) {
+
+	templateMutex.RLock()
+	defer templateMutex.RUnlock()
+	likelyLanguage := getLikelyLanguage()
+
+	var promptBuffer bytes.Buffer
+	err := ocrTemplate.Execute(&promptBuffer, map[string]interface{}{
+		"Language": likelyLanguage,
+	})
+	if err != nil {
+		return "", fmt.Errorf("error executing tag template: %v", err)
+	}
+
+	prompt := promptBuffer.String()
+
 	// Convert the image to text
 	completion, err := app.VisionLLM.GenerateContent(ctx, []llms.MessageContent{
 		{
 			Parts: []llms.ContentPart{
 				llms.BinaryPart("image/jpeg", jpegBytes),
-				llms.TextPart("Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format."),
+				llms.TextPart(prompt),
 			},
 			Role: llms.ChatMessageTypeHuman,
 		},
