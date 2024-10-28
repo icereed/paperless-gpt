@@ -1,5 +1,6 @@
 import axios from "axios";
 import React, { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import "react-tag-autocomplete/example/src/styles.css"; // Ensure styles are loaded
 import DocumentsToProcess from "./components/DocumentsToProcess";
 import NoDocuments from "./components/NoDocuments";
@@ -24,6 +25,7 @@ export interface DocumentSuggestion {
   original_document: Document;
   suggested_title?: string;
   suggested_tags?: string[];
+  suggested_content?: string;
 }
 
 export interface TagOption {
@@ -44,17 +46,22 @@ const DocumentProcessor: React.FC = () => {
   const [generateTags, setGenerateTags] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Temporary feature flags
+  const [ocrEnabled, setOcrEnabled] = useState(false);
+
   // Custom hook to fetch initial data
   const fetchInitialData = useCallback(async () => {
     try {
-      const [filterTagRes, documentsRes, tagsRes] = await Promise.all([
+      const [filterTagRes, documentsRes, tagsRes, ocrEnabledRes] = await Promise.all([
         axios.get<{ tag: string }>("/api/filter-tag"),
         axios.get<Document[]>("/api/documents"),
         axios.get<Record<string, number>>("/api/tags"),
+        axios.get<{enabled: boolean}>("/api/experimental/ocr"),
       ]);
 
       setFilterTag(filterTagRes.data.tag);
       setDocuments(documentsRes.data);
+      setOcrEnabled(ocrEnabledRes.data.enabled);
       const tags = Object.keys(tagsRes.data).map((tag) => ({
         id: tag,
         name: tag,
@@ -129,9 +136,7 @@ const DocumentProcessor: React.FC = () => {
         doc.id === docId
           ? {
               ...doc,
-              suggested_tags: doc.suggested_tags?.filter(
-                (_, i) => i !== index
-              ),
+              suggested_tags: doc.suggested_tags?.filter((_, i) => i !== index),
             }
           : doc
       )
@@ -141,9 +146,7 @@ const DocumentProcessor: React.FC = () => {
   const handleTitleChange = (docId: number, title: string) => {
     setSuggestions((prevSuggestions) =>
       prevSuggestions.map((doc) =>
-        doc.id === docId
-          ? { ...doc, suggested_title: title }
-          : doc
+        doc.id === docId ? { ...doc, suggested_title: title } : doc
       )
     );
   };
@@ -182,11 +185,12 @@ const DocumentProcessor: React.FC = () => {
     }
   }, [documents]);
 
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-white dark:bg-gray-900">
-        <div className="text-xl font-semibold text-gray-800 dark:text-gray-200">Loading documents...</div>
+        <div className="text-xl font-semibold text-gray-800 dark:text-gray-200">
+          Loading documents...
+        </div>
       </div>
     );
   }
@@ -195,6 +199,16 @@ const DocumentProcessor: React.FC = () => {
     <div className="max-w-5xl mx-auto p-6 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200">
       <header className="text-center">
         <h1 className="text-4xl font-bold mb-8">Paperless GPT</h1>
+        {ocrEnabled && (
+          <div>
+            <Link
+              to="/experimental-ocr"
+              className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded transition duration-200 dark:bg-blue-500 dark:hover:bg-blue-600"
+            >
+              OCR via LLMs (Experimental)
+            </Link>
+          </div>
+        )}
       </header>
 
       {error && (

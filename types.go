@@ -36,6 +36,26 @@ type GetDocumentsApiResponse struct {
 	} `json:"results"`
 }
 
+type GetDocumentApiResponse struct {
+	ID                  int           `json:"id"`
+	Correspondent       interface{}   `json:"correspondent"`
+	DocumentType        interface{}   `json:"document_type"`
+	StoragePath         interface{}   `json:"storage_path"`
+	Title               string        `json:"title"`
+	Content             string        `json:"content"`
+	Tags                []int         `json:"tags"`
+	Created             time.Time     `json:"created"`
+	CreatedDate         string        `json:"created_date"`
+	Modified            time.Time     `json:"modified"`
+	Added               time.Time     `json:"added"`
+	ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
+	OriginalFileName    string        `json:"original_file_name"`
+	ArchivedFileName    string        `json:"archived_file_name"`
+	Owner               int           `json:"owner"`
+	UserCanChange       bool          `json:"user_can_change"`
+	Notes               []interface{} `json:"notes"`
+}
+
 // Document is a stripped down version of the document object from paperless-ngx.
 // Response payload for /documents endpoint and part of request payload for /generate-suggestions endpoint
 type Document struct {
@@ -58,4 +78,5 @@ type DocumentSuggestion struct {
 	OriginalDocument Document `json:"original_document"`
 	SuggestedTitle   string   `json:"suggested_title,omitempty"`
 	SuggestedTags    []string `json:"suggested_tags,omitempty"`
+	SuggestedContent string   `json:"suggested_content,omitempty"`
 }

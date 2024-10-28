@@ -1,8 +1,16 @@
 # Stage 1: Build the Go binary
-FROM golang:1.22 AS builder
+FROM golang:1.22-alpine AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
+
+# Install necessary packages
+RUN apk add --no-cache \
+    git \
+    gcc \
+    musl-dev \
+    mupdf \
+    mupdf-dev
 
 # Copy go.mod and go.sum files
 COPY go.mod go.sum ./
@@ -13,17 +21,19 @@ RUN go mod download
 # Copy the rest of the application code
 COPY . .
 
-# Build the Go binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o paperless-gpt .
+# Build the Go binary with the musl build tag
+RUN go build -tags musl -o paperless-gpt .
 
 # Stage 2: Build Vite frontend
-FROM node:20 AS frontend
+FROM node:20-alpine AS frontend
 
 # Set the working directory inside the container
 WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Install necessary packages
+RUN apk add --no-cache git
 
+# Copy package.json and package-lock.json
 COPY web-app/package.json web-app/package-lock.json ./
 
 # Install dependencies
@@ -35,11 +45,12 @@ COPY web-app /app/
 # Build the frontend
 RUN npm run build
 
-# Stage 3: Create a lightweight image with the Go binary
+# Stage 3: Create a lightweight image with the Go binary and frontend
 FROM alpine:latest
 
-# Install necessary CA certificates
-RUN apk --no-cache add ca-certificates
+# Install necessary runtime dependencies
+RUN apk add --no-cache \
+    ca-certificates
 
 # Set the working directory inside the container
 WORKDIR /app/
@@ -54,4 +65,4 @@ COPY --from=frontend /app/dist /app/web-app/dist
 EXPOSE 8080
 
 # Command to run the binary
-CMD ["./paperless-gpt"]
+CMD ["/app/paperless-gpt"]
