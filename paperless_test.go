@@ -203,7 +203,7 @@ func TestGetDocumentsByTags(t *testing.T) {
 	// Set mock responses
 	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
 		// Verify query parameters
-		expectedQuery := "query=tag:tag1+tag:tag2"
+		expectedQuery := "query=tag:tag1+tag:tag2&page_size=25"
 		assert.Equal(t, expectedQuery, r.URL.RawQuery)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(documentsResponse)
@@ -216,7 +216,7 @@ func TestGetDocumentsByTags(t *testing.T) {
 
 	ctx := context.Background()
 	tags := []string{"tag1", "tag2"}
-	documents, err := env.client.GetDocumentsByTags(ctx, tags)
+	documents, err := env.client.GetDocumentsByTags(ctx, tags, 25)
 	require.NoError(t, err)
 
 	expectedDocuments := []Document{

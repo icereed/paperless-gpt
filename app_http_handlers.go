@@ -97,7 +97,7 @@ func (app *App) getAllTagsHandler(c *gin.Context) {
 func (app *App) documentsHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{manualTag})
+	documents, err := app.Client.GetDocumentsByTags(ctx, []string{manualTag}, 25)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching documents: %v", err)})
 		log.Errorf("Error fetching documents: %v", err)

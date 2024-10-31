@@ -133,18 +133,19 @@ If you prefer to run the application manually:
 
 ### Environment Variables
 
-| Variable              | Description                                                                                                                                               | Required |
-|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|----------|
-| `PAPERLESS_BASE_URL`  | The base URL of your paperless-ngx instance (e.g., `http://paperless-ngx:8000`).                                                                          | Yes      |
-| `PAPERLESS_API_TOKEN` | API token for accessing paperless-ngx. You can generate one in the paperless-ngx admin interface.                                                         | Yes      |
-| `LLM_PROVIDER`        | The LLM provider to use (`openai` or `ollama`).                                                                                                           | Yes      |
-| `LLM_MODEL`           | The model name to use (e.g., `gpt-4o`, `gpt-3.5-turbo`, `llama2`).                                                                                        | Yes      |
-| `OPENAI_API_KEY`      | Your OpenAI API key. Required if using OpenAI as the LLM provider.                                                                                        | Cond.    |
-| `LLM_LANGUAGE`        | The likely language of your documents (e.g., `English`, `German`). Default is `English`.                                                                  | No       |
-| `OLLAMA_HOST`         | The URL of the Ollama server (e.g., `http://host.docker.internal:11434`). Useful if using Ollama. Default is `http://127.0.0.1:11434`.                    | No       |
-| `VISION_LLM_PROVIDER` | The vision LLM provider to use for OCR (`openai` or `ollama`).                                                                                            | No       |
-| `VISION_LLM_MODEL`    | The model name to use for OCR (e.g., `minicpm-v`).                                                                                                        | No       |
-| `LOG_LEVEL`           | The log level for the application (`info`, `debug`, `warn`, `error`). Default is `info`.                                                                  | No       |
+| Variable                   | Description                                                                                                                            | Required |
+|----------------------------|----------------------------------------------------------------------------------------------------------------------------------------|----------|
+| `PAPERLESS_BASE_URL`       | The base URL of your paperless-ngx instance (e.g., `http://paperless-ngx:8000`).                                                       | Yes      |
+| `PAPERLESS_API_TOKEN`      | API token for accessing paperless-ngx. You can generate one in the paperless-ngx admin interface.                                      | Yes      |
+| `LLM_PROVIDER`             | The LLM provider to use (`openai` or `ollama`).                                                                                        | Yes      |
+| `LLM_MODEL`                | The model name to use (e.g., `gpt-4o`, `gpt-3.5-turbo`, `llama2`).                                                                     | Yes      |
+| `OPENAI_API_KEY`           | Your OpenAI API key. Required if using OpenAI as the LLM provider.                                                                     | Cond.    |
+| `LLM_LANGUAGE`             | The likely language of your documents (e.g., `English`, `German`). Default is `English`.                                               | No       |
+| `OLLAMA_HOST`              | The URL of the Ollama server (e.g., `http://host.docker.internal:11434`). Useful if using Ollama. Default is `http://127.0.0.1:11434`. | No       |
+| `VISION_LLM_PROVIDER`      | The vision LLM provider to use for OCR (`openai` or `ollama`).                                                                         | No       |
+| `VISION_LLM_MODEL`         | The model name to use for OCR (e.g., `minicpm-v`).                                                                                     | No       |
+| `LOG_LEVEL`                | The log level for the application (`info`, `debug`, `warn`, `error`). Default is `info`.                                               | No       |
+| `CORRESPONDENT_BLACK_LIST` | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                       | No       |
 
 **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
 
