@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"sort"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 // Job represents an OCR job
@@ -31,12 +31,24 @@ type JobStore struct {
 }
 
 var (
+	logger = logrus.New()
+
 	jobStore = &JobStore{
 		jobs: make(map[string]*Job),
 	}
 	jobQueue = make(chan *Job, 100) // Buffered channel with capacity of 100 jobs
-	logger   = log.New(os.Stdout, "OCR_JOB: ", log.LstdFlags)
 )
+
+func init() {
+
+	// Initialize logger
+	logger.SetOutput(os.Stdout)
+	logger.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
+	logger.SetLevel(logrus.InfoLevel)
+	logger.WithField("prefix", "OCR_JOB")
+}
 
 func generateJobID() string {
 	return uuid.New().String()
@@ -47,7 +59,7 @@ func (store *JobStore) addJob(job *Job) {
 	defer store.Unlock()
 	job.PagesDone = 0 // Initialize PagesDone to 0
 	store.jobs[job.ID] = job
-	logger.Printf("Job added: %v", job)
+	logger.Infof("Job added: %v", job)
 }
 
 func (store *JobStore) getJob(jobID string) (*Job, bool) {
@@ -82,7 +94,7 @@ func (store *JobStore) updateJobStatus(jobID, status, result string) {
 			job.Result = result
 		}
 		job.UpdatedAt = time.Now()
-		logger.Printf("Job status updated: %v", job)
+		logger.Infof("Job status updated: %v", job)
 	}
 }
 
@@ -92,16 +104,16 @@ func (store *JobStore) updatePagesDone(jobID string, pagesDone int) {
 	if job, exists := store.jobs[jobID]; exists {
 		job.PagesDone = pagesDone
 		job.UpdatedAt = time.Now()
-		logger.Printf("Job pages done updated: %v", job)
+		logger.Infof("Job pages done updated: %v", job)
 	}
 }
 
 func startWorkerPool(app *App, numWorkers int) {
 	for i := 0; i < numWorkers; i++ {
 		go func(workerID int) {
-			logger.Printf("Worker %d started", workerID)
+			logger.Infof("Worker %d started", workerID)
 			for job := range jobQueue {
-				logger.Printf("Worker %d processing job: %s", workerID, job.ID)
+				logger.Infof("Worker %d processing job: %s", workerID, job.ID)
 				processJob(app, job)
 			}
 		}(i)
@@ -116,7 +128,7 @@ func processJob(app *App, job *Job) {
 	// Download images of the document
 	imagePaths, err := app.Client.DownloadDocumentAsImages(ctx, job.DocumentID)
 	if err != nil {
-		logger.Printf("Error downloading document images for job %s: %v", job.ID, err)
+		logger.Infof("Error downloading document images for job %s: %v", job.ID, err)
 		jobStore.updateJobStatus(job.ID, "failed", fmt.Sprintf("Error downloading document images: %v", err))
 		return
 	}
@@ -125,14 +137,14 @@ func processJob(app *App, job *Job) {
 	for i, imagePath := range imagePaths {
 		imageContent, err := os.ReadFile(imagePath)
 		if err != nil {
-			logger.Printf("Error reading image file for job %s: %v", job.ID, err)
+			logger.Errorf("Error reading image file for job %s: %v", job.ID, err)
 			jobStore.updateJobStatus(job.ID, "failed", fmt.Sprintf("Error reading image file: %v", err))
 			return
 		}
 
 		ocrText, err := app.doOCRViaLLM(ctx, imageContent)
 		if err != nil {
-			logger.Printf("Error performing OCR for job %s: %v", job.ID, err)
+			logger.Errorf("Error performing OCR for job %s: %v", job.ID, err)
 			jobStore.updateJobStatus(job.ID, "failed", fmt.Sprintf("Error performing OCR: %v", err))
 			return
 		}
@@ -146,5 +158,5 @@ func processJob(app *App, job *Job) {
 
 	// Update job status and result
 	jobStore.updateJobStatus(job.ID, "completed", fullOcrText)
-	logger.Printf("Job completed: %s", job.ID)
+	logger.Infof("Job completed: %s", job.ID)
 }

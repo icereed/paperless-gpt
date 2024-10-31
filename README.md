@@ -77,6 +77,7 @@ services:
       OLLAMA_HOST: 'http://host.docker.internal:11434' # If using Ollama
       VISION_LLM_PROVIDER: 'ollama' # Optional, for OCR
       VISION_LLM_MODEL: 'minicpm-v' # Optional, for OCR
+      LOG_LEVEL: 'info' # Optional or 'debug', 'warn', 'error'
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
     ports:
@@ -122,6 +123,7 @@ If you prefer to run the application manually:
      -e LLM_LANGUAGE='English' \
      -e VISION_LLM_PROVIDER='ollama' \
      -e VISION_LLM_MODEL='minicpm-v' \
+     -e LOG_LEVEL='info' \
      -v $(pwd)/prompts:/app/prompts \  # Mount the prompts directory
      -p 8080:8080 \
      paperless-gpt
@@ -142,6 +144,7 @@ If you prefer to run the application manually:
 | `OLLAMA_HOST`         | The URL of the Ollama server (e.g., `http://host.docker.internal:11434`). Useful if using Ollama. Default is `http://127.0.0.1:11434`.                    | No       |
 | `VISION_LLM_PROVIDER` | The vision LLM provider to use for OCR (`openai` or `ollama`).                                                                                            | No       |
 | `VISION_LLM_MODEL`    | The model name to use for OCR (e.g., `minicpm-v`).                                                                                                        | No       |
+| `LOG_LEVEL`           | The log level for the application (`info`, `debug`, `warn`, `error`). Default is `info`.                                                                  | No       |
 
 **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
 

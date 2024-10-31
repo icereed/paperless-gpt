@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
@@ -21,6 +21,11 @@ import (
 
 // Global Variables and Constants
 var (
+
+	// Logger
+	log = logrus.New()
+
+	// Environment Variables
 	paperlessBaseURL  = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken = os.Getenv("PAPERLESS_API_TOKEN")
 	openaiAPIKey      = os.Getenv("OPENAI_API_KEY")
@@ -30,6 +35,7 @@ var (
 	llmModel          = os.Getenv("LLM_MODEL")
 	visionLlmProvider = os.Getenv("VISION_LLM_PROVIDER")
 	visionLlmModel    = os.Getenv("VISION_LLM_MODEL")
+	logLevel          = strings.ToLower(os.Getenv("LOG_LEVEL"))
 
 	// Templates
 	titleTemplate *template.Template
@@ -75,6 +81,9 @@ func main() {
 	// Validate Environment Variables
 	validateEnvVars()
 
+	// Initialize logrus logger
+	initLogger()
+
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
 
@@ -102,25 +111,28 @@ func main() {
 
 	// Start background process for auto-tagging
 	go func() {
-
-		minBackoffDuration := time.Second
+		minBackoffDuration := 10 * time.Second
 		maxBackoffDuration := time.Hour
 		pollingInterval := 10 * time.Second
 
 		backoffDuration := minBackoffDuration
 		for {
-			if err := app.processAutoTagDocuments(); err != nil {
-				log.Printf("Error in processAutoTagDocuments: %v", err)
+			processedCount, err := app.processAutoTagDocuments()
+			if err != nil {
+				log.Errorf("Error in processAutoTagDocuments: %v", err)
 				time.Sleep(backoffDuration)
 				backoffDuration *= 2 // Exponential backoff
 				if backoffDuration > maxBackoffDuration {
-					log.Printf("Repeated errors in processAutoTagDocuments detected. Setting backoff to %v", maxBackoffDuration)
+					log.Warnf("Repeated errors in processAutoTagDocuments detected. Setting backoff to %v", maxBackoffDuration)
 					backoffDuration = maxBackoffDuration
 				}
 			} else {
 				backoffDuration = minBackoffDuration
 			}
-			time.Sleep(pollingInterval)
+
+			if processedCount == 0 {
+				time.Sleep(pollingInterval)
+			}
 		}
 	}()
 
@@ -168,10 +180,32 @@ func main() {
 	numWorkers := 1 // Number of workers to start
 	startWorkerPool(app, numWorkers)
 
-	log.Println("Server started on port :8080")
+	log.Infoln("Server started on port :8080")
 	if err := router.Run(":8080"); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
 	}
+}
+
+func initLogger() {
+	switch logLevel {
+	case "debug":
+		log.SetLevel(logrus.DebugLevel)
+	case "info":
+		log.SetLevel(logrus.InfoLevel)
+	case "warn":
+		log.SetLevel(logrus.WarnLevel)
+	case "error":
+		log.SetLevel(logrus.ErrorLevel)
+	default:
+		log.SetLevel(logrus.InfoLevel)
+		if logLevel != "" {
+			log.Fatalf("Invalid log level: '%s'.", logLevel)
+		}
+	}
+
+	log.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
 }
 
 func isOcrEnabled() bool {
@@ -192,27 +226,36 @@ func validateEnvVars() {
 		log.Fatal("Please set the LLM_PROVIDER environment variable.")
 	}
 
+	if visionLlmProvider != "" && visionLlmProvider != "openai" && visionLlmProvider != "ollama" {
+		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai' or 'ollama'.")
+	}
+
 	if llmModel == "" {
 		log.Fatal("Please set the LLM_MODEL environment variable.")
 	}
 
-	if llmProvider == "openai" && openaiAPIKey == "" {
+	if (llmProvider == "openai" || visionLlmProvider == "openai") && openaiAPIKey == "" {
 		log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
 	}
 }
 
 // processAutoTagDocuments handles the background auto-tagging of documents
-func (app *App) processAutoTagDocuments() error {
+func (app *App) processAutoTagDocuments() (int, error) {
 	ctx := context.Background()
 
 	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag})
 	if err != nil {
-		return fmt.Errorf("error fetching documents with autoTag: %w", err)
+		return 0, fmt.Errorf("error fetching documents with autoTag: %w", err)
 	}
 
 	if len(documents) == 0 {
-		return nil // No documents to process
+		log.Debugf("No documents with tag %s found", autoTag)
+		return 0, nil // No documents to process
 	}
+
+	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
+
+	documents = documents[:1] // Process only one document at a time
 
 	suggestionRequest := GenerateSuggestionsRequest{
 		Documents:      documents,
@@ -222,15 +265,15 @@ func (app *App) processAutoTagDocuments() error {
 
 	suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest)
 	if err != nil {
-		return fmt.Errorf("error generating suggestions: %w", err)
+		return 0, fmt.Errorf("error generating suggestions: %w", err)
 	}
 
 	err = app.Client.UpdateDocuments(ctx, suggestions)
 	if err != nil {
-		return fmt.Errorf("error updating documents: %w", err)
+		return 0, fmt.Errorf("error updating documents: %w", err)
 	}
 
-	return nil
+	return len(documents), nil
 }
 
 // removeTagFromList removes a specific tag from a list of tags
@@ -268,7 +311,7 @@ func loadTemplates() {
 	titleTemplatePath := filepath.Join(promptsDir, "title_prompt.tmpl")
 	titleTemplateContent, err := os.ReadFile(titleTemplatePath)
 	if err != nil {
-		log.Printf("Could not read %s, using default template: %v", titleTemplatePath, err)
+		log.Errorf("Could not read %s, using default template: %v", titleTemplatePath, err)
 		titleTemplateContent = []byte(defaultTitleTemplate)
 		if err := os.WriteFile(titleTemplatePath, titleTemplateContent, os.ModePerm); err != nil {
 			log.Fatalf("Failed to write default title template to disk: %v", err)
@@ -283,7 +326,7 @@ func loadTemplates() {
 	tagTemplatePath := filepath.Join(promptsDir, "tag_prompt.tmpl")
 	tagTemplateContent, err := os.ReadFile(tagTemplatePath)
 	if err != nil {
-		log.Printf("Could not read %s, using default template: %v", tagTemplatePath, err)
+		log.Errorf("Could not read %s, using default template: %v", tagTemplatePath, err)
 		tagTemplateContent = []byte(defaultTagTemplate)
 		if err := os.WriteFile(tagTemplatePath, tagTemplateContent, os.ModePerm); err != nil {
 			log.Fatalf("Failed to write default tag template to disk: %v", err)
@@ -298,7 +341,7 @@ func loadTemplates() {
 	ocrTemplatePath := filepath.Join(promptsDir, "ocr_prompt.tmpl")
 	ocrTemplateContent, err := os.ReadFile(ocrTemplatePath)
 	if err != nil {
-		log.Printf("Could not read %s, using default template: %v", ocrTemplatePath, err)
+		log.Errorf("Could not read %s, using default template: %v", ocrTemplatePath, err)
 		ocrTemplateContent = []byte(defaultOcrPrompt)
 		if err := os.WriteFile(ocrTemplatePath, ocrTemplateContent, os.ModePerm); err != nil {
 			log.Fatalf("Failed to write default OCR template to disk: %v", err)
@@ -355,7 +398,7 @@ func createVisionLLM() (llms.Model, error) {
 			ollama.WithServerURL(host),
 		)
 	default:
-		log.Printf("No Vision LLM provider created: %s", visionLlmProvider)
+		log.Infoln("Vision LLM not enabled")
 		return nil, nil
 	}
 }

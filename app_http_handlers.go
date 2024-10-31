@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -59,7 +58,7 @@ func updatePromptsHandler(c *gin.Context) {
 		titleTemplate = t
 		err = os.WriteFile("prompts/title_prompt.tmpl", []byte(req.TitleTemplate), 0644)
 		if err != nil {
-			log.Printf("Failed to write title_prompt.tmpl: %v", err)
+			log.Errorf("Failed to write title_prompt.tmpl: %v", err)
 		}
 	}
 
@@ -73,7 +72,7 @@ func updatePromptsHandler(c *gin.Context) {
 		tagTemplate = t
 		err = os.WriteFile("prompts/tag_prompt.tmpl", []byte(req.TagTemplate), 0644)
 		if err != nil {
-			log.Printf("Failed to write tag_prompt.tmpl: %v", err)
+			log.Errorf("Failed to write tag_prompt.tmpl: %v", err)
 		}
 	}
 
@@ -87,7 +86,7 @@ func (app *App) getAllTagsHandler(c *gin.Context) {
 	tags, err := app.Client.GetAllTags(ctx)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching tags: %v", err)})
-		log.Printf("Error fetching tags: %v", err)
+		log.Errorf("Error fetching tags: %v", err)
 		return
 	}
 
@@ -101,7 +100,7 @@ func (app *App) documentsHandler(c *gin.Context) {
 	documents, err := app.Client.GetDocumentsByTags(ctx, []string{manualTag})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching documents: %v", err)})
-		log.Printf("Error fetching documents: %v", err)
+		log.Errorf("Error fetching documents: %v", err)
 		return
 	}
 
@@ -115,14 +114,14 @@ func (app *App) generateSuggestionsHandler(c *gin.Context) {
 	var suggestionRequest GenerateSuggestionsRequest
 	if err := c.ShouldBindJSON(&suggestionRequest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request payload: %v", err)})
-		log.Printf("Invalid request payload: %v", err)
+		log.Errorf("Invalid request payload: %v", err)
 		return
 	}
 
 	results, err := app.generateDocumentSuggestions(ctx, suggestionRequest)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error processing documents: %v", err)})
-		log.Printf("Error processing documents: %v", err)
+		log.Errorf("Error processing documents: %v", err)
 		return
 	}
 
@@ -135,14 +134,14 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 	var documents []DocumentSuggestion
 	if err := c.ShouldBindJSON(&documents); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request payload: %v", err)})
-		log.Printf("Invalid request payload: %v", err)
+		log.Errorf("Invalid request payload: %v", err)
 		return
 	}
 
 	err := app.Client.UpdateDocuments(ctx, documents)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error updating documents: %v", err)})
-		log.Printf("Error updating documents: %v", err)
+		log.Errorf("Error updating documents: %v", err)
 		return
 	}
 
