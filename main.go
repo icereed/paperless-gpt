@@ -26,22 +26,24 @@ var (
 	log = logrus.New()
 
 	// Environment Variables
-	paperlessBaseURL  = os.Getenv("PAPERLESS_BASE_URL")
-	paperlessAPIToken = os.Getenv("PAPERLESS_API_TOKEN")
-	openaiAPIKey      = os.Getenv("OPENAI_API_KEY")
-	manualTag         = "paperless-gpt"
-	autoTag           = "paperless-gpt-auto"
-	llmProvider       = os.Getenv("LLM_PROVIDER")
-	llmModel          = os.Getenv("LLM_MODEL")
-	visionLlmProvider = os.Getenv("VISION_LLM_PROVIDER")
-	visionLlmModel    = os.Getenv("VISION_LLM_MODEL")
-	logLevel          = strings.ToLower(os.Getenv("LOG_LEVEL"))
+	paperlessBaseURL       = os.Getenv("PAPERLESS_BASE_URL")
+	paperlessAPIToken      = os.Getenv("PAPERLESS_API_TOKEN")
+	openaiAPIKey           = os.Getenv("OPENAI_API_KEY")
+	manualTag              = "paperless-gpt"
+	autoTag                = "paperless-gpt-auto"
+	llmProvider            = os.Getenv("LLM_PROVIDER")
+	llmModel               = os.Getenv("LLM_MODEL")
+	visionLlmProvider      = os.Getenv("VISION_LLM_PROVIDER")
+	visionLlmModel         = os.Getenv("VISION_LLM_MODEL")
+	logLevel               = strings.ToLower(os.Getenv("LOG_LEVEL"))
+	correspondentBlackList = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
 
 	// Templates
-	titleTemplate *template.Template
-	tagTemplate   *template.Template
-	ocrTemplate   *template.Template
-	templateMutex sync.RWMutex
+	titleTemplate         *template.Template
+	tagTemplate           *template.Template
+	correspondentTemplate *template.Template
+	ocrTemplate           *template.Template
+	templateMutex         sync.RWMutex
 
 	// Default templates
 	defaultTitleTemplate = `I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
@@ -65,6 +67,34 @@ Content:
 
 Please concisely select the {{.Language}} tags from the list above that best describe the document.
 Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
+`
+
+	defaultCorrespondentTemplate = `I will provide you with the content of a document. Your task is to suggest a correspondent that is most relevant to the document.
+
+Correspondents are the senders of documents that reach you. In the other direction, correspondents are the recipients of documents that you send.
+In Paperless-ngx we can imagine correspondents as virtual drawers in which all documents of a person or company are stored. With just one click, we can find all the documents assigned to a specific correspondent.
+Try to suggest a correspondent, either from the example list or come up with a new correspondent.
+
+Respond only with a correspondent, without any additional information!
+
+Be sure to choose a correspondent that is most relevant to the document.
+Try to avoid any legal or financial suffixes like "GmbH" or "AG" in the correspondent name. For example use "Microsoft" instead of "Microsoft Ireland Operations Limited" or "Amazon" instead of "Amazon EU S.a.r.l.".
+
+If you can't find a suitable correspondent, you can respond with "Unknown".
+
+Example Correspondents:
+{{.AvailableCorrespondents | join ", "}}
+
+List of Correspondents with Blacklisted Names. Please avoid these correspondents or variations of their names:
+{{.BlackList | join ", "}}
+
+Title of the document:
+{{.Title}}
+
+The content is likely in {{.Language}}.
+
+Document Content:
+{{.Content}}
 `
 
 	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format.`
@@ -243,7 +273,7 @@ func validateEnvVars() {
 func (app *App) processAutoTagDocuments() (int, error) {
 	ctx := context.Background()
 
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag})
+	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag}, 1)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoTag: %w", err)
 	}
@@ -255,12 +285,11 @@ func (app *App) processAutoTagDocuments() (int, error) {
 
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
 
-	documents = documents[:1] // Process only one document at a time
-
 	suggestionRequest := GenerateSuggestionsRequest{
-		Documents:      documents,
-		GenerateTitles: true,
-		GenerateTags:   true,
+		Documents:              documents,
+		GenerateTitles:         true,
+		GenerateTags:           true,
+		GenerateCorrespondents: true,
 	}
 
 	suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest)
@@ -335,6 +364,21 @@ func loadTemplates() {
 	tagTemplate, err = template.New("tag").Funcs(sprig.FuncMap()).Parse(string(tagTemplateContent))
 	if err != nil {
 		log.Fatalf("Failed to parse tag template: %v", err)
+	}
+
+	// Load correspondent template
+	correspondentTemplatePath := filepath.Join(promptsDir, "correspondent_prompt.tmpl")
+	correspondentTemplateContent, err := os.ReadFile(correspondentTemplatePath)
+	if err != nil {
+		log.Errorf("Could not read %s, using default template: %v", correspondentTemplatePath, err)
+		correspondentTemplateContent = []byte(defaultCorrespondentTemplate)
+		if err := os.WriteFile(correspondentTemplatePath, correspondentTemplateContent, os.ModePerm); err != nil {
+			log.Fatalf("Failed to write default correspondent template to disk: %v", err)
+		}
+	}
+	correspondentTemplate, err = template.New("correspondent").Funcs(sprig.FuncMap()).Parse(string(correspondentTemplateContent))
+	if err != nil {
+		log.Fatalf("Failed to parse correspondent template: %v", err)
 	}
 
 	// Load OCR template
