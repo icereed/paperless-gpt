@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 
@@ -30,7 +29,7 @@ func (app *App) getSuggestedTags(ctx context.Context, content string, suggestedT
 	}
 
 	prompt := promptBuffer.String()
-	log.Printf("Tag suggestion prompt: %s", prompt)
+	log.Debugf("Tag suggestion prompt: %s", prompt)
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -119,7 +118,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string) (string, 
 
 	prompt := promptBuffer.String()
 
-	log.Printf("Title suggestion prompt: %s", prompt)
+	log.Debugf("Title suggestion prompt: %s", prompt)
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -183,7 +182,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 					mu.Lock()
 					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
 					mu.Unlock()
-					log.Printf("Error processing document %d: %v", documentID, err)
+					log.Errorf("Error processing document %d: %v", documentID, err)
 					return
 				}
 			}
@@ -194,7 +193,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 					mu.Lock()
 					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
 					mu.Unlock()
-					log.Printf("Error generating tags for document %d: %v", documentID, err)
+					log.Errorf("Error generating tags for document %d: %v", documentID, err)
 					return
 				}
 			}
@@ -206,6 +205,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			}
 			// Titles
 			if suggestionRequest.GenerateTitles {
+				log.Printf("Suggested title for document %d: %s", documentID, suggestedTitle)
 				suggestion.SuggestedTitle = suggestedTitle
 			} else {
 				suggestion.SuggestedTitle = doc.Title
@@ -213,6 +213,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 
 			// Tags
 			if suggestionRequest.GenerateTags {
+				log.Printf("Suggested tags for document %d: %v", documentID, suggestedTags)
 				suggestion.SuggestedTags = suggestedTags
 			} else {
 				suggestion.SuggestedTags = removeTagFromList(doc.Tags, manualTag)

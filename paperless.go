@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"image/jpeg"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -223,7 +222,7 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 	// Fetch all available tags
 	availableTags, err := c.GetAllTags(ctx)
 	if err != nil {
-		log.Printf("Error fetching available tags: %v", err)
+		log.Errorf("Error fetching available tags: %v", err)
 		return err
 	}
 
@@ -249,7 +248,7 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 				}
 				newTags = append(newTags, tagID)
 			} else {
-				log.Printf("Tag '%s' does not exist in paperless-ngx, skipping.", tagName)
+				log.Warnf("Tag '%s' does not exist in paperless-ngx, skipping.", tagName)
 			}
 		}
 
@@ -262,7 +261,7 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 		if suggestedTitle != "" {
 			updatedFields["title"] = suggestedTitle
 		} else {
-			log.Printf("No valid title found for document %d, skipping.", documentID)
+			log.Warnf("No valid title found for document %d, skipping.", documentID)
 		}
 
 		// Suggested Content
@@ -274,7 +273,7 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 		// Marshal updated fields to JSON
 		jsonData, err := json.Marshal(updatedFields)
 		if err != nil {
-			log.Printf("Error marshalling JSON for document %d: %v", documentID, err)
+			log.Errorf("Error marshalling JSON for document %d: %v", documentID, err)
 			return err
 		}
 
@@ -282,14 +281,14 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 		path := fmt.Sprintf("api/documents/%d/", documentID)
 		resp, err := c.Do(ctx, "PATCH", path, bytes.NewBuffer(jsonData))
 		if err != nil {
-			log.Printf("Error updating document %d: %v", documentID, err)
+			log.Errorf("Error updating document %d: %v", documentID, err)
 			return err
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			bodyBytes, _ := io.ReadAll(resp.Body)
-			log.Printf("Error updating document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+			log.Errorf("Error updating document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
 			return fmt.Errorf("error updating document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
 		}
 
