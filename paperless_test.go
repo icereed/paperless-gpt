@@ -203,7 +203,7 @@ func TestGetDocumentsByTags(t *testing.T) {
 	// Set mock responses
 	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
 		// Verify query parameters
-		expectedQuery := "query=tag:tag1+tag:tag2"
+		expectedQuery := "tags__name__iexact=tag1&tags__name__iexact=tag2"
 		assert.Equal(t, expectedQuery, r.URL.RawQuery)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(documentsResponse)
