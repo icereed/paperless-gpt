@@ -108,10 +108,10 @@ func (c *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, error
 func (c *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []string) ([]Document, error) {
 	tagQueries := make([]string, len(tags))
 	for i, tag := range tags {
-		tagQueries[i] = fmt.Sprintf("tag:%s", tag)
+		tagQueries[i] = fmt.Sprintf("tags__name__iexact=%s", tag)
 	}
-	searchQuery := strings.Join(tagQueries, " ")
-	path := fmt.Sprintf("api/documents/?query=%s", urlEncode(searchQuery))
+	searchQuery := strings.Join(tagQueries, "&")
+	path := fmt.Sprintf("api/documents/?%s", urlEncode(searchQuery))
 
 	resp, err := c.Do(ctx, "GET", path, nil)
 	if err != nil {
