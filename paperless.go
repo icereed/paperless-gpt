@@ -112,7 +112,6 @@ func (c *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []string)
 	}
 	searchQuery := strings.Join(tagQueries, "&")
 	path := fmt.Sprintf("api/documents/?%s", urlEncode(searchQuery))
-        log.Printf("Get URL: %s", path)
 
 	resp, err := c.Do(ctx, "GET", path, nil)
 	if err != nil {
