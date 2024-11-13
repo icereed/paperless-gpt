@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
@@ -81,14 +82,26 @@ func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte) (string, erro
 
 	prompt := promptBuffer.String()
 
+	// If not OpenAI then use binary part for image, otherwise, use the ImageURL part with encoding from https://platform.openai.com/docs/guides/vision
+	var parts []llms.ContentPart
+	if strings.ToLower(visionLlmProvider) != "openai" {
+		parts = []llms.ContentPart{
+			llms.BinaryPart("image/jpeg", jpegBytes),
+			llms.TextPart(prompt),
+		}
+	} else {
+		base64Image := base64.StdEncoding.EncodeToString(jpegBytes)
+		parts = []llms.ContentPart{
+			llms.ImageURLPart(fmt.Sprintf("data:image/jpeg;base64,%s", base64Image)),
+			llms.TextPart(prompt),
+		}
+	}
+
 	// Convert the image to text
 	completion, err := app.VisionLLM.GenerateContent(ctx, []llms.MessageContent{
 		{
-			Parts: []llms.ContentPart{
-				llms.BinaryPart("image/jpeg", jpegBytes),
-				llms.TextPart(prompt),
-			},
-			Role: llms.ChatMessageTypeHuman,
+			Parts: parts,
+			Role:  llms.ChatMessageTypeHuman,
 		},
 	})
 	if err != nil {

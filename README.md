@@ -75,8 +75,8 @@ services:
       OPENAI_API_KEY: 'your_openai_api_key' # Required if using OpenAI
       LLM_LANGUAGE: 'English' # Optional, default is 'English'
       OLLAMA_HOST: 'http://host.docker.internal:11434' # If using Ollama
-      VISION_LLM_PROVIDER: 'ollama' # Optional, for OCR
-      VISION_LLM_MODEL: 'minicpm-v' # Optional, for OCR
+      VISION_LLM_PROVIDER: 'ollama' # Optional (for OCR) - ollama or openai
+      VISION_LLM_MODEL: 'minicpm-v' # Optional (for OCR) - minicpm-v, for example for ollama, gpt-4o for openai
       LOG_LEVEL: 'info' # Optional or 'debug', 'warn', 'error'
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
