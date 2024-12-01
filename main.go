@@ -17,6 +17,7 @@ import (
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
+	"gorm.io/gorm"
 )
 
 // Global Variables and Constants
@@ -73,6 +74,7 @@ Be very selective and only choose the most relevant tags since too many tags wil
 // App struct to hold dependencies
 type App struct {
 	Client    *PaperlessClient
+	Database  *gorm.DB
 	LLM       llms.Model
 	VisionLLM llms.Model
 }
@@ -86,6 +88,9 @@ func main() {
 
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
+
+	// Initialize Database
+	database := InitializeDB()
 
 	// Load Templates
 	loadTemplates()
@@ -105,6 +110,7 @@ func main() {
 	// Initialize App with dependencies
 	app := &App{
 		Client:    client,
+		Database:  database,
 		LLM:       llm,
 		VisionLLM: visionLlm,
 	}

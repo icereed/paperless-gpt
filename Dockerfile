@@ -22,7 +22,7 @@ RUN go mod download
 COPY . .
 
 # Build the Go binary with the musl build tag
-RUN go build -tags musl -o paperless-gpt .
+RUN GOMAXPROCS=4 go build -tags musl -o paperless-gpt .
 
 # Stage 2: Build Vite frontend
 FROM node:20-alpine AS frontend
