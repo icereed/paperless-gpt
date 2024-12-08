@@ -171,6 +171,20 @@ func main() {
 			enabled := isOcrEnabled()
 			c.JSON(http.StatusOK, gin.H{"enabled": enabled})
 		})
+
+		// Local db actions
+		api.GET("/modifications", app.getModificationHistoryHandler)
+		api.POST("/undo-modification/:id", app.undoModificationHandler)
+
+		// Get public Paperless environment (as set in environment variables)
+		api.GET("/paperless-url", func(c *gin.Context) {
+			baseUrl := os.Getenv("PAPERLESS_PUBLIC_URL")
+			if baseUrl == "" {
+				baseUrl = os.Getenv("PAPERLESS_BASE_URL")
+			}
+			baseUrl = strings.TrimRight(baseUrl, "/")
+			c.JSON(http.StatusOK, gin.H{"url": baseUrl})
+		})
 	}
 
 	// Serve static files for the frontend under /assets
@@ -274,7 +288,7 @@ func (app *App) processAutoTagDocuments() (int, error) {
 		return 0, fmt.Errorf("error generating suggestions: %w", err)
 	}
 
-	err = app.Client.UpdateDocuments(ctx, suggestions)
+	err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 	if err != nil {
 		return 0, fmt.Errorf("error updating documents: %w", err)
 	}
