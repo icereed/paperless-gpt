@@ -18,11 +18,14 @@ COPY go.mod go.sum ./
 # Download dependencies
 RUN go mod download
 
-# Copy the rest of the application code
-COPY . .
+# Pre-compile go-sqlite3 to avoid doing this every time
+RUN CGO_ENABLED=1 go build -tags musl -o /dev/null github.com/mattn/go-sqlite3
 
-# Build the Go binary with the musl build tag
-RUN go build -tags musl -o paperless-gpt .
+# Now copy the actual source files
+COPY *.go .
+
+# Build the binary using caching for both go modules and build cache
+RUN CGO_ENABLED=1 GOMAXPROCS=$(nproc) go build -tags musl -o paperless-gpt .
 
 # Stage 2: Build Vite frontend
 FROM node:20-alpine AS frontend

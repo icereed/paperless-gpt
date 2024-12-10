@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -138,7 +139,7 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 		return
 	}
 
-	err := app.Client.UpdateDocuments(ctx, documents)
+	err := app.Client.UpdateDocuments(ctx, documents, app.Database, false)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error updating documents: %v", err)})
 		log.Errorf("Error updating documents: %v", err)
@@ -237,8 +238,94 @@ func (app *App) getDocumentHandler() gin.HandlerFunc {
 		document, err := app.Client.GetDocument(c, parsedID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			log.Errorf("Error fetching document: %v", err)
 			return
 		}
 		c.JSON(http.StatusOK, document)
 	}
+}
+
+// Section for local-db actions
+
+func (app *App) getModificationHistoryHandler(c *gin.Context) {
+	modifications, err := GetAllModifications(app.Database)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve modification history"})
+		log.Errorf("Failed to retrieve modification history: %v", err)
+		return
+	}
+	c.JSON(http.StatusOK, modifications)
+}
+
+func (app *App) undoModificationHandler(c *gin.Context) {
+	id := c.Param("id")
+	modID, err := strconv.Atoi(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid modification ID"})
+		log.Errorf("Invalid modification ID: %v", err)
+		return
+	}
+
+	modification, err := GetModification(app.Database, uint(modID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve modification"})
+		log.Errorf("Failed to retrieve modification: %v", err)
+		return
+	}
+
+	if modification.Undone {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Modification has already been undone"})
+		log.Errorf("Modification has already been undone: %v", id)
+		return
+	}
+
+	// Ok, we're actually doing the update:
+	ctx := c.Request.Context()
+
+	// Make the document suggestions for UpdateDocuments
+	var suggestion DocumentSuggestion
+	suggestion.ID = int(modification.DocumentID)
+	suggestion.OriginalDocument, err = app.Client.GetDocument(ctx, int(modification.DocumentID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve original document"})
+		log.Errorf("Failed to retrieve original document: %v", err)
+		return
+	}
+	switch modification.ModField {
+	case "title":
+		suggestion.SuggestedTitle = modification.PreviousValue
+	case "tags":
+		var tags []string
+		err := json.Unmarshal([]byte(modification.PreviousValue), &tags)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unmarshal previous tags"})
+			log.Errorf("Failed to unmarshal previous tags: %v", err)
+			return
+		}
+		suggestion.SuggestedTags = tags
+	case "content":
+		suggestion.SuggestedContent = modification.PreviousValue
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid modification field"})
+		log.Errorf("Invalid modification field: %v", modification.ModField)
+		return
+	}
+
+	// Update the document
+	err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, app.Database, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update document"})
+		log.Errorf("Failed to update document: %v", err)
+		return
+	}
+
+	// Successful, so set modification as undone
+	err = SetModificationUndone(app.Database, modification)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to mark modification as undone"})
+		return
+	}
+
+	// Else all was ok
+	c.Status(http.StatusOK)
 }
