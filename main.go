@@ -17,6 +17,7 @@ import (
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
+	"gorm.io/gorm"
 )
 
 // Global Variables and Constants
@@ -73,6 +74,7 @@ Be very selective and only choose the most relevant tags since too many tags wil
 // App struct to hold dependencies
 type App struct {
 	Client    *PaperlessClient
+	Database  *gorm.DB
 	LLM       llms.Model
 	VisionLLM llms.Model
 }
@@ -86,6 +88,9 @@ func main() {
 
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
+
+	// Initialize Database
+	database := InitializeDB()
 
 	// Load Templates
 	loadTemplates()
@@ -105,6 +110,7 @@ func main() {
 	// Initialize App with dependencies
 	app := &App{
 		Client:    client,
+		Database:  database,
 		LLM:       llm,
 		VisionLLM: visionLlm,
 	}
@@ -164,6 +170,20 @@ func main() {
 		api.GET("/experimental/ocr", func(c *gin.Context) {
 			enabled := isOcrEnabled()
 			c.JSON(http.StatusOK, gin.H{"enabled": enabled})
+		})
+
+		// Local db actions
+		api.GET("/modifications", app.getModificationHistoryHandler)
+		api.POST("/undo-modification/:id", app.undoModificationHandler)
+
+		// Get public Paperless environment (as set in environment variables)
+		api.GET("/paperless-url", func(c *gin.Context) {
+			baseUrl := os.Getenv("PAPERLESS_PUBLIC_URL")
+			if baseUrl == "" {
+				baseUrl = os.Getenv("PAPERLESS_BASE_URL")
+			}
+			baseUrl = strings.TrimRight(baseUrl, "/")
+			c.JSON(http.StatusOK, gin.H{"url": baseUrl})
 		})
 	}
 
@@ -268,7 +288,7 @@ func (app *App) processAutoTagDocuments() (int, error) {
 		return 0, fmt.Errorf("error generating suggestions: %w", err)
 	}
 
-	err = app.Client.UpdateDocuments(ctx, suggestions)
+	err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 	if err != nil {
 		return 0, fmt.Errorf("error updating documents: %w", err)
 	}
