@@ -80,6 +80,7 @@ services:
       VISION_LLM_MODEL: 'minicpm-v' # Optional (for OCR) - minicpm-v, for example for ollama, gpt-4o for openai
       LOG_LEVEL: 'info' # Optional or 'debug', 'warn', 'error'
       LISTEN_INTERFACE: '127.0.0.1:8080' # Optional, default is ':8080'
+      WEBUI_PATH: '/usr/share/paperless-gpt/webui' # Optional, default is './web-app/dist'
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
     ports:
@@ -149,6 +150,7 @@ If you prefer to run the application manually:
 | `VISION_LLM_MODEL`    | The model name to use for OCR (e.g., `minicpm-v`).                                                                                                        | No       |
 | `LOG_LEVEL`           | The log level for the application (`info`, `debug`, `warn`, `error`). Default is `info`.                                                                  | No       |
 | `LISTEN_INTERFACE`    | The interface paperless-gpt listens to. Default is `:8080`                                                                                                | No       |
+| `WEBUI_PATH`          | The path to load static content from. Default is `./web-app/dist`                                                                                         | No       |
 
 **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
 
