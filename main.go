@@ -37,6 +37,7 @@ var (
 	visionLlmProvider = os.Getenv("VISION_LLM_PROVIDER")
 	visionLlmModel    = os.Getenv("VISION_LLM_MODEL")
 	logLevel          = strings.ToLower(os.Getenv("LOG_LEVEL"))
+	listenInterface   = os.Getenv("LISTEN_INTERFACE")
 
 	// Templates
 	titleTemplate *template.Template
@@ -200,8 +201,11 @@ func main() {
 	numWorkers := 1 // Number of workers to start
 	startWorkerPool(app, numWorkers)
 
-	log.Infoln("Server started on port :8080")
-	if err := router.Run(":8080"); err != nil {
+	if listenInterface == "" {
+		listenInterface = ":8080"
+	}
+	log.Infoln("Server started on interface", listenInterface)
+	if err := router.Run(listenInterface); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
 	}
 }
