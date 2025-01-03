@@ -38,6 +38,7 @@ var (
 	visionLlmModel    = os.Getenv("VISION_LLM_MODEL")
 	logLevel          = strings.ToLower(os.Getenv("LOG_LEVEL"))
 	listenInterface   = os.Getenv("LISTEN_INTERFACE")
+	webuiPath         = os.Getenv("WEBUI_PATH")
 
 	// Templates
 	titleTemplate *template.Template
@@ -188,13 +189,16 @@ func main() {
 		})
 	}
 
+	if webuiPath == "" {
+		webuiPath = "./web-app/dist"
+	}
 	// Serve static files for the frontend under /assets
-	router.StaticFS("/assets", gin.Dir("./web-app/dist/assets", true))
-	router.StaticFile("/vite.svg", "./web-app/dist/vite.svg")
+	router.StaticFS("/assets", gin.Dir(webuiPath+"/assets", true))
+	router.StaticFile("/vite.svg", webuiPath+"/vite.svg")
 
 	// Catch-all route for serving the frontend
 	router.NoRoute(func(c *gin.Context) {
-		c.File("./web-app/dist/index.html")
+		c.File(webuiPath + "/index.html")
 	})
 
 	// Start OCR worker pool
