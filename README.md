@@ -79,6 +79,7 @@ services:
       VISION_LLM_PROVIDER: 'ollama' # Optional (for OCR) - ollama or openai
       VISION_LLM_MODEL: 'minicpm-v' # Optional (for OCR) - minicpm-v, for example for ollama, gpt-4o for openai
       LOG_LEVEL: 'info' # Optional or 'debug', 'warn', 'error'
+      LISTEN_INTERFACE: '127.0.0.1:8080' # Optional, default is ':8080'
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
     ports:
@@ -147,6 +148,7 @@ If you prefer to run the application manually:
 | `VISION_LLM_PROVIDER` | The vision LLM provider to use for OCR (`openai` or `ollama`).                                                                                            | No       |
 | `VISION_LLM_MODEL`    | The model name to use for OCR (e.g., `minicpm-v`).                                                                                                        | No       |
 | `LOG_LEVEL`           | The log level for the application (`info`, `debug`, `warn`, `error`). Default is `info`.                                                                  | No       |
+| `LISTEN_INTERFACE`    | The interface paperless-gpt listens to. Default is `:8080`                                                                                                | No       |
 
 **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
 
