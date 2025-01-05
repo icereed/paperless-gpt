@@ -149,6 +149,8 @@ If you prefer to run the application manually:
 | `VISION_LLM_MODEL`    | The model name to use for OCR (e.g., `minicpm-v`).                                                                                                        | No       |
 | `LOG_LEVEL`           | The log level for the application (`info`, `debug`, `warn`, `error`). Default is `info`.                                                                  | No       |
 | `LISTEN_INTERFACE`    | The interface paperless-gpt listens to. Default is `:8080`                                                                                                | No       |
+| `AUTO_GENERATE_TITLE` | Enable/disable title generation when automatically applying suggestions with `paperless-gpt-auto`. Default is `true`                                      | No       |
+| `AUTO_GENERATE_TAGS`  | Enable/disable tag generation when automatically applying suggestions with `paperless-gpt-auto`. Default is `true`                                        | No       |
 
 **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
 
