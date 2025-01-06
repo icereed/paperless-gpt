@@ -273,6 +273,7 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 
 		// remove autoTag to prevent infinite loop (even if it is in the original tags)
 		originalTags = removeTagFromList(originalTags, autoTag)
+		originalTags = removeTagFromList(originalTags, autoOcrTag)
 
 		if len(tags) == 0 {
 			tags = originalTags

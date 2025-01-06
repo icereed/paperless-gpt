@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -125,38 +123,13 @@ func processJob(app *App, job *Job) {
 
 	ctx := context.Background()
 
-	// Download images of the document
-	imagePaths, err := app.Client.DownloadDocumentAsImages(ctx, job.DocumentID)
+	fullOcrText, err := app.ProcessDocumentOCR(ctx, job.DocumentID)
 	if err != nil {
-		logger.Infof("Error downloading document images for job %s: %v", job.ID, err)
-		jobStore.updateJobStatus(job.ID, "failed", fmt.Sprintf("Error downloading document images: %v", err))
+		logger.Errorf("Error processing document OCR for job %s: %v", job.ID, err)
+		jobStore.updateJobStatus(job.ID, "failed", err.Error())
 		return
 	}
 
-	var ocrTexts []string
-	for i, imagePath := range imagePaths {
-		imageContent, err := os.ReadFile(imagePath)
-		if err != nil {
-			logger.Errorf("Error reading image file for job %s: %v", job.ID, err)
-			jobStore.updateJobStatus(job.ID, "failed", fmt.Sprintf("Error reading image file: %v", err))
-			return
-		}
-
-		ocrText, err := app.doOCRViaLLM(ctx, imageContent)
-		if err != nil {
-			logger.Errorf("Error performing OCR for job %s: %v", job.ID, err)
-			jobStore.updateJobStatus(job.ID, "failed", fmt.Sprintf("Error performing OCR: %v", err))
-			return
-		}
-
-		ocrTexts = append(ocrTexts, ocrText)
-		jobStore.updatePagesDone(job.ID, i+1) // Update PagesDone after each page is processed
-	}
-
-	// Combine the OCR texts
-	fullOcrText := strings.Join(ocrTexts, "\n\n")
-
-	// Update job status and result
 	jobStore.updateJobStatus(job.ID, "completed", fullOcrText)
 	logger.Infof("Job completed: %s", job.ID)
 }
