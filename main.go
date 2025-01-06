@@ -39,6 +39,8 @@ var (
 	logLevel          = strings.ToLower(os.Getenv("LOG_LEVEL"))
 	listenInterface   = os.Getenv("LISTEN_INTERFACE")
 	webuiPath         = os.Getenv("WEBUI_PATH")
+	autoGenerateTitle = os.Getenv("AUTO_GENERATE_TITLE")
+	autoGenerateTags  = os.Getenv("AUTO_GENERATE_TAGS")
 
 	// Templates
 	titleTemplate *template.Template
@@ -287,8 +289,8 @@ func (app *App) processAutoTagDocuments() (int, error) {
 
 	suggestionRequest := GenerateSuggestionsRequest{
 		Documents:      documents,
-		GenerateTitles: true,
-		GenerateTags:   true,
+		GenerateTitles: strings.ToLower(autoGenerateTitle) != "false",
+		GenerateTags:   strings.ToLower(autoGenerateTags) != "false",
 	}
 
 	suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest)
