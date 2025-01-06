@@ -30,8 +30,10 @@ var (
 	paperlessBaseURL  = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken = os.Getenv("PAPERLESS_API_TOKEN")
 	openaiAPIKey      = os.Getenv("OPENAI_API_KEY")
-	manualTag         = "paperless-gpt"
-	autoTag           = "paperless-gpt-auto"
+	manualTag         = os.Getenv("MANUAL_TAG")
+	autoTag           = os.Getenv("AUTO_TAG")
+	manualOcrTag      = os.Getenv("MANUAL_OCR_TAG") // Not used yet
+	autoOcrTag        = os.Getenv("AUTO_OCR_TAG")
 	llmProvider       = os.Getenv("LLM_PROVIDER")
 	llmModel          = os.Getenv("LLM_MODEL")
 	visionLlmProvider = os.Getenv("VISION_LLM_PROVIDER")
@@ -72,7 +74,7 @@ Please concisely select the {{.Language}} tags from the list above that best des
 Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
 `
 
-	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format.`
+	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
 )
 
 // App struct to hold dependencies
@@ -85,7 +87,7 @@ type App struct {
 
 func main() {
 	// Validate Environment Variables
-	validateEnvVars()
+	validateOrDefaultEnvVars()
 
 	// Initialize logrus logger
 	initLogger()
@@ -127,7 +129,23 @@ func main() {
 
 		backoffDuration := minBackoffDuration
 		for {
-			processedCount, err := app.processAutoTagDocuments()
+			processedCount, err := func() (int, error) {
+				count := 0
+				if isOcrEnabled() {
+					ocrCount, err := app.processAutoOcrTagDocuments()
+					if err != nil {
+						return 0, fmt.Errorf("error in processAutoOcrTagDocuments: %w", err)
+					}
+					count += ocrCount
+				}
+				autoCount, err := app.processAutoTagDocuments()
+				if err != nil {
+					return 0, fmt.Errorf("error in processAutoTagDocuments: %w", err)
+				}
+				count += autoCount
+				return count, nil
+			}()
+
 			if err != nil {
 				log.Errorf("Error in processAutoTagDocuments: %v", err)
 				time.Sleep(backoffDuration)
@@ -242,8 +260,32 @@ func isOcrEnabled() bool {
 	return visionLlmModel != "" && visionLlmProvider != ""
 }
 
-// validateEnvVars ensures all necessary environment variables are set
-func validateEnvVars() {
+// validateOrDefaultEnvVars ensures all necessary environment variables are set
+func validateOrDefaultEnvVars() {
+	if manualTag == "" {
+		manualTag = "paperless-gpt"
+	}
+	fmt.Printf("Using %s as manual tag\n", manualTag)
+
+	if autoTag == "" {
+		autoTag = "paperless-gpt-auto"
+	}
+	fmt.Printf("Using %s as auto tag\n", autoTag)
+
+	if manualOcrTag == "" {
+		manualOcrTag = "paperless-gpt-ocr"
+	}
+	if isOcrEnabled() {
+		fmt.Printf("Using %s as manual OCR tag\n", manualOcrTag)
+	}
+
+	if autoOcrTag == "" {
+		autoOcrTag = "paperless-gpt-ocr-auto"
+	}
+	if isOcrEnabled() {
+		fmt.Printf("Using %s as auto OCR tag\n", autoOcrTag)
+	}
+
 	if paperlessBaseURL == "" {
 		log.Fatal("Please set the PAPERLESS_BASE_URL environment variable.")
 	}
@@ -304,6 +346,44 @@ func (app *App) processAutoTagDocuments() (int, error) {
 	}
 
 	return len(documents), nil
+}
+
+// processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
+func (app *App) processAutoOcrTagDocuments() (int, error) {
+	ctx := context.Background()
+
+	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoOcrTag})
+	if err != nil {
+		return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
+	}
+
+	if len(documents) == 0 {
+		log.Debugf("No documents with tag %s found", autoOcrTag)
+		return 0, nil // No documents to process
+	}
+
+	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoOcrTag)
+
+	documents = documents[:1] // Process only one document at a time
+
+	ocrContent, err := app.ProcessDocumentOCR(ctx, documents[0].ID)
+	if err != nil {
+		return 0, fmt.Errorf("error processing document OCR: %w", err)
+	}
+	log.Debugf("OCR content for document %d: %s", documents[0].ID, ocrContent)
+
+	err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+		{
+			ID:               documents[0].ID,
+			OriginalDocument: documents[0],
+			SuggestedContent: ocrContent,
+		},
+	}, app.Database, false)
+	if err != nil {
+		return 0, fmt.Errorf("error updating documents: %w", err)
+	}
+
+	return 1, nil // Processed one document
 }
 
 // removeTagFromList removes a specific tag from a list of tags

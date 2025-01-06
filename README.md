@@ -71,6 +71,8 @@ services:
       PAPERLESS_BASE_URL: 'http://paperless-ngx:8000'
       PAPERLESS_API_TOKEN: 'your_paperless_api_token'
       PAPERLESS_PUBLIC_URL: 'http://paperless.mydomain.com' # Optional, your public link to access Paperless
+      MANUAL_TAG: 'paperless-gpt' # Optional, default is 'paperless-gpt'
+      AUTO_TAG: 'paperless-gpt-auto' # Optional, default is 'paperless-gpt-auto'
       LLM_PROVIDER: 'openai' # or 'ollama'
       LLM_MODEL: 'gpt-4o'     # or 'llama2'
       OPENAI_API_KEY: 'your_openai_api_key' # Required if using OpenAI
@@ -78,6 +80,7 @@ services:
       OLLAMA_HOST: 'http://host.docker.internal:11434' # If using Ollama
       VISION_LLM_PROVIDER: 'ollama' # Optional (for OCR) - ollama or openai
       VISION_LLM_MODEL: 'minicpm-v' # Optional (for OCR) - minicpm-v, for example for ollama, gpt-4o for openai
+      AUTO_OCR_TAG: 'paperless-gpt-ocr-auto' # Optional, default is 'paperless-gpt-ocr-auto'
       LOG_LEVEL: 'info' # Optional or 'debug', 'warn', 'error'
       LISTEN_INTERFACE: '127.0.0.1:8080' # Optional, default is ':8080'
       WEBUI_PATH: '/usr/share/paperless-gpt/webui' # Optional, default is './web-app/dist'
@@ -141,6 +144,8 @@ If you prefer to run the application manually:
 | `PAPERLESS_BASE_URL`  | The base URL of your paperless-ngx instance (e.g., `http://paperless-ngx:8000`).                                                                          | Yes      |
 | `PAPERLESS_API_TOKEN` | API token for accessing paperless-ngx. You can generate one in the paperless-ngx admin interface.                                                         | Yes      |
 | `PAPERLESS_PUBLIC_URL` | The public URL for your Paperless instance, if it is different to your `PAPERLESS_BASE_URL` - say if you are running in Docker Compose | No |
+| `MANUAL_TAG`          | The tag to use for manually processing documents. Default is `paperless-gpt`.                                                                             | No       |
+| `AUTO_TAG`            | The tag to use for automatically processing documents. Default is `paperless-gpt-auto`.                                                                   | No       |
 | `LLM_PROVIDER`        | The LLM provider to use (`openai` or `ollama`).                                                                                                           | Yes      |
 | `LLM_MODEL`           | The model name to use (e.g., `gpt-4o`, `gpt-3.5-turbo`, `llama2`).                                                                                        | Yes      |
 | `OPENAI_API_KEY`      | Your OpenAI API key. Required if using OpenAI as the LLM provider.                                                                                        | Cond.    |
@@ -148,6 +153,7 @@ If you prefer to run the application manually:
 | `OLLAMA_HOST`         | The URL of the Ollama server (e.g., `http://host.docker.internal:11434`). Useful if using Ollama. Default is `http://127.0.0.1:11434`.                    | No       |
 | `VISION_LLM_PROVIDER` | The vision LLM provider to use for OCR (`openai` or `ollama`).                                                                                            | No       |
 | `VISION_LLM_MODEL`    | The model name to use for OCR (e.g., `minicpm-v`).                                                                                                        | No       |
+| `AUTO_OCR_TAG`        | The tag to use for automatically processing documents with OCR. Default is `paperless-gpt-ocr-auto`.                                                      | No       |
 | `LOG_LEVEL`           | The log level for the application (`info`, `debug`, `warn`, `error`). Default is `info`.                                                                  | No       |
 | `LISTEN_INTERFACE`    | The interface paperless-gpt listens to. Default is `:8080`                                                                                                | No       |
 | `WEBUI_PATH`          | The path to load static content from. Default is `./web-app/dist`                                                                                         | No       |
