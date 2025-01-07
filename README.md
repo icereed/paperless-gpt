@@ -83,7 +83,6 @@ services:
       AUTO_OCR_TAG: 'paperless-gpt-ocr-auto' # Optional, default is 'paperless-gpt-ocr-auto'
       LOG_LEVEL: 'info' # Optional or 'debug', 'warn', 'error'
       LISTEN_INTERFACE: '127.0.0.1:8080' # Optional, default is ':8080'
-      WEBUI_PATH: '/usr/share/paperless-gpt/webui' # Optional, default is './web-app/dist'
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
     ports:
