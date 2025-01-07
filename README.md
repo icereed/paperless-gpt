@@ -82,7 +82,6 @@ services:
       VISION_LLM_MODEL: 'minicpm-v' # Optional (for OCR) - minicpm-v, for example for ollama, gpt-4o for openai
       AUTO_OCR_TAG: 'paperless-gpt-ocr-auto' # Optional, default is 'paperless-gpt-ocr-auto'
       LOG_LEVEL: 'info' # Optional or 'debug', 'warn', 'error'
-      LISTEN_INTERFACE: '127.0.0.1:8080' # Optional, default is ':8080'
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
     ports:
