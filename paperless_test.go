@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 // Helper struct to hold common test data and methods
@@ -22,6 +24,7 @@ type testEnv struct {
 	client        *PaperlessClient
 	requestCount  int
 	mockResponses map[string]http.HandlerFunc
+	db            *gorm.DB
 }
 
 // newTestEnv initializes a new test environment
@@ -30,6 +33,11 @@ func newTestEnv(t *testing.T) *testEnv {
 		t:             t,
 		mockResponses: make(map[string]http.HandlerFunc),
 	}
+
+	// Initialize test database
+	db, err := InitializeTestDB()
+	require.NoError(t, err)
+	env.db = db
 
 	// Create a mock server with a handler that dispatches based on URL path
 	env.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +56,22 @@ func newTestEnv(t *testing.T) *testEnv {
 	env.client.HTTPClient = env.server.Client()
 
 	return env
+}
+
+func InitializeTestDB() (*gorm.DB, error) {
+	// Use in-memory SQLite for testing
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+
+	// Migrate schema
+	err = db.AutoMigrate(&ModificationHistory{})
+	if err != nil {
+		return nil, err
+	}
+
+	return db, nil
 }
 
 // teardown closes the mock server
@@ -203,7 +227,7 @@ func TestGetDocumentsByTags(t *testing.T) {
 	// Set mock responses
 	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
 		// Verify query parameters
-		expectedQuery := "query=tag:tag1+tag:tag2&page_size=25"
+		expectedQuery := "tags__name__iexact=tag1&tags__name__iexact=tag2&page_size=25"
 		assert.Equal(t, expectedQuery, r.URL.RawQuery)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(documentsResponse)
@@ -327,7 +351,7 @@ func TestUpdateDocuments(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	err := env.client.UpdateDocuments(ctx, documents)
+	err := env.client.UpdateDocuments(ctx, documents, env.db, false)
 	require.NoError(t, err)
 }
 

@@ -17,6 +17,7 @@ import (
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
+	"gorm.io/gorm"
 )
 
 // Global Variables and Constants
@@ -26,17 +27,24 @@ var (
 	log = logrus.New()
 
 	// Environment Variables
-	paperlessBaseURL       = os.Getenv("PAPERLESS_BASE_URL")
-	paperlessAPIToken      = os.Getenv("PAPERLESS_API_TOKEN")
-	openaiAPIKey           = os.Getenv("OPENAI_API_KEY")
-	manualTag              = "paperless-gpt"
-	autoTag                = "paperless-gpt-auto"
-	llmProvider            = os.Getenv("LLM_PROVIDER")
-	llmModel               = os.Getenv("LLM_MODEL")
-	visionLlmProvider      = os.Getenv("VISION_LLM_PROVIDER")
-	visionLlmModel         = os.Getenv("VISION_LLM_MODEL")
-	logLevel               = strings.ToLower(os.Getenv("LOG_LEVEL"))
-	correspondentBlackList = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
+	correspondentBlackList     = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
+	paperlessBaseURL           = os.Getenv("PAPERLESS_BASE_URL")
+	paperlessAPIToken          = os.Getenv("PAPERLESS_API_TOKEN")
+	openaiAPIKey               = os.Getenv("OPENAI_API_KEY")
+	manualTag                  = os.Getenv("MANUAL_TAG")
+	autoTag                    = os.Getenv("AUTO_TAG")
+	manualOcrTag               = os.Getenv("MANUAL_OCR_TAG") // Not used yet
+	autoOcrTag                 = os.Getenv("AUTO_OCR_TAG")
+	llmProvider                = os.Getenv("LLM_PROVIDER")
+	llmModel                   = os.Getenv("LLM_MODEL")
+	visionLlmProvider          = os.Getenv("VISION_LLM_PROVIDER")
+	visionLlmModel             = os.Getenv("VISION_LLM_MODEL")
+	logLevel                   = strings.ToLower(os.Getenv("LOG_LEVEL"))
+	listenInterface            = os.Getenv("LISTEN_INTERFACE")
+	webuiPath                  = os.Getenv("WEBUI_PATH")
+	autoGenerateTitle          = os.Getenv("AUTO_GENERATE_TITLE")
+	autoGenerateTags           = os.Getenv("AUTO_GENERATE_TAGS")
+	autoGenerateCorrespondents = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
 
 	// Templates
 	titleTemplate         *template.Template
@@ -68,7 +76,6 @@ Content:
 Please concisely select the {{.Language}} tags from the list above that best describe the document.
 Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
 `
-
 	defaultCorrespondentTemplate = `I will provide you with the content of a document. Your task is to suggest a correspondent that is most relevant to the document.
 
 Correspondents are the senders of documents that reach you. In the other direction, correspondents are the recipients of documents that you send.
@@ -96,26 +103,29 @@ The content is likely in {{.Language}}.
 Document Content:
 {{.Content}}
 `
-
-	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format.`
+	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
 )
 
 // App struct to hold dependencies
 type App struct {
 	Client    *PaperlessClient
+	Database  *gorm.DB
 	LLM       llms.Model
 	VisionLLM llms.Model
 }
 
 func main() {
 	// Validate Environment Variables
-	validateEnvVars()
+	validateOrDefaultEnvVars()
 
 	// Initialize logrus logger
 	initLogger()
 
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
+
+	// Initialize Database
+	database := InitializeDB()
 
 	// Load Templates
 	loadTemplates()
@@ -135,6 +145,7 @@ func main() {
 	// Initialize App with dependencies
 	app := &App{
 		Client:    client,
+		Database:  database,
 		LLM:       llm,
 		VisionLLM: visionLlm,
 	}
@@ -147,7 +158,23 @@ func main() {
 
 		backoffDuration := minBackoffDuration
 		for {
-			processedCount, err := app.processAutoTagDocuments()
+			processedCount, err := func() (int, error) {
+				count := 0
+				if isOcrEnabled() {
+					ocrCount, err := app.processAutoOcrTagDocuments()
+					if err != nil {
+						return 0, fmt.Errorf("error in processAutoOcrTagDocuments: %w", err)
+					}
+					count += ocrCount
+				}
+				autoCount, err := app.processAutoTagDocuments()
+				if err != nil {
+					return 0, fmt.Errorf("error in processAutoTagDocuments: %w", err)
+				}
+				count += autoCount
+				return count, nil
+			}()
+
 			if err != nil {
 				log.Errorf("Error in processAutoTagDocuments: %v", err)
 				time.Sleep(backoffDuration)
@@ -195,23 +222,43 @@ func main() {
 			enabled := isOcrEnabled()
 			c.JSON(http.StatusOK, gin.H{"enabled": enabled})
 		})
+
+		// Local db actions
+		api.GET("/modifications", app.getModificationHistoryHandler)
+		api.POST("/undo-modification/:id", app.undoModificationHandler)
+
+		// Get public Paperless environment (as set in environment variables)
+		api.GET("/paperless-url", func(c *gin.Context) {
+			baseUrl := os.Getenv("PAPERLESS_PUBLIC_URL")
+			if baseUrl == "" {
+				baseUrl = os.Getenv("PAPERLESS_BASE_URL")
+			}
+			baseUrl = strings.TrimRight(baseUrl, "/")
+			c.JSON(http.StatusOK, gin.H{"url": baseUrl})
+		})
 	}
 
+	if webuiPath == "" {
+		webuiPath = "./web-app/dist"
+	}
 	// Serve static files for the frontend under /assets
-	router.StaticFS("/assets", gin.Dir("./web-app/dist/assets", true))
-	router.StaticFile("/vite.svg", "./web-app/dist/vite.svg")
+	router.StaticFS("/assets", gin.Dir(webuiPath+"/assets", true))
+	router.StaticFile("/vite.svg", webuiPath+"/vite.svg")
 
 	// Catch-all route for serving the frontend
 	router.NoRoute(func(c *gin.Context) {
-		c.File("./web-app/dist/index.html")
+		c.File(webuiPath + "/index.html")
 	})
 
 	// Start OCR worker pool
 	numWorkers := 1 // Number of workers to start
 	startWorkerPool(app, numWorkers)
 
-	log.Infoln("Server started on port :8080")
-	if err := router.Run(":8080"); err != nil {
+	if listenInterface == "" {
+		listenInterface = ":8080"
+	}
+	log.Infoln("Server started on interface", listenInterface)
+	if err := router.Run(listenInterface); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
 	}
 }
@@ -242,8 +289,32 @@ func isOcrEnabled() bool {
 	return visionLlmModel != "" && visionLlmProvider != ""
 }
 
-// validateEnvVars ensures all necessary environment variables are set
-func validateEnvVars() {
+// validateOrDefaultEnvVars ensures all necessary environment variables are set
+func validateOrDefaultEnvVars() {
+	if manualTag == "" {
+		manualTag = "paperless-gpt"
+	}
+	fmt.Printf("Using %s as manual tag\n", manualTag)
+
+	if autoTag == "" {
+		autoTag = "paperless-gpt-auto"
+	}
+	fmt.Printf("Using %s as auto tag\n", autoTag)
+
+	if manualOcrTag == "" {
+		manualOcrTag = "paperless-gpt-ocr"
+	}
+	if isOcrEnabled() {
+		fmt.Printf("Using %s as manual OCR tag\n", manualOcrTag)
+	}
+
+	if autoOcrTag == "" {
+		autoOcrTag = "paperless-gpt-ocr-auto"
+	}
+	if isOcrEnabled() {
+		fmt.Printf("Using %s as auto OCR tag\n", autoOcrTag)
+	}
+
 	if paperlessBaseURL == "" {
 		log.Fatal("Please set the PAPERLESS_BASE_URL environment variable.")
 	}
@@ -287,9 +358,9 @@ func (app *App) processAutoTagDocuments() (int, error) {
 
 	suggestionRequest := GenerateSuggestionsRequest{
 		Documents:              documents,
-		GenerateTitles:         true,
-		GenerateTags:           true,
-		GenerateCorrespondents: true,
+		GenerateTitles:         strings.ToLower(autoGenerateTitle) != "false",
+		GenerateTags:           strings.ToLower(autoGenerateTags) != "false",
+		GenerateCorrespondents: strings.ToLower(autoGenerateCorrespondents) != "false",
 	}
 
 	suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest)
@@ -297,12 +368,50 @@ func (app *App) processAutoTagDocuments() (int, error) {
 		return 0, fmt.Errorf("error generating suggestions: %w", err)
 	}
 
-	err = app.Client.UpdateDocuments(ctx, suggestions)
+	err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 	if err != nil {
 		return 0, fmt.Errorf("error updating documents: %w", err)
 	}
 
 	return len(documents), nil
+}
+
+// processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
+func (app *App) processAutoOcrTagDocuments() (int, error) {
+	ctx := context.Background()
+
+	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoOcrTag})
+	if err != nil {
+		return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
+	}
+
+	if len(documents) == 0 {
+		log.Debugf("No documents with tag %s found", autoOcrTag)
+		return 0, nil // No documents to process
+	}
+
+	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoOcrTag)
+
+	documents = documents[:1] // Process only one document at a time
+
+	ocrContent, err := app.ProcessDocumentOCR(ctx, documents[0].ID)
+	if err != nil {
+		return 0, fmt.Errorf("error processing document OCR: %w", err)
+	}
+	log.Debugf("OCR content for document %d: %s", documents[0].ID, ocrContent)
+
+	err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+		{
+			ID:               documents[0].ID,
+			OriginalDocument: documents[0],
+			SuggestedContent: ocrContent,
+		},
+	}, app.Database, false)
+	if err != nil {
+		return 0, fmt.Errorf("error updating documents: %w", err)
+	}
+
+	return 1, nil // Processed one document
 }
 
 // removeTagFromList removes a specific tag from a list of tags
