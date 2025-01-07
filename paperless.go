@@ -426,7 +426,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 // DownloadDocumentAsImages downloads the PDF file of the specified document and converts it to images
 func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentId int) ([]string, error) {
 	// Create a directory named after the document ID
-	docDir := filepath.Join(client.GetCacheFolder(), fmt.Sprintf("/document-%d", documentId))
+	docDir := filepath.Join(client.GetCacheFolder(), fmt.Sprintf("document-%d", documentId))
 	if _, err := os.Stat(docDir); os.IsNotExist(err) {
 		err = os.MkdirAll(docDir, 0755)
 		if err != nil {
