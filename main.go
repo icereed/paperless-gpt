@@ -344,7 +344,7 @@ func validateOrDefaultEnvVars() {
 func (app *App) processAutoTagDocuments() (int, error) {
 	ctx := context.Background()
 
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag}, 1)
+	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag}, 1, 25)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoTag: %w", err)
 	}
