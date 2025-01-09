@@ -49,6 +49,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Mounting the Prompts Directory](#mounting-the-prompts-directory)
     - [Editing the Prompt Templates](#editing-the-prompt-templates)
     - [Template Syntax and Variables](#template-syntax-and-variables)
+- [OCR using AI](#llm-based-ocr-compare-for-yourself)
 - [Usage](#usage)
 - [Contributing](#contributing)
 - [License](#license)
