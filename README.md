@@ -7,7 +7,9 @@
 
 **paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**—ensuring high accuracy, even with tricky scans. If you’re craving next-level text extraction and effortless document organization, this is your solution.
 
-[![Demo](./demo.gif)](./demo.gif)
+<video src="demo.mp4" controls width="737">
+Your browser does not support the video tag.
+</video>
 
 ---
 
