@@ -90,6 +90,7 @@ services:
       LLM_PROVIDER: 'openai'               # or 'ollama'
       LLM_MODEL: 'gpt-4o'                  # or 'llama2'
       OPENAI_API_KEY: 'your_openai_api_key'
+      # Optional - OPENAI_BASE_URL: 'https://litellm.yourinstallationof.it.com/v1'
       LLM_LANGUAGE: 'English'              # Optional, default: English
       OLLAMA_HOST: 'http://host.docker.internal:11434' # If using Ollama
       VISION_LLM_PROVIDER: 'ollama'        # (for OCR) - openai or ollama
@@ -153,6 +154,7 @@ services:
 | `LLM_PROVIDER`         | AI backend (`openai` or `ollama`).                                                                              | Yes      |
 | `LLM_MODEL`            | AI model name, e.g. `gpt-4o`, `gpt-3.5-turbo`, `llama2`.                                                         | Yes      |
 | `OPENAI_API_KEY`       | OpenAI API key (required if using OpenAI).                                                                      | Cond.    |
+| `OPENAI_BASE_URL`      | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                                              | No       |
 | `LLM_LANGUAGE`         | Likely language for documents (e.g. `English`). Default: `English`.                                             | No       |
 | `OLLAMA_HOST`          | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                   | No       |
 | `VISION_LLM_PROVIDER`  | AI backend for OCR (`openai` or `ollama`).                                                                      | No       |
