@@ -203,6 +203,207 @@ Then tweak at will—**paperless-gpt** reloads them automatically on startup!
 
 ---
 
+## LLM-Based OCR: Compare for Yourself
+
+<details>
+<summary>Click to expand the vanilla OCR vs. AI-powered OCR comparison</summary>
+
+### Example 1
+
+**Image**:
+
+![Image](demo/ocr-example1.jpg)
+
+**Vanilla Paperless-ngx OCR**:
+```
+La Grande Recre
+
+Gentre Gommercial 1'Esplanade
+1349 LOLNAIN LA NEWWE
+TA BERBOGAAL Tel =. 010 45,96 12
+Ticket 1440112 03/11/2006 a 13597:
+4007176614518. DINOS. TYRAMNESA
+TOTAET.T.LES
+ReslE par Lask-Euron
+Rencu en Cash Euro
+V.14.6 -Hotgese = VALERTE
+TICKET A-GONGERVER PORR TONT. EEHANGE
+HERET ET A BIENTOT
+```
+
+**LLM-Powered OCR (OpenAI gpt-4o)**:
+```
+La Grande Récré
+Centre Commercial l'Esplanade
+1348 LOUVAIN LA NEUVE
+TVA 860826401 Tel : 010 45 95 12
+Ticket 14421 le 03/11/2006 à 15:27:18
+4007176614518 DINOS TYRANNOSA 14.90
+TOTAL T.T.C. 14.90
+Réglé par Cash Euro 50.00
+Rendu en Cash Euro 35.10
+V.14.6 Hôtesse : VALERIE
+TICKET A CONSERVER POUR TOUT ECHANGE
+MERCI ET A BIENTOT
+```
+
+---
+
+### Example 2
+
+**Image**:
+
+![Image](demo/ocr-example2.jpg)
+
+**Vanilla Paperless-ngx OCR**:
+```
+Invoice Number: 1-996-84199
+
+Fed: Invoica Date: Sep01, 2014
+Accaunt Number: 1334-8037-4
+Page: 1012
+
+Fod£x Tax ID 71.0427007
+
+IRISINC
+SHARON ANDERSON
+4731 W ATLANTIC AVE STE BI
+DELRAY BEACH FL 33445-3897 ’ a
+Invoice Questions?
+
+Bing, ‚Account Shipping Address: Contact FedEx Reı
+
+ISINC
+4731 W ATLANTIC AVE Phone: (800) 622-1147 M-F 7-6 (CST)
+DELRAY BEACH FL 33445-3897 US Fax: (800) 548-3020
+
+Internet: www.fedex.com
+
+Invoice Summary Sep 01, 2014
+
+FodEx Ground Services
+Other Charges 11.00
+Total Charges 11.00 Da £
+>
+polo) Fz// /G
+TOTAL THIS INVOICE .... usps 11.00 P 2/1 f
+
+‘The only charges accrued for this period is the Weekly Service Charge.
+
+The Fedix Ground aceounts teferencedin his involce have been transteired and assigned 10, are owned by,andare payable to FedEx Express:
+
+To onsurs propor credit, plasa raturn this portion wirh your payment 10 FodEx
+‚Please do not staple or fold. Ploase make your chack payablı to FedEx.
+
+[TI For change ol address, hc har and camphat lrm or never ide
+
+Remittance Advice
+Your payment is due by Sep 16, 2004
+
+Number Number Dus
+
+1334803719968 41993200000110071
+
+AT 01 0391292 468448196 A**aDGT
+
+IRISINC Illallun elalalssollallansdHilalellund
+SHARON ANDERSON
+
+4731 W ATLANTIC AVE STEBI FedEx
+
+DELRAY BEACH FL 334453897 PO. Box 94516
+
+PALATINE IL 60094-4515
+```
+
+**LLM-Powered OCR (OpenAI gpt-4o)**:
+```
+FedEx.                                                                                      Invoice Number: 1-996-84199
+                                                                                           Invoice Date: Sep 01, 2014
+                                                                                           Account Number: 1334-8037-4
+                                                                                           Page: 1 of 2
+                                                                                           FedEx Tax ID: 71-0427007
+
+I R I S INC
+SHARON ANDERSON
+4731 W ATLANTIC AVE STE B1
+DELRAY BEACH FL 33445-3897
+                                                                                           Invoice Questions?
+Billing Account Shipping Address:                                                          Contact FedEx Revenue Services
+I R I S INC                                                                                Phone: (800) 622-1147 M-F 7-6 (CST)
+4731 W ATLANTIC AVE                                                                        Fax: (800) 548-3020
+DELRAY BEACH FL 33445-3897 US                                                              Internet: www.fedex.com
+
+Invoice Summary Sep 01, 2014
+
+FedEx Ground Services
+Other Charges                                                                 11.00
+
+Total Charges .......................................................... USD $          11.00
+
+TOTAL THIS INVOICE .............................................. USD $                 11.00
+
+The only charges accrued for this period is the Weekly Service Charge.
+
+                                                                                           RECEIVED
+                                                                                           SEP _ 8 REC'D
+                                                                                           BY: _
+
+                                                                                           posted 9/21/14
+
+The FedEx Ground accounts referenced in this invoice have been transferred and assigned to, are owned by, and are payable to FedEx Express.
+
+To ensure proper credit, please return this portion with your payment to FedEx.
+Please do not staple or fold. Please make your check payable to FedEx.
+
+❑ For change of address, check here and complete form on reverse side.
+
+Remittance Advice
+Your payment is due by Sep 16, 2004
+
+Invoice
+Number
+1-996-84199
+
+Account
+Number
+1334-8037-4
+
+Amount
+Due
+USD $ 11.00
+
+133480371996841993200000110071
+
+AT 01 031292 468448196 A**3DGT
+
+I R I S INC
+SHARON ANDERSON
+4731 W ATLANTIC AVE STE B1
+DELRAY BEACH FL 33445-3897
+
+FedEx
+P.O. Box 94515
+```
+
+---
+</details>
+
+**Why Does It Matter?**  
+- Traditional OCR often jumbles text from complex or low-quality scans.  
+- Large Language Models interpret context and correct likely errors, producing results that are more precise and readable.  
+- You can integrate these cleaned-up texts into your **paperless-ngx** pipeline for better tagging, searching, and archiving.
+
+
+
+
+### How It Works
+
+- **Vanilla OCR** typically uses classical methods or Tesseract-like engines to extract text, which can result in garbled outputs for complex fonts or poor-quality scans.  
+- **LLM-Powered OCR** uses your chosen AI backend—OpenAI or Ollama—to interpret the image’s text in a more context-aware manner. This leads to fewer errors and more coherent text.
+
+---
+
 ## Contributing
 
 **Pull requests** and **issues** are welcome!  
