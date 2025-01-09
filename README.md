@@ -170,6 +170,7 @@ paperless-gpt’s flexible **prompt templates** let you shape how AI responds:
 
 1. **`title_prompt.tmpl`**: For document titles.  
 2. **`tag_prompt.tmpl`**: For tagging logic.
+3. **`ocr_prompt.tmpl`**: For LLM OCR.
 
 Mount them into your container via:
 
