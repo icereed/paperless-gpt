@@ -262,7 +262,7 @@ func isOcrEnabled() bool {
 	return visionLlmModel != "" && visionLlmProvider != ""
 }
 
-// validateOrDefaultEnvVars ensures all necessary environment variables are set
+// validateOrDefaultEnvVars validates and sets default values for environment variables required by the application. It ensures that necessary configuration parameters are present and sets sensible defaults where possible. The function checks and configures tags for manual and automatic document processing, validates Paperless URL and API token, verifies LLM provider and model settings, and handles OCR page limit configuration. If any critical environment variables are missing, the function will terminate the application with a fatal error.
 func validateOrDefaultEnvVars() {
 	if manualTag == "" {
 		manualTag = "paperless-gpt"

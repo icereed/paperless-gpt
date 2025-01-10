@@ -363,7 +363,7 @@ func TestUrlEncode(t *testing.T) {
 	assert.Equal(t, expected, result)
 }
 
-// TestDownloadDocumentAsImages tests the DownloadDocumentAsImages method
+// 4. The image file is successfully created on the filesystem
 func TestDownloadDocumentAsImages(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()
@@ -398,6 +398,9 @@ func TestDownloadDocumentAsImages(t *testing.T) {
 	}
 }
 
+// TestDownloadDocumentAsImages_ManyPages tests the DownloadDocumentAsImages method for a multi-page PDF document with a specified page limit.
+// It verifies that the method correctly extracts a limited number of pages from a PDF, generates image files, and returns the correct image paths.
+// The test ensures that exactly 50 pages are extracted from a 52-page document and that the image files are created in the expected location.
 func TestDownloadDocumentAsImages_ManyPages(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()
