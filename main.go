@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -43,6 +44,7 @@ var (
 	webuiPath         = os.Getenv("WEBUI_PATH")
 	autoGenerateTitle = os.Getenv("AUTO_GENERATE_TITLE")
 	autoGenerateTags  = os.Getenv("AUTO_GENERATE_TAGS")
+	limitOcrPages     int // Will be read from OCR_LIMIT_PAGES
 
 	// Templates
 	titleTemplate *template.Template
@@ -308,6 +310,19 @@ func validateOrDefaultEnvVars() {
 
 	if (llmProvider == "openai" || visionLlmProvider == "openai") && openaiAPIKey == "" {
 		log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
+	}
+
+	if isOcrEnabled() {
+		rawLimitOcrPages := os.Getenv("OCR_LIMIT_PAGES")
+		if rawLimitOcrPages == "" {
+			limitOcrPages = 5
+		} else {
+			var err error
+			limitOcrPages, err = strconv.Atoi(rawLimitOcrPages)
+			if err != nil {
+				log.Fatalf("Invalid OCR_LIMIT_PAGES value: %v", err)
+			}
+		}
 	}
 }
 

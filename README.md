@@ -97,6 +97,7 @@ services:
       VISION_LLM_PROVIDER: 'ollama'        # (for OCR) - openai or ollama
       VISION_LLM_MODEL: 'minicpm-v'        # (for OCR) - minicpm-v (ollama example), gpt-4o (for openai), etc.
       AUTO_OCR_TAG: 'paperless-gpt-ocr-auto' # Optional, default: paperless-gpt-ocr-auto
+      OCR_LIMIT_PAGES: '5'                 # Optional, default: 5. Set to 0 for no limit.
       LOG_LEVEL: 'info'                    # Optional: debug, warn, error
     volumes:
       - ./prompts:/app/prompts   # Mount the prompts directory
@@ -166,6 +167,7 @@ services:
 | `WEBUI_PATH`           | Path for static content. Default: `./web-app/dist`.                                                             | No       |
 | `AUTO_GENERATE_TITLE`  | Generate titles automatically if `paperless-gpt-auto` is used. Default: `true`.                                  | No       |
 | `AUTO_GENERATE_TAGS`   | Generate tags automatically if `paperless-gpt-auto` is used. Default: `true`.                                   | No       |
+| `OCR_LIMIT_PAGES`      | Limit the number of pages for OCR. Set to `0` for no limit. Default: `5`.                                       | No       |
 
 ### Custom Prompt Templates
 
