@@ -9,7 +9,7 @@ import (
 
 // ProcessDocumentOCR processes a document through OCR and returns the combined text
 func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int) (string, error) {
-	imagePaths, err := app.Client.DownloadDocumentAsImages(ctx, documentID)
+	imagePaths, err := app.Client.DownloadDocumentAsImages(ctx, documentID, limitOcrPages)
 	defer func() {
 		for _, imagePath := range imagePaths {
 			os.Remove(imagePath)
