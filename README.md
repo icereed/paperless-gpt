@@ -74,7 +74,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 Here’s an example `docker-compose.yml` to spin up **paperless-gpt** alongside paperless-ngx:
 
 ```yaml
-version: '3.7'
+version: "3.7"
 services:
   paperless-ngx:
     image: ghcr.io/paperless-ngx/paperless-ngx:latest
@@ -102,7 +102,7 @@ services:
     volumes:
       - ./prompts:/app/prompts   # Mount the prompts directory
     ports:
-      - '8080:8080'
+      - "8080:8080"
     depends_on:
       - paperless-ngx
 ```
@@ -146,6 +146,8 @@ services:
 
 ### Environment Variables
 
+**Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
+=======
 | Variable               | Description                                                                                                      | Required |
 |------------------------|------------------------------------------------------------------------------------------------------------------|----------|
 | `PAPERLESS_BASE_URL`   | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                          | Yes      |
@@ -167,7 +169,9 @@ services:
 | `WEBUI_PATH`           | Path for static content. Default: `./web-app/dist`.                                                             | No       |
 | `AUTO_GENERATE_TITLE`  | Generate titles automatically if `paperless-gpt-auto` is used. Default: `true`.                                  | No       |
 | `AUTO_GENERATE_TAGS`   | Generate tags automatically if `paperless-gpt-auto` is used. Default: `true`.                                   | No       |
+| `AUTO_GENERATE_CORRESPONDENTS` | Generate correspondents automatically if `paperless-gpt-auto` is used. Default: `true`.                   | No       |
 | `OCR_LIMIT_PAGES`      | Limit the number of pages for OCR. Set to `0` for no limit. Default: `5`.                                       | No       |
+| `CORRESPONDENT_BLACK_LIST` | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.  
 
 ### Custom Prompt Templates
 

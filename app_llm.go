@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"slices"
 	"strings"
 	"sync"
 
@@ -15,12 +16,53 @@ import (
 	"github.com/tmc/langchaingo/llms"
 )
 
+// getSuggestedCorrespondent generates a suggested correspondent for a document using the LLM
+func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, suggestedTitle string, availableCorrespondents []string, correspondentBlackList []string) (string, error) {
+	likelyLanguage := getLikelyLanguage()
+
+	templateMutex.RLock()
+	defer templateMutex.RUnlock()
+
+	var promptBuffer bytes.Buffer
+	err := correspondentTemplate.Execute(&promptBuffer, map[string]interface{}{
+		"Language":                likelyLanguage,
+		"AvailableCorrespondents": availableCorrespondents,
+		"BlackList":               correspondentBlackList,
+		"Title":                   suggestedTitle,
+		"Content":                 content,
+	})
+	if err != nil {
+		return "", fmt.Errorf("error executing correspondent template: %v", err)
+	}
+
+	prompt := promptBuffer.String()
+	log.Debugf("Correspondent suggestion prompt: %s", prompt)
+
+	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+		{
+			Parts: []llms.ContentPart{
+				llms.TextContent{
+					Text: prompt,
+				},
+			},
+			Role: llms.ChatMessageTypeHuman,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("error getting response from LLM: %v", err)
+	}
+
+	response := strings.TrimSpace(completion.Choices[0].Content)
+	return response, nil
+}
+
 // getSuggestedTags generates suggested tags for a document using the LLM
 func (app *App) getSuggestedTags(
 	ctx context.Context,
 	content string,
 	suggestedTitle string,
 	availableTags []string,
+	originalTags []string,
 	logger *logrus.Entry) ([]string, error) {
 	likelyLanguage := getLikelyLanguage()
 
@@ -31,6 +73,7 @@ func (app *App) getSuggestedTags(
 	err := tagTemplate.Execute(&promptBuffer, map[string]interface{}{
 		"Language":      likelyLanguage,
 		"AvailableTags": availableTags,
+		"OriginalTags":  originalTags,
 		"Title":         suggestedTitle,
 		"Content":       content,
 	})
@@ -62,6 +105,12 @@ func (app *App) getSuggestedTags(
 	for i, tag := range suggestedTags {
 		suggestedTags[i] = strings.TrimSpace(tag)
 	}
+
+	// append the original tags to the suggested tags
+	suggestedTags = append(suggestedTags, originalTags...)
+	// Remove duplicates
+	slices.Sort(suggestedTags)
+	suggestedTags = slices.Compact(suggestedTags)
 
 	// Filter out tags that are not in the available tags list
 	filteredTags := []string{}
@@ -190,6 +239,18 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 		availableTagNames = append(availableTagNames, tagName)
 	}
 
+	// Prepare a list of document correspodents
+	availableCorrespondentsMap, err := app.Client.GetAllCorrespondents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch available correspondents: %v", err)
+	}
+
+	// Prepare a list of correspondent names
+	availableCorrespondentNames := make([]string, 0, len(availableCorrespondentsMap))
+	for correspondentName := range availableCorrespondentsMap {
+		availableCorrespondentNames = append(availableCorrespondentNames, correspondentName)
+	}
+
 	documents := suggestionRequest.Documents
 	documentSuggestions := []DocumentSuggestion{}
 
@@ -212,6 +273,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 
 			var suggestedTitle string
 			var suggestedTags []string
+			var suggestedCorrespondent string
 
 			if suggestionRequest.GenerateTitles {
 				suggestedTitle, err = app.getSuggestedTitle(ctx, content, docLogger)
@@ -225,7 +287,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			}
 
 			if suggestionRequest.GenerateTags {
-				suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, availableTagNames, docLogger)
+				suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, availableTagNames, doc.Tags, docLogger)
 				if err != nil {
 					mu.Lock()
 					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
@@ -233,6 +295,18 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 					logger.Errorf("Error generating tags for document %d: %v", documentID, err)
 					return
 				}
+			}
+
+			if suggestionRequest.GenerateCorrespondents {
+				suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, availableCorrespondentNames, correspondentBlackList)
+				if err != nil {
+					mu.Lock()
+					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
+					mu.Unlock()
+					log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
+					return
+				}
+
 			}
 
 			mu.Lock()
@@ -256,6 +330,13 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 				suggestion.SuggestedTags = doc.Tags
 			}
 
+			// Correspondents
+			if suggestionRequest.GenerateCorrespondents {
+				log.Printf("Suggested correspondent for document %d: %s", documentID, suggestedCorrespondent)
+				suggestion.SuggestedCorrespondent = suggestedCorrespondent
+			} else {
+				suggestion.SuggestedCorrespondent = ""
+			}
 			// Remove manual tag from the list of suggested tags
 			suggestion.RemoveTags = []string{manualTag, autoTag}
 

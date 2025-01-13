@@ -8,6 +8,7 @@ interface SuggestionCardProps {
   onTitleChange: (docId: number, title: string) => void;
   onTagAddition: (docId: number, tag: TagOption) => void;
   onTagDeletion: (docId: number, index: number) => void;
+  onCorrespondentChange: (docId: number, correspondent: string) => void;
 }
 
 const SuggestionCard: React.FC<SuggestionCardProps> = ({
@@ -16,6 +17,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onTitleChange,
   onTagAddition,
   onTagDeletion,
+  onCorrespondentChange,
 }) => {
   const sortedAvailableTags = availableTags.sort((a, b) => a.name.localeCompare(b.name));
   const document = suggestion.original_document;
@@ -49,6 +51,9 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
         </div>
       </div>
       <div className="mt-4">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          Suggested Title
+        </label>
         <input
           type="text"
           value={suggestion.suggested_title || ""}
@@ -56,6 +61,9 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
           className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
         />
         <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Suggested Tags
+          </label>
           <ReactTags
             selected={
               suggestion.suggested_tags?.map((tag, index) => ({
@@ -97,6 +105,18 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               optionIsActive: "is-active",
               highlight: "react-tags__highlight dark:bg-gray-800",
             }}
+          />
+        </div>
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Suggested Correspondent
+          </label>
+          <input
+            type="text"
+            value={suggestion.suggested_correspondent || ""}
+            onChange={(e) => onCorrespondentChange(suggestion.id, e.target.value)}
+            className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
+            placeholder="Correspondent"
           />
         </div>
       </div>

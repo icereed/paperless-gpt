@@ -55,6 +55,12 @@ func newTestEnv(t *testing.T) *testEnv {
 	env.client = NewPaperlessClient(env.server.URL, "test-token")
 	env.client.HTTPClient = env.server.Client()
 
+	// Add mock response for /api/correspondents/
+	env.setMockResponse("/api/correspondents/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"results": [{"id": 1, "name": "Alpha"}, {"id": 2, "name": "Beta"}]}`))
+	})
+
 	return env
 }
 
@@ -176,7 +182,7 @@ func TestGetDocumentsByTags(t *testing.T) {
 	documentsResponse := GetDocumentsApiResponse{
 		Results: []struct {
 			ID                  int           `json:"id"`
-			Correspondent       interface{}   `json:"correspondent"`
+			Correspondent       int           `json:"correspondent"`
 			DocumentType        interface{}   `json:"document_type"`
 			StoragePath         interface{}   `json:"storage_path"`
 			Title               string        `json:"title"`
@@ -200,16 +206,18 @@ func TestGetDocumentsByTags(t *testing.T) {
 			} `json:"__search_hit__"`
 		}{
 			{
-				ID:      1,
-				Title:   "Document 1",
-				Content: "Content 1",
-				Tags:    []int{1, 2},
+				ID:            1,
+				Title:         "Document 1",
+				Content:       "Content 1",
+				Tags:          []int{1, 2},
+				Correspondent: 1,
 			},
 			{
-				ID:      2,
-				Title:   "Document 2",
-				Content: "Content 2",
-				Tags:    []int{2, 3},
+				ID:            2,
+				Title:         "Document 2",
+				Content:       "Content 2",
+				Tags:          []int{2, 3},
+				Correspondent: 2,
 			},
 		},
 	}
@@ -227,7 +235,7 @@ func TestGetDocumentsByTags(t *testing.T) {
 	// Set mock responses
 	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
 		// Verify query parameters
-		expectedQuery := "tags__name__iexact=tag1&tags__name__iexact=tag2"
+		expectedQuery := "tags__name__iexact=tag1&tags__name__iexact=tag2&page_size=25"
 		assert.Equal(t, expectedQuery, r.URL.RawQuery)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(documentsResponse)
@@ -240,21 +248,23 @@ func TestGetDocumentsByTags(t *testing.T) {
 
 	ctx := context.Background()
 	tags := []string{"tag1", "tag2"}
-	documents, err := env.client.GetDocumentsByTags(ctx, tags)
+	documents, err := env.client.GetDocumentsByTags(ctx, tags, 25)
 	require.NoError(t, err)
 
 	expectedDocuments := []Document{
 		{
-			ID:      1,
-			Title:   "Document 1",
-			Content: "Content 1",
-			Tags:    []string{"tag1", "tag2"},
+			ID:            1,
+			Title:         "Document 1",
+			Content:       "Content 1",
+			Tags:          []string{"tag1", "tag2"},
+			Correspondent: "Alpha",
 		},
 		{
-			ID:      2,
-			Title:   "Document 2",
-			Content: "Content 2",
-			Tags:    []string{"tag2", "tag3"},
+			ID:            2,
+			Title:         "Document 2",
+			Content:       "Content 2",
+			Tags:          []string{"tag2", "tag3"},
+			Correspondent: "Beta",
 		},
 	}
 
@@ -348,7 +358,8 @@ func TestUpdateDocuments(t *testing.T) {
 		// Expected updated fields
 		expectedFields := map[string]interface{}{
 			"title": "New Title",
-			"tags":  []interface{}{float64(idTag1), float64(idTag2), float64(idTag3)}, // keep also previous tags
+			// do not keep previous tags since the tag generation will already take care to include old ones:
+			"tags": []interface{}{float64(idTag2), float64(idTag3)},
 		}
 
 		assert.Equal(t, expectedFields, updatedFields)
@@ -412,7 +423,7 @@ func TestDownloadDocumentAsImages_ManyPages(t *testing.T) {
 		ID: 321,
 	}
 
-	// Get sample PDF from tests/pdf/sample.pdf
+	// Get sample PDF from tests/pdf/many-pages.pdf
 	pdfFile := "tests/pdf/many-pages.pdf"
 	pdfContent, err := os.ReadFile(pdfFile)
 	require.NoError(t, err)
