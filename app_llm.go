@@ -69,6 +69,11 @@ func (app *App) getSuggestedTags(
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
 
+	// Remove all paperless-gpt related tags from available tags
+	availableTags = removeTagFromList(availableTags, manualTag)
+	availableTags = removeTagFromList(availableTags, autoTag)
+	availableTags = removeTagFromList(availableTags, autoOcrTag)
+
 	var promptBuffer bytes.Buffer
 	err := tagTemplate.Execute(&promptBuffer, map[string]interface{}{
 		"Language":      likelyLanguage,
