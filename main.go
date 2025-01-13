@@ -30,6 +30,8 @@ var (
 	log = logrus.New()
 
 	// Environment Variables
+	correspondentBlackList = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
+
 	paperlessBaseURL           = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken          = os.Getenv("PAPERLESS_API_TOKEN")
 	openaiAPIKey               = os.Getenv("OPENAI_API_KEY")
@@ -391,7 +393,7 @@ func documentLogger(documentID int) *logrus.Entry {
 func (app *App) processAutoTagDocuments() (int, error) {
 	ctx := context.Background()
 
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag}, 1, 25)
+	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag}, 25)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoTag: %w", err)
 	}
@@ -433,7 +435,7 @@ func (app *App) processAutoTagDocuments() (int, error) {
 func (app *App) processAutoOcrTagDocuments() (int, error) {
 	ctx := context.Background()
 
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoOcrTag})
+	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoOcrTag}, 25)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
 	}
