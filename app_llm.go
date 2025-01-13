@@ -253,8 +253,12 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 				docLogger.Printf("Suggested tags for document %d: %v", documentID, suggestedTags)
 				suggestion.SuggestedTags = suggestedTags
 			} else {
-				suggestion.SuggestedTags = removeTagFromList(doc.Tags, manualTag)
+				suggestion.SuggestedTags = doc.Tags
 			}
+
+			// Remove manual tag from the list of suggested tags
+			suggestion.RemoveTags = []string{manualTag, autoTag}
+
 			documentSuggestions = append(documentSuggestions, suggestion)
 			mu.Unlock()
 			docLogger.Printf("Document %d processed successfully.", documentID)

@@ -430,6 +430,7 @@ func (app *App) processAutoOcrTagDocuments() (int, error) {
 			ID:               documents[0].ID,
 			OriginalDocument: documents[0],
 			SuggestedContent: ocrContent,
+			RemoveTags:       []string{autoOcrTag},
 		},
 	}, app.Database, false)
 	if err != nil {
