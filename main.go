@@ -6,12 +6,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
 	"time"
 
 	"github.com/Masterminds/sprig/v3"
+	"github.com/fatih/color"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
@@ -27,7 +30,6 @@ var (
 	log = logrus.New()
 
 	// Environment Variables
-	correspondentBlackList     = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
 	paperlessBaseURL           = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken          = os.Getenv("PAPERLESS_API_TOKEN")
 	openaiAPIKey               = os.Getenv("OPENAI_API_KEY")
@@ -45,6 +47,7 @@ var (
 	autoGenerateTitle          = os.Getenv("AUTO_GENERATE_TITLE")
 	autoGenerateTags           = os.Getenv("AUTO_GENERATE_TAGS")
 	autoGenerateCorrespondents = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
+	limitOcrPages              int // Will be read from OCR_LIMIT_PAGES
 
 	// Templates
 	titleTemplate         *template.Template
@@ -120,6 +123,9 @@ func main() {
 
 	// Initialize logrus logger
 	initLogger()
+
+	// Print version
+	printVersion()
 
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
@@ -263,6 +269,29 @@ func main() {
 	}
 }
 
+func printVersion() {
+	cyan := color.New(color.FgCyan).SprintFunc()
+	yellow := color.New(color.FgYellow).SprintFunc()
+
+	banner := `
+    ╔═══════════════════════════════════════╗
+    ║             Paperless GPT             ║
+    ╚═══════════════════════════════════════╝`
+
+	fmt.Printf("%s\n", cyan(banner))
+	fmt.Printf("\n%s %s\n", yellow("Version:"), version)
+	if commit != "" {
+		fmt.Printf("%s %s\n", yellow("Commit:"), commit)
+	}
+	if buildDate != "" {
+		fmt.Printf("%s %s\n", yellow("Build Date:"), buildDate)
+	}
+	fmt.Printf("%s %s/%s\n", yellow("Platform:"), runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("%s %s\n", yellow("Go Version:"), runtime.Version())
+	fmt.Printf("%s %s\n", yellow("Started:"), time.Now().Format(time.RFC1123))
+	fmt.Println()
+}
+
 func initLogger() {
 	switch logLevel {
 	case "debug":
@@ -338,6 +367,24 @@ func validateOrDefaultEnvVars() {
 	if (llmProvider == "openai" || visionLlmProvider == "openai") && openaiAPIKey == "" {
 		log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
 	}
+
+	if isOcrEnabled() {
+		rawLimitOcrPages := os.Getenv("OCR_LIMIT_PAGES")
+		if rawLimitOcrPages == "" {
+			limitOcrPages = 5
+		} else {
+			var err error
+			limitOcrPages, err = strconv.Atoi(rawLimitOcrPages)
+			if err != nil {
+				log.Fatalf("Invalid OCR_LIMIT_PAGES value: %v", err)
+			}
+		}
+	}
+}
+
+// documentLogger creates a logger with document context
+func documentLogger(documentID int) *logrus.Entry {
+	return log.WithField("document_id", documentID)
 }
 
 // processAutoTagDocuments handles the background auto-tagging of documents
@@ -356,23 +403,29 @@ func (app *App) processAutoTagDocuments() (int, error) {
 
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
 
-	suggestionRequest := GenerateSuggestionsRequest{
-		Documents:              documents,
-		GenerateTitles:         strings.ToLower(autoGenerateTitle) != "false",
-		GenerateTags:           strings.ToLower(autoGenerateTags) != "false",
-		GenerateCorrespondents: strings.ToLower(autoGenerateCorrespondents) != "false",
-	}
+	for _, document := range documents {
+		docLogger := documentLogger(document.ID)
+		docLogger.Info("Processing document for auto-tagging")
 
-	suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest)
-	if err != nil {
-		return 0, fmt.Errorf("error generating suggestions: %w", err)
-	}
+		suggestionRequest := GenerateSuggestionsRequest{
+			Documents:              []Document{document},
+			GenerateTitles:         strings.ToLower(autoGenerateTitle) != "false",
+			GenerateTags:           strings.ToLower(autoGenerateTags) != "false",
+			GenerateCorrespondents: strings.ToLower(autoGenerateCorrespondents) != "false",
+		}
 
-	err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
-	if err != nil {
-		return 0, fmt.Errorf("error updating documents: %w", err)
-	}
+		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
+		if err != nil {
+			return 0, fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
+		}
 
+		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
+		if err != nil {
+			return 0, fmt.Errorf("error updating document %d: %w", document.ID, err)
+		}
+
+		docLogger.Info("Successfully processed document")
+	}
 	return len(documents), nil
 }
 
@@ -392,26 +445,31 @@ func (app *App) processAutoOcrTagDocuments() (int, error) {
 
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoOcrTag)
 
-	documents = documents[:1] // Process only one document at a time
+	for _, document := range documents {
+		docLogger := documentLogger(document.ID)
+		docLogger.Info("Processing document for OCR")
 
-	ocrContent, err := app.ProcessDocumentOCR(ctx, documents[0].ID)
-	if err != nil {
-		return 0, fmt.Errorf("error processing document OCR: %w", err)
+		ocrContent, err := app.ProcessDocumentOCR(ctx, document.ID)
+		if err != nil {
+			return 0, fmt.Errorf("error processing OCR for document %d: %w", document.ID, err)
+		}
+		docLogger.Debug("OCR processing completed")
+
+		err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+			{
+				ID:               document.ID,
+				OriginalDocument: document,
+				SuggestedContent: ocrContent,
+				RemoveTags:       []string{autoOcrTag},
+			},
+		}, app.Database, false)
+		if err != nil {
+			return 0, fmt.Errorf("error updating document %d after OCR: %w", document.ID, err)
+		}
+
+		docLogger.Info("Successfully processed document OCR")
 	}
-	log.Debugf("OCR content for document %d: %s", documents[0].ID, ocrContent)
-
-	err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
-		{
-			ID:               documents[0].ID,
-			OriginalDocument: documents[0],
-			SuggestedContent: ocrContent,
-		},
-	}, app.Database, false)
-	if err != nil {
-		return 0, fmt.Errorf("error updating documents: %w", err)
-	}
-
-	return 1, nil // Processed one document
+	return 1, nil
 }
 
 // removeTagFromList removes a specific tag from a list of tags

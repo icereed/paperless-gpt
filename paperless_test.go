@@ -300,18 +300,24 @@ func TestUpdateDocuments(t *testing.T) {
 			OriginalDocument: Document{
 				ID:    1,
 				Title: "Old Title",
-				Tags:  []string{"tag1"},
+				Tags:  []string{"tag1", "tag3", "manual", "removeMe"},
 			},
 			SuggestedTitle: "New Title",
-			SuggestedTags:  []string{"tag2"},
+			SuggestedTags:  []string{"tag2", "tag3"},
+			RemoveTags:     []string{"removeMe"},
 		},
 	}
+	idTag1 := 1
+	idTag2 := 2
+	idTag3 := 4
 	// Mock data for tags
 	tagsResponse := map[string]interface{}{
 		"results": []map[string]interface{}{
-			{"id": 1, "name": "tag1"},
-			{"id": 2, "name": "tag2"},
+			{"id": idTag1, "name": "tag1"},
+			{"id": idTag2, "name": "tag2"},
 			{"id": 3, "name": "manual"},
+			{"id": idTag3, "name": "tag3"},
+			{"id": 5, "name": "removeMe"},
 		},
 		"next": nil,
 	}
@@ -342,7 +348,7 @@ func TestUpdateDocuments(t *testing.T) {
 		// Expected updated fields
 		expectedFields := map[string]interface{}{
 			"title": "New Title",
-			"tags":  []interface{}{float64(2)}, // tag2 ID
+			"tags":  []interface{}{float64(idTag1), float64(idTag2), float64(idTag3)}, // keep also previous tags
 		}
 
 		assert.Equal(t, expectedFields, updatedFields)
@@ -385,7 +391,7 @@ func TestDownloadDocumentAsImages(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	imagePaths, err := env.client.DownloadDocumentAsImages(ctx, document.ID)
+	imagePaths, err := env.client.DownloadDocumentAsImages(ctx, document.ID, 0)
 	require.NoError(t, err)
 
 	// Verify that exatly one page was extracted
@@ -422,11 +428,11 @@ func TestDownloadDocumentAsImages_ManyPages(t *testing.T) {
 	env.client.CacheFolder = "tests/tmp"
 	// Clean the cache folder
 	os.RemoveAll(env.client.CacheFolder)
-	imagePaths, err := env.client.DownloadDocumentAsImages(ctx, document.ID)
+	imagePaths, err := env.client.DownloadDocumentAsImages(ctx, document.ID, 50)
 	require.NoError(t, err)
 
-	// Verify that exatly 52 pages were extracted
-	assert.Len(t, imagePaths, 52)
+	// Verify that exatly 50 pages were extracted - the original doc contains 52 pages
+	assert.Len(t, imagePaths, 50)
 	// The path shall end with tests/tmp/document-321/page000.jpg
 	for _, imagePath := range imagePaths {
 		_, err := os.Stat(imagePath)

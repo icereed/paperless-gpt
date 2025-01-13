@@ -81,6 +81,7 @@ type DocumentSuggestion struct {
 	SuggestedTags          []string `json:"suggested_tags,omitempty"`
 	SuggestedContent       string   `json:"suggested_content,omitempty"`
 	SuggestedCorrespondent string   `json:"suggested_correspondent,omitempty"`
+	RemoveTags             []string `json:"remove_tags,omitempty"`
 }
 
 type Correspondent struct {
