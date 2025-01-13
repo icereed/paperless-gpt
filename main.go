@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/sprig/v3"
+	"github.com/fatih/color"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
@@ -93,6 +95,9 @@ func main() {
 
 	// Initialize logrus logger
 	initLogger()
+
+	// Print version
+	printVersion()
 
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
@@ -234,6 +239,29 @@ func main() {
 	if err := router.Run(listenInterface); err != nil {
 		log.Fatalf("Failed to run server: %v", err)
 	}
+}
+
+func printVersion() {
+	cyan := color.New(color.FgCyan).SprintFunc()
+	yellow := color.New(color.FgYellow).SprintFunc()
+
+	banner := `
+    ╔═══════════════════════════════════════╗
+    ║             Paperless GPT             ║
+    ╚═══════════════════════════════════════╝`
+
+	fmt.Printf("%s\n", cyan(banner))
+	fmt.Printf("\n%s %s\n", yellow("Version:"), version)
+	if commit != "" {
+		fmt.Printf("%s %s\n", yellow("Commit:"), commit)
+	}
+	if buildDate != "" {
+		fmt.Printf("%s %s\n", yellow("Build Date:"), buildDate)
+	}
+	fmt.Printf("%s %s/%s\n", yellow("Platform:"), runtime.GOOS, runtime.GOARCH)
+	fmt.Printf("%s %s\n", yellow("Go Version:"), runtime.Version())
+	fmt.Printf("%s %s\n", yellow("Started:"), time.Now().Format(time.RFC1123))
+	fmt.Println()
 }
 
 func initLogger() {

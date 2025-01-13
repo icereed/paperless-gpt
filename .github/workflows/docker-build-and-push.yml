@@ -96,3 +96,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: ${{ env.TAGS }}
+          build-args: |
+            VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ format('{0:yyyy-MM-ddTHH:mm:ssZ}', github.event.repository.pushed_at) }}
