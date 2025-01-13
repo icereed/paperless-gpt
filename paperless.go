@@ -273,6 +273,7 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 
 		// remove autoTag to prevent infinite loop (even if it is in the original tags)
 		originalTags = removeTagFromList(originalTags, autoTag)
+		originalTags = removeTagFromList(originalTags, autoOcrTag)
 
 		if len(tags) == 0 {
 			tags = originalTags
@@ -390,7 +391,8 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 }
 
 // DownloadDocumentAsImages downloads the PDF file of the specified document and converts it to images
-func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentId int) ([]string, error) {
+// If limitPages > 0, only the first N pages will be processed
+func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentId int, limitPages int) ([]string, error) {
 	// Create a directory named after the document ID
 	docDir := filepath.Join(c.GetCacheFolder(), fmt.Sprintf("/document-%d", documentId))
 	if _, err := os.Stat(docDir); os.IsNotExist(err) {
@@ -403,6 +405,9 @@ func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, document
 	// Check if images already exist
 	var imagePaths []string
 	for n := 0; ; n++ {
+		if limitPages > 0 && n >= limitPages {
+			break
+		}
 		imagePath := filepath.Join(docDir, fmt.Sprintf("page%03d.jpg", n))
 		if _, err := os.Stat(imagePath); os.IsNotExist(err) {
 			break
@@ -451,10 +456,15 @@ func (c *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, document
 	}
 	defer doc.Close()
 
+	totalPages := doc.NumPage()
+	if limitPages > 0 && limitPages < totalPages {
+		totalPages = limitPages
+	}
+
 	var mu sync.Mutex
 	var g errgroup.Group
 
-	for n := 0; n < doc.NumPage(); n++ {
+	for n := 0; n < totalPages; n++ {
 		n := n // capture loop variable
 		g.Go(func() error {
 			mu.Lock()
