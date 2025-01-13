@@ -326,6 +326,11 @@ func validateOrDefaultEnvVars() {
 	}
 }
 
+// documentLogger creates a logger with document context
+func documentLogger(documentID int) *logrus.Entry {
+	return log.WithField("document_id", documentID)
+}
+
 // processAutoTagDocuments handles the background auto-tagging of documents
 func (app *App) processAutoTagDocuments() (int, error) {
 	ctx := context.Background()
@@ -343,6 +348,8 @@ func (app *App) processAutoTagDocuments() (int, error) {
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
 
 	documents = documents[:1] // Process only one document at a time
+	docLogger := documentLogger(documents[0].ID)
+	docLogger.Info("Processing document for auto-tagging")
 
 	suggestionRequest := GenerateSuggestionsRequest{
 		Documents:      documents,
@@ -350,16 +357,17 @@ func (app *App) processAutoTagDocuments() (int, error) {
 		GenerateTags:   strings.ToLower(autoGenerateTags) != "false",
 	}
 
-	suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest)
+	suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
 	if err != nil {
-		return 0, fmt.Errorf("error generating suggestions: %w", err)
+		return 0, fmt.Errorf("error generating suggestions for document %d: %w", documents[0].ID, err)
 	}
 
-	err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
+	err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, docLogger)
 	if err != nil {
-		return 0, fmt.Errorf("error updating documents: %w", err)
+		return 0, fmt.Errorf("error updating document %d: %w", documents[0].ID, err)
 	}
 
+	docLogger.Info("Successfully processed document")
 	return len(documents), nil
 }
 
@@ -380,12 +388,14 @@ func (app *App) processAutoOcrTagDocuments() (int, error) {
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoOcrTag)
 
 	documents = documents[:1] // Process only one document at a time
+	docLogger := documentLogger(documents[0].ID)
+	docLogger.Info("Processing document for OCR")
 
 	ocrContent, err := app.ProcessDocumentOCR(ctx, documents[0].ID)
 	if err != nil {
-		return 0, fmt.Errorf("error processing document OCR: %w", err)
+		return 0, fmt.Errorf("error processing OCR for document %d: %w", documents[0].ID, err)
 	}
-	log.Debugf("OCR content for document %d: %s", documents[0].ID, ocrContent)
+	docLogger.Debug("OCR processing completed")
 
 	err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
 		{
@@ -393,12 +403,13 @@ func (app *App) processAutoOcrTagDocuments() (int, error) {
 			OriginalDocument: documents[0],
 			SuggestedContent: ocrContent,
 		},
-	}, app.Database, false)
+	}, app.Database, docLogger)
 	if err != nil {
-		return 0, fmt.Errorf("error updating documents: %w", err)
+		return 0, fmt.Errorf("error updating document %d after OCR: %w", documents[0].ID, err)
 	}
 
-	return 1, nil // Processed one document
+	docLogger.Info("Successfully processed document OCR")
+	return 1, nil
 }
 
 // removeTagFromList removes a specific tag from a list of tags

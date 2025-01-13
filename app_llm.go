@@ -11,6 +11,7 @@ import (
 
 	_ "image/jpeg"
 
+	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
 )
 
@@ -69,7 +70,7 @@ func (app *App) getSuggestedTags(ctx context.Context, content string, suggestedT
 	return filteredTags, nil
 }
 
-func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte) (string, error) {
+func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte, logger *logrus.Entry) (string, error) {
 
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
@@ -91,13 +92,13 @@ func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte) (string, erro
 		return "", fmt.Errorf("error decoding image: %v", err)
 	}
 	bounds := img.Bounds()
-	log.Debugf("Image dimensions: %dx%d", bounds.Dx(), bounds.Dy())
+	logger.Debugf("Image dimensions: %dx%d", bounds.Dx(), bounds.Dy())
 
 	// If not OpenAI then use binary part for image, otherwise, use the ImageURL part with encoding from https://platform.openai.com/docs/guides/vision
 	var parts []llms.ContentPart
 	if strings.ToLower(visionLlmProvider) != "openai" {
 		// Log image size in kilobytes
-		log.Debugf("Image size: %d KB", len(jpegBytes)/1024)
+		logger.Debugf("Image size: %d KB", len(jpegBytes)/1024)
 		parts = []llms.ContentPart{
 			llms.BinaryPart("image/jpeg", jpegBytes),
 			llms.TextPart(prompt),
@@ -105,7 +106,7 @@ func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte) (string, erro
 	} else {
 		base64Image := base64.StdEncoding.EncodeToString(jpegBytes)
 		// Log image size in kilobytes
-		log.Debugf("Image size: %d KB", len(base64Image)/1024)
+		logger.Debugf("Image size: %d KB", len(base64Image)/1024)
 		parts = []llms.ContentPart{
 			llms.ImageURLPart(fmt.Sprintf("data:image/jpeg;base64,%s", base64Image)),
 			llms.TextPart(prompt),
@@ -166,7 +167,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string) (string, 
 }
 
 // generateDocumentSuggestions generates suggestions for a set of documents
-func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionRequest GenerateSuggestionsRequest) ([]DocumentSuggestion, error) {
+func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionRequest GenerateSuggestionsRequest, logger *logrus.Entry) ([]DocumentSuggestion, error) {
 	// Fetch all available tags from paperless-ngx
 	availableTagsMap, err := app.Client.GetAllTags(ctx)
 	if err != nil {
@@ -194,7 +195,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 		go func(doc Document) {
 			defer wg.Done()
 			documentID := doc.ID
-			log.Printf("Processing Document ID %d...", documentID)
+			logger.Printf("Processing Document ID %d...", documentID)
 
 			content := doc.Content
 			if len(content) > 5000 {
@@ -210,7 +211,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 					mu.Lock()
 					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
 					mu.Unlock()
-					log.Errorf("Error processing document %d: %v", documentID, err)
+					logger.Errorf("Error processing document %d: %v", documentID, err)
 					return
 				}
 			}
@@ -221,7 +222,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 					mu.Lock()
 					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
 					mu.Unlock()
-					log.Errorf("Error generating tags for document %d: %v", documentID, err)
+					logger.Errorf("Error generating tags for document %d: %v", documentID, err)
 					return
 				}
 			}
@@ -233,7 +234,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			}
 			// Titles
 			if suggestionRequest.GenerateTitles {
-				log.Printf("Suggested title for document %d: %s", documentID, suggestedTitle)
+				logger.Printf("Suggested title for document %d: %s", documentID, suggestedTitle)
 				suggestion.SuggestedTitle = suggestedTitle
 			} else {
 				suggestion.SuggestedTitle = doc.Title
@@ -241,14 +242,14 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 
 			// Tags
 			if suggestionRequest.GenerateTags {
-				log.Printf("Suggested tags for document %d: %v", documentID, suggestedTags)
+				logger.Printf("Suggested tags for document %d: %v", documentID, suggestedTags)
 				suggestion.SuggestedTags = suggestedTags
 			} else {
 				suggestion.SuggestedTags = removeTagFromList(doc.Tags, manualTag)
 			}
 			documentSuggestions = append(documentSuggestions, suggestion)
 			mu.Unlock()
-			log.Printf("Document %d processed successfully.", documentID)
+			logger.Printf("Document %d processed successfully.", documentID)
 		}(documents[i])
 	}
 
