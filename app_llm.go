@@ -16,7 +16,12 @@ import (
 )
 
 // getSuggestedTags generates suggested tags for a document using the LLM
-func (app *App) getSuggestedTags(ctx context.Context, content string, suggestedTitle string, availableTags []string) ([]string, error) {
+func (app *App) getSuggestedTags(
+	ctx context.Context,
+	content string,
+	suggestedTitle string,
+	availableTags []string,
+	logger *logrus.Entry) ([]string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
@@ -30,11 +35,12 @@ func (app *App) getSuggestedTags(ctx context.Context, content string, suggestedT
 		"Content":       content,
 	})
 	if err != nil {
+		logger.Errorf("Error executing tag template: %v", err)
 		return nil, fmt.Errorf("error executing tag template: %v", err)
 	}
 
 	prompt := promptBuffer.String()
-	log.Debugf("Tag suggestion prompt: %s", prompt)
+	logger.Debugf("Tag suggestion prompt: %s", prompt)
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -47,6 +53,7 @@ func (app *App) getSuggestedTags(ctx context.Context, content string, suggestedT
 		},
 	})
 	if err != nil {
+		logger.Errorf("Error getting response from LLM: %v", err)
 		return nil, fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
@@ -130,7 +137,7 @@ func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte, logger *logru
 }
 
 // getSuggestedTitle generates a suggested title for a document using the LLM
-func (app *App) getSuggestedTitle(ctx context.Context, content string) (string, error) {
+func (app *App) getSuggestedTitle(ctx context.Context, content string, logger *logrus.Entry) (string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
@@ -147,7 +154,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string) (string, 
 
 	prompt := promptBuffer.String()
 
-	log.Debugf("Title suggestion prompt: %s", prompt)
+	logger.Debugf("Title suggestion prompt: %s", prompt)
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
 		{
@@ -195,7 +202,8 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 		go func(doc Document) {
 			defer wg.Done()
 			documentID := doc.ID
-			logger.Printf("Processing Document ID %d...", documentID)
+			docLogger := documentLogger(documentID)
+			docLogger.Printf("Processing Document ID %d...", documentID)
 
 			content := doc.Content
 			if len(content) > 5000 {
@@ -206,18 +214,18 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			var suggestedTags []string
 
 			if suggestionRequest.GenerateTitles {
-				suggestedTitle, err = app.getSuggestedTitle(ctx, content)
+				suggestedTitle, err = app.getSuggestedTitle(ctx, content, docLogger)
 				if err != nil {
 					mu.Lock()
 					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
 					mu.Unlock()
-					logger.Errorf("Error processing document %d: %v", documentID, err)
+					docLogger.Errorf("Error processing document %d: %v", documentID, err)
 					return
 				}
 			}
 
 			if suggestionRequest.GenerateTags {
-				suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, availableTagNames)
+				suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, availableTagNames, docLogger)
 				if err != nil {
 					mu.Lock()
 					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
@@ -234,7 +242,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			}
 			// Titles
 			if suggestionRequest.GenerateTitles {
-				logger.Printf("Suggested title for document %d: %s", documentID, suggestedTitle)
+				docLogger.Printf("Suggested title for document %d: %s", documentID, suggestedTitle)
 				suggestion.SuggestedTitle = suggestedTitle
 			} else {
 				suggestion.SuggestedTitle = doc.Title
@@ -242,14 +250,14 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 
 			// Tags
 			if suggestionRequest.GenerateTags {
-				logger.Printf("Suggested tags for document %d: %v", documentID, suggestedTags)
+				docLogger.Printf("Suggested tags for document %d: %v", documentID, suggestedTags)
 				suggestion.SuggestedTags = suggestedTags
 			} else {
 				suggestion.SuggestedTags = removeTagFromList(doc.Tags, manualTag)
 			}
 			documentSuggestions = append(documentSuggestions, suggestion)
 			mu.Unlock()
-			logger.Printf("Document %d processed successfully.", documentID)
+			docLogger.Printf("Document %d processed successfully.", documentID)
 		}(documents[i])
 	}
 

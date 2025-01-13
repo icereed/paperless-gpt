@@ -362,7 +362,7 @@ func (app *App) processAutoTagDocuments() (int, error) {
 		return 0, fmt.Errorf("error generating suggestions for document %d: %w", documents[0].ID, err)
 	}
 
-	err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, docLogger)
+	err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 	if err != nil {
 		return 0, fmt.Errorf("error updating document %d: %w", documents[0].ID, err)
 	}
@@ -403,7 +403,7 @@ func (app *App) processAutoOcrTagDocuments() (int, error) {
 			OriginalDocument: documents[0],
 			SuggestedContent: ocrContent,
 		},
-	}, app.Database, docLogger)
+	}, app.Database, false)
 	if err != nil {
 		return 0, fmt.Errorf("error updating document %d after OCR: %w", documents[0].ID, err)
 	}
