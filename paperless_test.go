@@ -300,18 +300,24 @@ func TestUpdateDocuments(t *testing.T) {
 			OriginalDocument: Document{
 				ID:    1,
 				Title: "Old Title",
-				Tags:  []string{"tag1"},
+				Tags:  []string{"tag1", "tag3", "manual", "removeMe"},
 			},
 			SuggestedTitle: "New Title",
-			SuggestedTags:  []string{"tag2"},
+			SuggestedTags:  []string{"tag2", "tag3"},
+			RemoveTags:     []string{"removeMe"},
 		},
 	}
+	idTag1 := 1
+	idTag2 := 2
+	idTag3 := 4
 	// Mock data for tags
 	tagsResponse := map[string]interface{}{
 		"results": []map[string]interface{}{
-			{"id": 1, "name": "tag1"},
-			{"id": 2, "name": "tag2"},
+			{"id": idTag1, "name": "tag1"},
+			{"id": idTag2, "name": "tag2"},
 			{"id": 3, "name": "manual"},
+			{"id": idTag3, "name": "tag3"},
+			{"id": 5, "name": "removeMe"},
 		},
 		"next": nil,
 	}
@@ -342,7 +348,7 @@ func TestUpdateDocuments(t *testing.T) {
 		// Expected updated fields
 		expectedFields := map[string]interface{}{
 			"title": "New Title",
-			"tags":  []interface{}{float64(2)}, // tag2 ID
+			"tags":  []interface{}{float64(idTag1), float64(idTag2), float64(idTag3)}, // keep also previous tags
 		}
 
 		assert.Equal(t, expectedFields, updatedFields)

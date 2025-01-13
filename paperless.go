@@ -283,6 +283,12 @@ func (c *PaperlessClient) UpdateDocuments(ctx context.Context, documents []Docum
 			originalFields["tags"] = originalTags
 			// remove autoTag to prevent infinite loop - this is required in case of undo
 			tags = removeTagFromList(tags, autoTag)
+
+			// keep previous tags
+			tags = append(tags, originalTags...)
+			// remove duplicates
+			slices.Sort(tags)
+			tags = slices.Compact(tags)
 		}
 
 		updatedTagsJSON, err := json.Marshal(tags)
