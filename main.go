@@ -375,27 +375,28 @@ func (app *App) processAutoTagDocuments() (int, error) {
 
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
 
-	documents = documents[:1] // Process only one document at a time
-	docLogger := documentLogger(documents[0].ID)
-	docLogger.Info("Processing document for auto-tagging")
+	for _, document := range documents {
+		docLogger := documentLogger(document.ID)
+		docLogger.Info("Processing document for auto-tagging")
 
-	suggestionRequest := GenerateSuggestionsRequest{
-		Documents:      documents,
-		GenerateTitles: strings.ToLower(autoGenerateTitle) != "false",
-		GenerateTags:   strings.ToLower(autoGenerateTags) != "false",
+		suggestionRequest := GenerateSuggestionsRequest{
+			Documents:      []Document{document},
+			GenerateTitles: strings.ToLower(autoGenerateTitle) != "false",
+			GenerateTags:   strings.ToLower(autoGenerateTags) != "false",
+		}
+
+		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
+		if err != nil {
+			return 0, fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
+		}
+
+		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
+		if err != nil {
+			return 0, fmt.Errorf("error updating document %d: %w", document.ID, err)
+		}
+
+		docLogger.Info("Successfully processed document")
 	}
-
-	suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
-	if err != nil {
-		return 0, fmt.Errorf("error generating suggestions for document %d: %w", documents[0].ID, err)
-	}
-
-	err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
-	if err != nil {
-		return 0, fmt.Errorf("error updating document %d: %w", documents[0].ID, err)
-	}
-
-	docLogger.Info("Successfully processed document")
 	return len(documents), nil
 }
 
@@ -415,28 +416,30 @@ func (app *App) processAutoOcrTagDocuments() (int, error) {
 
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoOcrTag)
 
-	documents = documents[:1] // Process only one document at a time
-	docLogger := documentLogger(documents[0].ID)
-	docLogger.Info("Processing document for OCR")
+	for _, document := range documents {
+		docLogger := documentLogger(document.ID)
+		docLogger.Info("Processing document for OCR")
 
-	ocrContent, err := app.ProcessDocumentOCR(ctx, documents[0].ID)
-	if err != nil {
-		return 0, fmt.Errorf("error processing OCR for document %d: %w", documents[0].ID, err)
+		ocrContent, err := app.ProcessDocumentOCR(ctx, document.ID)
+		if err != nil {
+			return 0, fmt.Errorf("error processing OCR for document %d: %w", document.ID, err)
+		}
+		docLogger.Debug("OCR processing completed")
+
+		err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+			{
+				ID:               document.ID,
+				OriginalDocument: document,
+				SuggestedContent: ocrContent,
+				RemoveTags:       []string{autoOcrTag},
+			},
+		}, app.Database, false)
+		if err != nil {
+			return 0, fmt.Errorf("error updating document %d after OCR: %w", document.ID, err)
+		}
+
+		docLogger.Info("Successfully processed document OCR")
 	}
-	docLogger.Debug("OCR processing completed")
-
-	err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
-		{
-			ID:               documents[0].ID,
-			OriginalDocument: documents[0],
-			SuggestedContent: ocrContent,
-		},
-	}, app.Database, false)
-	if err != nil {
-		return 0, fmt.Errorf("error updating document %d after OCR: %w", documents[0].ID, err)
-	}
-
-	docLogger.Info("Successfully processed document OCR")
 	return 1, nil
 }
 

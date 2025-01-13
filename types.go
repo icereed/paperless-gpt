@@ -79,4 +79,5 @@ type DocumentSuggestion struct {
 	SuggestedTitle   string   `json:"suggested_title,omitempty"`
 	SuggestedTags    []string `json:"suggested_tags,omitempty"`
 	SuggestedContent string   `json:"suggested_content,omitempty"`
+	RemoveTags       []string `json:"remove_tags,omitempty"`
 }
