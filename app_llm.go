@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"slices"
 	"strings"
 	"sync"
 
@@ -61,6 +62,7 @@ func (app *App) getSuggestedTags(
 	content string,
 	suggestedTitle string,
 	availableTags []string,
+	originalTags []string,
 	logger *logrus.Entry) ([]string, error) {
 	likelyLanguage := getLikelyLanguage()
 
@@ -71,6 +73,7 @@ func (app *App) getSuggestedTags(
 	err := tagTemplate.Execute(&promptBuffer, map[string]interface{}{
 		"Language":      likelyLanguage,
 		"AvailableTags": availableTags,
+		"OriginalTags":  originalTags,
 		"Title":         suggestedTitle,
 		"Content":       content,
 	})
@@ -102,6 +105,12 @@ func (app *App) getSuggestedTags(
 	for i, tag := range suggestedTags {
 		suggestedTags[i] = strings.TrimSpace(tag)
 	}
+
+	// append the original tags to the suggested tags
+	suggestedTags = append(suggestedTags, originalTags...)
+	// Remove duplicates
+	slices.Sort(suggestedTags)
+	suggestedTags = slices.Compact(suggestedTags)
 
 	// Filter out tags that are not in the available tags list
 	filteredTags := []string{}
@@ -278,7 +287,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			}
 
 			if suggestionRequest.GenerateTags {
-				suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, availableTagNames, docLogger)
+				suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, availableTagNames, doc.Tags, docLogger)
 				if err != nil {
 					mu.Lock()
 					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))

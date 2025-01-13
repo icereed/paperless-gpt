@@ -163,6 +163,11 @@ func (client *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []st
 		return nil, err
 	}
 
+	allCorrespondents, err := client.GetAllCorrespondents(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	documents := make([]Document, 0, len(documentsResponse.Results))
 	for _, result := range documentsResponse.Results {
 		tagNames := make([]string, len(result.Tags))
@@ -175,11 +180,22 @@ func (client *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []st
 			}
 		}
 
+		correspondentName := ""
+		if result.Correspondent != 0 {
+			for name, id := range allCorrespondents {
+				if result.Correspondent == id {
+					correspondentName = name
+					break
+				}
+			}
+		}
+
 		documents = append(documents, Document{
-			ID:      result.ID,
-			Title:   result.Title,
-			Content: result.Content,
-			Tags:    tagNames,
+			ID:            result.ID,
+			Title:         result.Title,
+			Content:       result.Content,
+			Correspondent: correspondentName,
+			Tags:          tagNames,
 		})
 	}
 
@@ -227,6 +243,12 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 		return Document{}, err
 	}
 
+	allCorrespondents, err := client.GetAllCorrespondents(ctx)
+	if err != nil {
+		return Document{}, err
+	}
+
+	// Match tag IDs to tag names
 	tagNames := make([]string, len(documentResponse.Tags))
 	for i, resultTagID := range documentResponse.Tags {
 		for tagName, tagID := range allTags {
@@ -237,11 +259,21 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 		}
 	}
 
+	// Match correspondent ID to correspondent name
+	correspondentName := ""
+	for name, id := range allCorrespondents {
+		if documentResponse.Correspondent == id {
+			correspondentName = name
+			break
+		}
+	}
+
 	return Document{
-		ID:      documentResponse.ID,
-		Title:   documentResponse.Title,
-		Content: documentResponse.Content,
-		Tags:    tagNames,
+		ID:            documentResponse.ID,
+		Title:         documentResponse.Title,
+		Content:       documentResponse.Content,
+		Correspondent: correspondentName,
+		Tags:          tagNames,
 	}, nil
 }
 
@@ -302,8 +334,6 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			// remove autoTag to prevent infinite loop - this is required in case of undo
 			tags = removeTagFromList(tags, autoTag)
 
-			// keep previous tags
-			tags = append(tags, originalTags...)
 			// remove duplicates
 			slices.Sort(tags)
 			tags = slices.Compact(tags)

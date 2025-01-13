@@ -348,7 +348,8 @@ func TestUpdateDocuments(t *testing.T) {
 		// Expected updated fields
 		expectedFields := map[string]interface{}{
 			"title": "New Title",
-			"tags":  []interface{}{float64(idTag1), float64(idTag2), float64(idTag3)}, // keep also previous tags
+			// do not keep previous tags since the tag generation will already take care to include old ones:
+			"tags": []interface{}{float64(idTag2), float64(idTag3)},
 		}
 
 		assert.Equal(t, expectedFields, updatedFields)

@@ -11,7 +11,7 @@ type GetDocumentsApiResponse struct {
 	All      []int       `json:"all"`
 	Results  []struct {
 		ID                  int           `json:"id"`
-		Correspondent       interface{}   `json:"correspondent"`
+		Correspondent       int           `json:"correspondent"`
 		DocumentType        interface{}   `json:"document_type"`
 		StoragePath         interface{}   `json:"storage_path"`
 		Title               string        `json:"title"`
@@ -38,7 +38,7 @@ type GetDocumentsApiResponse struct {
 
 type GetDocumentApiResponse struct {
 	ID                  int           `json:"id"`
-	Correspondent       interface{}   `json:"correspondent"`
+	Correspondent       int           `json:"correspondent"`
 	DocumentType        interface{}   `json:"document_type"`
 	StoragePath         interface{}   `json:"storage_path"`
 	Title               string        `json:"title"`
@@ -59,10 +59,11 @@ type GetDocumentApiResponse struct {
 // Document is a stripped down version of the document object from paperless-ngx.
 // Response payload for /documents endpoint and part of request payload for /generate-suggestions endpoint
 type Document struct {
-	ID      int      `json:"id"`
-	Title   string   `json:"title"`
-	Content string   `json:"content"`
-	Tags    []string `json:"tags"`
+	ID            int      `json:"id"`
+	Title         string   `json:"title"`
+	Content       string   `json:"content"`
+	Tags          []string `json:"tags"`
+	Correspondent string   `json:"correspondent"`
 }
 
 // GenerateSuggestionsRequest is the request payload for generating suggestions for /generate-suggestions endpoint

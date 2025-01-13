@@ -11,12 +11,14 @@ export interface Document {
   title: string;
   content: string;
   tags: string[];
+  correspondent: string;
 }
 
 export interface GenerateSuggestionsRequest {
   documents: Document[];
   generate_titles?: boolean;
   generate_tags?: boolean;
+  generate_correspondents?: boolean;
 }
 
 export interface DocumentSuggestion {
@@ -25,6 +27,7 @@ export interface DocumentSuggestion {
   suggested_title?: string;
   suggested_tags?: string[];
   suggested_content?: string;
+  suggested_correspondent?: string;
 }
 
 export interface TagOption {
@@ -43,6 +46,7 @@ const DocumentProcessor: React.FC = () => {
   const [filterTag, setFilterTag] = useState<string | null>(null);
   const [generateTitles, setGenerateTitles] = useState(true);
   const [generateTags, setGenerateTags] = useState(true);
+  const [generateCorrespondents, setGenerateCorrespondents] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Custom hook to fetch initial data
@@ -81,6 +85,7 @@ const DocumentProcessor: React.FC = () => {
         documents,
         generate_titles: generateTitles,
         generate_tags: generateTags,
+        generate_correspondents: generateCorrespondents,
       };
 
       const { data } = await axios.post<DocumentSuggestion[]>(
@@ -137,6 +142,7 @@ const DocumentProcessor: React.FC = () => {
     );
   };
 
+
   const handleTitleChange = (docId: number, title: string) => {
     setSuggestions((prevSuggestions) =>
       prevSuggestions.map((doc) =>
@@ -144,6 +150,14 @@ const DocumentProcessor: React.FC = () => {
       )
     );
   };
+
+  const handleCorrespondentChange = (docId: number, correspondent: string) => {
+    setSuggestions((prevSuggestions) =>
+      prevSuggestions.map((doc) =>
+        doc.id === docId ? { ...doc, suggested_correspondent: correspondent } : doc
+      )
+    );
+  }
 
   const resetSuggestions = () => {
     setSuggestions([]);
@@ -214,6 +228,8 @@ const DocumentProcessor: React.FC = () => {
           setGenerateTitles={setGenerateTitles}
           generateTags={generateTags}
           setGenerateTags={setGenerateTags}
+          generateCorrespondents={generateCorrespondents}
+          setGenerateCorrespondents={setGenerateCorrespondents}
           onProcess={handleProcessDocuments}
           processing={processing}
           onReload={reloadDocuments}
@@ -225,6 +241,7 @@ const DocumentProcessor: React.FC = () => {
           onTitleChange={handleTitleChange}
           onTagAddition={handleTagAddition}
           onTagDeletion={handleTagDeletion}
+          onCorrespondentChange={handleCorrespondentChange}
           onBack={resetSuggestions}
           onUpdate={handleUpdateDocuments}
           updating={updating}

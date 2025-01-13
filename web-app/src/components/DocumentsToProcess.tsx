@@ -9,6 +9,8 @@ interface DocumentsToProcessProps {
   setGenerateTitles: React.Dispatch<React.SetStateAction<boolean>>;
   generateTags: boolean;
   setGenerateTags: React.Dispatch<React.SetStateAction<boolean>>;
+  generateCorrespondents: boolean;
+  setGenerateCorrespondents: React.Dispatch<React.SetStateAction<boolean>>;
   onProcess: () => void;
   processing: boolean;
   onReload: () => void;
@@ -20,6 +22,8 @@ const DocumentsToProcess: React.FC<DocumentsToProcessProps> = ({
   setGenerateTitles,
   generateTags,
   setGenerateTags,
+  generateCorrespondents,
+  setGenerateCorrespondents,
   onProcess,
   processing,
   onReload,
@@ -63,6 +67,15 @@ const DocumentsToProcess: React.FC<DocumentsToProcessProps> = ({
           className="dark:bg-gray-700 dark:border-gray-600"
         />
         <span className="text-gray-700 dark:text-gray-200">Generate Tags</span>
+      </label>
+      <label className="flex items-center space-x-2">
+        <input
+          type="checkbox"
+          checked={generateCorrespondents}
+          onChange={(e) => setGenerateCorrespondents(e.target.checked)}
+          className="dark:bg-gray-700 dark:border-gray-600"
+        />
+        <span className="text-gray-700 dark:text-gray-200">Generate Correspondents</span>
       </label>
     </div>
 
