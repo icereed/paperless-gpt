@@ -19,18 +19,21 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 2. **Automatic Title & Tag Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
 
-3. **Extensive Customization**  
+3. **Automatic Correspondent Generation**  
+   Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
+
+4. **Extensive Customization**  
    - **Prompt Templates**: Tweak your AI prompts to reflect your domain, style, or preference.  
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
 
-4. **Simple Docker Deployment**  
+5. **Simple Docker Deployment**  
    A few environment variables, and you’re off! Compose it alongside paperless-ngx with minimal fuss.
 
-5. **Unified Web UI**  
+6. **Unified Web UI**  
    - **Manual Review**: Approve or tweak AI’s suggestions.  
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
 
-6. **Opt-In LLM-based OCR**  
+7. **Opt-In LLM-based OCR**  
    If you opt in, your images get read by a Vision LLM, pushing boundaries beyond standard OCR tools.
 
 ---
@@ -201,7 +204,7 @@ Then tweak at will—**paperless-gpt** reloads them automatically on startup!
    - Go to `http://localhost:8080` (or your host) in your browser.
 
 3. **Generate & Apply Suggestions**  
-   - Click “Generate Suggestions” to see AI-proposed titles/tags.
+   - Click “Generate Suggestions” to see AI-proposed titles/tags/correspondents.
    - Approve, edit, or discard. Hit “Apply” to finalize in paperless-ngx.
 
 4. **Try LLM-Based OCR (Experimental)**  
