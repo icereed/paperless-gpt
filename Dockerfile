@@ -4,7 +4,7 @@ ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 
 # Stage 1: Build the Go binary
-FROM golang:1.23.4-alpine3.21 AS builder
+FROM golang:1.23.5-alpine3.21 AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
