@@ -73,7 +73,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Set Docker tags
         id: set_tags
