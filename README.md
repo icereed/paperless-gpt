@@ -184,6 +184,7 @@ paperless-gpt’s flexible **prompt templates** let you shape how AI responds:
 1. **`title_prompt.tmpl`**: For document titles.  
 2. **`tag_prompt.tmpl`**: For tagging logic.
 3. **`ocr_prompt.tmpl`**: For LLM OCR.
+4. **`correspondent_prompt.tmpl`**: For correspondent identification.
 
 Mount them into your container via:
 
@@ -193,6 +194,34 @@ Mount them into your container via:
 ```
 
 Then tweak at will—**paperless-gpt** reloads them automatically on startup!
+
+#### Template Variables
+
+Each template has access to specific variables:
+
+**title_prompt.tmpl**:
+- `{{.Language}}` - Target language (e.g., "English")
+- `{{.Content}}` - Document content text
+- `{{.Title}}` - Original document title
+
+**tag_prompt.tmpl**:
+- `{{.Language}}` - Target language
+- `{{.AvailableTags}}` - List of existing tags in paperless-ngx
+- `{{.OriginalTags}}` - Document's current tags
+- `{{.Title}}` - Document title
+- `{{.Content}}` - Document content text
+
+**ocr_prompt.tmpl**:
+- `{{.Language}}` - Target language
+
+**correspondent_prompt.tmpl**:
+- `{{.Language}}` - Target language
+- `{{.AvailableCorrespondents}}` - List of existing correspondents
+- `{{.BlackList}}` - List of blacklisted correspondent names
+- `{{.Title}}` - Document title
+- `{{.Content}}` - Document content text
+
+The templates use Go's text/template syntax. paperless-gpt automatically reloads template changes on startup.
 
 ---
 
