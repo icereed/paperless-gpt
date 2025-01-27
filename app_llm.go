@@ -23,14 +23,29 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
 
-	var promptBuffer bytes.Buffer
-	err := correspondentTemplate.Execute(&promptBuffer, map[string]interface{}{
+	// Get available tokens for content
+	templateData := map[string]interface{}{
 		"Language":                likelyLanguage,
 		"AvailableCorrespondents": availableCorrespondents,
 		"BlackList":               correspondentBlackList,
 		"Title":                   suggestedTitle,
-		"Content":                 content,
-	})
+	}
+
+	availableTokens, err := getAvailableTokensForContent(correspondentTemplate, templateData)
+	if err != nil {
+		return "", fmt.Errorf("error calculating available tokens: %v", err)
+	}
+
+	// Truncate content if needed
+	truncatedContent, err := truncateContentByTokens(content, availableTokens)
+	if err != nil {
+		return "", fmt.Errorf("error truncating content: %v", err)
+	}
+
+	// Execute template with truncated content
+	var promptBuffer bytes.Buffer
+	templateData["Content"] = truncatedContent
+	err = correspondentTemplate.Execute(&promptBuffer, templateData)
 	if err != nil {
 		return "", fmt.Errorf("error executing correspondent template: %v", err)
 	}
@@ -74,14 +89,31 @@ func (app *App) getSuggestedTags(
 	availableTags = removeTagFromList(availableTags, autoTag)
 	availableTags = removeTagFromList(availableTags, autoOcrTag)
 
-	var promptBuffer bytes.Buffer
-	err := tagTemplate.Execute(&promptBuffer, map[string]interface{}{
+	// Get available tokens for content
+	templateData := map[string]interface{}{
 		"Language":      likelyLanguage,
 		"AvailableTags": availableTags,
 		"OriginalTags":  originalTags,
 		"Title":         suggestedTitle,
-		"Content":       content,
-	})
+	}
+
+	availableTokens, err := getAvailableTokensForContent(tagTemplate, templateData)
+	if err != nil {
+		logger.Errorf("Error calculating available tokens: %v", err)
+		return nil, fmt.Errorf("error calculating available tokens: %v", err)
+	}
+
+	// Truncate content if needed
+	truncatedContent, err := truncateContentByTokens(content, availableTokens)
+	if err != nil {
+		logger.Errorf("Error truncating content: %v", err)
+		return nil, fmt.Errorf("error truncating content: %v", err)
+	}
+
+	// Execute template with truncated content
+	var promptBuffer bytes.Buffer
+	templateData["Content"] = truncatedContent
+	err = tagTemplate.Execute(&promptBuffer, templateData)
 	if err != nil {
 		logger.Errorf("Error executing tag template: %v", err)
 		return nil, fmt.Errorf("error executing tag template: %v", err)
@@ -132,7 +164,6 @@ func (app *App) getSuggestedTags(
 }
 
 func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte, logger *logrus.Entry) (string, error) {
-
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
 	likelyLanguage := getLikelyLanguage()
@@ -191,24 +222,41 @@ func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte, logger *logru
 }
 
 // getSuggestedTitle generates a suggested title for a document using the LLM
-func (app *App) getSuggestedTitle(ctx context.Context, content string, suggestedTitle string, logger *logrus.Entry) (string, error) {
+func (app *App) getSuggestedTitle(ctx context.Context, content string, originalTitle string, logger *logrus.Entry) (string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
 
-	var promptBuffer bytes.Buffer
-	err := titleTemplate.Execute(&promptBuffer, map[string]interface{}{
+	// Get available tokens for content
+	templateData := map[string]interface{}{
 		"Language": likelyLanguage,
 		"Content":  content,
-		"Title":    suggestedTitle,
-	})
+		"Title":    originalTitle,
+	}
+
+	availableTokens, err := getAvailableTokensForContent(titleTemplate, templateData)
+	if err != nil {
+		logger.Errorf("Error calculating available tokens: %v", err)
+		return "", fmt.Errorf("error calculating available tokens: %v", err)
+	}
+
+	// Truncate content if needed
+	truncatedContent, err := truncateContentByTokens(content, availableTokens)
+	if err != nil {
+		logger.Errorf("Error truncating content: %v", err)
+		return "", fmt.Errorf("error truncating content: %v", err)
+	}
+
+	// Execute template with truncated content
+	var promptBuffer bytes.Buffer
+	templateData["Content"] = truncatedContent
+	err = titleTemplate.Execute(&promptBuffer, templateData)
 	if err != nil {
 		return "", fmt.Errorf("error executing title template: %v", err)
 	}
 
 	prompt := promptBuffer.String()
-
 	logger.Debugf("Title suggestion prompt: %s", prompt)
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
@@ -273,10 +321,6 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			docLogger.Printf("Processing Document ID %d...", documentID)
 
 			content := doc.Content
-			if len(content) > 5000 {
-				content = content[:5000]
-			}
-
 			suggestedTitle := doc.Title
 			var suggestedTags []string
 			var suggestedCorrespondent string
@@ -312,7 +356,6 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 					log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
 					return
 				}
-
 			}
 
 			mu.Lock()
