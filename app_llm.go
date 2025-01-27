@@ -252,6 +252,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	var promptBuffer bytes.Buffer
 	templateData["Content"] = truncatedContent
 	err = titleTemplate.Execute(&promptBuffer, templateData)
+  
 	if err != nil {
 		return "", fmt.Errorf("error executing title template: %v", err)
 	}
