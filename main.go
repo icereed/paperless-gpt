@@ -387,7 +387,11 @@ func validateOrDefaultEnvVars() {
 	// Initialize token limit from environment variable
 	if limit := os.Getenv("TOKEN_LIMIT"); limit != "" {
 		if parsed, err := strconv.Atoi(limit); err == nil {
+			if parsed < 0 {
+				log.Fatalf("TOKEN_LIMIT must be non-negative, got: %d", parsed)
+			}
 			tokenLimit = parsed
+			log.Infof("Using token limit: %d", tokenLimit)
 		}
 	}
 }
