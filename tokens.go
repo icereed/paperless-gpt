@@ -30,7 +30,10 @@ func getAvailableTokensForContent(template *template.Template, data map[string]i
 	}
 
 	// Count tokens in prompt template
-	promptTokens := getTokenCount(promptBuffer.String())
+	promptTokens, err := getTokenCount(promptBuffer.String())
+	if err != nil {
+		return 0, fmt.Errorf("error counting tokens in prompt: %v", err)
+	}
 	log.Debugf("Prompt template uses %d tokens", promptTokens)
 
 	// Add safety margin for prompt tokens
@@ -44,8 +47,8 @@ func getAvailableTokensForContent(template *template.Template, data map[string]i
 	return availableTokens, nil
 }
 
-func getTokenCount(content string) int {
-	return llms.CountTokens(llmModel, content)
+func getTokenCount(content string) (int, error) {
+	return llms.CountTokens(llmModel, content), nil
 }
 
 // truncateContentByTokens truncates the content to fit within the specified token limit
@@ -53,7 +56,10 @@ func truncateContentByTokens(content string, availableTokens int) (string, error
 	if availableTokens <= 0 || tokenLimit <= 0 {
 		return content, nil
 	}
-	tokenCount := getTokenCount(content)
+	tokenCount, err := getTokenCount(content)
+	if err != nil {
+		return "", fmt.Errorf("error counting tokens: %v", err)
+	}
 	if tokenCount <= availableTokens {
 		return content, nil
 	}
@@ -61,13 +67,23 @@ func truncateContentByTokens(content string, availableTokens int) (string, error
 	splitter := textsplitter.NewTokenSplitter(
 		textsplitter.WithChunkSize(availableTokens),
 		textsplitter.WithChunkOverlap(0),
-		// textsplitter.WithModelName(llmModel),
+		textsplitter.WithModelName(llmModel),
 	)
 	chunks, err := splitter.SplitText(content)
 	if err != nil {
 		return "", fmt.Errorf("error splitting content: %v", err)
 	}
 
+	// Validate first chunk's token count
+	firstChunk := chunks[0]
+	chunkTokens, err := getTokenCount(firstChunk)
+	if err != nil {
+		return "", fmt.Errorf("error counting tokens in chunk: %v", err)
+	}
+	if chunkTokens > availableTokens {
+		return "", fmt.Errorf("first chunk uses %d tokens which exceeds the limit of %d tokens", chunkTokens, availableTokens)
+	}
+
 	// return the first chunk
-	return chunks[0], nil
+	return firstChunk, nil
 }
