@@ -63,11 +63,33 @@ func GetModification(db *gorm.DB, id uint) (*ModificationHistory, error) {
 	return &record, result.Error
 }
 
-// GetAllModifications retrieves all modification records from the database
+// GetAllModifications retrieves all modification records from the database (deprecated - use GetPaginatedModifications instead)
 func GetAllModifications(db *gorm.DB) ([]ModificationHistory, error) {
 	var records []ModificationHistory
-	result := db.Order("date_changed DESC").Find(&records) // GORM's Find method retrieves all records
+	result := db.Order("date_changed DESC").Find(&records)
 	return records, result.Error
+}
+
+// GetPaginatedModifications retrieves a page of modification records with total count
+func GetPaginatedModifications(db *gorm.DB, page int, pageSize int) ([]ModificationHistory, int64, error) {
+	var records []ModificationHistory
+	var total int64
+
+	// Get total count
+	if err := db.Model(&ModificationHistory{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// Calculate offset
+	offset := (page - 1) * pageSize
+
+	// Get paginated records
+	result := db.Order("date_changed DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&records)
+
+	return records, total, result.Error
 }
 
 // UndoModification marks a modification record as undone and sets the undo date
