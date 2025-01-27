@@ -191,7 +191,7 @@ func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte, logger *logru
 }
 
 // getSuggestedTitle generates a suggested title for a document using the LLM
-func (app *App) getSuggestedTitle(ctx context.Context, content string, logger *logrus.Entry) (string, error) {
+func (app *App) getSuggestedTitle(ctx context.Context, content string, suggestedTitle string, logger *logrus.Entry) (string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
@@ -201,6 +201,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, logger *l
 	err := titleTemplate.Execute(&promptBuffer, map[string]interface{}{
 		"Language": likelyLanguage,
 		"Content":  content,
+		"Title":    suggestedTitle,
 	})
 	if err != nil {
 		return "", fmt.Errorf("error executing title template: %v", err)
@@ -276,12 +277,12 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 				content = content[:5000]
 			}
 
-			var suggestedTitle string
+			suggestedTitle := doc.Title
 			var suggestedTags []string
 			var suggestedCorrespondent string
 
 			if suggestionRequest.GenerateTitles {
-				suggestedTitle, err = app.getSuggestedTitle(ctx, content, docLogger)
+				suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, docLogger)
 				if err != nil {
 					mu.Lock()
 					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
