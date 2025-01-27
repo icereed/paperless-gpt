@@ -1,0 +1,70 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web-app
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: './web-app/package-lock.json'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Playwright browsers
+      run: npx playwright install chromium --with-deps
+
+    - name: Build app
+      run: npm run build
+
+    - name: Create test env file
+      run: |
+        echo "PAPERLESS_GPT_URL=http://localhost:8080" > .env.test
+        echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> .env.test
+
+    - name: Start test containers
+      run: npm run docker:test:up
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    - name: Run Playwright tests
+      run: npm run test:e2e
+      env:
+        CI: true
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-report
+        path: web-app/playwright-report/
+        retention-days: 30
+
+    - name: Upload test screenshots
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results
+        path: web-app/test-results/
+        retention-days: 30
+
+    - name: Stop test containers
+      if: always()
+      run: npm run docker:test:down

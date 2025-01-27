@@ -11,7 +11,7 @@ const SuccessModal: React.FC<SuccessModalProps> = ({ isOpen, onClose }) => (
   <Transition show={isOpen} as={Fragment}>
     <Dialog
       as="div"
-      className="fixed z-10 inset-0 overflow-y-auto"
+      className="success-modal fixed z-10 inset-0 overflow-y-auto"
       open={isOpen}
       onClose={onClose}
     >

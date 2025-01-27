@@ -6,7 +6,7 @@ interface DocumentCardProps {
 }
 
 const DocumentCard: React.FC<DocumentCardProps> = ({ document }) => (
-  <div className="bg-white dark:bg-gray-800 shadow-lg shadow-blue-500/50 rounded-md p-4 relative group overflow-hidden">
+  <div className="document-card bg-white dark:bg-gray-800 shadow-lg shadow-blue-500/50 rounded-md p-4 relative group overflow-hidden">
     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">{document.title}</h3>
     <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 truncate">
       {document.content.length > 100

@@ -1,2 +1,6 @@
 .env
 Dockerfile
+web-app/e2e
+web-app/node_modules
+web-app/playwright_report
+web-app/test-results
