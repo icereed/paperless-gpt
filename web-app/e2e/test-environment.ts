@@ -76,7 +76,9 @@ export async function setupTestEnvironment(): Promise<TestEnvironment> {
   }
 
   console.log('Starting Paperless-gpt container...');
-  const paperlessGpt = await new GenericContainer('icereed/paperless-gpt:e2e')
+  const paperlessGptImage = process.env.PAPERLESS_GPT_IMAGE || 'icereed/paperless-gpt:e2e';
+  console.log(`Using image: ${paperlessGptImage}`);
+  const paperlessGpt = await new GenericContainer(paperlessGptImage)
     .withNetwork(network)
     .withEnvironment({
       PAPERLESS_BASE_URL: `http://paperless-ngx:${paperlessPort}`,
