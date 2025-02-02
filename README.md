@@ -175,6 +175,7 @@ services:
 | `AUTO_GENERATE_TAGS`   | Generate tags automatically if `paperless-gpt-auto` is used. Default: `true`.                                   | No       |
 | `AUTO_GENERATE_CORRESPONDENTS` | Generate correspondents automatically if `paperless-gpt-auto` is used. Default: `true`.                   | No       |
 | `OCR_LIMIT_PAGES`      | Limit the number of pages for OCR. Set to `0` for no limit. Default: `5`.                                       | No       |
+| `TOKEN_LIMIT`          | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                | No       |
 | `CORRESPONDENT_BLACK_LIST` | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.  
 
 ### Custom Prompt Templates
@@ -445,6 +446,31 @@ P.O. Box 94515
 - **LLM-Powered OCR** uses your chosen AI backend—OpenAI or Ollama—to interpret the image’s text in a more context-aware manner. This leads to fewer errors and more coherent text.
 
 ---
+
+## Troubleshooting
+
+### Working with Local LLMs
+
+When using local LLMs (like those through Ollama), you might need to adjust certain settings to optimize performance:
+
+#### Token Management
+- Use `TOKEN_LIMIT` environment variable to control the maximum number of tokens sent to the LLM
+- Smaller models might truncate content unexpectedly if given too much text
+- Start with a conservative limit (e.g., 2000 tokens) and adjust based on your model's capabilities
+- Set to `0` to disable the limit (use with caution)
+
+Example configuration for smaller models:
+```yaml
+environment:
+  TOKEN_LIMIT: '2000'  # Adjust based on your model's context window
+  LLM_PROVIDER: 'ollama'
+  LLM_MODEL: 'llama2'  # Or other local model
+```
+
+Common issues and solutions:
+- If you see truncated or incomplete responses, try lowering the `TOKEN_LIMIT`
+- If processing is too limited, gradually increase the limit while monitoring performance
+- For models with larger context windows, you can increase the limit or disable it entirely
 
 ## Contributing
 
