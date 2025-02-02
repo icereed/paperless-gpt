@@ -12,7 +12,7 @@ import (
 // by rendering the template with empty content and counting tokens
 func getAvailableTokensForContent(tmpl *template.Template, data map[string]interface{}) (int, error) {
 	if tokenLimit <= 0 {
-		return 0, nil // No limit when disabled
+		return -1, nil // No limit when disabled
 	}
 
 	// Create a copy of data and set "Content" to empty
@@ -54,7 +54,7 @@ func getTokenCount(content string) (int, error) {
 // This implementation uses a binary search on runes to find the longest prefix whose token count is within the limit.
 // If availableTokens is 0 or negative, the original content is returned.
 func truncateContentByTokens(content string, availableTokens int) (string, error) {
-	if availableTokens <= 0 || tokenLimit <= 0 {
+	if availableTokens < 0 || tokenLimit <= 0 {
 		return content, nil
 	}
 	totalTokens, err := getTokenCount(content)

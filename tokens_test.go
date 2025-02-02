@@ -89,7 +89,7 @@ func TestGetAvailableTokensForContent(t *testing.T) {
 			name:      "disabled token limit",
 			limit:     0,
 			data:      map[string]interface{}{"Var1": "test"},
-			wantCount: 0,
+			wantCount: -1,
 			wantErr:   false,
 		},
 		{
@@ -158,7 +158,7 @@ func TestTruncateContentByTokens(t *testing.T) {
 		{
 			name:            "disabled by token limit",
 			content:         "any content",
-			availableTokens: 0,
+			availableTokens: -1,
 			wantTruncated:   false,
 			wantErr:         false,
 		},
