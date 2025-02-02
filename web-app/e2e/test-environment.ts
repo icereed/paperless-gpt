@@ -84,7 +84,7 @@ export async function setupTestEnvironment(): Promise<TestEnvironment> {
       PAPERLESS_BASE_URL: `http://paperless-ngx:${paperlessPort}`,
       PAPERLESS_API_TOKEN: await getApiToken(baseUrl, credentials),
       LLM_PROVIDER: "openai",
-      LLM_MODEL: "gpt-4",
+      LLM_MODEL: "gpt-4o-mini",
       LLM_LANGUAGE: "english",
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
     })
