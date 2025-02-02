@@ -155,17 +155,17 @@ jobs:
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
             docker manifest create icereed/paperless-gpt:${VERSION} --amend \
-              --annotate icereed/paperless-gpt:${VERSION}-amd64 linux/amd64 \
-              --annotate icereed/paperless-gpt:${VERSION}-arm64 linux/arm64
+              icereed/paperless-gpt:${VERSION}-amd64 \
+              icereed/paperless-gpt:${VERSION}-arm64
             docker manifest push --purge icereed/paperless-gpt:${VERSION}
             
             docker manifest create icereed/paperless-gpt:latest --amend \
-              --annotate icereed/paperless-gpt:${VERSION}-amd64 linux/amd64 \
-              --annotate icereed/paperless-gpt:${VERSION}-arm64 linux/arm64
+              icereed/paperless-gpt:${VERSION}-amd64 \
+              icereed/paperless-gpt:${VERSION}-arm64
             docker manifest push --purge icereed/paperless-gpt:latest
           else
             docker manifest create icereed/paperless-gpt:unreleased --amend \
-              --annotate icereed/paperless-gpt:unreleased-amd64 linux/amd64 \
-              --annotate icereed/paperless-gpt:unreleased-arm64 linux/arm64
+              icereed/paperless-gpt:unreleased-amd64 \
+              icereed/paperless-gpt:unreleased-arm64
             docker manifest push --purge icereed/paperless-gpt:unreleased
           fi
