@@ -226,7 +226,7 @@ jobs:
         env:
           CI: true
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          PAPERLESS_GPT_IMAGE: icereed/paperless-gpt:pr-{{ github.sha }}-amd64
+          PAPERLESS_GPT_IMAGE: icereed/paperless-gpt:pr-${{ github.sha }}-amd64
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
