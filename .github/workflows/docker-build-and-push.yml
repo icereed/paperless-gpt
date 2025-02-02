@@ -55,7 +55,7 @@ jobs:
         run: npm test
         working-directory: web-app
 
-  build-and-push:
+  build-amd64:
     runs-on: ubuntu-latest
     needs: test
     steps:
@@ -72,26 +72,22 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set Docker tags
         id: set_tags
         run: |
-          echo "TAGS=icereed/paperless-gpt:unreleased" >> $GITHUB_ENV
+          echo "TAGS=icereed/paperless-gpt:unreleased-amd64" >> $GITHUB_ENV
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            echo "TAGS=icereed/paperless-gpt:unreleased" >> $GITHUB_ENV
+            echo "TAGS=icereed/paperless-gpt:unreleased-amd64" >> $GITHUB_ENV
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
-            echo "TAGS=icereed/paperless-gpt:latest,icereed/paperless-gpt:${VERSION}" >> $GITHUB_ENV
+            echo "TAGS=icereed/paperless-gpt:${VERSION}-amd64" >> $GITHUB_ENV
           fi
 
-      - name: Build and push Docker images
-        id: docker_build
+      - name: Build and push AMD64 image
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -100,3 +96,76 @@ jobs:
             VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
             COMMIT=${{ github.sha }}
             BUILD_DATE=${{ github.event.repository.pushed_at }}
+
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set Docker tags
+        id: set_tags
+        run: |
+          echo "TAGS=icereed/paperless-gpt:unreleased-arm64" >> $GITHUB_ENV
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            echo "TAGS=icereed/paperless-gpt:unreleased-arm64" >> $GITHUB_ENV
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            echo "TAGS=icereed/paperless-gpt:${VERSION}-arm64" >> $GITHUB_ENV
+          fi
+
+      - name: Build and push ARM64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ${{ env.TAGS }}
+          build-args: |
+            VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ github.event.repository.pushed_at }}
+
+  merge-manifests:
+    needs: [build-amd64, build-arm64]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Create and push manifest
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            docker manifest create icereed/paperless-gpt:${VERSION} \
+              icereed/paperless-gpt:${VERSION}-amd64 \
+              icereed/paperless-gpt:${VERSION}-arm64
+            docker manifest push icereed/paperless-gpt:${VERSION}
+            
+            docker manifest create icereed/paperless-gpt:latest \
+              icereed/paperless-gpt:${VERSION}-amd64 \
+              icereed/paperless-gpt:${VERSION}-arm64
+            docker manifest push icereed/paperless-gpt:latest
+          else
+            docker manifest create icereed/paperless-gpt:unreleased \
+              icereed/paperless-gpt:unreleased-amd64 \
+              icereed/paperless-gpt:unreleased-arm64
+            docker manifest push icereed/paperless-gpt:unreleased
+          fi
