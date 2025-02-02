@@ -50,6 +50,7 @@ var (
 	autoGenerateTags           = os.Getenv("AUTO_GENERATE_TAGS")
 	autoGenerateCorrespondents = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
 	limitOcrPages              int // Will be read from OCR_LIMIT_PAGES
+	tokenLimit                 = 0 // Will be read from TOKEN_LIMIT
 
 	// Templates
 	titleTemplate         *template.Template
@@ -380,6 +381,17 @@ func validateOrDefaultEnvVars() {
 			if err != nil {
 				log.Fatalf("Invalid OCR_LIMIT_PAGES value: %v", err)
 			}
+		}
+	}
+
+	// Initialize token limit from environment variable
+	if limit := os.Getenv("TOKEN_LIMIT"); limit != "" {
+		if parsed, err := strconv.Atoi(limit); err == nil {
+			if parsed < 0 {
+				log.Fatalf("TOKEN_LIMIT must be non-negative, got: %d", parsed)
+			}
+			tokenLimit = parsed
+			log.Infof("Using token limit: %d", tokenLimit)
 		}
 	}
 }
