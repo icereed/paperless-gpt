@@ -1,0 +1,116 @@
+name: Bug Report
+description: Create a report to help us improve
+title: "[BUG] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+        Before submitting, please check if a similar issue already exists.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What version of paperless-gpt are you running?
+      placeholder: "e.g., 1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment Method
+      description: How are you running paperless-gpt?
+      options:
+        - Docker (official image)
+        - Docker Compose
+        - Manual Installation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: llm-provider
+    attributes:
+      label: LLM Provider
+      description: Which LLM provider are you using?
+      placeholder: "e.g., OpenAI, Ollama"
+    validations:
+      required: true
+
+  - type: input
+    id: llm-model
+    attributes:
+      label: LLM Model
+      description: Which model are you using?
+      placeholder: "e.g., gpt-4, llama2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+      placeholder: "Tell us what you see!"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+      placeholder: "Tell us what you expected"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this issue?
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Scroll down to '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output. This will be automatically formatted into code.
+      render: shell
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: |
+        Please provide your configuration (with sensitive information redacted).
+        This could be your docker-compose.yml or environment variables.
+      render: yaml
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add any other context about the problem here

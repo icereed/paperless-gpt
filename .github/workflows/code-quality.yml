@@ -1,0 +1,217 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.55.2
+
+      - name: Go Lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          args: --timeout=5m
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './web-app/package-lock.json'
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./web-app
+
+      - name: Frontend Lint
+        run: npm run lint
+        working-directory: ./web-app
+
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Go Type Check
+        run: go vet ./...
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './web-app/package-lock.json'
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./web-app
+
+      - name: TypeScript Check
+        run: npm run type-check
+        working-directory: ./web-app
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Gosec Security Scanner
+        uses: securego/gosec@master
+        with:
+          args: './...'
+
+      - name: Run npm audit
+        run: npm audit
+        working-directory: ./web-app
+
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --all-projects
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install mupdf
+        run: sudo apt-get install -y mupdf
+
+      - name: Set library path
+        run: echo "/usr/lib" | sudo tee -a /etc/ld.so.conf.d/mupdf.conf && sudo ldconfig
+
+      - name: Run Go Coverage
+        run: |
+          go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+          go tool cover -func=coverage.txt
+
+      - name: Upload Go coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.txt
+          flags: backend
+          fail_ci_if_error: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './web-app/package-lock.json'
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./web-app
+
+      - name: Run Frontend Coverage
+        run: npm run test:coverage
+        working-directory: ./web-app
+
+      - name: Upload Frontend coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./web-app/coverage/coverage-final.json
+          flags: frontend
+          fail_ci_if_error: true
+
+  format:
+    name: Code Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Check Go Formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Go files need formatting:"
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './web-app/package-lock.json'
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./web-app
+
+      - name: Check Frontend Formatting
+        run: npm run format:check
+        working-directory: ./web-app
+
+  complexity:
+    name: Code Complexity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install gocyclo
+        run: go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+
+      - name: Check Go Code Complexity
+        run: |
+          gocyclo -over 15 .
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './web-app/package-lock.json'
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./web-app
+
+      - name: Check Frontend Complexity
+        run: npx ts-complexity ./src --max-complexity 15
+        working-directory: ./web-app
