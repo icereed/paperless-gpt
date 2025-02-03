@@ -16,8 +16,10 @@ test.afterAll(async () => {
   await testEnv.cleanup();
 });
 
-test.beforeEach(async () => {
-  page = await testEnv.browser.newPage();
+test.beforeEach(async ({ page: testPage }) => {
+  page = testPage;
+  await page.goto(`http://localhost:${testEnv.paperlessGpt.getMappedPort(PORTS.paperlessGpt)}`);
+  await page.screenshot({ path: 'test-results/initial-state.png' });
 });
 
 test.afterEach(async () => {
@@ -74,18 +76,21 @@ test('should process document and show changes in history', async () => {
   
   // Wait for document to appear in the list
   await page.waitForSelector('.document-card', { timeout: 1000 * 60 });
+  await page.screenshot({ path: 'test-results/document-loaded.png' });
   
   // Click the process button
   await page.click('button:has-text("Generate Suggestions")');
   
   // Wait for processing to complete
   await page.waitForSelector('.suggestions-review', { timeout: 30000 });
-  
+  await page.screenshot({ path: 'test-results/suggestions-loaded.png' });
+
   // Apply the suggestions
   await page.click('button:has-text("Apply")');
   
   // Wait for success message
   await page.waitForSelector('.success-modal', { timeout: 10000 });
+  await page.screenshot({ path: 'test-results/suggestions-applied.png' });
 
   // Click "OK" on success modal
   await page.click('button:has-text("OK")');
@@ -95,6 +100,7 @@ test('should process document and show changes in history', async () => {
   
   // Wait for history page to load
   await page.waitForSelector('.modification-history', { timeout: 5000 });
+  await page.screenshot({ path: 'test-results/history-page.png' });
 
   // Verify at least one modification entry exists
   const modifications = await page.locator('.undo-card').count();

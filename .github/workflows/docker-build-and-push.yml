@@ -227,7 +227,7 @@ jobs:
           CI: true
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           PAPERLESS_GPT_IMAGE: icereed/paperless-gpt:pr-${{ github.sha }}-amd64
-      - name: Upload test results
+      - name: Upload Playwright Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -241,3 +241,32 @@ jobs:
           name: test-results
           path: web-app/test-results/
           retention-days: 30
+          
+      - name: Install ImageMagick
+        if: always()
+        run: sudo apt-get update && sudo apt-get install -y imagemagick
+        
+      - name: Process Screenshots
+        if: always()
+        run: |
+          mkdir -p processed-screenshots
+          cd web-app/test-results
+          for img in *.png; do
+            if [ -f "$img" ]; then
+              convert "$img" -resize 800x processed-"$img"
+              echo "Processing screenshot for $img"
+              BASE64_IMG=$(base64 -w 0 processed-"$img")
+              echo "### ${img%.*}" >> ../../screenshot-report.md
+              echo "![${img%.*}](data:image/png;base64,${BASE64_IMG})" >> ../../screenshot-report.md
+              echo "" >> ../../screenshot-report.md
+            fi
+          done
+          cd ../..
+          
+      - name: Create PR Comment
+        if: always() && github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: screenshot-report.md
+          edit-mode: replace

@@ -17,9 +17,9 @@ export default defineConfig({
   workers: 1,
   reporter: 'html',
   use: {
+    screenshot: 'on',
     baseURL: process.env.PAPERLESS_GPT_URL || 'http://localhost:8080',
     trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
   projects: [
