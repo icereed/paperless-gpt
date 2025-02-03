@@ -4,7 +4,7 @@ ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 
 # Stage 1: Build Vite frontend
-FROM node:20-alpine AS frontend
+FROM node:22-alpine AS frontend
 
 # Set the working directory inside the container
 WORKDIR /app
