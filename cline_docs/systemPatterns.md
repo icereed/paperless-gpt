@@ -53,12 +53,18 @@
 
 ### 5. Data Flow
 
-#### Document Processing Flow
+#### Document Processing Flow (Manual)
 1. Document tagged in paperless-ngx
 2. paperless-gpt detects tagged documents
 3. AI processing (title/tags/correspondent generation)
 4. Manual review or auto-apply
 5. Update back to paperless-ngx
+
+#### Document Processing Flow (Auto)
+1. Document tagged in paperless-ngx with some 'auto' tag (env: AUTO_TAG)
+2. paperless-gpt automatically processes documents
+3. AI processing (title/tags/correspondent generation)
+4. Auto-apply results back to paperless-ngx
 
 #### OCR Processing Flow
 1. Image/PDF input
