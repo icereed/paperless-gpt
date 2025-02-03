@@ -1,5 +1,9 @@
 name: Build and Push Docker Images
 
+permissions:
+  pull-requests: write
+  contents: read
+
 on:
   push:
     branches:
@@ -262,7 +266,7 @@ jobs:
           for img in *.png; do
             if [ -f "$img" ]; then
               echo "Processing screenshot for $img"
-              convert "$img" -resize 800x ../processed-screenshots/processed-"$img"
+              convert "$img" -resize 400x -quality 70 -strip ../processed-screenshots/processed-"$img"
               BASE64_IMG=$(base64 -w 0 ../processed-screenshots/processed-"$img")
               echo "### ${img%.*}" >> ../screenshot-report.md
               echo "![${img%.*}](data:image/png;base64,${BASE64_IMG})" >> ../screenshot-report.md
