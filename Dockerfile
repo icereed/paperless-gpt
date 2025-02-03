@@ -3,7 +3,28 @@ ARG VERSION=docker-dev
 ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 
-# Stage 1: Build the Go binary
+# Stage 1: Build Vite frontend
+FROM node:20-alpine AS frontend
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Install necessary packages
+RUN apk add --no-cache git
+
+# Copy package.json and package-lock.json
+COPY web-app/package.json web-app/package-lock.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the frontend code
+COPY web-app /app/
+
+# Build the frontend
+RUN npm run build
+
+# Stage 2: Build the Go binary
 FROM golang:1.23.5-alpine3.21 AS builder
 
 # Set the working directory inside the container
@@ -28,6 +49,7 @@ RUN apk add --no-cache \
     "mupdf=${MUPDF_VERSION}" \
     "mupdf-dev=${MUPDF_DEV_VERSION}" \
     "sed=${SED_VERSION}"
+
 # Copy go.mod and go.sum files
 COPY go.mod go.sum ./
 
@@ -37,7 +59,10 @@ RUN go mod download
 # Pre-compile go-sqlite3 to avoid doing this every time
 RUN CGO_ENABLED=1 go build -tags musl -o /dev/null github.com/mattn/go-sqlite3
 
-# Now copy the actual source files
+# Copy the frontend build
+COPY --from=frontend /app/dist /app/dist
+
+# Copy the Go source files
 COPY *.go .
 
 # Import ARGs from top level
@@ -55,28 +80,7 @@ RUN sed -i \
 # Build the binary using caching for both go modules and build cache
 RUN CGO_ENABLED=1 GOMAXPROCS=$(nproc) go build -tags musl -o paperless-gpt .
 
-# Stage 2: Build Vite frontend
-FROM node:20-alpine AS frontend
-
-# Set the working directory inside the container
-WORKDIR /app
-
-# Install necessary packages
-RUN apk add --no-cache git
-
-# Copy package.json and package-lock.json
-COPY web-app/package.json web-app/package-lock.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy the frontend code
-COPY web-app /app/
-
-# Build the frontend
-RUN npm run build
-
-# Stage 3: Create a lightweight image with the Go binary and frontend
+# Stage 3: Create a lightweight image with just the binary
 FROM alpine:latest
 
 ENV GIN_MODE=release
@@ -90,9 +94,6 @@ WORKDIR /app/
 
 # Copy the Go binary from the builder stage
 COPY --from=builder /app/paperless-gpt .
-
-# Copy the frontend build
-COPY --from=frontend /app/dist /app/web-app/dist
 
 # Expose the port the app runs on
 EXPOSE 8080

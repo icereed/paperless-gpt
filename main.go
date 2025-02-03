@@ -45,7 +45,6 @@ var (
 	visionLlmModel             = os.Getenv("VISION_LLM_MODEL")
 	logLevel                   = strings.ToLower(os.Getenv("LOG_LEVEL"))
 	listenInterface            = os.Getenv("LISTEN_INTERFACE")
-	webuiPath                  = os.Getenv("WEBUI_PATH")
 	autoGenerateTitle          = os.Getenv("AUTO_GENERATE_TITLE")
 	autoGenerateTags           = os.Getenv("AUTO_GENERATE_TAGS")
 	autoGenerateCorrespondents = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
@@ -247,16 +246,29 @@ func main() {
 		})
 	}
 
-	if webuiPath == "" {
-		webuiPath = "./web-app/dist"
-	}
-	// Serve static files for the frontend under /assets
-	router.StaticFS("/assets", gin.Dir(webuiPath+"/assets", true))
-	router.StaticFile("/vite.svg", webuiPath+"/vite.svg")
+	// Serve embedded web-app files
+	// router.GET("/*filepath", func(c *gin.Context) {
+	// 	filepath := c.Param("filepath")
+	// 	// Remove leading slash from filepath
+	// 	filepath = strings.TrimPrefix(filepath, "/")
+	// 	// Handle static assets under /assets/
+	// 	serveEmbeddedFile(c, "", filepath)
+	// })
 
-	// Catch-all route for serving the frontend
-	router.NoRoute(func(c *gin.Context) {
-		c.File(webuiPath + "/index.html")
+	// Instead of wildcard, serve specific files
+	router.GET("/favicon.ico", func(c *gin.Context) {
+		serveEmbeddedFile(c, "", "favicon.ico")
+	})
+	router.GET("/vite.svg", func(c *gin.Context) {
+		serveEmbeddedFile(c, "", "vite.svg")
+	})
+	router.GET("/assets/*filepath", func(c *gin.Context) {
+		filepath := c.Param("filepath")
+		fmt.Printf("Serving asset: %s\n", filepath)
+		serveEmbeddedFile(c, "assets", filepath)
+	})
+	router.GET("/", func(c *gin.Context) {
+		serveEmbeddedFile(c, "", "index.html")
 	})
 
 	// Start OCR worker pool
