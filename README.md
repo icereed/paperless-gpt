@@ -170,7 +170,6 @@ services:
 | `AUTO_OCR_TAG`         | Tag for automatically processing docs with OCR. Default: `paperless-gpt-ocr-auto`.                              | No       |
 | `LOG_LEVEL`            | Application log level (`info`, `debug`, `warn`, `error`). Default: `info`.                                      | No       |
 | `LISTEN_INTERFACE`     | Network interface to listen on. Default: `:8080`.                                                               | No       |
-| `WEBUI_PATH`           | Path for static content. Default: `./web-app/dist`.                                                             | No       |
 | `AUTO_GENERATE_TITLE`  | Generate titles automatically if `paperless-gpt-auto` is used. Default: `true`.                                  | No       |
 | `AUTO_GENERATE_TAGS`   | Generate tags automatically if `paperless-gpt-auto` is used. Default: `true`.                                   | No       |
 | `AUTO_GENERATE_CORRESPONDENTS` | Generate correspondents automatically if `paperless-gpt-auto` is used. Default: `true`.                   | No       |
