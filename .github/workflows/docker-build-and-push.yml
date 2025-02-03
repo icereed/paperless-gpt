@@ -215,6 +215,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      - name: Set PAPERLESS_GPT_IMAGE
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            IMAGE="icereed/paperless-gpt:pr-${GITHUB_SHA}-amd64"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            IMAGE="icereed/paperless-gpt:${GITHUB_REF_NAME}-amd64"
+          else
+            IMAGE="icereed/paperless-gpt:unreleased-amd64"
+          fi
+          echo "PAPERLESS_GPT_IMAGE=${IMAGE}" >> $GITHUB_ENV
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -230,7 +240,7 @@ jobs:
         env:
           CI: true
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          PAPERLESS_GPT_IMAGE: icereed/paperless-gpt:pr-${{ github.sha }}-amd64
+          PAPERLESS_GPT_IMAGE: ${{ env.PAPERLESS_GPT_IMAGE }}
       - name: Upload Playwright Report
         if: always()
         uses: actions/upload-artifact@v4
