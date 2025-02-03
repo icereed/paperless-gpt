@@ -50,6 +50,6 @@
     "testcontainers": "^10.17.1",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.0.1",
-    "vite": "^5.4.1"
+    "vite": "^6.0.0"
   }
 }
