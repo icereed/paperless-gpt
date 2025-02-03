@@ -36,6 +36,20 @@
 4. Build and run paperless-gpt
 5. Access web interface
 
+### Testing Steps (Required Before Commits)
+1. **Unit Tests**:
+   ```bash
+   go test .
+   ```
+
+2. **E2E Tests**:
+   ```bash
+   docker build . -t icereed/paperless-gpt:e2e
+   cd web-app && npm run test:e2e
+   ```
+
+These tests MUST be run and pass before considering any task complete.
+
 ## Configuration
 
 ### Environment Variables
