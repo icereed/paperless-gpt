@@ -248,13 +248,34 @@ func (app *App) getDocumentHandler() gin.HandlerFunc {
 // Section for local-db actions
 
 func (app *App) getModificationHistoryHandler(c *gin.Context) {
-	modifications, err := GetAllModifications(app.Database)
+	// Parse pagination parameters
+	page := 1
+	pageSize := 20
+
+	if p, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil && p > 0 {
+		page = p
+	}
+	if ps, err := strconv.Atoi(c.DefaultQuery("pageSize", "20")); err == nil && ps > 0 && ps <= 100 {
+		pageSize = ps
+	}
+
+	// Get paginated modifications and total count
+	modifications, total, err := GetPaginatedModifications(app.Database, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve modification history"})
 		log.Errorf("Failed to retrieve modification history: %v", err)
 		return
 	}
-	c.JSON(http.StatusOK, modifications)
+
+	totalPages := (int(total) + pageSize - 1) / pageSize
+
+	c.JSON(http.StatusOK, gin.H{
+		"items":       modifications,
+		"totalItems":  total,
+		"totalPages":  totalPages,
+		"currentPage": page,
+		"pageSize":    pageSize,
+	})
 }
 
 func (app *App) undoModificationHandler(c *gin.Context) {

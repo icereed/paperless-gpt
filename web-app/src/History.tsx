@@ -12,11 +12,23 @@ interface ModificationHistory {
   UndoneDate: string | null;
 }
 
+interface PaginatedResponse {
+  items: ModificationHistory[];
+  totalItems: number;
+  totalPages: number;
+  currentPage: number;
+  pageSize: number;
+}
+
 const History: React.FC = () => {
   const [modifications, setModifications] = useState<ModificationHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [paperlessUrl, setPaperlessUrl] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const pageSize = 20;
 
   // Get Paperless URL
   useEffect(() => {
@@ -36,19 +48,22 @@ const History: React.FC = () => {
     fetchUrl();
   }, []);
 
-  // Get all modifications
+  // Get modifications with pagination
   useEffect(() => {
-    fetchModifications();
-  }, []);
+    fetchModifications(currentPage);
+  }, [currentPage]);
 
-  const fetchModifications = async () => {
+  const fetchModifications = async (page: number) => {
+    setLoading(true);
     try {
-      const response = await fetch('/api/modifications');
+      const response = await fetch(`/api/modifications?page=${page}&pageSize=${pageSize}`);
       if (!response.ok) {
         throw new Error('Failed to fetch modifications');
       }
-      const data = await response.json();
-      setModifications(data);
+      const data: PaginatedResponse = await response.json();
+      setModifications(data.items);
+      setTotalPages(data.totalPages);
+      setTotalItems(data.totalItems);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error occurred');
     } finally {
@@ -96,7 +111,7 @@ const History: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="modification-history container mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
         Modification History
       </h1>
@@ -108,16 +123,52 @@ const History: React.FC = () => {
           No modifications found
         </p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-1">
-          {modifications.map((modification) => (
-            <UndoCard
-              key={modification.ID}
-              {...modification}
-              onUndo={handleUndo}
-              paperlessUrl={paperlessUrl}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-1 mb-6">
+            {modifications.map((modification) => (
+              <UndoCard
+                key={modification.ID}
+                {...modification}
+                onUndo={handleUndo}
+                paperlessUrl={paperlessUrl}
+              />
+            ))}
+          </div>
+          <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 pt-4">
+            <div className="flex items-center text-sm text-gray-500 dark:text-gray-400">
+              <span>
+                Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalItems)} of {totalItems} results
+              </span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setCurrentPage(page => Math.max(1, page - 1))}
+                disabled={currentPage === 1}
+                className={`px-3 py-1 rounded-md ${
+                  currentPage === 1
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800'
+                    : 'bg-blue-500 text-white hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700'
+                }`}
+              >
+                Previous
+              </button>
+              <span className="text-sm text-gray-600 dark:text-gray-300">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(page => Math.min(totalPages, page + 1))}
+                disabled={currentPage === totalPages}
+                className={`px-3 py-1 rounded-md ${
+                  currentPage === totalPages
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800'
+                    : 'bg-blue-500 text-white hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700'
+                }`}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

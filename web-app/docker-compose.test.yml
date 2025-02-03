@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  paperless-ngx:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    environment:
+      PAPERLESS_URL: http://localhost:8001
+      PAPERLESS_SECRET_KEY: change-me
+      PAPERLESS_ADMIN_USER: admin
+      PAPERLESS_ADMIN_PASSWORD: admin
+      PAPERLESS_TIME_ZONE: Europe/Berlin
+      PAPERLESS_OCR_LANGUAGE: eng
+      PAPERLESS_REDIS: redis://redis:6379
+    ports:
+      - "8001:8000"
+    volumes:
+      - paperless-data:/usr/src/paperless/data
+      - paperless-media:/usr/src/paperless/media
+      - paperless-export:/usr/src/paperless/export
+    depends_on:
+      - redis
+      - postgres
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD: paperless
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  paperless-gpt:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: icereed/paperless-gpt:e2e
+    environment:
+      PAPERLESS_URL: http://paperless-ngx:8000
+      PAPERLESS_ADMIN_USER: admin
+      PAPERLESS_ADMIN_PASSWORD: admin
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - paperless-ngx
+
+volumes:
+  paperless-data:
+  paperless-media:
+  paperless-export:
+  pgdata:

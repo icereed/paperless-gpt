@@ -1,6 +1,6 @@
 // UndoCard.tsx
 import React from 'react';
-import { Tooltip } from 'react-tooltip'
+import { Tooltip } from 'react-tooltip';
 
 interface ModificationProps {
   ID: number;
@@ -72,7 +72,7 @@ const UndoCard: React.FC<ModificationProps> = ({
   };
 
   return (
-    <div className="relative bg-white dark:bg-gray-800 p-4 rounded-md shadow-md">
+    <div className="undo-card relative bg-white dark:bg-gray-800 p-4 rounded-md shadow-md">
       <div className="grid grid-cols-6">
         <div className="col-span-5"> {/* Left content */}
           <div className="grid grid-cols-3 gap-4 mb-4">
