@@ -245,39 +245,3 @@ jobs:
           name: test-results
           path: web-app/test-results/
           retention-days: 30
-          
-      - name: Install and Configure ImageMagick
-        if: always()
-        run: |
-          sudo apt-get update && sudo apt-get install -y imagemagick
-        
-      - name: Process Screenshots
-        if: always()
-        run: |
-          if [ ! -d "test-results" ]; then
-            echo "No test-results directory found"
-            exit 0
-          fi
-          
-          mkdir -p processed-screenshots
-          touch screenshot-report.md
-          
-          cd test-results
-          for img in *.png; do
-            if [ -f "$img" ]; then
-              echo "Processing screenshot for $img"
-              convert "$img" -resize 400x -quality 70 -strip ../processed-screenshots/processed-"$img"
-              BASE64_IMG=$(base64 -w 0 ../processed-screenshots/processed-"$img")
-              echo "### ${img%.*}" >> ../screenshot-report.md
-              echo "![${img%.*}](data:image/png;base64,${BASE64_IMG})" >> ../screenshot-report.md
-              echo "" >> ../screenshot-report.md
-            fi
-          done
-          
-      - name: Create PR Comment
-        if: always() && github.event_name == 'pull_request'
-        uses: peter-evans/create-or-update-comment@v3
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          body-path: web-app/screenshot-report.md
-          edit-mode: replace
