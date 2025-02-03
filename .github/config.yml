@@ -1,0 +1,163 @@
+# GitHub App Configuration
+
+# Label Configuration
+labels:
+  # Type labels
+  - name: bug
+    color: d73a4a
+    description: Something isn't working
+  - name: enhancement
+    color: a2eeef
+    description: New feature or request
+  - name: documentation
+    color: 0075ca
+    description: Documentation improvements
+  - name: security
+    color: ee0701
+    description: Security-related issues
+  
+  # Priority labels
+  - name: critical
+    color: b60205
+    description: Needs immediate attention
+  - name: high
+    color: d93f0b
+    description: High priority
+  - name: medium
+    color: fbca04
+    description: Medium priority
+  - name: low
+    color: 0e8a16
+    description: Low priority
+
+  # Status labels
+  - name: triage
+    color: d4c5f9
+    description: Needs triage
+  - name: in-progress
+    color: 9ee12f
+    description: Work in progress
+  - name: blocked
+    color: b60205
+    description: Blocked or needs clarification
+  
+  # Component labels
+  - name: frontend
+    color: 1d76db
+    description: Frontend related
+  - name: backend
+    color: 0052cc
+    description: Backend related
+  - name: ocr
+    color: 5319e7
+    description: OCR functionality
+  - name: llm
+    color: 006b75
+    description: LLM integration
+  
+  # Size labels
+  - name: size/xs
+    color: d4c5f9
+    description: Extra small change
+  - name: size/s
+    color: 84b6eb
+    description: Small change
+  - name: size/m
+    color: fbca04
+    description: Medium change
+  - name: size/l
+    color: d93f0b
+    description: Large change
+  - name: size/xl
+    color: b60205
+    description: Extra large change
+
+# Stale issue configuration
+stale:
+  daysUntilStale: 60
+  daysUntilClose: 7
+  exemptLabels:
+    - security
+    - critical
+    - pinned
+  staleLabel: stale
+  markComment: >
+    This issue has been automatically marked as stale because it has not had
+    recent activity. It will be closed if no further activity occurs. Thank you
+    for your contributions.
+  closeComment: >
+    This issue has been automatically closed due to inactivity. Please feel free
+    to reopen it if you still experience this problem.
+
+# Welcome message for new contributors
+newContributorWelcomeComment: >
+  Thanks for making your first contribution to paperless-gpt! 🎉
+  
+  Please make sure you've read our [Contributing Guidelines](CONTRIBUTING.md)
+  and [Code of Conduct](CODE_OF_CONDUCT.md).
+  
+  If you need any help, feel free to mention @icereed or ask in our Discord.
+
+# PR size labeling
+prSize:
+  xs:
+    lines: 10
+  s:
+    lines: 50
+  m:
+    lines: 250
+  l:
+    lines: 500
+  xl:
+    lines: 1000
+
+# Code review settings
+reviews:
+  request_count: 1
+  notify_on_changes: true
+  auto_assign: true
+  auto_merge: false
+
+# Branch protection settings
+branchProtection:
+  main:
+    required_status_checks:
+      - "build"
+      - "test"
+      - "lint"
+    enforce_admins: true
+    required_pull_request_reviews:
+      required_approving_review_count: 1
+      dismiss_stale_reviews: true
+      require_code_owner_reviews: true
+    allow_force_pushes: false
+    allow_deletions: false
+
+# Issue template settings
+issueTemplate:
+  checkNew: true
+  useConfigure: true
+  configureMessage: >
+    Please use our issue templates to report bugs or request features.
+    This helps us track and resolve issues more effectively.
+
+# Pull request template settings
+pullRequestTemplate:
+  checkNew: true
+  useConfigure: true
+  configureMessage: >
+    Please make sure your PR follows our guidelines and includes all necessary information.
+    Don't forget to link any related issues.
+
+# Repository settings
+repository:
+  private: false
+  has_issues: true
+  has_projects: true
+  has_wiki: true
+  has_downloads: true
+  default_branch: main
+  allow_squash_merge: true
+  allow_merge_commit: false
+  allow_rebase_merge: true
+  delete_branch_on_merge: true

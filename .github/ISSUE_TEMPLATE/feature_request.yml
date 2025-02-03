@@ -1,0 +1,118 @@
+name: Feature Request
+description: Suggest an idea for this project
+title: "[FEATURE] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to suggest a new feature!
+        Please fill out this form as completely as possible.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem? Please describe.
+      placeholder: "I'm always frustrated when [...]"
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like to see
+      placeholder: "It would be great if [...]"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or features you've considered
+      placeholder: "I've thought about [...]"
+
+  - type: dropdown
+    id: importance
+    attributes:
+      label: Importance Level
+      description: How important is this feature to your use case?
+      options:
+        - Critical (Blocking my use of the project)
+        - High (Would significantly improve my workflow)
+        - Medium (Would be nice to have)
+        - Low (Just an idea)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of paperless-gpt would this feature primarily affect?
+      options:
+        - OCR Processing
+        - LLM Integration
+        - Document Management
+        - UI/UX
+        - API
+        - Configuration
+        - Documentation
+        - Performance
+        - Security
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Implementation Scope
+      description: How extensive would the changes be?
+      options:
+        - Minor (Simple change, few files)
+        - Moderate (Multiple files, some complexity)
+        - Major (Significant changes, new features)
+        - Breaking (Requires breaking changes)
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any other context about the feature request here
+      placeholder: "Include use cases, benefits, or screenshots"
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation Ideas
+      description: If you have specific ideas about how to implement this feature, please share them
+      placeholder: "We could implement this by..."
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Contribution
+      description: Would you be interested in helping implement this feature?
+      options:
+        - label: I'm interested in contributing to this feature's implementation
+          required: false
+        - label: I have read the contribution guidelines
+          required: true
+
+  - type: textarea
+    id: success_criteria
+    attributes:
+      label: Success Criteria
+      description: What would make this feature implementation successful?
+      placeholder: |
+        Example criteria:
+        - Feature works with both OpenAI and Ollama
+        - Performance impact is minimal
+        - No breaking changes to existing functionality
+    validations:
+      required: true
