@@ -1,11 +1,10 @@
+import { mdiHistory, mdiHomeOutline, mdiTextBoxSearchOutline } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import axios from "axios";
-import React, { useCallback, useEffect, useState } from 'react';
-import "./Sidebar.css";
-import { Link, useLocation } from 'react-router-dom';
-import { Icon } from '@mdi/react';
-import { mdiHomeOutline, mdiTextBoxSearchOutline, mdiHistory } from '@mdi/js';
+import React, { useCallback, useEffect, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import logo from "../assets/logo.svg";
-
+import "./Sidebar.css";
 
 interface SidebarProps {
   onSelectPage: (page: string) => void;
@@ -27,7 +26,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
   const [ocrEnabled, setOcrEnabled] = useState(false);
   const fetchOcrEnabled = useCallback(async () => {
     try {
-      const res = await axios.get<{ enabled: boolean }>("/api/experimental/ocr");
+      const res = await axios.get<{ enabled: boolean }>(
+        "/api/experimental/ocr"
+      );
       setOcrEnabled(res.data.enabled);
     } catch (err) {
       console.error(err);
@@ -39,30 +40,45 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
   }, [fetchOcrEnabled]);
 
   const menuItems = [
-    { name: 'home', path: '/', icon: mdiHomeOutline, title: 'Home' },
-    { name: 'history', path: '/history', icon: mdiHistory, title: 'History' },
+    { name: "home", path: "/", icon: mdiHomeOutline, title: "Home" },
+    { name: "history", path: "/history", icon: mdiHistory, title: "History" },
   ];
 
   // If OCR is enabled, add the OCR menu item
   if (ocrEnabled) {
-    menuItems.push({ name: 'ocr', path: '/experimental-ocr', icon: mdiTextBoxSearchOutline, title: 'OCR' });
+    menuItems.push({
+      name: "ocr",
+      path: "/experimental-ocr",
+      icon: mdiTextBoxSearchOutline,
+      title: "OCR",
+    });
   }
 
   return (
     <div className={`sidebar min-w-[64px] ${collapsed ? "collapsed" : ""}`}>
       <div className={`sidebar-header ${collapsed ? "collapsed" : ""}`}>
-        {!collapsed && <img src={logo} alt="Logo" className="logo w-8 h-8 object-contain flex-shrink-0" />}
+        {!collapsed && (
+          <img
+            src={logo}
+            alt="Logo"
+            className="logo w-8 h-8 object-contain flex-shrink-0"
+          />
+        )}
         <button className="toggle-btn" onClick={toggleSidebar}>
           &#9776;
         </button>
       </div>
       <ul className="menu-items">
         {menuItems.map((item) => (
-          <li key={item.name} className={location.pathname === item.path ? "active" : ""}>
+          <li
+            key={item.name}
+            className={location.pathname === item.path ? "active" : ""}
+            onClick={() => handlePageClick(item.name)}
+          >
             <Link
               to={item.path}
               onClick={() => handlePageClick(item.name)}
-              style={{ display: 'flex', alignItems: 'center' }}
+              style={{ display: "flex", alignItems: "center" }}
             >
               {/* <Icon path={item.icon} size={1} />
               {!collapsed && <span>&nbsp; {item.title}</span>} */}

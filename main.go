@@ -270,6 +270,14 @@ func main() {
 	router.GET("/", func(c *gin.Context) {
 		serveEmbeddedFile(c, "", "index.html")
 	})
+	// history route
+	router.GET("/history", func(c *gin.Context) {
+		serveEmbeddedFile(c, "", "index.html")
+	})
+	// experimental-ocr route
+	router.GET("/experimental-ocr", func(c *gin.Context) {
+		serveEmbeddedFile(c, "", "index.html")
+	})
 
 	// Start OCR worker pool
 	numWorkers := 1 // Number of workers to start
