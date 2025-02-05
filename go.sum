@@ -117,6 +117,8 @@ github.com/tmc/langchaingo v0.1.12 h1:yXwSu54f3b1IKw0jJ5/DWu+qFVH1NBblwC0xddBzGJ
 github.com/tmc/langchaingo v0.1.12/go.mod h1:cd62xD6h+ouk8k/QQFhOsjRYBSA1JJ5UVKXSIgm7Ni4=
 github.com/tmc/langchaingo v0.1.13-pre.0.0.20250202074804-0672790bb23a h1:uEmyBuBfueLWqdvxHYi9/smSb1BfHfXJpDjJAGI38A4=
 github.com/tmc/langchaingo v0.1.13-pre.0.0.20250202074804-0672790bb23a/go.mod h1:vpQ5NOIhpzxDfTZK9B6tf2GM/MoaHewPWM5KXXGh7hg=
+github.com/tmc/langchaingo v0.1.13-pre.1 h1:r+ma9kl0NuFJGtIrnMPFjEn4RhXktwSI31fIpgiiMm4=
+github.com/tmc/langchaingo v0.1.13-pre.1/go.mod h1:vpQ5NOIhpzxDfTZK9B6tf2GM/MoaHewPWM5KXXGh7hg=
 github.com/twitchyliquid64/golang-asm v0.15.1 h1:SU5vSMR7hnwNxj24w34ZyCi/FmDZTkS4MhqMhdFk5YI=
 github.com/twitchyliquid64/golang-asm v0.15.1/go.mod h1:a1lVb/DtPvCB8fslRZhAngC2+aY1QWCk3Cedj/Gdt08=
 github.com/ugorji/go/codec v1.2.12 h1:9LC83zGrHhuUA9l16C9AHXAqEV/2wBQ4nkvumAE65EE=
