@@ -266,3 +266,28 @@ func TestTokenLimitInTitleGeneration(t *testing.T) {
 	// Final prompt should be within token limit
 	assert.LessOrEqual(t, len(tokens), 50, "Final prompt should be within token limit")
 }
+func TestStripReasoning(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "No reasoning tags",
+			input:    "This is a test content without reasoning tags.",
+			expected: "This is a test content without reasoning tags.",
+		},
+		{
+			name:     "Reasoning tags at the start",
+			input:    "<think>Start reasoning</think>\n\nContent      \n\n",
+			expected: "Content",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := stripReasoning(tc.input)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
