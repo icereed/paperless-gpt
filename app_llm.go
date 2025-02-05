@@ -67,7 +67,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := strings.TrimSpace(completion.Choices[0].Content)
+	response := stripReasoning(strings.TrimSpace(completion.Choices[0].Content))
 	return response, nil
 }
 
@@ -137,7 +137,8 @@ func (app *App) getSuggestedTags(
 		return nil, fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := strings.TrimSpace(completion.Choices[0].Content)
+	response := stripReasoning(completion.Choices[0].Content)
+
 	suggestedTags := strings.Split(response, ",")
 	for i, tag := range suggestedTags {
 		suggestedTags[i] = strings.TrimSpace(tag)
@@ -252,7 +253,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	var promptBuffer bytes.Buffer
 	templateData["Content"] = truncatedContent
 	err = titleTemplate.Execute(&promptBuffer, templateData)
-  
+
 	if err != nil {
 		return "", fmt.Errorf("error executing title template: %v", err)
 	}
@@ -273,8 +274,8 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
-
-	return strings.TrimSpace(strings.Trim(completion.Choices[0].Content, "\"")), nil
+	result := stripReasoning(completion.Choices[0].Content)
+	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
 
 // generateDocumentSuggestions generates suggestions for a set of documents
@@ -403,4 +404,20 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 	}
 
 	return documentSuggestions, nil
+}
+
+// stripReasoning removes the reasoning from the content indicated by <think> and </think> tags.
+func stripReasoning(content string) string {
+	// Remove reasoning from the content
+	reasoningStart := strings.Index(content, "<think>")
+	if reasoningStart != -1 {
+		reasoningEnd := strings.Index(content, "</think>")
+		if reasoningEnd != -1 {
+			content = content[:reasoningStart] + content[reasoningEnd+len("</think>"):]
+		}
+	}
+
+	// Trim whitespace
+	content = strings.TrimSpace(content)
+	return content
 }
