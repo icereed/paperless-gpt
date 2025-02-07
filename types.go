@@ -1,6 +1,6 @@
 package main
 
-// GetTagsApiResponse is the response payload for /tags endpoint.
+// GetDocumentsApiResponse is the response payload for /documents endpoint.
 // But we are only interested in a subset of the fields.
 type GetDocumentsApiResponse struct {
 	Count int `json:"count"`
