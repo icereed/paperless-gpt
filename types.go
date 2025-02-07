@@ -1,37 +1,39 @@
 package main
 
+type GetDocumentApiResponseResult struct {
+	ID            int `json:"id"`
+	Correspondent int `json:"correspondent"`
+	// DocumentType        interface{}   `json:"document_type"`
+	// StoragePath         interface{}   `json:"storage_path"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	Tags    []int  `json:"tags"`
+	// Created             time.Time     `json:"created"`
+	// CreatedDate         string        `json:"created_date"`
+	// Modified            time.Time     `json:"modified"`
+	// Added               time.Time     `json:"added"`
+	// ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
+	// OriginalFileName    string        `json:"original_file_name"`
+	// ArchivedFileName    string        `json:"archived_file_name"`
+	// Owner               int           `json:"owner"`
+	// UserCanChange       bool          `json:"user_can_change"`
+	Notes []interface{} `json:"notes"`
+	// SearchHit struct {
+	// 	Score          float64 `json:"score"`
+	// 	Highlights     string  `json:"highlights"`
+	// 	NoteHighlights string  `json:"note_highlights"`
+	// 	Rank           int     `json:"rank"`
+	// } `json:"__search_hit__"`
+}
+
 // GetTagsApiResponse is the response payload for /tags endpoint.
 // But we are only interested in a subset of the fields.
 type GetDocumentsApiResponse struct {
 	Count int `json:"count"`
 	// Next     interface{} `json:"next"`
 	// Previous interface{} `json:"previous"`
-	All     []int `json:"all"`
-	Results []struct {
-		ID            int `json:"id"`
-		Correspondent int `json:"correspondent"`
-		// DocumentType        interface{}   `json:"document_type"`
-		// StoragePath         interface{}   `json:"storage_path"`
-		Title   string `json:"title"`
-		Content string `json:"content"`
-		Tags    []int  `json:"tags"`
-		// Created             time.Time     `json:"created"`
-		// CreatedDate         string        `json:"created_date"`
-		// Modified            time.Time     `json:"modified"`
-		// Added               time.Time     `json:"added"`
-		// ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
-		// OriginalFileName    string        `json:"original_file_name"`
-		// ArchivedFileName    string        `json:"archived_file_name"`
-		// Owner               int           `json:"owner"`
-		// UserCanChange       bool          `json:"user_can_change"`
-		Notes []interface{} `json:"notes"`
-		// SearchHit struct {
-		// 	Score          float64 `json:"score"`
-		// 	Highlights     string  `json:"highlights"`
-		// 	NoteHighlights string  `json:"note_highlights"`
-		// 	Rank           int     `json:"rank"`
-		// } `json:"__search_hit__"`
-	} `json:"results"`
+	All     []int                          `json:"all"`
+	Results []GetDocumentApiResponseResult `json:"results"`
 }
 
 // GetDocumentApiResponse is the response payload for /documents/{id} endpoint.
