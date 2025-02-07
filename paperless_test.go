@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -180,31 +179,7 @@ func TestGetDocumentsByTags(t *testing.T) {
 
 	// Mock data for documents
 	documentsResponse := GetDocumentsApiResponse{
-		Results: []struct {
-			ID                  int           `json:"id"`
-			Correspondent       int           `json:"correspondent"`
-			DocumentType        interface{}   `json:"document_type"`
-			StoragePath         interface{}   `json:"storage_path"`
-			Title               string        `json:"title"`
-			Content             string        `json:"content"`
-			Tags                []int         `json:"tags"`
-			Created             time.Time     `json:"created"`
-			CreatedDate         string        `json:"created_date"`
-			Modified            time.Time     `json:"modified"`
-			Added               time.Time     `json:"added"`
-			ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
-			OriginalFileName    string        `json:"original_file_name"`
-			ArchivedFileName    string        `json:"archived_file_name"`
-			Owner               int           `json:"owner"`
-			UserCanChange       bool          `json:"user_can_change"`
-			Notes               []interface{} `json:"notes"`
-			SearchHit           struct {
-				Score          float64 `json:"score"`
-				Highlights     string  `json:"highlights"`
-				NoteHighlights string  `json:"note_highlights"`
-				Rank           int     `json:"rank"`
-			} `json:"__search_hit__"`
-		}{
+		Results: []GetDocumentApiResponseResult{
 			{
 				ID:            1,
 				Title:         "Document 1",
