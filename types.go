@@ -1,5 +1,17 @@
 package main
 
+// GetDocumentsApiResponse is the response payload for /documents endpoint.
+// But we are only interested in a subset of the fields.
+type GetDocumentsApiResponse struct {
+	Count int `json:"count"`
+	// Next     interface{} `json:"next"`
+	// Previous interface{} `json:"previous"`
+	All     []int                          `json:"all"`
+	Results []GetDocumentApiResponseResult `json:"results"`
+}
+
+// GetDocumentApiResponseResult is a part of the response payload for /documents endpoint.
+// But we are only interested in a subset of the fields.
 type GetDocumentApiResponseResult struct {
 	ID            int `json:"id"`
 	Correspondent int `json:"correspondent"`
@@ -24,16 +36,6 @@ type GetDocumentApiResponseResult struct {
 	// 	NoteHighlights string  `json:"note_highlights"`
 	// 	Rank           int     `json:"rank"`
 	// } `json:"__search_hit__"`
-}
-
-// GetTagsApiResponse is the response payload for /tags endpoint.
-// But we are only interested in a subset of the fields.
-type GetDocumentsApiResponse struct {
-	Count int `json:"count"`
-	// Next     interface{} `json:"next"`
-	// Previous interface{} `json:"previous"`
-	All     []int                          `json:"all"`
-	Results []GetDocumentApiResponseResult `json:"results"`
 }
 
 // GetDocumentApiResponse is the response payload for /documents/{id} endpoint.
