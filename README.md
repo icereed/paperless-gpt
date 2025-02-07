@@ -20,21 +20,24 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 2. **Automatic Title & Tag Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
 
-3. **Automatic Correspondent Generation**  
+3. **Supports DeepSeek reasoning models in Ollama**  
+   Greatly enhance accuracy by using a reasoning model like `deepseek-r1:8b`. The perfect tradeoff between privacy and performance! Of course, if you got enough GPUs or NPUs, a bigger model will enhance the experience.
+   
+5. **Automatic Correspondent Generation**  
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
 
-4. **Extensive Customization**  
+6. **Extensive Customization**  
    - **Prompt Templates**: Tweak your AI prompts to reflect your domain, style, or preference.  
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
 
-5. **Simple Docker Deployment**  
+7. **Simple Docker Deployment**  
    A few environment variables, and you’re off! Compose it alongside paperless-ngx with minimal fuss.
 
-6. **Unified Web UI**  
+8. **Unified Web UI**  
    - **Manual Review**: Approve or tweak AI’s suggestions.  
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
 
-7. **Opt-In LLM-based OCR**  
+9. **Opt-In LLM-based OCR**  
    If you opt in, your images get read by a Vision LLM, pushing boundaries beyond standard OCR tools.
 
 ---
@@ -69,7 +72,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 - A running instance of [paperless-ngx][paperless-ngx].
 - Access to an LLM provider:
   - **OpenAI**: An API key with models like `gpt-4o` or `gpt-3.5-turbo`.
-  - **Ollama**: A running Ollama server with models like `llama2`.
+  - **Ollama**: A running Ollama server with models like `deepseek-r1:8b`.
 
 ### Installation
 
@@ -93,7 +96,9 @@ services:
       MANUAL_TAG: 'paperless-gpt'          # Optional, default: paperless-gpt
       AUTO_TAG: 'paperless-gpt-auto'       # Optional, default: paperless-gpt-auto
       LLM_PROVIDER: 'openai'               # or 'ollama'
-      LLM_MODEL: 'gpt-4o'                  # or 'llama2'
+      LLM_MODEL: 'gpt-4o'                  # or 'deepseek-r1:8b'
+      # Optional, but recommended for Ollama
+      TOKEN_LIMIT: 1000
       OPENAI_API_KEY: 'your_openai_api_key'
       # Optional - OPENAI_BASE_URL: 'https://litellm.yourinstallationof.it.com/v1'
       LLM_LANGUAGE: 'English'              # Optional, default: English
@@ -160,7 +165,7 @@ services:
 | `MANUAL_TAG`           | Tag for manual processing. Default: `paperless-gpt`.                                                            | No       |
 | `AUTO_TAG`             | Tag for auto processing. Default: `paperless-gpt-auto`.                                                         | No       |
 | `LLM_PROVIDER`         | AI backend (`openai` or `ollama`).                                                                              | Yes      |
-| `LLM_MODEL`            | AI model name, e.g. `gpt-4o`, `gpt-3.5-turbo`, `llama2`.                                                         | Yes      |
+| `LLM_MODEL`            | AI model name, e.g. `gpt-4o`, `gpt-3.5-turbo`, `deepseek-r1:8b`.                                                | Yes      |
 | `OPENAI_API_KEY`       | OpenAI API key (required if using OpenAI).                                                                      | Cond.    |
 | `OPENAI_BASE_URL`      | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                                              | No       |
 | `LLM_LANGUAGE`         | Likely language for documents (e.g. `English`). Default: `English`.                                             | No       |
@@ -455,7 +460,7 @@ When using local LLMs (like those through Ollama), you might need to adjust cert
 #### Token Management
 - Use `TOKEN_LIMIT` environment variable to control the maximum number of tokens sent to the LLM
 - Smaller models might truncate content unexpectedly if given too much text
-- Start with a conservative limit (e.g., 2000 tokens) and adjust based on your model's capabilities
+- Start with a conservative limit (e.g., 1000 tokens) and adjust based on your model's capabilities
 - Set to `0` to disable the limit (use with caution)
 
 Example configuration for smaller models:
@@ -463,7 +468,7 @@ Example configuration for smaller models:
 environment:
   TOKEN_LIMIT: '2000'  # Adjust based on your model's context window
   LLM_PROVIDER: 'ollama'
-  LLM_MODEL: 'llama2'  # Or other local model
+  LLM_MODEL: 'deepseek-r1:8b'  # Or other local model
 ```
 
 Common issues and solutions:
