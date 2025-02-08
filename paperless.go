@@ -365,12 +365,12 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 				updatedFields["correspondent"] = correspondentID
 			} else {
 				newCorrespondent := instantiateCorrespondent(document.SuggestedCorrespondent)
-				newCorrespondentID, err := client.CreateCorrespondent(context.Background(), newCorrespondent)
+				newCorrespondentID, err := client.CreateOrGetCorrespondent(context.Background(), newCorrespondent)
 				if err != nil {
-					log.Errorf("Error creating correspondent with name %s: %v\n", document.SuggestedCorrespondent, err)
+					log.Errorf("Error creating/getting correspondent with name %s: %v\n", document.SuggestedCorrespondent, err)
 					return err
 				}
-				log.Infof("Created correspondent with name %s and ID %d\n", document.SuggestedCorrespondent, newCorrespondentID)
+				log.Infof("Using correspondent with name %s and ID %d\n", document.SuggestedCorrespondent, newCorrespondentID)
 				updatedFields["correspondent"] = newCorrespondentID
 			}
 		}
@@ -612,17 +612,27 @@ func instantiateCorrespondent(name string) Correspondent {
 	}
 }
 
-// CreateCorrespondent creates a new correspondent in Paperless-NGX
-func (client *PaperlessClient) CreateCorrespondent(ctx context.Context, correspondent Correspondent) (int, error) {
-	url := "api/correspondents/"
+// CreateOrGetCorrespondent creates a new correspondent or returns existing one if name already exists
+func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, correspondent Correspondent) (int, error) {
+	// First try to find existing correspondent
+	correspondents, err := client.GetAllCorrespondents(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("error fetching correspondents: %w", err)
+	}
 
-	// Marshal the correspondent data to JSON
+	// Check if correspondent already exists
+	if id, exists := correspondents[correspondent.Name]; exists {
+		log.Infof("Using existing correspondent with name %s and ID %d", correspondent.Name, id)
+		return id, nil
+	}
+
+	// If not found, create new correspondent
+	url := "api/correspondents/"
 	jsonData, err := json.Marshal(correspondent)
 	if err != nil {
 		return 0, err
 	}
 
-	// Send the POST request
 	resp, err := client.Do(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return 0, err
@@ -634,7 +644,6 @@ func (client *PaperlessClient) CreateCorrespondent(ctx context.Context, correspo
 		return 0, fmt.Errorf("error creating correspondent: %d, %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	// Decode the response body to get the ID of the created correspondent
 	var createdCorrespondent struct {
 		ID int `json:"id"`
 	}
