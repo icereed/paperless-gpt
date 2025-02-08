@@ -91,8 +91,19 @@ We welcome pull requests (PRs). Please follow these guidelines:
 4. **Run the backend server**:
 
    ```bash
-   go run main.go
+   mkdir dist
+   touch dist/index.html
+   go build
+   ./paperless-gpt
    ```
+
+5. **Run the backend server with frontend built in**:
+
+  ```bash
+  cd web-app && npm install && npm run build && cp -r dist ..
+  go build
+  ./paperless-gpt
+  ```
 
 ### Frontend Setup
 
