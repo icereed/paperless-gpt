@@ -81,7 +81,6 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 Here’s an example `docker-compose.yml` to spin up **paperless-gpt** alongside paperless-ngx:
 
 ```yaml
-version: "3.7"
 services:
   paperless-ngx:
     image: ghcr.io/paperless-ngx/paperless-ngx:latest
