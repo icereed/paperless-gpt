@@ -111,6 +111,11 @@ services:
       - ./prompts:/app/prompts   # Mount the prompts directory
     ports:
       - "8080:8080"
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.01'
+          memory: 20M
     depends_on:
       - paperless-ngx
 ```
