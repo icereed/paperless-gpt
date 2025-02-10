@@ -94,6 +94,3 @@ func TestGenerateHOCR(t *testing.T) {
 	}
 }
 
-func testContext() context.Context {
-	return context.Background()
-}
