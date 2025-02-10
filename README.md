@@ -7,7 +7,7 @@
 
 ![Screenshot](./paperless-gpt-screenshot.png)
 
-**paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**—ensuring high accuracy, even with tricky scans. If you’re craving next-level text extraction and effortless document organization, this is your solution.
+**paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**-ensuring high accuracy, even with tricky scans. If you’re craving next-level text extraction and effortless document organization, this is your solution.
 
 https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
@@ -18,29 +18,33 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 1. **LLM-Enhanced OCR**  
    Harness Large Language Models (OpenAI or Ollama) for **better-than-traditional** OCR—turn messy or low-quality scans into context-aware, high-fidelity text.
 
-2. **Automatic Title & Tag Generation**  
+2. **Use specialized AI OCR services**
+
+   - **LLM OCR**: Use OpenAI or Ollama to extract text from images.
+   - **Google Document AI**: Leverage Google's powerful Document AI for OCR tasks.
+   - **More to come**: Stay tuned for more OCR providers!
+
+3. **Automatic Title & Tag Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
 
-3. **Supports DeepSeek reasoning models in Ollama**  
+4. **Supports DeepSeek reasoning models in Ollama**  
    Greatly enhance accuracy by using a reasoning model like `deepseek-r1:8b`. The perfect tradeoff between privacy and performance! Of course, if you got enough GPUs or NPUs, a bigger model will enhance the experience.
-4. **Automatic Correspondent Generation**  
+
+5. **Automatic Correspondent Generation**  
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
 
-5. **Extensive Customization**
+6. **Extensive Customization**
 
    - **Prompt Templates**: Tweak your AI prompts to reflect your domain, style, or preference.
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
 
-6. **Simple Docker Deployment**  
+7. **Simple Docker Deployment**  
    A few environment variables, and you’re off! Compose it alongside paperless-ngx with minimal fuss.
 
-7. **Unified Web UI**
+8. **Unified Web UI**
 
    - **Manual Review**: Approve or tweak AI’s suggestions.
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
-
-8. **Opt-In LLM-based OCR**  
-   If you opt in, your images get read by a Vision LLM, pushing boundaries beyond standard OCR tools.
 
 ---
 
