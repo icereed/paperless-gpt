@@ -1,7 +1,6 @@
 package ocr
 
 import (
-	"context"
 	"regexp"
 	"strings"
 	"testing"
@@ -93,4 +92,3 @@ func TestGenerateHOCR(t *testing.T) {
 		})
 	}
 }
-
