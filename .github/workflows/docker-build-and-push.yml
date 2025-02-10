@@ -241,6 +241,7 @@ jobs:
         run: npm run test:e2e
         env:
           CI: true
+          DEBUG: testcontainers:containers
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           PAPERLESS_GPT_IMAGE: ${{ env.PAPERLESS_GPT_IMAGE }}
       - name: Upload Playwright Report

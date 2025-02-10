@@ -1,4 +1,5 @@
 # paperless-gpt
+
 [![License](https://img.shields.io/github/license/icereed/paperless-gpt)](LICENSE)
 [![Discord Banner](https://img.shields.io/badge/Join%20us%20on-Discord-blue?logo=discord)](https://discord.gg/fJQppDH2J7)
 [![Docker Pulls](https://img.shields.io/docker/pulls/icereed/paperless-gpt)](https://hub.docker.com/r/icereed/paperless-gpt)
@@ -6,7 +7,7 @@
 
 ![Screenshot](./paperless-gpt-screenshot.png)
 
-**paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**—ensuring high accuracy, even with tricky scans. If you’re craving next-level text extraction and effortless document organization, this is your solution.
+**paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**-ensuring high accuracy, even with tricky scans. If you’re craving next-level text extraction and effortless document organization, this is your solution.
 
 https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
@@ -17,32 +18,38 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 1. **LLM-Enhanced OCR**  
    Harness Large Language Models (OpenAI or Ollama) for **better-than-traditional** OCR—turn messy or low-quality scans into context-aware, high-fidelity text.
 
-2. **Automatic Title & Tag Generation**  
+2. **Use specialized AI OCR services**
+
+   - **LLM OCR**: Use OpenAI or Ollama to extract text from images.
+   - **Google Document AI**: Leverage Google's powerful Document AI for OCR tasks.
+   - **More to come**: Stay tuned for more OCR providers!
+
+3. **Automatic Title & Tag Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
 
-3. **Supports DeepSeek reasoning models in Ollama**  
+4. **Supports DeepSeek reasoning models in Ollama**  
    Greatly enhance accuracy by using a reasoning model like `deepseek-r1:8b`. The perfect tradeoff between privacy and performance! Of course, if you got enough GPUs or NPUs, a bigger model will enhance the experience.
-   
+
 5. **Automatic Correspondent Generation**  
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
 
-6. **Extensive Customization**  
-   - **Prompt Templates**: Tweak your AI prompts to reflect your domain, style, or preference.  
+6. **Extensive Customization**
+
+   - **Prompt Templates**: Tweak your AI prompts to reflect your domain, style, or preference.
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
 
 7. **Simple Docker Deployment**  
    A few environment variables, and you’re off! Compose it alongside paperless-ngx with minimal fuss.
 
-8. **Unified Web UI**  
-   - **Manual Review**: Approve or tweak AI’s suggestions.  
-   - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
+8. **Unified Web UI**
 
-9. **Opt-In LLM-based OCR**  
-   If you opt in, your images get read by a Vision LLM, pushing boundaries beyond standard OCR tools.
+   - **Manual Review**: Approve or tweak AI’s suggestions.
+   - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
 
 ---
 
 ## Table of Contents
+
 - [Key Highlights](#key-highlights)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
@@ -68,6 +75,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 ## Getting Started
 
 ### Prerequisites
+
 - [Docker][docker-install] installed.
 - A running instance of [paperless-ngx][paperless-ngx].
 - Access to an LLM provider:
@@ -89,26 +97,40 @@ services:
   paperless-gpt:
     image: icereed/paperless-gpt:latest
     environment:
-      PAPERLESS_BASE_URL: 'http://paperless-ngx:8000'
-      PAPERLESS_API_TOKEN: 'your_paperless_api_token'
-      PAPERLESS_PUBLIC_URL: 'http://paperless.mydomain.com' # Optional
-      MANUAL_TAG: 'paperless-gpt'          # Optional, default: paperless-gpt
-      AUTO_TAG: 'paperless-gpt-auto'       # Optional, default: paperless-gpt-auto
-      LLM_PROVIDER: 'openai'               # or 'ollama'
-      LLM_MODEL: 'gpt-4o'                  # or 'deepseek-r1:8b'
+      PAPERLESS_BASE_URL: "http://paperless-ngx:8000"
+      PAPERLESS_API_TOKEN: "your_paperless_api_token"
+      PAPERLESS_PUBLIC_URL: "http://paperless.mydomain.com" # Optional
+      MANUAL_TAG: "paperless-gpt" # Optional, default: paperless-gpt
+      AUTO_TAG: "paperless-gpt-auto" # Optional, default: paperless-gpt-auto
+      LLM_PROVIDER: "openai" # or 'ollama'
+      LLM_MODEL: "gpt-4o" # or 'deepseek-r1:8b'
       # Optional, but recommended for Ollama
       TOKEN_LIMIT: 1000
-      OPENAI_API_KEY: 'your_openai_api_key'
+      OPENAI_API_KEY: "your_openai_api_key"
       # Optional - OPENAI_BASE_URL: 'https://litellm.yourinstallationof.it.com/v1'
-      LLM_LANGUAGE: 'English'              # Optional, default: English
-      OLLAMA_HOST: 'http://host.docker.internal:11434' # If using Ollama
-      VISION_LLM_PROVIDER: 'ollama'        # (for OCR) - openai or ollama
-      VISION_LLM_MODEL: 'minicpm-v'        # (for OCR) - minicpm-v (ollama example), gpt-4o (for openai), etc.
-      AUTO_OCR_TAG: 'paperless-gpt-ocr-auto' # Optional, default: paperless-gpt-ocr-auto
-      OCR_LIMIT_PAGES: '5'                 # Optional, default: 5. Set to 0 for no limit.
-      LOG_LEVEL: 'info'                    # Optional: debug, warn, error
+      LLM_LANGUAGE: "English" # Optional, default: English
+
+      # OCR Configuration - Choose one:
+      # Option 1: LLM-based OCR
+      OCR_PROVIDER: "llm" # Default OCR provider
+      VISION_LLM_PROVIDER: "ollama" # openai or ollama
+      VISION_LLM_MODEL: "minicpm-v" # minicpm-v (ollama) or gpt-4v (openai)
+      OLLAMA_HOST: "http://host.docker.internal:11434" # If using Ollama
+
+      # Option 2: Google Document AI
+      # OCR_PROVIDER: 'google_docai'       # Use Google Document AI
+      # GOOGLE_PROJECT_ID: 'your-project'  # Your GCP project ID
+      # GOOGLE_LOCATION: 'us'              # Document AI region
+      # GOOGLE_PROCESSOR_ID: 'processor-id' # Your processor ID
+      # GOOGLE_APPLICATION_CREDENTIALS: '/app/credentials.json' # Path to service account key
+
+      AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
+      OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
+      LOG_LEVEL: "info" # Optional: debug, warn, error
     volumes:
-      - ./prompts:/app/prompts   # Mount the prompts directory
+      - ./prompts:/app/prompts # Mount the prompts directory
+      # For Google Document AI:
+      - ${HOME}/.config/gcloud/application_default_credentials.json:/app/credentials.json
     ports:
       - "8080:8080"
     depends_on:
@@ -118,20 +140,21 @@ services:
 **Pro Tip**: Replace placeholders with real values and read the logs if something looks off.
 
 #### Manual Setup
-1. **Clone the Repository**  
+
+1. **Clone the Repository**
    ```bash
    git clone https://github.com/icereed/paperless-gpt.git
    cd paperless-gpt
    ```
-2. **Create a `prompts` Directory**  
+2. **Create a `prompts` Directory**
    ```bash
    mkdir prompts
    ```
-3. **Build the Docker Image**  
+3. **Build the Docker Image**
    ```bash
    docker build -t paperless-gpt .
    ```
-4. **Run the Container**  
+4. **Run the Container**
    ```bash
    docker run -d \
      -e PAPERLESS_BASE_URL='http://your_paperless_ngx_url' \
@@ -154,38 +177,43 @@ services:
 
 ### Environment Variables
 
-**Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
-=======
-| Variable               | Description                                                                                                      | Required |
-|------------------------|------------------------------------------------------------------------------------------------------------------|----------|
-| `PAPERLESS_BASE_URL`   | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                          | Yes      |
-| `PAPERLESS_API_TOKEN`  | API token for paperless-ngx. Generate one in paperless-ngx admin.                                               | Yes      |
-| `PAPERLESS_PUBLIC_URL` | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                              | No       |
-| `MANUAL_TAG`           | Tag for manual processing. Default: `paperless-gpt`.                                                            | No       |
-| `AUTO_TAG`             | Tag for auto processing. Default: `paperless-gpt-auto`.                                                         | No       |
-| `LLM_PROVIDER`         | AI backend (`openai` or `ollama`).                                                                              | Yes      |
-| `LLM_MODEL`            | AI model name, e.g. `gpt-4o`, `gpt-3.5-turbo`, `deepseek-r1:8b`.                                                | Yes      |
-| `OPENAI_API_KEY`       | OpenAI API key (required if using OpenAI).                                                                      | Cond.    |
-| `OPENAI_BASE_URL`      | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                                              | No       |
-| `LLM_LANGUAGE`         | Likely language for documents (e.g. `English`). Default: `English`.                                             | No       |
-| `OLLAMA_HOST`          | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                   | No       |
-| `VISION_LLM_PROVIDER`  | AI backend for OCR (`openai` or `ollama`).                                                                      | No       |
-| `VISION_LLM_MODEL`     | Model name for OCR (e.g. `minicpm-v`).                                                                          | No       |
-| `AUTO_OCR_TAG`         | Tag for automatically processing docs with OCR. Default: `paperless-gpt-ocr-auto`.                              | No       |
-| `LOG_LEVEL`            | Application log level (`info`, `debug`, `warn`, `error`). Default: `info`.                                      | No       |
-| `LISTEN_INTERFACE`     | Network interface to listen on. Default: `:8080`.                                                               | No       |
-| `AUTO_GENERATE_TITLE`  | Generate titles automatically if `paperless-gpt-auto` is used. Default: `true`.                                  | No       |
-| `AUTO_GENERATE_TAGS`   | Generate tags automatically if `paperless-gpt-auto` is used. Default: `true`.                                   | No       |
-| `AUTO_GENERATE_CORRESPONDENTS` | Generate correspondents automatically if `paperless-gpt-auto` is used. Default: `true`.                   | No       |
-| `OCR_LIMIT_PAGES`      | Limit the number of pages for OCR. Set to `0` for no limit. Default: `5`.                                       | No       |
-| `TOKEN_LIMIT`          | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                | No       |
-| `CORRESPONDENT_BLACK_LIST` | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.  
+# **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
+
+| Variable                         | Description                                                                                                      | Required |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------- |
+| `PAPERLESS_BASE_URL`             | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                           | Yes      |
+| `PAPERLESS_API_TOKEN`            | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                | Yes      |
+| `PAPERLESS_PUBLIC_URL`           | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                               | No       |
+| `MANUAL_TAG`                     | Tag for manual processing. Default: `paperless-gpt`.                                                             | No       |
+| `AUTO_TAG`                       | Tag for auto processing. Default: `paperless-gpt-auto`.                                                          | No       |
+| `LLM_PROVIDER`                   | AI backend (`openai` or `ollama`).                                                                               | Yes      |
+| `LLM_MODEL`                      | AI model name, e.g. `gpt-4o`, `gpt-3.5-turbo`, `deepseek-r1:8b`.                                                 | Yes      |
+| `OPENAI_API_KEY`                 | OpenAI API key (required if using OpenAI).                                                                       | Cond.    |
+| `OPENAI_BASE_URL`                | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                            | No       |
+| `LLM_LANGUAGE`                   | Likely language for documents (e.g. `English`). Default: `English`.                                              | No       |
+| `OLLAMA_HOST`                    | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                    | No       |
+| `OCR_PROVIDER`                   | OCR provider to use (`llm` or `google_docai`). Default: `llm`.                                                   | No       |
+| `VISION_LLM_PROVIDER`            | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                | Cond.    |
+| `VISION_LLM_MODEL`               | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                    | Cond.    |
+| `GOOGLE_PROJECT_ID`              | Google Cloud project ID. Required if OCR_PROVIDER is `google_docai`.                                             | Cond.    |
+| `GOOGLE_LOCATION`                | Google Cloud region (e.g. `us`, `eu`). Required if OCR_PROVIDER is `google_docai`.                               | Cond.    |
+| `GOOGLE_PROCESSOR_ID`            | Document AI processor ID. Required if OCR_PROVIDER is `google_docai`.                                            | Cond.    |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to the mounted Google service account key. Required if OCR_PROVIDER is `google_docai`.                      | Cond.    |
+| `AUTO_OCR_TAG`                   | Tag for automatically processing docs with OCR. Default: `paperless-gpt-ocr-auto`.                               | No       |
+| `LOG_LEVEL`                      | Application log level (`info`, `debug`, `warn`, `error`). Default: `info`.                                       | No       |
+| `LISTEN_INTERFACE`               | Network interface to listen on. Default: `:8080`.                                                                | No       |
+| `AUTO_GENERATE_TITLE`            | Generate titles automatically if `paperless-gpt-auto` is used. Default: `true`.                                  | No       |
+| `AUTO_GENERATE_TAGS`             | Generate tags automatically if `paperless-gpt-auto` is used. Default: `true`.                                    | No       |
+| `AUTO_GENERATE_CORRESPONDENTS`   | Generate correspondents automatically if `paperless-gpt-auto` is used. Default: `true`.                          | No       |
+| `OCR_LIMIT_PAGES`                | Limit the number of pages for OCR. Set to `0` for no limit. Default: `5`.                                        | No       |
+| `TOKEN_LIMIT`                    | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                | No       |
+| `CORRESPONDENT_BLACK_LIST`       | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`. | No       |
 
 ### Custom Prompt Templates
 
 paperless-gpt’s flexible **prompt templates** let you shape how AI responds:
 
-1. **`title_prompt.tmpl`**: For document titles.  
+1. **`title_prompt.tmpl`**: For document titles.
 2. **`tag_prompt.tmpl`**: For tagging logic.
 3. **`ocr_prompt.tmpl`**: For LLM OCR.
 4. **`correspondent_prompt.tmpl`**: For correspondent identification.
@@ -193,8 +221,8 @@ paperless-gpt’s flexible **prompt templates** let you shape how AI responds:
 Mount them into your container via:
 
 ```yaml
-  volumes:
-    - ./prompts:/app/prompts
+volumes:
+  - ./prompts:/app/prompts
 ```
 
 Then tweak at will—**paperless-gpt** reloads them automatically on startup!
@@ -204,11 +232,13 @@ Then tweak at will—**paperless-gpt** reloads them automatically on startup!
 Each template has access to specific variables:
 
 **title_prompt.tmpl**:
+
 - `{{.Language}}` - Target language (e.g., "English")
 - `{{.Content}}` - Document content text
 - `{{.Title}}` - Original document title
 
 **tag_prompt.tmpl**:
+
 - `{{.Language}}` - Target language
 - `{{.AvailableTags}}` - List of existing tags in paperless-ngx
 - `{{.OriginalTags}}` - Document's current tags
@@ -216,9 +246,11 @@ Each template has access to specific variables:
 - `{{.Content}}` - Document content text
 
 **ocr_prompt.tmpl**:
+
 - `{{.Language}}` - Target language
 
 **correspondent_prompt.tmpl**:
+
 - `{{.Language}}` - Target language
 - `{{.AvailableCorrespondents}}` - List of existing correspondents
 - `{{.BlackList}}` - List of blacklisted correspondent names
@@ -231,18 +263,21 @@ The templates use Go's text/template syntax. paperless-gpt automatically reloads
 
 ## Usage
 
-1. **Tag Documents**  
+1. **Tag Documents**
+
    - Add `paperless-gpt` or your custom tag to the docs you want to AI-ify.
 
-2. **Visit Web UI**  
+2. **Visit Web UI**
+
    - Go to `http://localhost:8080` (or your host) in your browser.
 
-3. **Generate & Apply Suggestions**  
+3. **Generate & Apply Suggestions**
+
    - Click “Generate Suggestions” to see AI-proposed titles/tags/correspondents.
    - Approve, edit, or discard. Hit “Apply” to finalize in paperless-ngx.
 
-4. **Try LLM-Based OCR (Experimental)**  
-   - If you enabled `VISION_LLM_PROVIDER` and `VISION_LLM_MODEL`, let AI-based OCR read your scanned PDFs.  
+4. **Try LLM-Based OCR (Experimental)**
+   - If you enabled `VISION_LLM_PROVIDER` and `VISION_LLM_MODEL`, let AI-based OCR read your scanned PDFs.
    - Tag those documents with `paperless-gpt-ocr-auto` (or your custom `AUTO_OCR_TAG`).
 
 **Tip**: The entire pipeline can be **fully automated** if you prefer minimal manual intervention.
@@ -261,6 +296,7 @@ The templates use Go's text/template syntax. paperless-gpt automatically reloads
 ![Image](demo/ocr-example1.jpg)
 
 **Vanilla Paperless-ngx OCR**:
+
 ```
 La Grande Recre
 
@@ -278,6 +314,7 @@ HERET ET A BIENTOT
 ```
 
 **LLM-Powered OCR (OpenAI gpt-4o)**:
+
 ```
 La Grande Récré
 Centre Commercial l'Esplanade
@@ -302,6 +339,7 @@ MERCI ET A BIENTOT
 ![Image](demo/ocr-example2.jpg)
 
 **Vanilla Paperless-ngx OCR**:
+
 ```
 Invoice Number: 1-996-84199
 
@@ -363,6 +401,7 @@ PALATINE IL 60094-4515
 ```
 
 **LLM-Powered OCR (OpenAI gpt-4o)**:
+
 ```
 FedEx.                                                                                      Invoice Number: 1-996-84199
                                                                                            Invoice Date: Sep 01, 2014
@@ -433,19 +472,18 @@ P.O. Box 94515
 ```
 
 ---
+
 </details>
 
-**Why Does It Matter?**  
-- Traditional OCR often jumbles text from complex or low-quality scans.  
-- Large Language Models interpret context and correct likely errors, producing results that are more precise and readable.  
+**Why Does It Matter?**
+
+- Traditional OCR often jumbles text from complex or low-quality scans.
+- Large Language Models interpret context and correct likely errors, producing results that are more precise and readable.
 - You can integrate these cleaned-up texts into your **paperless-ngx** pipeline for better tagging, searching, and archiving.
-
-
-
 
 ### How It Works
 
-- **Vanilla OCR** typically uses classical methods or Tesseract-like engines to extract text, which can result in garbled outputs for complex fonts or poor-quality scans.  
+- **Vanilla OCR** typically uses classical methods or Tesseract-like engines to extract text, which can result in garbled outputs for complex fonts or poor-quality scans.
 - **LLM-Powered OCR** uses your chosen AI backend—OpenAI or Ollama—to interpret the image’s text in a more context-aware manner. This leads to fewer errors and more coherent text.
 
 ---
@@ -457,30 +495,34 @@ P.O. Box 94515
 When using local LLMs (like those through Ollama), you might need to adjust certain settings to optimize performance:
 
 #### Token Management
+
 - Use `TOKEN_LIMIT` environment variable to control the maximum number of tokens sent to the LLM
 - Smaller models might truncate content unexpectedly if given too much text
 - Start with a conservative limit (e.g., 1000 tokens) and adjust based on your model's capabilities
 - Set to `0` to disable the limit (use with caution)
 
 Example configuration for smaller models:
+
 ```yaml
 environment:
-  TOKEN_LIMIT: '2000'  # Adjust based on your model's context window
-  LLM_PROVIDER: 'ollama'
-  LLM_MODEL: 'deepseek-r1:8b'  # Or other local model
+  TOKEN_LIMIT: "2000" # Adjust based on your model's context window
+  LLM_PROVIDER: "ollama"
+  LLM_MODEL: "deepseek-r1:8b" # Or other local model
 ```
 
 Common issues and solutions:
+
 - If you see truncated or incomplete responses, try lowering the `TOKEN_LIMIT`
 - If processing is too limited, gradually increase the limit while monitoring performance
 - For models with larger context windows, you can increase the limit or disable it entirely
 
 ## Contributing
 
-**Pull requests** and **issues** are welcome!  
-1. Fork the repo  
-2. Create a branch (`feature/my-awesome-update`)  
-3. Commit changes (`git commit -m "Improve X"`)  
+**Pull requests** and **issues** are welcome!
+
+1. Fork the repo
+2. Create a branch (`feature/my-awesome-update`)
+3. Commit changes (`git commit -m "Improve X"`)
 4. Open a PR
 
 Check out our [contributing guidelines](CONTRIBUTING.md) for details.
@@ -494,11 +536,13 @@ paperless-gpt is licensed under the [MIT License](LICENSE). Feel free to adapt a
 ---
 
 ## Star History
+
 [![Star History Chart](https://api.star-history.com/svg?repos=icereed/paperless-gpt&type=Date)](https://star-history.com/#icereed/paperless-gpt&Date)
 
 ---
 
 ## Disclaimer
+
 This project is **not** officially affiliated with [paperless-ngx][paperless-ngx]. Use at your own risk.
 
 ---
