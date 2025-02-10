@@ -101,14 +101,28 @@ services:
       OPENAI_API_KEY: 'your_openai_api_key'
       # Optional - OPENAI_BASE_URL: 'https://litellm.yourinstallationof.it.com/v1'
       LLM_LANGUAGE: 'English'              # Optional, default: English
+      
+      # OCR Configuration - Choose one:
+      # Option 1: LLM-based OCR
+      OCR_PROVIDER: 'llm'                  # Default OCR provider
+      VISION_LLM_PROVIDER: 'ollama'        # openai or ollama
+      VISION_LLM_MODEL: 'minicpm-v'        # minicpm-v (ollama) or gpt-4v (openai)
       OLLAMA_HOST: 'http://host.docker.internal:11434' # If using Ollama
-      VISION_LLM_PROVIDER: 'ollama'        # (for OCR) - openai or ollama
-      VISION_LLM_MODEL: 'minicpm-v'        # (for OCR) - minicpm-v (ollama example), gpt-4o (for openai), etc.
+      
+      # Option 2: Google Document AI
+      # OCR_PROVIDER: 'google_docai'       # Use Google Document AI
+      # GOOGLE_PROJECT_ID: 'your-project'  # Your GCP project ID
+      # GOOGLE_LOCATION: 'us'              # Document AI region
+      # GOOGLE_PROCESSOR_ID: 'processor-id' # Your processor ID
+      # GOOGLE_APPLICATION_CREDENTIALS: '/app/credentials.json' # Path to service account key
+      
       AUTO_OCR_TAG: 'paperless-gpt-ocr-auto' # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: '5'                 # Optional, default: 5. Set to 0 for no limit.
       LOG_LEVEL: 'info'                    # Optional: debug, warn, error
     volumes:
       - ./prompts:/app/prompts   # Mount the prompts directory
+      # For Google Document AI:
+      # - ./credentials.json:/app/credentials.json
     ports:
       - "8080:8080"
     depends_on:
@@ -169,8 +183,12 @@ services:
 | `OPENAI_BASE_URL`      | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                                              | No       |
 | `LLM_LANGUAGE`         | Likely language for documents (e.g. `English`). Default: `English`.                                             | No       |
 | `OLLAMA_HOST`          | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                   | No       |
-| `VISION_LLM_PROVIDER`  | AI backend for OCR (`openai` or `ollama`).                                                                      | No       |
-| `VISION_LLM_MODEL`     | Model name for OCR (e.g. `minicpm-v`).                                                                          | No       |
+| `OCR_PROVIDER`         | OCR provider to use (`llm` or `google_docai`). Default: `llm`.                                                  | No       |
+| `VISION_LLM_PROVIDER`  | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                              | Cond.    |
+| `VISION_LLM_MODEL`     | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                  | Cond.    |
+| `GOOGLE_PROJECT_ID`    | Google Cloud project ID. Required if OCR_PROVIDER is `google_docai`.                                            | Cond.    |
+| `GOOGLE_LOCATION`      | Google Cloud region (e.g. `us`, `eu`). Required if OCR_PROVIDER is `google_docai`.                             | Cond.    |
+| `GOOGLE_PROCESSOR_ID`  | Document AI processor ID. Required if OCR_PROVIDER is `google_docai`.                                           | Cond.    |
 | `AUTO_OCR_TAG`         | Tag for automatically processing docs with OCR. Default: `paperless-gpt-ocr-auto`.                              | No       |
 | `LOG_LEVEL`            | Application log level (`info`, `debug`, `warn`, `error`). Default: `info`.                                      | No       |
 | `LISTEN_INTERFACE`     | Network interface to listen on. Default: `:8080`.                                                               | No       |

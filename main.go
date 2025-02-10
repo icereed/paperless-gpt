@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"paperless-gpt/ocr"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -113,10 +114,11 @@ Document Content:
 
 // App struct to hold dependencies
 type App struct {
-	Client    *PaperlessClient
-	Database  *gorm.DB
-	LLM       llms.Model
-	VisionLLM llms.Model
+	Client      *PaperlessClient
+	Database    *gorm.DB
+	LLM         llms.Model
+	VisionLLM   llms.Model
+	ocrProvider ocr.Provider // OCR provider interface
 }
 
 func main() {
@@ -150,12 +152,34 @@ func main() {
 		log.Fatalf("Failed to create Vision LLM client: %v", err)
 	}
 
+	// Initialize OCR provider
+	var ocrProvider ocr.Provider
+	providerType := os.Getenv("OCR_PROVIDER")
+	if providerType == "" {
+		providerType = "llm" // Default to LLM provider
+	}
+
+	ocrConfig := ocr.Config{
+		Provider:          providerType,
+		GoogleProjectID:   os.Getenv("GOOGLE_PROJECT_ID"),
+		GoogleLocation:    os.Getenv("GOOGLE_LOCATION"),
+		GoogleProcessorID: os.Getenv("GOOGLE_PROCESSOR_ID"),
+		VisionLLMProvider: visionLlmProvider,
+		VisionLLMModel:    visionLlmModel,
+	}
+
+	ocrProvider, err = ocr.NewProvider(ocrConfig)
+	if err != nil {
+		log.Fatalf("Failed to initialize OCR provider: %v", err)
+	}
+
 	// Initialize App with dependencies
 	app := &App{
-		Client:    client,
-		Database:  database,
-		LLM:       llm,
-		VisionLLM: visionLlm,
+		Client:      client,
+		Database:    database,
+		LLM:         llm,
+		VisionLLM:   visionLlm,
+		ocrProvider: ocrProvider,
 	}
 
 	// Start background process for auto-tagging

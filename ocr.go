@@ -36,7 +36,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int) (string,
 			return "", fmt.Errorf("error reading image file for document %d, page %d: %w", documentID, i+1, err)
 		}
 
-		ocrText, err := app.doOCRViaLLM(ctx, imageContent, pageLogger)
+		ocrText, err := app.ocrProvider.ProcessImage(ctx, imageContent)
 		if err != nil {
 			return "", fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
 		}
