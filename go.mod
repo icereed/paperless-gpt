@@ -5,20 +5,20 @@ go 1.22.0
 toolchain go1.23.6
 
 require (
-github.com/Masterminds/sprig/v3 v3.3.0
-github.com/fatih/color v1.18.0
-github.com/gen2brain/go-fitz v1.24.14
-github.com/gin-gonic/gin v1.10.0
-github.com/google/uuid v1.6.0
-github.com/sirupsen/logrus v1.9.3
-github.com/stretchr/testify v1.10.0
-github.com/tmc/langchaingo v0.1.13-pre.1
-golang.org/x/sync v0.11.0
-gorm.io/driver/sqlite v1.5.7
-gorm.io/gorm v1.25.12
-cloud.google.com/go/documentai v1.35.1
-google.golang.org/api v0.214.0
-github.com/gabriel-vasile/mimetype v1.4.3
+	cloud.google.com/go/documentai v1.35.1
+	github.com/Masterminds/sprig/v3 v3.3.0
+	github.com/fatih/color v1.18.0
+	github.com/gabriel-vasile/mimetype v1.4.3
+	github.com/gen2brain/go-fitz v1.24.14
+	github.com/gin-gonic/gin v1.10.0
+	github.com/google/uuid v1.6.0
+	github.com/sirupsen/logrus v1.9.3
+	github.com/stretchr/testify v1.10.0
+	github.com/tmc/langchaingo v0.1.13-pre.1
+	golang.org/x/sync v0.11.0
+	google.golang.org/api v0.214.0
+	gorm.io/driver/sqlite v1.5.7
+	gorm.io/gorm v1.25.12
 )
 
 require (
@@ -38,7 +38,6 @@ require (
 	github.com/dlclark/regexp2 v1.10.0 // indirect
 	github.com/ebitengine/purego v0.8.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
