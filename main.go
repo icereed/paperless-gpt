@@ -168,9 +168,14 @@ func main() {
 		VisionLLMModel:    visionLlmModel,
 	}
 
-	ocrProvider, err = ocr.NewProvider(ocrConfig)
-	if err != nil {
-		log.Fatalf("Failed to initialize OCR provider: %v", err)
+	// If provider is LLM, but no VISION_LLM_PROVIDER is set, don't initialize OCR provider
+	if providerType == "llm" && visionLlmProvider == "" {
+		log.Warn("OCR provider is set to LLM, but no VISION_LLM_PROVIDER is set. Disabling OCR.")
+	} else {
+		ocrProvider, err = ocr.NewProvider(ocrConfig)
+		if err != nil {
+			log.Fatalf("Failed to initialize OCR provider: %v", err)
+		}
 	}
 
 	// Initialize App with dependencies
