@@ -106,7 +106,15 @@ func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []b
 
 	// Add hOCR output if available
 	if len(resp.Document.GetPages()) > 0 {
-		hocr := generateHOCR(resp.Document)
+		var hocr string
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.WithField("error", r).Error("Panic during hOCR generation")
+				}
+			}()
+			hocr = generateHOCR(resp.Document)
+		}()
 		if hocr != "" {
 			result.HOCR = hocr
 		}
