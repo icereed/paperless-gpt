@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed dist/*
+//go:embed web-app/dist/*
 var webappContent embed.FS
 
 // CreateEmbeddedFileServer creates a http.FileSystem from our embedded files

@@ -2,10 +2,13 @@ version: '3.8'
 
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    image: icereed/paperless-gpt:unreleased
     ports:
       - "8080:8080"
+    environment:
+      OLLAMA_HOST: 'http://host.docker.internal:11434' # If using Ollama
     env_file:
       - .env

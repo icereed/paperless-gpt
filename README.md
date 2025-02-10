@@ -148,6 +148,62 @@ services:
      paperless-gpt
    ```
 
+#### Standalone Binary Installation
+
+1. **Download the Release**  
+   Visit our [GitHub Releases](https://github.com/icereed/paperless-gpt/releases) page and download the appropriate binary for your system.
+
+2. **Install Dependencies**  
+   The binary requires certain system libraries to be installed:
+
+   For Debian/Ubuntu:
+   ```bash
+   sudo apt-get update
+   sudo apt-get install -y gcc musl-dev mupdf mupdf-dev
+   ```
+
+   For Alpine:
+   ```bash
+   apk add --no-cache gcc musl-dev mupdf mupdf-dev
+   ```
+
+3. **Extract and Run**  
+   ```bash
+   tar xzf paperless-gpt_Linux_x86_64.tar.gz
+   chmod +x paperless-gpt
+   ./paperless-gpt
+   ```
+
+4. **Configure Environment**  
+   Create a `.env` file in the same directory:
+   ```bash
+   PAPERLESS_BASE_URL=http://your_paperless_ngx_url
+   PAPERLESS_API_TOKEN=your_paperless_api_token
+   LLM_PROVIDER=openai
+   LLM_MODEL=gpt-4o
+   OPENAI_API_KEY=your_openai_api_key
+   ```
+
+5. **Run the Binary**  
+   ```bash
+   # Set environment variables
+   source .env
+   
+   # Create prompts directory if not exists
+   mkdir -p prompts
+   
+   # Run the binary
+   ./paperless-gpt
+   ```
+
+6. **Verify Installation**  
+   - Open http://localhost:8080 in your browser
+   - You should see the paperless-gpt web interface
+   - Check logs with `LOG_LEVEL=debug` for troubleshooting
+
+Note: The standalone binary is statically linked with SQLite and MuPDF for Linux x86_64 systems. For other platforms or architectures, please use the Docker container.
+   ```
+
 ---
 
 ## Configuration

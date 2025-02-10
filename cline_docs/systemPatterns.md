@@ -92,3 +92,31 @@
 - E2E tests for web interface
 - Test fixtures and mocks
 - Playwright for frontend testing
+
+### 9. Build and Release Patterns
+
+#### Binary Distribution
+- **GoReleaser Configuration**: Manages build and release process
+  - CGO-enabled builds with musl tag
+  - Linux/amd64 platform support
+  - Static linking for SQLite and MuPDF
+  - Automated versioning and changelog
+  - Docker image publishing
+
+#### Release Process
+- **Automated Workflows**: GitHub Actions for releases
+- **Local Testing**: Docker-based testing environment
+- **Quality Gates**:
+  - Pre-release checklist verification
+  - Binary verification on clean system
+  - Dependency validation
+  - Environment configuration testing
+
+#### Build Dependencies
+- **System Libraries**:
+  - gcc and musl-dev for compilation
+  - mupdf and mupdf-dev for OCR
+- **Version Management**:
+  - Semantic versioning
+  - Automated version injection
+  - Build metadata inclusion
