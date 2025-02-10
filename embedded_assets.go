@@ -11,13 +11,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed dist/*
+//go:embed web-app/dist/*
 var webappContent embed.FS
 
 // CreateEmbeddedFileServer creates a http.FileSystem from our embedded files
 func createEmbeddedFileServer() http.FileSystem {
 	// Strip the "dist" prefix from the embedded files
-	stripped, err := fs.Sub(webappContent, "dist")
+	stripped, err := fs.Sub(webappContent, "web-app/dist")
 	if err != nil {
 		panic(err)
 	}
@@ -32,7 +32,7 @@ func serveEmbeddedFile(c *gin.Context, prefix string, filepath string) {
 	}
 
 	// Try to open the file from our embedded filesystem
-	fullPath := path.Join("dist", prefix, filepath)
+	fullPath := path.Join("web-app/dist", prefix, filepath)
 	f, err := webappContent.Open(fullPath)
 	if err != nil {
 		// If file not found, serve 404

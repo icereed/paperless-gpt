@@ -60,10 +60,11 @@ RUN go mod download
 RUN CGO_ENABLED=1 go build -tags musl -o /dev/null github.com/mattn/go-sqlite3
 
 # Copy the frontend build
-COPY --from=frontend /app/dist /app/dist
+COPY --from=frontend /app/dist /app/web-app/dist
 
 # Copy the Go source files
 COPY *.go .
+COPY ocr ./ocr
 
 # Import ARGs from top level
 ARG VERSION
