@@ -187,6 +187,21 @@ func main() {
 		ocrProvider: ocrProvider,
 	}
 
+	if app.isOcrEnabled() {
+		fmt.Printf("Using %s as manual OCR tag\n", manualOcrTag)
+		fmt.Printf("Using %s as auto OCR tag\n", autoOcrTag)
+		rawLimitOcrPages := os.Getenv("OCR_LIMIT_PAGES")
+		if rawLimitOcrPages == "" {
+			limitOcrPages = 5
+		} else {
+			var err error
+			limitOcrPages, err = strconv.Atoi(rawLimitOcrPages)
+			if err != nil {
+				log.Fatalf("Invalid OCR_LIMIT_PAGES value: %v", err)
+			}
+		}
+	}
+
 	// Start background process for auto-tagging
 	go func() {
 		minBackoffDuration := 10 * time.Second
@@ -197,7 +212,7 @@ func main() {
 		for {
 			processedCount, err := func() (int, error) {
 				count := 0
-				if isOcrEnabled() {
+				if app.isOcrEnabled() {
 					ocrCount, err := app.processAutoOcrTagDocuments()
 					if err != nil {
 						return 0, fmt.Errorf("error in processAutoOcrTagDocuments: %w", err)
@@ -256,7 +271,7 @@ func main() {
 
 		// Endpoint to see if user enabled OCR
 		api.GET("/experimental/ocr", func(c *gin.Context) {
-			enabled := isOcrEnabled()
+			enabled := app.isOcrEnabled()
 			c.JSON(http.StatusOK, gin.H{"enabled": enabled})
 		})
 
@@ -366,8 +381,8 @@ func initLogger() {
 	})
 }
 
-func isOcrEnabled() bool {
-	return visionLlmModel != "" && visionLlmProvider != ""
+func (app *App) isOcrEnabled() bool {
+	return app.ocrProvider != nil
 }
 
 // validateOrDefaultEnvVars ensures all necessary environment variables are set
@@ -385,15 +400,9 @@ func validateOrDefaultEnvVars() {
 	if manualOcrTag == "" {
 		manualOcrTag = "paperless-gpt-ocr"
 	}
-	if isOcrEnabled() {
-		fmt.Printf("Using %s as manual OCR tag\n", manualOcrTag)
-	}
 
 	if autoOcrTag == "" {
 		autoOcrTag = "paperless-gpt-ocr-auto"
-	}
-	if isOcrEnabled() {
-		fmt.Printf("Using %s as auto OCR tag\n", autoOcrTag)
 	}
 
 	if paperlessBaseURL == "" {
@@ -418,19 +427,6 @@ func validateOrDefaultEnvVars() {
 
 	if (llmProvider == "openai" || visionLlmProvider == "openai") && openaiAPIKey == "" {
 		log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
-	}
-
-	if isOcrEnabled() {
-		rawLimitOcrPages := os.Getenv("OCR_LIMIT_PAGES")
-		if rawLimitOcrPages == "" {
-			limitOcrPages = 5
-		} else {
-			var err error
-			limitOcrPages, err = strconv.Atoi(rawLimitOcrPages)
-			if err != nil {
-				log.Fatalf("Invalid OCR_LIMIT_PAGES value: %v", err)
-			}
-		}
 	}
 
 	// Initialize token limit from environment variable
