@@ -92,3 +92,88 @@
 - E2E tests for web interface
 - Test fixtures and mocks
 - Playwright for frontend testing
+
+## OCR System Patterns
+
+### OCR Provider Architecture
+
+#### 1. Provider Interface
+- Common interface for all OCR implementations
+- Methods for image processing
+- Configuration through standardized Config struct
+- Resource management patterns
+
+#### 2. LLM Provider Implementation
+- Supports OpenAI and Ollama vision models
+- Base64 encoding for OpenAI requests
+- Binary format for Ollama requests
+- Template-based OCR prompts
+
+#### 3. Google Document AI Provider
+- Enterprise-grade OCR processing
+- MIME type validation
+- Processor configuration via environment
+- Regional endpoint support
+
+### Logging Patterns
+
+#### 1. Provider Initialization
+```
+[INFO] Initializing OCR provider: llm
+[INFO] Using LLM OCR provider (provider=ollama, model=minicpm-v)
+```
+
+#### 2. Processing Logs
+```
+[DEBUG] Starting OCR processing
+[DEBUG] Image dimensions (width=800, height=1200)
+[DEBUG] Using binary image format for non-OpenAI provider
+[DEBUG] Sending request to vision model
+[INFO] Successfully processed image (content_length=1536)
+```
+
+#### 3. Error Logging
+```
+[ERROR] Failed to decode image: invalid format
+[ERROR] Unsupported file type: image/webp
+[ERROR] Failed to get response from vision model
+```
+
+### Error Handling Patterns
+
+#### 1. Configuration Validation
+- Required parameter checks
+- Environment variable validation
+- Provider-specific configuration
+- Connection testing
+
+#### 2. Processing Errors
+- Image format validation
+- MIME type checking
+- Content processing errors
+- Provider-specific error handling
+
+#### 3. Error Propagation
+- Detailed error contexts
+- Original error wrapping
+- Logging with error context
+- Recovery mechanisms
+
+### Processing Flow
+
+#### 1. Document Processing
+```
+Document Tagged → OCR Provider Selected → Image Processing → Text Extraction → Content Update
+```
+
+#### 2. Provider Selection
+```
+Config Check → Provider Initialization → Resource Setup → Provider Ready
+```
+
+#### 3. Error Recovery
+```
+Error Detection → Logging → Cleanup → Error Propagation
+```
+
+These patterns ensure consistent behavior across OCR providers while maintaining proper logging and error handling throughout the system.
