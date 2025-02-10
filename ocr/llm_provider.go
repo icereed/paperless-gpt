@@ -60,7 +60,7 @@ func newLLMProvider(config Config) (*LLMProvider, error) {
 	}, nil
 }
 
-func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte) (string, error) {
+func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte) (*OCRResult, error) {
 	logger := log.WithFields(logrus.Fields{
 		"provider": p.provider,
 		"model":    p.model,
@@ -71,7 +71,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte) (st
 	img, _, err := image.Decode(bytes.NewReader(imageContent))
 	if err != nil {
 		logger.WithError(err).Error("Failed to decode image")
-		return "", fmt.Errorf("error decoding image: %w", err)
+		return nil, fmt.Errorf("error decoding image: %w", err)
 	}
 	bounds := img.Bounds()
 	logger.WithFields(logrus.Fields{
@@ -106,11 +106,18 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte) (st
 	})
 	if err != nil {
 		logger.WithError(err).Error("Failed to get response from vision model")
-		return "", fmt.Errorf("error getting response from LLM: %w", err)
+		return nil, fmt.Errorf("error getting response from LLM: %w", err)
 	}
 
-	logger.WithField("content_length", len(completion.Choices[0].Content)).Info("Successfully processed image")
-	return completion.Choices[0].Content, nil
+	result := &OCRResult{
+		Text: completion.Choices[0].Content,
+		Metadata: map[string]string{
+			"provider": p.provider,
+			"model":    p.model,
+		},
+	}
+	logger.WithField("content_length", len(result.Text)).Info("Successfully processed image")
+	return result, nil
 }
 
 // createOpenAIClient creates a new OpenAI vision model client

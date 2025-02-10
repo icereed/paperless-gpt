@@ -36,13 +36,20 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int) (string,
 			return "", fmt.Errorf("error reading image file for document %d, page %d: %w", documentID, i+1, err)
 		}
 
-		ocrText, err := app.ocrProvider.ProcessImage(ctx, imageContent)
+		result, err := app.ocrProvider.ProcessImage(ctx, imageContent)
 		if err != nil {
 			return "", fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
 		}
-		pageLogger.Debug("OCR completed for page")
+		if result == nil {
+			pageLogger.Error("Got nil result from OCR provider")
+			return "", fmt.Errorf("error performing OCR for document %d, page %d: nil result", documentID, i+1)
+		}
 
-		ocrTexts = append(ocrTexts, ocrText)
+		pageLogger.WithField("has_hocr", result.HOCR != "").
+			WithField("metadata", result.Metadata).
+			Debug("OCR completed for page")
+
+		ocrTexts = append(ocrTexts, result.Text)
 	}
 
 	docLogger.Info("OCR processing completed successfully")
