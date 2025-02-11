@@ -21,11 +21,11 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 
 	// Initialize templates
 	var err error
-	titleTemplate, err = template.New("title").Funcs(sprig.FuncMap()).Parse(defaultTitleTemplate)
+	titleTemplate, err = template.New("title").Funcs(sprig.FuncMap()).Parse("")
 	require.NoError(t, err)
-	tagTemplate, err = template.New("tag").Funcs(sprig.FuncMap()).Parse(defaultTagTemplate)
+	tagTemplate, err = template.New("tag").Funcs(sprig.FuncMap()).Parse("")
 	require.NoError(t, err)
-	correspondentTemplate, err = template.New("correspondent").Funcs(sprig.FuncMap()).Parse(defaultCorrespondentTemplate)
+	correspondentTemplate, err = template.New("correspondent").Funcs(sprig.FuncMap()).Parse("")
 	require.NoError(t, err)
 
 	// Create test environment
