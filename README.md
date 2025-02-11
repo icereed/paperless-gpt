@@ -179,35 +179,35 @@ services:
 
 # **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
 
-| Variable                         | Description                                                                                                      | Required |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------- |
-| `PAPERLESS_BASE_URL`             | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                           | Yes      |
-| `PAPERLESS_API_TOKEN`            | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                | Yes      |
-| `PAPERLESS_PUBLIC_URL`           | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                               | No       |
-| `MANUAL_TAG`                     | Tag for manual processing. Default: `paperless-gpt`.                                                             | No       |
-| `AUTO_TAG`                       | Tag for auto processing. Default: `paperless-gpt-auto`.                                                          | No       |
-| `LLM_PROVIDER`                   | AI backend (`openai` or `ollama`).                                                                               | Yes      |
-| `LLM_MODEL`                      | AI model name, e.g. `gpt-4o`, `gpt-3.5-turbo`, `deepseek-r1:8b`.                                                 | Yes      |
-| `OPENAI_API_KEY`                 | OpenAI API key (required if using OpenAI).                                                                       | Cond.    |
-| `OPENAI_BASE_URL`                | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                            | No       |
-| `LLM_LANGUAGE`                   | Likely language for documents (e.g. `English`). Default: `English`.                                              | No       |
-| `OLLAMA_HOST`                    | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                    | No       |
-| `OCR_PROVIDER`                   | OCR provider to use (`llm` or `google_docai`). Default: `llm`.                                                   | No       |
-| `VISION_LLM_PROVIDER`            | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                | Cond.    |
-| `VISION_LLM_MODEL`               | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                    | Cond.    |
-| `GOOGLE_PROJECT_ID`              | Google Cloud project ID. Required if OCR_PROVIDER is `google_docai`.                                             | Cond.    |
-| `GOOGLE_LOCATION`                | Google Cloud region (e.g. `us`, `eu`). Required if OCR_PROVIDER is `google_docai`.                               | Cond.    |
-| `GOOGLE_PROCESSOR_ID`            | Document AI processor ID. Required if OCR_PROVIDER is `google_docai`.                                            | Cond.    |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Path to the mounted Google service account key. Required if OCR_PROVIDER is `google_docai`.                      | Cond.    |
-| `AUTO_OCR_TAG`                   | Tag for automatically processing docs with OCR. Default: `paperless-gpt-ocr-auto`.                               | No       |
-| `LOG_LEVEL`                      | Application log level (`info`, `debug`, `warn`, `error`). Default: `info`.                                       | No       |
-| `LISTEN_INTERFACE`               | Network interface to listen on. Default: `:8080`.                                                                | No       |
-| `AUTO_GENERATE_TITLE`            | Generate titles automatically if `paperless-gpt-auto` is used. Default: `true`.                                  | No       |
-| `AUTO_GENERATE_TAGS`             | Generate tags automatically if `paperless-gpt-auto` is used. Default: `true`.                                    | No       |
-| `AUTO_GENERATE_CORRESPONDENTS`   | Generate correspondents automatically if `paperless-gpt-auto` is used. Default: `true`.                          | No       |
-| `OCR_LIMIT_PAGES`                | Limit the number of pages for OCR. Set to `0` for no limit. Default: `5`.                                        | No       |
-| `TOKEN_LIMIT`                    | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                | No       |
-| `CORRESPONDENT_BLACK_LIST`       | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`. | No       |
+| Variable                         | Description                                                                                                      | Required | Default                |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------- | ---------------------- |
+| `PAPERLESS_BASE_URL`             | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                           | Yes      |                        |
+| `PAPERLESS_API_TOKEN`            | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                | Yes      |                        |
+| `PAPERLESS_PUBLIC_URL`           | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                               | No       |                        |
+| `MANUAL_TAG`                     | Tag for manual processing.                                                                                       | No       | paperless-gpt          |
+| `AUTO_TAG`                       | Tag for auto processing.                                                                                         | No       | paperless-gpt-auto     |
+| `LLM_PROVIDER`                   | AI backend (`openai` or `ollama`).                                                                               | Yes      |                        |
+| `LLM_MODEL`                      | AI model name, e.g. `gpt-4o`, `gpt-3.5-turbo`, `deepseek-r1:8b`.                                                 | Yes      |                        |
+| `OPENAI_API_KEY`                 | OpenAI API key (required if using OpenAI).                                                                       | Cond.    |                        |
+| `OPENAI_BASE_URL`                | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                            | No       |                        |
+| `LLM_LANGUAGE`                   | Likely language for documents (e.g. `English`).                                                                  | No       | English                |
+| `OLLAMA_HOST`                    | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                    | No       |                        |
+| `OCR_PROVIDER`                   | OCR provider to use (`llm` or `google_docai`).                                                                   | No       | 11m                    |
+| `VISION_LLM_PROVIDER`            | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                | Cond.    |                        |
+| `VISION_LLM_MODEL`               | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                    | Cond.    |                        |
+| `GOOGLE_PROJECT_ID`              | Google Cloud project ID. Required if OCR_PROVIDER is `google_docai`.                                             | Cond.    |                        |
+| `GOOGLE_LOCATION`                | Google Cloud region (e.g. `us`, `eu`). Required if OCR_PROVIDER is `google_docai`.                               | Cond.    |                        |
+| `GOOGLE_PROCESSOR_ID`            | Document AI processor ID. Required if OCR_PROVIDER is `google_docai`.                                            | Cond.    |                        |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to the mounted Google service account key. Required if OCR_PROVIDER is `google_docai`.                      | Cond.    |                        |
+| `AUTO_OCR_TAG`                   | Tag for automatically processing docs with OCR.                                                                  | No       | paperless-gpt-ocr-auto |
+| `LOG_LEVEL`                      | Application log level (`info`, `debug`, `warn`, `error`).                                                        | No       | info                   |
+| `LISTEN_INTERFACE`               | Network interface to listen on.                                                                                  | No       | 8080                   |
+| `AUTO_GENERATE_TITLE`            | Generate titles automatically if `paperless-gpt-auto` is used.                                                   | No       | true                   |
+| `AUTO_GENERATE_TAGS`             | Generate tags automatically if `paperless-gpt-auto` is used.                                                     | No       | true                   |
+| `AUTO_GENERATE_CORRESPONDENTS`   | Generate correspondents automatically if `paperless-gpt-auto` is used.                                           | No       | true                   |
+| `OCR_LIMIT_PAGES`                | Limit the number of pages for OCR. Set to `0` for no limit.                                                      | No       | 5                      |
+| `TOKEN_LIMIT`                    | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                | No       |                        |
+| `CORRESPONDENT_BLACK_LIST`       | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`. | No       |                        |
 
 ### Custom Prompt Templates
 
