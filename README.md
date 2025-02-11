@@ -192,7 +192,7 @@ services:
 | `OPENAI_BASE_URL`                | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                            | No       |                        |
 | `LLM_LANGUAGE`                   | Likely language for documents (e.g. `English`).                                                                  | No       | English                |
 | `OLLAMA_HOST`                    | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                    | No       |                        |
-| `OCR_PROVIDER`                   | OCR provider to use (`llm` or `google_docai`).                                                                   | No       | 11m                    |
+| `OCR_PROVIDER`                   | OCR provider to use (`llm` or `google_docai`).                                                                   | No       | llm                    |
 | `VISION_LLM_PROVIDER`            | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                | Cond.    |                        |
 | `VISION_LLM_MODEL`               | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                    | Cond.    |                        |
 | `GOOGLE_PROJECT_ID`              | Google Cloud project ID. Required if OCR_PROVIDER is `google_docai`.                                             | Cond.    |                        |
