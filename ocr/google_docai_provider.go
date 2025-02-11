@@ -93,15 +93,23 @@ func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []b
 		return nil, fmt.Errorf("document processing error: %s", resp.Document.Error.Message)
 	}
 
+	metadata := map[string]string{
+		"provider":     "google_docai",
+		"mime_type":    mtype.String(),
+		"page_count":   fmt.Sprintf("%d", len(resp.Document.GetPages())),
+		"processor_id": p.processorID,
+	}
+
+	// Safely add language code if available
+	if pages := resp.Document.GetPages(); len(pages) > 0 {
+		if langs := pages[0].GetDetectedLanguages(); len(langs) > 0 {
+			metadata["lang_code"] = langs[0].GetLanguageCode()
+		}
+	}
+
 	result := &OCRResult{
-		Text: resp.Document.Text,
-		Metadata: map[string]string{
-			"provider":     "google_docai",
-			"mime_type":    mtype.String(),
-			"lang_code":    resp.Document.GetPages()[0].GetDetectedLanguages()[0].GetLanguageCode(),
-			"page_count":   fmt.Sprintf("%d", len(resp.Document.GetPages())),
-			"processor_id": p.processorID,
-		},
+		Text:     resp.Document.Text,
+		Metadata: metadata,
 	}
 
 	// Add hOCR output if available
