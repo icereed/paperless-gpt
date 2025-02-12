@@ -9,9 +9,21 @@ import (
 
 var log = logrus.New()
 
+// OCRResult holds the output from OCR processing
+type OCRResult struct {
+	// Plain text output (required)
+	Text string
+
+	// hOCR output (optional, if provider supports it)
+	HOCR string
+
+	// Additional provider-specific metadata
+	Metadata map[string]string
+}
+
 // Provider defines the interface for OCR processing
 type Provider interface {
-	ProcessImage(ctx context.Context, imageContent []byte) (string, error)
+	ProcessImage(ctx context.Context, imageContent []byte) (*OCRResult, error)
 }
 
 // Config holds the OCR provider configuration
@@ -27,6 +39,9 @@ type Config struct {
 	// LLM settings (from existing config)
 	VisionLLMProvider string
 	VisionLLMModel    string
+
+	// OCR output options
+	EnableHOCR bool // Whether to request hOCR output if supported by the provider
 }
 
 // NewProvider creates a new OCR provider based on configuration
