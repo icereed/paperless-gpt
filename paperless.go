@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"image/jpeg"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/gen2brain/go-fitz"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 )
@@ -58,10 +61,18 @@ func hasSameTags(original, suggested []string) bool {
 func NewPaperlessClient(baseURL, apiToken string) *PaperlessClient {
 	cacheFolder := os.Getenv("PAPERLESS_GPT_CACHE_DIR")
 
+	// Create a custom HTTP transport with TLS configuration
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: paperlessInsecureSkipVerify,
+		},
+	}
+	httpClient := &http.Client{Transport: tr}
+
 	return &PaperlessClient{
 		BaseURL:     strings.TrimRight(baseURL, "/"),
 		APIToken:    apiToken,
-		HTTPClient:  &http.Client{},
+		HTTPClient:  httpClient,
 		CacheFolder: cacheFolder,
 	}
 }
@@ -80,7 +91,53 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	return client.HTTPClient.Do(req)
+	log.WithFields(logrus.Fields{
+		"method":  method,
+		"url":     url,
+		"headers": req.Header,
+	}).Debug("Making HTTP request")
+
+	resp, err := client.HTTPClient.Do(req)
+	if err != nil {
+		log.WithError(err).WithFields(logrus.Fields{
+			"url":    url,
+			"method": method,
+			"error":  err,
+		}).Error("HTTP request failed")
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
+	}
+
+	// Check if response is HTML instead of JSON for API endpoints
+	if strings.HasPrefix(path, "api/") {
+		contentType := resp.Header.Get("Content-Type")
+		if strings.Contains(contentType, "text/html") {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+
+			// Create a new response with the same body for the caller
+			resp = &http.Response{
+				Status:     resp.Status,
+				StatusCode: resp.StatusCode,
+				Header:     resp.Header,
+				Body:       io.NopCloser(bytes.NewBuffer(bodyBytes)),
+			}
+
+			log.WithFields(logrus.Fields{
+				"url":          url,
+				"method":       method,
+				"content-type": contentType,
+				"status-code":  resp.StatusCode,
+				"response":     string(bodyBytes),
+				"base-url":     client.BaseURL,
+				"request-path": path,
+				"full-headers": resp.Header,
+			}).Error("Received HTML response for API request")
+
+			return nil, fmt.Errorf("received HTML response instead of JSON (status: %d). This often indicates an SSL/TLS issue or invalid authentication. Check your PAPERLESS_URL, PAPERLESS_TOKEN and PAPERLESS_INSECURE_SKIP_VERIFY settings. Full response: %s", resp.StatusCode, string(bodyBytes))
+		}
+	}
+
+	return resp, nil
 }
 
 // GetAllTags retrieves all tags from the Paperless-NGX API
@@ -120,10 +177,19 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 		// Extract relative path from the Next URL
 		if tagsResponse.Next != "" {
 			nextURL := tagsResponse.Next
-			if strings.HasPrefix(nextURL, client.BaseURL) {
-				nextURL = strings.TrimPrefix(nextURL, client.BaseURL+"/")
+			if strings.HasPrefix(nextURL, "http") {
+				// Extract just the path portion from the full URL
+				if parsedURL, err := url.Parse(nextURL); err == nil {
+					path = strings.TrimPrefix(parsedURL.Path, "/")
+					if parsedURL.RawQuery != "" {
+						path += "?" + parsedURL.RawQuery
+					}
+				} else {
+					return nil, fmt.Errorf("failed to parse next URL: %v", err)
+				}
+			} else {
+				path = strings.TrimPrefix(nextURL, "/")
 			}
-			path = nextURL
 		} else {
 			path = ""
 		}
@@ -143,19 +209,34 @@ func (client *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []st
 
 	resp, err := client.Do(ctx, "GET", path, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("HTTP request failed in GetDocumentsByTags: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Read the response body
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("error searching documents: %d, %s", resp.StatusCode, string(bodyBytes))
+		log.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"path":        path,
+			"response":    string(bodyBytes),
+			"headers":     resp.Header,
+		}).Error("Error response from server in GetDocumentsByTags")
+		return nil, fmt.Errorf("error searching documents: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var documentsResponse GetDocumentsApiResponse
-	err = json.NewDecoder(resp.Body).Decode(&documentsResponse)
+	err = json.Unmarshal(bodyBytes, &documentsResponse)
 	if err != nil {
-		return nil, err
+		log.WithFields(logrus.Fields{
+			"response_body": string(bodyBytes),
+			"error":         err,
+		}).Error("Failed to parse JSON response in GetDocumentsByTags")
+		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
 	}
 
 	allTags, err := client.GetAllTags(ctx)
