@@ -165,6 +165,10 @@ func generateHOCR(doc *documentaipb.Document) string {
 	for pageNum, page := range doc.GetPages() {
 		pageWidth := page.GetDimension().GetWidth()
 		pageHeight := page.GetDimension().GetHeight()
+		// Validate dimensions
+		if pageWidth <= 0 || pageHeight <= 0 {
+			continue
+		}
 
 		hocr.WriteString(fmt.Sprintf(`
     <div class='ocr_page' id='page_%d' title='image;bbox 0 0 %d %d'>`,
@@ -178,10 +182,18 @@ func generateHOCR(doc *documentaipb.Document) string {
 			}
 
 			// Convert normalized coordinates to absolute
-			x1 := int(paraBox[0].GetX() * pageWidth)
-			y1 := int(paraBox[0].GetY() * pageHeight)
-			x2 := int(paraBox[2].GetX() * pageWidth)
-			y2 := int(paraBox[2].GetY() * pageHeight)
+			// Use float64 for intermediate calculations to prevent overflow
+			x1 := int(float64(paraBox[0].GetX()) * float64(pageWidth))
+			y1 := int(float64(paraBox[0].GetY()) * float64(pageHeight))
+			x2 := int(float64(paraBox[2].GetX()) * float64(pageWidth))
+			y2 := int(float64(paraBox[2].GetY()) * float64(pageHeight))
+
+			// Validate coordinates
+			if x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0 ||
+				x1 > int(pageWidth) || y1 > int(pageHeight) ||
+				x2 > int(pageWidth) || y2 > int(pageHeight) {
+				continue
+			}
 
 			hocr.WriteString(fmt.Sprintf(`
         <p class='ocr_par' id='par_%d_%d' title='bbox %d %d %d %d'>`,
@@ -193,6 +205,9 @@ func generateHOCR(doc *documentaipb.Document) string {
 				if text == "" {
 					continue
 				}
+
+				// Escape HTML special characters
+				text = html.EscapeString(text)
 
 				hocr.WriteString(fmt.Sprintf(`
             <span class='ocrx_word'>%s</span>`, text))
