@@ -9,7 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
+	"slices"
+	"strings" 
 	"sync"
 	"text/template"
 	"time"
@@ -462,7 +463,14 @@ func (app *App) processAutoTagDocuments() (int, error) {
 
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
 
+	processedCount := 0
 	for _, document := range documents {
+		// Skip documents that have the autoOcrTag
+		if slices.Contains(document.Tags, autoOcrTag) {
+			log.Debugf("Skipping document %d as it has the OCR tag %s", document.ID, autoOcrTag)
+			continue
+		}
+
 		docLogger := documentLogger(document.ID)
 		docLogger.Info("Processing document for auto-tagging")
 
@@ -475,17 +483,18 @@ func (app *App) processAutoTagDocuments() (int, error) {
 
 		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
 		if err != nil {
-			return 0, fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
+			return processedCount, fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
 		}
 
 		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 		if err != nil {
-			return 0, fmt.Errorf("error updating document %d: %w", document.ID, err)
+			return processedCount, fmt.Errorf("error updating document %d: %w", document.ID, err)
 		}
 
 		docLogger.Info("Successfully processed document")
+		processedCount++
 	}
-	return len(documents), nil
+	return processedCount, nil
 }
 
 // processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
