@@ -9,7 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
+	"slices"
+	"strings" 
 	"sync"
 	"text/template"
 	"time"
@@ -187,6 +188,21 @@ func main() {
 		ocrProvider: ocrProvider,
 	}
 
+	if app.isOcrEnabled() {
+		fmt.Printf("Using %s as manual OCR tag\n", manualOcrTag)
+		fmt.Printf("Using %s as auto OCR tag\n", autoOcrTag)
+		rawLimitOcrPages := os.Getenv("OCR_LIMIT_PAGES")
+		if rawLimitOcrPages == "" {
+			limitOcrPages = 5
+		} else {
+			var err error
+			limitOcrPages, err = strconv.Atoi(rawLimitOcrPages)
+			if err != nil {
+				log.Fatalf("Invalid OCR_LIMIT_PAGES value: %v", err)
+			}
+		}
+	}
+
 	// Start background process for auto-tagging
 	go func() {
 		minBackoffDuration := 10 * time.Second
@@ -197,7 +213,7 @@ func main() {
 		for {
 			processedCount, err := func() (int, error) {
 				count := 0
-				if isOcrEnabled() {
+				if app.isOcrEnabled() {
 					ocrCount, err := app.processAutoOcrTagDocuments()
 					if err != nil {
 						return 0, fmt.Errorf("error in processAutoOcrTagDocuments: %w", err)
@@ -256,7 +272,7 @@ func main() {
 
 		// Endpoint to see if user enabled OCR
 		api.GET("/experimental/ocr", func(c *gin.Context) {
-			enabled := isOcrEnabled()
+			enabled := app.isOcrEnabled()
 			c.JSON(http.StatusOK, gin.H{"enabled": enabled})
 		})
 
@@ -366,8 +382,8 @@ func initLogger() {
 	})
 }
 
-func isOcrEnabled() bool {
-	return visionLlmModel != "" && visionLlmProvider != ""
+func (app *App) isOcrEnabled() bool {
+	return app.ocrProvider != nil
 }
 
 // validateOrDefaultEnvVars ensures all necessary environment variables are set
@@ -385,15 +401,9 @@ func validateOrDefaultEnvVars() {
 	if manualOcrTag == "" {
 		manualOcrTag = "paperless-gpt-ocr"
 	}
-	if isOcrEnabled() {
-		fmt.Printf("Using %s as manual OCR tag\n", manualOcrTag)
-	}
 
 	if autoOcrTag == "" {
 		autoOcrTag = "paperless-gpt-ocr-auto"
-	}
-	if isOcrEnabled() {
-		fmt.Printf("Using %s as auto OCR tag\n", autoOcrTag)
 	}
 
 	if paperlessBaseURL == "" {
@@ -418,19 +428,6 @@ func validateOrDefaultEnvVars() {
 
 	if (llmProvider == "openai" || visionLlmProvider == "openai") && openaiAPIKey == "" {
 		log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
-	}
-
-	if isOcrEnabled() {
-		rawLimitOcrPages := os.Getenv("OCR_LIMIT_PAGES")
-		if rawLimitOcrPages == "" {
-			limitOcrPages = 5
-		} else {
-			var err error
-			limitOcrPages, err = strconv.Atoi(rawLimitOcrPages)
-			if err != nil {
-				log.Fatalf("Invalid OCR_LIMIT_PAGES value: %v", err)
-			}
-		}
 	}
 
 	// Initialize token limit from environment variable
@@ -466,7 +463,14 @@ func (app *App) processAutoTagDocuments() (int, error) {
 
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
 
+	processedCount := 0
 	for _, document := range documents {
+		// Skip documents that have the autoOcrTag
+		if slices.Contains(document.Tags, autoOcrTag) {
+			log.Debugf("Skipping document %d as it has the OCR tag %s", document.ID, autoOcrTag)
+			continue
+		}
+
 		docLogger := documentLogger(document.ID)
 		docLogger.Info("Processing document for auto-tagging")
 
@@ -479,17 +483,18 @@ func (app *App) processAutoTagDocuments() (int, error) {
 
 		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
 		if err != nil {
-			return 0, fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
+			return processedCount, fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
 		}
 
 		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 		if err != nil {
-			return 0, fmt.Errorf("error updating document %d: %w", document.ID, err)
+			return processedCount, fmt.Errorf("error updating document %d: %w", document.ID, err)
 		}
 
 		docLogger.Info("Successfully processed document")
+		processedCount++
 	}
-	return len(documents), nil
+	return processedCount, nil
 }
 
 // processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
