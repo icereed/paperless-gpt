@@ -31,7 +31,7 @@ var (
 	log = logrus.New()
 
 	// Environment Variables
-	paperlessInsecureSkipVerify = os.Getenv("PAPERLESS_INSECURE_SKIP_VERIFY") == "false"
+	paperlessInsecureSkipVerify = os.Getenv("PAPERLESS_INSECURE_SKIP_VERIFY") == "true"
 	correspondentBlackList      = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
 	paperlessBaseURL            = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken           = os.Getenv("PAPERLESS_API_TOKEN")
