@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 	"text/template"
@@ -174,4 +175,25 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreateCustomHTTPClient(t *testing.T) {
+	// Create a test server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify custom header
+		assert.Equal(t, "paperless-gpt", r.Header.Get("X-Title"), "Expected X-Title header")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// Get custom client
+	client := createCustomHTTPClient()
+	require.NotNil(t, client, "HTTP client should not be nil")
+
+	// Make a request
+	resp, err := client.Get(server.URL)
+	require.NoError(t, err, "Request should not fail")
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "Expected 200 OK response")
 }

@@ -640,22 +640,10 @@ func createLLM() (llms.Model, error) {
 			return nil, fmt.Errorf("OpenAI API key is not set")
 		}
 
-		// Create custom transport that adds headers
-		customTransport := &headerTransport{
-			transport: http.DefaultTransport,
-			headers: map[string]string{
-				"X-Title": "paperless-gpt",
-			},
-		}
-
-		// Create custom client with the transport
-		httpClient := http.DefaultClient
-		httpClient.Transport = customTransport
-
 		return openai.New(
 			openai.WithModel(llmModel),
 			openai.WithToken(openaiAPIKey),
-			openai.WithHTTPClient(httpClient),
+			openai.WithHTTPClient(createCustomHTTPClient()),
 		)
 	case "ollama":
 		host := os.Getenv("OLLAMA_HOST")
@@ -678,22 +666,10 @@ func createVisionLLM() (llms.Model, error) {
 			return nil, fmt.Errorf("OpenAI API key is not set")
 		}
 
-		// Create custom transport that adds headers
-		customTransport := &headerTransport{
-			transport: http.DefaultTransport,
-			headers: map[string]string{
-				"X-Title": "paperless-gpt",
-			},
-		}
-
-		// Create custom client with the transport
-		httpClient := http.DefaultClient
-		httpClient.Transport = customTransport
-
 		return openai.New(
 			openai.WithModel(visionLlmModel),
 			openai.WithToken(openaiAPIKey),
-			openai.WithHTTPClient(httpClient),
+			openai.WithHTTPClient(createCustomHTTPClient()),
 		)
 	case "ollama":
 		host := os.Getenv("OLLAMA_HOST")
@@ -708,6 +684,22 @@ func createVisionLLM() (llms.Model, error) {
 		log.Infoln("Vision LLM not enabled")
 		return nil, nil
 	}
+}
+
+func createCustomHTTPClient() *http.Client {
+	// Create custom transport that adds headers
+	customTransport := &headerTransport{
+		transport: http.DefaultTransport,
+		headers: map[string]string{
+			"X-Title": "paperless-gpt",
+		},
+	}
+
+	// Create custom client with the transport
+	httpClient := http.DefaultClient
+	httpClient.Transport = customTransport
+
+	return httpClient
 }
 
 // headerTransport is a custom http.RoundTripper that adds custom headers to requests
