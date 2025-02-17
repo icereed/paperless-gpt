@@ -14,7 +14,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
-	github.com/tmc/langchaingo v0.1.13-pre.1
+	github.com/tmc/langchaingo v0.1.13
 	golang.org/x/sync v0.11.0
 	google.golang.org/api v0.221.0
 	gorm.io/driver/sqlite v1.5.7
