@@ -3,6 +3,7 @@ package ocr
 import (
 	"context"
 	"fmt"
+	"html"
 	"strings"
 
 	documentai "cloud.google.com/go/documentai/apiv1"
