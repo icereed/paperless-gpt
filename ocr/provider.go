@@ -28,7 +28,7 @@ type Provider interface {
 
 // Config holds the OCR provider configuration
 type Config struct {
-	// Provider type (e.g., "llm", "google_docai")
+	// Provider type (e.g., "llm", "google_docai", "azure")
 	Provider string
 
 	// Google Document AI settings
@@ -39,6 +39,12 @@ type Config struct {
 	// LLM settings (from existing config)
 	VisionLLMProvider string
 	VisionLLMModel    string
+
+	// Azure Document Intelligence settings
+	AzureEndpoint string
+	AzureAPIKey   string
+	AzureModelID  string // Optional, defaults to "prebuilt-read"
+	AzureTimeout  int    // Optional, defaults to 120 seconds
 
 	// OCR output options
 	EnableHOCR bool // Whether to request hOCR output if supported by the provider
@@ -68,6 +74,12 @@ func NewProvider(config Config) (Provider, error) {
 			"model":    config.VisionLLMModel,
 		}).Info("Using LLM OCR provider")
 		return newLLMProvider(config)
+
+	case "azure":
+		if config.AzureEndpoint == "" || config.AzureAPIKey == "" {
+			return nil, fmt.Errorf("missing required Azure Document Intelligence configuration")
+		}
+		return newAzureProvider(config)
 
 	default:
 		return nil, fmt.Errorf("unsupported OCR provider: %s", config.Provider)

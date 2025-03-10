@@ -36,6 +36,10 @@ var (
 	correspondentBlackList      = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
 	paperlessBaseURL            = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken           = os.Getenv("PAPERLESS_API_TOKEN")
+	azureDocAIEndpoint          = os.Getenv("AZURE_DOCAI_ENDPOINT")
+	azureDocAIKey               = os.Getenv("AZURE_DOCAI_KEY")
+	azureDocAIModelID           = os.Getenv("AZURE_DOCAI_MODEL_ID")
+	azureDocAITimeout           = os.Getenv("AZURE_DOCAI_TIMEOUT_SECONDS")
 	openaiAPIKey                = os.Getenv("OPENAI_API_KEY")
 	manualTag                   = os.Getenv("MANUAL_TAG")
 	autoTag                     = os.Getenv("AUTO_TAG")
@@ -167,6 +171,18 @@ func main() {
 		GoogleProcessorID: os.Getenv("GOOGLE_PROCESSOR_ID"),
 		VisionLLMProvider: visionLlmProvider,
 		VisionLLMModel:    visionLlmModel,
+		AzureEndpoint:     azureDocAIEndpoint,
+		AzureAPIKey:       azureDocAIKey,
+		AzureModelID:      azureDocAIModelID,
+	}
+
+	// Parse Azure timeout if set
+	if azureDocAITimeout != "" {
+		if timeout, err := strconv.Atoi(azureDocAITimeout); err == nil {
+			ocrConfig.AzureTimeout = timeout
+		} else {
+			log.Warnf("Invalid AZURE_DOCAI_TIMEOUT_SECONDS value: %v, using default", err)
+		}
 	}
 
 	// If provider is LLM, but no VISION_LLM_PROVIDER is set, don't initialize OCR provider
@@ -420,6 +436,17 @@ func validateOrDefaultEnvVars() {
 
 	if visionLlmProvider != "" && visionLlmProvider != "openai" && visionLlmProvider != "ollama" {
 		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai' or 'ollama'.")
+	}
+
+	// Validate OCR provider if set
+	ocrProvider := os.Getenv("OCR_PROVIDER")
+	if ocrProvider == "azure" {
+		if azureDocAIEndpoint == "" {
+			log.Fatal("Please set the AZURE_DOCAI_ENDPOINT environment variable for Azure provider")
+		}
+		if azureDocAIKey == "" {
+			log.Fatal("Please set the AZURE_DOCAI_KEY environment variable for Azure provider")
+		}
 	}
 
 	if llmModel == "" {
