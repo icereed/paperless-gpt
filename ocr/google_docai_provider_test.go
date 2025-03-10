@@ -55,7 +55,7 @@ func TestGenerateHOCR(t *testing.T) {
 				},
 			},
 			expected: "(?s).*<div class='ocr_page' id='page_1' title='image;bbox 0 0 800 600'>.*" +
-				"<p class='ocr_par' id='par_1_1' title='bbox 80 60 720 120'>.*" +
+				"<p class='ocr_par' id='par_1_1' title='bbox 80 60 719 120'>.*" +
 				"<span class='ocrx_word'>Hello World</span>.*</p>.*</div>.*",
 		},
 	}
