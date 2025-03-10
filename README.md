@@ -22,7 +22,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
    - **LLM OCR**: Use OpenAI or Ollama to extract text from images.
    - **Google Document AI**: Leverage Google's powerful Document AI for OCR tasks.
-   - **More to come**: Stay tuned for more OCR providers!
+   - **Azure Document Intelligence**: Use Microsoft's enterprise OCR solution.
 
 3. **Automatic Title & Tag Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
@@ -39,11 +39,11 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
 
 7. **Simple Docker Deployment**  
-   A few environment variables, and you’re off! Compose it alongside paperless-ngx with minimal fuss.
+   A few environment variables, and you're off! Compose it alongside paperless-ngx with minimal fuss.
 
 8. **Unified Web UI**
 
-   - **Manual Review**: Approve or tweak AI’s suggestions.
+   - **Manual Review**: Approve or tweak AI's suggestions.
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
 
 ---
@@ -56,6 +56,12 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
   - [Installation](#installation)
     - [Docker Compose](#docker-compose)
     - [Manual Setup](#manual-setup)
+- [OCR Providers](#ocr-providers)
+  - [LLM-based OCR](#1-llm-based-ocr-default)
+  - [Azure Document Intelligence](#2-azure-document-intelligence)
+  - [Google Document AI](#3-google-document-ai)
+  - [Comparing OCR Providers](#comparing-ocr-providers)
+  - [Choosing the Right Provider](#choosing-the-right-provider)
 - [Configuration](#configuration)
   - [Environment Variables](#environment-variables)
   - [Custom Prompt Templates](#custom-prompt-templates)
@@ -86,7 +92,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
 #### Docker Compose
 
-Here’s an example `docker-compose.yml` to spin up **paperless-gpt** alongside paperless-ngx:
+Here's an example `docker-compose.yml` to spin up **paperless-gpt** alongside paperless-ngx:
 
 ```yaml
 services:
@@ -123,6 +129,13 @@ services:
       # GOOGLE_LOCATION: 'us'              # Document AI region
       # GOOGLE_PROCESSOR_ID: 'processor-id' # Your processor ID
       # GOOGLE_APPLICATION_CREDENTIALS: '/app/credentials.json' # Path to service account key
+
+      # Option 3: Azure Document Intelligence
+      # OCR_PROVIDER: 'azure'              # Use Azure Document Intelligence
+      # AZURE_DOCAI_ENDPOINT: 'your-endpoint' # Your Azure endpoint URL
+      # AZURE_DOCAI_KEY: 'your-key'        # Your Azure API key
+      # AZURE_DOCAI_MODEL_ID: 'prebuilt-read' # Optional, defaults to prebuilt-read
+      # AZURE_DOCAI_TIMEOUT_SECONDS: '120'  # Optional, defaults to 120 seconds
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
@@ -172,6 +185,63 @@ services:
    ```
 
 ---
+## OCR Providers
+
+paperless-gpt supports three different OCR providers, each with unique strengths and capabilities:
+
+### 1. LLM-based OCR (Default)
+- **Key Features**:
+  - Uses vision-capable LLMs like GPT-4V or MiniCPM-V
+  - High accuracy with complex layouts and difficult scans
+  - Context-aware text recognition
+  - Self-correcting capabilities for OCR errors
+- **Best For**:
+  - Complex or unusual document layouts
+  - Poor quality scans
+  - Documents with mixed languages
+- **Configuration**:
+  ```yaml
+  OCR_PROVIDER: "llm"
+  VISION_LLM_PROVIDER: "openai" # or "ollama"
+  VISION_LLM_MODEL: "gpt-4v" # or "minicpm-v"
+  ```
+
+### 2. Azure Document Intelligence
+- **Key Features**:
+  - Enterprise-grade OCR solution
+  - Prebuilt models for common document types
+  - Layout preservation and table detection
+  - Fast processing speeds
+- **Best For**:
+  - Business documents and forms
+  - High-volume processing
+  - Documents requiring layout analysis
+- **Configuration**:
+  ```yaml
+  OCR_PROVIDER: "azure"
+  AZURE_DOCAI_ENDPOINT: "https://your-endpoint.cognitiveservices.azure.com/"
+  AZURE_DOCAI_KEY: "your-key"
+  AZURE_DOCAI_MODEL_ID: "prebuilt-read" # optional
+  AZURE_DOCAI_TIMEOUT_SECONDS: "120" # optional
+  ```
+
+### 3. Google Document AI
+- **Key Features**:
+  - Specialized document processors
+  - Strong form field detection
+  - Multi-language support
+  - High accuracy on structured documents
+- **Best For**:
+  - Forms and structured documents
+  - Documents with tables
+  - Multi-language documents
+- **Configuration**:
+  ```yaml
+  OCR_PROVIDER: "google_docai"
+  GOOGLE_PROJECT_ID: "your-project"
+  GOOGLE_LOCATION: "us"
+  GOOGLE_PROCESSOR_ID: "processor-id"
+  ```
 
 ## Configuration
 
@@ -192,9 +262,13 @@ services:
 | `OPENAI_BASE_URL`                | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                            | No       |                        |
 | `LLM_LANGUAGE`                   | Likely language for documents (e.g. `English`).                                                                  | No       | English                |
 | `OLLAMA_HOST`                    | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                    | No       |                        |
-| `OCR_PROVIDER`                   | OCR provider to use (`llm` or `google_docai`).                                                                   | No       | llm                    |
+| `OCR_PROVIDER`                   | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                        | No       | llm                    |
 | `VISION_LLM_PROVIDER`            | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                | Cond.    |                        |
 | `VISION_LLM_MODEL`               | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                    | Cond.    |                        |
+| `AZURE_DOCAI_ENDPOINT`           | Azure Document Intelligence endpoint. Required if OCR_PROVIDER is `azure`.                                        | Cond.    |                        |
+| `AZURE_DOCAI_KEY`                | Azure Document Intelligence API key. Required if OCR_PROVIDER is `azure`.                                         | Cond.    |                        |
+| `AZURE_DOCAI_MODEL_ID`           | Azure Document Intelligence model ID. Optional if using `azure` provider.                                         | No       | prebuilt-read          |
+| `AZURE_DOCAI_TIMEOUT_SECONDS`    | Azure Document Intelligence timeout in seconds.                                                                   | No       | 120                    |
 | `GOOGLE_PROJECT_ID`              | Google Cloud project ID. Required if OCR_PROVIDER is `google_docai`.                                             | Cond.    |                        |
 | `GOOGLE_LOCATION`                | Google Cloud region (e.g. `us`, `eu`). Required if OCR_PROVIDER is `google_docai`.                               | Cond.    |                        |
 | `GOOGLE_PROCESSOR_ID`            | Document AI processor ID. Required if OCR_PROVIDER is `google_docai`.                                            | Cond.    |                        |
@@ -211,7 +285,7 @@ services:
 
 ### Custom Prompt Templates
 
-paperless-gpt’s flexible **prompt templates** let you shape how AI responds:
+paperless-gpt's flexible **prompt templates** let you shape how AI responds:
 
 1. **`title_prompt.tmpl`**: For document titles.
 2. **`tag_prompt.tmpl`**: For tagging logic.
@@ -232,13 +306,11 @@ Then tweak at will—**paperless-gpt** reloads them automatically on startup!
 Each template has access to specific variables:
 
 **title_prompt.tmpl**:
-
 - `{{.Language}}` - Target language (e.g., "English")
 - `{{.Content}}` - Document content text
 - `{{.Title}}` - Original document title
 
 **tag_prompt.tmpl**:
-
 - `{{.Language}}` - Target language
 - `{{.AvailableTags}}` - List of existing tags in paperless-ngx
 - `{{.OriginalTags}}` - Document's current tags
@@ -246,11 +318,9 @@ Each template has access to specific variables:
 - `{{.Content}}` - Document content text
 
 **ocr_prompt.tmpl**:
-
 - `{{.Language}}` - Target language
 
 **correspondent_prompt.tmpl**:
-
 - `{{.Language}}` - Target language
 - `{{.AvailableCorrespondents}}` - List of existing correspondents
 - `{{.BlackList}}` - List of blacklisted correspondent names
@@ -265,23 +335,25 @@ The templates use Go's text/template syntax. paperless-gpt automatically reloads
 
 1. **Tag Documents**
 
-   - Add `paperless-gpt` or your custom tag to the docs you want to AI-ify.
+   - Add `paperless-gpt` tag to documents for manual processing
+   - Add `paperless-gpt-auto` for automatic processing
+   - Add `paperless-gpt-ocr-auto` for automatic OCR processing
 
 2. **Visit Web UI**
 
-   - Go to `http://localhost:8080` (or your host) in your browser.
+   - Go to `http://localhost:8080` (or your host) in your browser
+   - Review documents tagged for processing
 
 3. **Generate & Apply Suggestions**
 
-   - Click “Generate Suggestions” to see AI-proposed titles/tags/correspondents.
-   - Approve, edit, or discard. Hit “Apply” to finalize in paperless-ngx.
+   - Click "Generate Suggestions" to see AI-proposed titles/tags/correspondents
+   - Review and approve or edit suggestions
+   - Click "Apply" to save changes to paperless-ngx
 
-4. **Try LLM-Based OCR (Experimental)**
-   - If you enabled `VISION_LLM_PROVIDER` and `VISION_LLM_MODEL`, let AI-based OCR read your scanned PDFs.
-   - Tag those documents with `paperless-gpt-ocr-auto` (or your custom `AUTO_OCR_TAG`).
-
-**Tip**: The entire pipeline can be **fully automated** if you prefer minimal manual intervention.
-
+4. **OCR Processing**
+   - Tag documents with appropriate OCR tag to process them
+   - Monitor progress in the Web UI
+   - Review results and apply changes
 ---
 
 ## LLM-Based OCR: Compare for Yourself
