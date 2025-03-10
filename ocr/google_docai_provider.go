@@ -3,6 +3,8 @@ package ocr
 import (
 	"context"
 	"fmt"
+	"html"
+	"strings"
 
 	documentai "cloud.google.com/go/documentai/apiv1"
 	"cloud.google.com/go/documentai/apiv1/documentaipb"
@@ -46,7 +48,7 @@ func newGoogleDocAIProvider(config Config) (*GoogleDocAIProvider, error) {
 	return provider, nil
 }
 
-func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []byte) (string, error) {
+func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []byte) (*OCRResult, error) {
 	logger := log.WithFields(logrus.Fields{
 		"project_id":   p.projectID,
 		"location":     p.location,
@@ -60,7 +62,7 @@ func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []b
 
 	if !isImageMIMEType(mtype.String()) {
 		logger.WithField("mime_type", mtype.String()).Error("Unsupported file type")
-		return "", fmt.Errorf("unsupported file type: %s", mtype.String())
+		return nil, fmt.Errorf("unsupported file type: %s", mtype.String())
 	}
 
 	name := fmt.Sprintf("projects/%s/locations/%s/processors/%s", p.projectID, p.location, p.processorID)
@@ -79,21 +81,56 @@ func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []b
 	resp, err := p.client.ProcessDocument(ctx, req)
 	if err != nil {
 		logger.WithError(err).Error("Failed to process document")
-		return "", fmt.Errorf("error processing document: %w", err)
+		return nil, fmt.Errorf("error processing document: %w", err)
 	}
 
 	if resp == nil || resp.Document == nil {
 		logger.Error("Received nil response or document from Document AI")
-		return "", fmt.Errorf("received nil response or document from Document AI")
+		return nil, fmt.Errorf("received nil response or document from Document AI")
 	}
 
 	if resp.Document.Error != nil {
 		logger.WithField("error", resp.Document.Error.Message).Error("Document processing error")
-		return "", fmt.Errorf("document processing error: %s", resp.Document.Error.Message)
+		return nil, fmt.Errorf("document processing error: %s", resp.Document.Error.Message)
 	}
 
-	logger.WithField("content_length", len(resp.Document.Text)).Info("Successfully processed document")
-	return resp.Document.Text, nil
+	metadata := map[string]string{
+		"provider":     "google_docai",
+		"mime_type":    mtype.String(),
+		"page_count":   fmt.Sprintf("%d", len(resp.Document.GetPages())),
+		"processor_id": p.processorID,
+	}
+
+	// Safely add language code if available
+	if pages := resp.Document.GetPages(); len(pages) > 0 {
+		if langs := pages[0].GetDetectedLanguages(); len(langs) > 0 {
+			metadata["lang_code"] = langs[0].GetLanguageCode()
+		}
+	}
+
+	result := &OCRResult{
+		Text:     resp.Document.Text,
+		Metadata: metadata,
+	}
+
+	// Add hOCR output if available
+	if len(resp.Document.GetPages()) > 0 {
+		var hocr string
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.WithField("error", r).Error("Panic during hOCR generation")
+				}
+			}()
+			hocr = generateHOCR(resp.Document)
+		}()
+		if hocr != "" {
+			result.HOCR = hocr
+		}
+	}
+
+	logger.WithField("content_length", len(result.Text)).Info("Successfully processed document")
+	return result, nil
 }
 
 // isImageMIMEType checks if the given MIME type is a supported image type
@@ -107,6 +144,83 @@ func isImageMIMEType(mimeType string) bool {
 		"application/pdf": true,
 	}
 	return supportedTypes[mimeType]
+}
+
+// generateHOCR converts Document AI response to hOCR format
+func generateHOCR(doc *documentaipb.Document) string {
+	if len(doc.GetPages()) == 0 {
+		return ""
+	}
+
+	var hocr strings.Builder
+	hocr.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+    <title>OCR Output</title>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+    <meta name='ocr-system' content='google-docai' />
+</head>
+<body>`)
+
+	for pageNum, page := range doc.GetPages() {
+		pageWidth := page.GetDimension().GetWidth()
+		pageHeight := page.GetDimension().GetHeight()
+		// Validate dimensions
+		if pageWidth <= 0 || pageHeight <= 0 {
+			continue
+		}
+
+		hocr.WriteString(fmt.Sprintf(`
+    <div class='ocr_page' id='page_%d' title='image;bbox 0 0 %d %d'>`,
+			pageNum+1, int(pageWidth), int(pageHeight)))
+
+		// Process paragraphs
+		for _, para := range page.GetParagraphs() {
+			paraBox := para.GetLayout().GetBoundingPoly().GetNormalizedVertices()
+			if len(paraBox) < 4 {
+				continue
+			}
+
+			// Convert normalized coordinates to absolute
+			// Use float64 for intermediate calculations to prevent overflow
+			x1 := int(float64(paraBox[0].GetX()) * float64(pageWidth))
+			y1 := int(float64(paraBox[0].GetY()) * float64(pageHeight))
+			x2 := int(float64(paraBox[2].GetX()) * float64(pageWidth))
+			y2 := int(float64(paraBox[2].GetY()) * float64(pageHeight))
+
+			// Validate coordinates
+			if x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0 ||
+				x1 > int(pageWidth) || y1 > int(pageHeight) ||
+				x2 > int(pageWidth) || y2 > int(pageHeight) {
+				continue
+			}
+
+			hocr.WriteString(fmt.Sprintf(`
+        <p class='ocr_par' id='par_%d_%d' title='bbox %d %d %d %d'>`,
+				pageNum+1, len(page.GetParagraphs()), x1, y1, x2, y2))
+
+			// Process words within paragraph
+			for _, token := range para.GetLayout().GetTextAnchor().GetTextSegments() {
+				text := doc.Text[token.GetStartIndex():token.GetEndIndex()]
+				if text == "" {
+					continue
+				}
+
+				// Escape HTML special characters
+				text = html.EscapeString(text)
+
+				hocr.WriteString(fmt.Sprintf(`
+            <span class='ocrx_word'>%s</span>`, text))
+			}
+
+			hocr.WriteString("\n        </p>")
+		}
+		hocr.WriteString("\n    </div>")
+	}
+
+	hocr.WriteString("\n</body>\n</html>")
+	return hocr.String()
 }
 
 // Close releases resources used by the provider
