@@ -25,22 +25,22 @@ COPY web-app /app/
 RUN npm run build
 
 # Stage 2: Build the Go binary
-FROM golang:1.23.6-alpine3.21 AS builder
+FROM golang:1.24.0-alpine3.21 AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
 
 # Package versions for Renovate
 # renovate: datasource=repology depName=alpine_3_21/gcc versioning=loose
-ENV GCC_VERSION=14.2.0-r4
+ENV GCC_VERSION="14.2.0-r4"
 # renovate: datasource=repology depName=alpine_3_21/musl-dev versioning=loose
-ENV MUSL_DEV_VERSION=1.2.5-r8
+ENV MUSL_DEV_VERSION="1.2.5-r9"
 # renovate: datasource=repology depName=alpine_3_21/mupdf versioning=loose
-ENV MUPDF_VERSION=1.24.10-r0
+ENV MUPDF_VERSION="1.24.10-r0"
 # renovate: datasource=repology depName=alpine_3_21/mupdf-dev versioning=loose
-ENV MUPDF_DEV_VERSION=1.24.10-r0
+ENV MUPDF_DEV_VERSION="1.24.10-r0"
 # renovate: datasource=repology depName=alpine_3_21/sed versioning=loose
-ENV SED_VERSION=4.9-r2
+ENV SED_VERSION="4.9-r2"
 
 # Install necessary packages with pinned versions
 RUN apk add --no-cache \
