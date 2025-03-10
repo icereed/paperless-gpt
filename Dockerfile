@@ -25,7 +25,7 @@ COPY web-app /app/
 RUN npm run build
 
 # Stage 2: Build the Go binary
-FROM golang:1.24.0-alpine3.21 AS builder
+FROM golang:1.24.1-alpine3.21 AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -82,7 +82,7 @@ RUN sed -i \
 RUN CGO_ENABLED=1 GOMAXPROCS=$(nproc) go build -tags musl -o paperless-gpt .
 
 # Stage 3: Create a lightweight image with just the binary
-FROM alpine:3.21.2
+FROM alpine:3.21.3
 
 ENV GIN_MODE=release
 
