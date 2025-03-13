@@ -120,7 +120,7 @@ services:
       # Option 1: LLM-based OCR
       OCR_PROVIDER: "llm" # Default OCR provider
       VISION_LLM_PROVIDER: "ollama" # openai or ollama
-      VISION_LLM_MODEL: "minicpm-v" # minicpm-v (ollama) or gpt-4v (openai)
+      VISION_LLM_MODEL: "minicpm-v" # minicpm-v (ollama) or gpt-4o (openai)
       OLLAMA_HOST: "http://host.docker.internal:11434" # If using Ollama
 
       # Option 2: Google Document AI
@@ -191,7 +191,7 @@ paperless-gpt supports three different OCR providers, each with unique strengths
 
 ### 1. LLM-based OCR (Default)
 - **Key Features**:
-  - Uses vision-capable LLMs like GPT-4V or MiniCPM-V
+  - Uses vision-capable LLMs like gpt-4o or MiniCPM-V
   - High accuracy with complex layouts and difficult scans
   - Context-aware text recognition
   - Self-correcting capabilities for OCR errors
@@ -203,7 +203,7 @@ paperless-gpt supports three different OCR providers, each with unique strengths
   ```yaml
   OCR_PROVIDER: "llm"
   VISION_LLM_PROVIDER: "openai" # or "ollama"
-  VISION_LLM_MODEL: "gpt-4v" # or "minicpm-v"
+  VISION_LLM_MODEL: "gpt-4o" # or "minicpm-v"
   ```
 
 ### 2. Azure Document Intelligence
