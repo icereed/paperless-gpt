@@ -279,6 +279,7 @@ paperless-gpt supports three different OCR providers, each with unique strengths
 | `AUTO_GENERATE_TITLE`            | Generate titles automatically if `paperless-gpt-auto` is used.                                                   | No       | true                   |
 | `AUTO_GENERATE_TAGS`             | Generate tags automatically if `paperless-gpt-auto` is used.                                                     | No       | true                   |
 | `AUTO_GENERATE_CORRESPONDENTS`   | Generate correspondents automatically if `paperless-gpt-auto` is used.                                           | No       | true                   |
+| `AUTO_GENERATE_CREATED_DATE`     | Generate the created dates automatically if `paperless-gpt-auto` is used.                                        | No       | true                   |
 | `OCR_LIMIT_PAGES`                | Limit the number of pages for OCR. Set to `0` for no limit.                                                      | No       | 5                      |
 | `TOKEN_LIMIT`                    | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                | No       |                        |
 | `CORRESPONDENT_BLACK_LIST`       | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`. | No       |                        |

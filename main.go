@@ -54,6 +54,7 @@ var (
 	autoGenerateTitle           = os.Getenv("AUTO_GENERATE_TITLE")
 	autoGenerateTags            = os.Getenv("AUTO_GENERATE_TAGS")
 	autoGenerateCorrespondents  = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
+	autoGenerateCreatedDate     = os.Getenv("AUTO_GENERATE_CREATED_DATE")
 	limitOcrPages               int // Will be read from OCR_LIMIT_PAGES
 	tokenLimit                  = 0 // Will be read from TOKEN_LIMIT
 
@@ -61,6 +62,7 @@ var (
 	titleTemplate         *template.Template
 	tagTemplate           *template.Template
 	correspondentTemplate *template.Template
+	createdDateTemplate   *template.Template
 	ocrTemplate           *template.Template
 	templateMutex         sync.RWMutex
 
@@ -110,6 +112,13 @@ Title of the document:
 {{.Title}}
 
 The content is likely in {{.Language}}.
+
+Document Content:
+{{.Content}}
+`
+	defaultCreatedDateTemplate = `I will provide you with the content of a document. The language of the content is likely in {{.Language}}. Your task is to answer with the date that the document was created.
+
+You shall answer with only the date, and no other information. The date in the document can be in various formats, but your answer should always be in the YYYY-MM-DD format. If no date creation date is available in the document, aswer with today's date.
 
 Document Content:
 {{.Content}}
@@ -506,6 +515,7 @@ func (app *App) processAutoTagDocuments() (int, error) {
 			GenerateTitles:         strings.ToLower(autoGenerateTitle) != "false",
 			GenerateTags:           strings.ToLower(autoGenerateTags) != "false",
 			GenerateCorrespondents: strings.ToLower(autoGenerateCorrespondents) != "false",
+			GenerateCreatedDate:    strings.ToLower(autoGenerateCreatedDate) != "false",
 		}
 
 		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
@@ -641,6 +651,22 @@ func loadTemplates() {
 	correspondentTemplate, err = template.New("correspondent").Funcs(sprig.FuncMap()).Parse(string(correspondentTemplateContent))
 	if err != nil {
 		log.Fatalf("Failed to parse correspondent template: %v", err)
+	}
+
+	// Load createdDate template
+	createdDateTemplatePath := filepath.Join(promptsDir, "createdDate_prompt.tmpl")
+	createdDateTemplateContent, err := os.ReadFile(createdDateTemplatePath)
+	if err != nil {
+		log.Errorf("Could not read %s, using default template: %v", createdDateTemplatePath, err)
+		createdDateTemplateContent = []byte(defaultCreatedDateTemplate)
+		if err := os.WriteFile(createdDateTemplatePath, createdDateTemplateContent, os.ModePerm); err != nil {
+			log.Fatalf("Failed to write default date template to disk: %v", err)
+		}
+	}
+
+	createdDateTemplate, err = template.New("created_date").Funcs(sprig.FuncMap()).Parse(string(createdDateTemplateContent))
+	if err != nil {
+		log.Fatalf("Failed to parse createdDate template: %v", err)
 	}
 
 	// Load OCR template
