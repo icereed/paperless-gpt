@@ -88,7 +88,7 @@ const DocumentsToProcess: React.FC<DocumentsToProcessProps> = ({
           onChange={(e) => setGenerateCreatedDate(e.target.checked)}
           className="dark:bg-gray-700 dark:border-gray-600"
         />
-        <span className="text-gray-700 dark:text-gray-200">Generate CreatedDate</span>
+        <span className="text-gray-700 dark:text-gray-200">Generate Created Date</span>
       </label>
     </div>
 
