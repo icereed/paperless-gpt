@@ -24,7 +24,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
    - **Google Document AI**: Leverage Google's powerful Document AI for OCR tasks.
    - **Azure Document Intelligence**: Use Microsoft's enterprise OCR solution.
 
-3. **Automatic Title & Tag Generation**  
+3. **Automatic Title, Tag & Created Date Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
 
 4. **Supports DeepSeek reasoning models in Ollama**  
@@ -292,6 +292,7 @@ paperless-gpt's flexible **prompt templates** let you shape how AI responds:
 2. **`tag_prompt.tmpl`**: For tagging logic.
 3. **`ocr_prompt.tmpl`**: For LLM OCR.
 4. **`correspondent_prompt.tmpl`**: For correspondent identification.
+5. **`created_date_prompt.tmpl`**: For setting of document's created date.
 
 Mount them into your container via:
 
@@ -326,6 +327,10 @@ Each template has access to specific variables:
 - `{{.AvailableCorrespondents}}` - List of existing correspondents
 - `{{.BlackList}}` - List of blacklisted correspondent names
 - `{{.Title}}` - Document title
+- `{{.Content}}` - Document content text
+
+**created_date_prompt.tmpl**:
+- `{{.Language}}` - Target language
 - `{{.Content}}` - Document content text
 
 The templates use Go's text/template syntax. paperless-gpt automatically reloads template changes on startup.

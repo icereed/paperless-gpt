@@ -116,11 +116,11 @@ The content is likely in {{.Language}}.
 Document Content:
 {{.Content}}
 `
-	defaultCreatedDateTemplate = `I will provide you with the content of a document. The language of the content is likely in {{.Language}}. Your task is to answer with the date that the document was created.
+	defaultCreatedDateTemplate = `I will provide you with the content of a document. Your task is to find the date when the document was created.
+Respond only with the date in YYYY-MM-DD format, without any additional information. If no date is found, respond with today's date.
+The content is likely in {{.Language}}.
 
-You shall answer with only the date, and no other information. The date in the document can be in various formats, but your answer should always be in the YYYY-MM-DD format. If no date creation date is available in the document, aswer with today's date.
-
-Document Content:
+Content:
 {{.Content}}
 `
 	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
@@ -654,7 +654,7 @@ func loadTemplates() {
 	}
 
 	// Load createdDate template
-	createdDateTemplatePath := filepath.Join(promptsDir, "createdDate_prompt.tmpl")
+	createdDateTemplatePath := filepath.Join(promptsDir, "created_date_prompt.tmpl")
 	createdDateTemplateContent, err := os.ReadFile(createdDateTemplatePath)
 	if err != nil {
 		log.Errorf("Could not read %s, using default template: %v", createdDateTemplatePath, err)
