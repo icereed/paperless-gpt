@@ -29,6 +29,7 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 	correspondentTemplate, err = template.New("correspondent").Funcs(sprig.FuncMap()).Parse("")
 	require.NoError(t, err)
 	createdDateTemplate, err = template.New("created_date").Funcs(sprig.FuncMap()).Parse("")
+	require.NoError(t, err)
 
 	// Create test environment
 	env := newTestEnv(t)

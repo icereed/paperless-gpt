@@ -73,6 +73,7 @@ func TestPromptTokenLimits(t *testing.T) {
 	correspondentTemplate, err = template.New("correspondent").Parse(testCorrespondentTemplate)
 	require.NoError(t, err)
 	createdDateTemplate, err = template.New("created_date").Parse(testCreatedDateContentTemplate)
+	require.NoError(t, err)
 
 	// Save current env and restore after test
 	originalLimit := os.Getenv("TOKEN_LIMIT")
