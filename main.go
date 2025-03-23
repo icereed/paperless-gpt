@@ -54,6 +54,7 @@ var (
 	autoGenerateTitle           = os.Getenv("AUTO_GENERATE_TITLE")
 	autoGenerateTags            = os.Getenv("AUTO_GENERATE_TAGS")
 	autoGenerateCorrespondents  = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
+	autoGenerateCreatedDate     = os.Getenv("AUTO_GENERATE_CREATED_DATE")
 	limitOcrPages               int // Will be read from OCR_LIMIT_PAGES
 	tokenLimit                  = 0 // Will be read from TOKEN_LIMIT
 
@@ -61,6 +62,7 @@ var (
 	titleTemplate         *template.Template
 	tagTemplate           *template.Template
 	correspondentTemplate *template.Template
+	createdDateTemplate   *template.Template
 	ocrTemplate           *template.Template
 	templateMutex         sync.RWMutex
 
@@ -112,6 +114,13 @@ Title of the document:
 The content is likely in {{.Language}}.
 
 Document Content:
+{{.Content}}
+`
+	defaultCreatedDateTemplate = `I will provide you with the content of a document. Your task is to find the date when the document was created.
+Respond only with the date in YYYY-MM-DD format, without any additional information. If no date is found, respond with today's date.
+The content is likely in {{.Language}}.
+
+Content:
 {{.Content}}
 `
 	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
@@ -506,6 +515,7 @@ func (app *App) processAutoTagDocuments() (int, error) {
 			GenerateTitles:         strings.ToLower(autoGenerateTitle) != "false",
 			GenerateTags:           strings.ToLower(autoGenerateTags) != "false",
 			GenerateCorrespondents: strings.ToLower(autoGenerateCorrespondents) != "false",
+			GenerateCreatedDate:    strings.ToLower(autoGenerateCreatedDate) != "false",
 		}
 
 		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
@@ -641,6 +651,22 @@ func loadTemplates() {
 	correspondentTemplate, err = template.New("correspondent").Funcs(sprig.FuncMap()).Parse(string(correspondentTemplateContent))
 	if err != nil {
 		log.Fatalf("Failed to parse correspondent template: %v", err)
+	}
+
+	// Load createdDate template
+	createdDateTemplatePath := filepath.Join(promptsDir, "created_date_prompt.tmpl")
+	createdDateTemplateContent, err := os.ReadFile(createdDateTemplatePath)
+	if err != nil {
+		log.Errorf("Could not read %s, using default template: %v", createdDateTemplatePath, err)
+		createdDateTemplateContent = []byte(defaultCreatedDateTemplate)
+		if err := os.WriteFile(createdDateTemplatePath, createdDateTemplateContent, os.ModePerm); err != nil {
+			log.Fatalf("Failed to write default date template to disk: %v", err)
+		}
+	}
+
+	createdDateTemplate, err = template.New("created_date").Funcs(sprig.FuncMap()).Parse(string(createdDateTemplateContent))
+	if err != nil {
+		log.Fatalf("Failed to parse createdDate template: %v", err)
 	}
 
 	// Load OCR template

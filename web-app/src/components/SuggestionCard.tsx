@@ -9,6 +9,7 @@ interface SuggestionCardProps {
   onTagAddition: (docId: number, tag: TagOption) => void;
   onTagDeletion: (docId: number, index: number) => void;
   onCorrespondentChange: (docId: number, correspondent: string) => void;
+  onCreatedDateChange: (docId: number, createdDate: string) => void;
 }
 
 const SuggestionCard: React.FC<SuggestionCardProps> = ({
@@ -18,6 +19,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onTagAddition,
   onTagDeletion,
   onCorrespondentChange,
+  onCreatedDateChange,
 }) => {
   const sortedAvailableTags = availableTags.sort((a, b) => a.name.localeCompare(b.name));
   const document = suggestion.original_document;
@@ -117,6 +119,18 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
             onChange={(e) => onCorrespondentChange(suggestion.id, e.target.value)}
             className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
             placeholder="Correspondent"
+          />
+        </div>
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Suggested Created Date
+          </label>
+          <input
+            type="text"
+            value={suggestion.suggested_created_date || ""}
+            onChange={(e) => onCreatedDateChange(suggestion.id, e.target.value)}
+            className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
+            placeholder="Created Date"
           />
         </div>
       </div>
