@@ -92,8 +92,8 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 	}
 
 	log.WithFields(logrus.Fields{
-		"method":  method,
-		"url":     url,
+		"method": method,
+		"url":    url,
 	}).Debug("Making HTTP request")
 
 	resp, err := client.HTTPClient.Do(req)
@@ -276,6 +276,7 @@ func (client *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []st
 			Content:       result.Content,
 			Correspondent: correspondentName,
 			Tags:          tagNames,
+			CreatedDate:   result.CreatedDate,
 		})
 	}
 
@@ -354,6 +355,7 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 		Content:       documentResponse.Content,
 		Correspondent: correspondentName,
 		Tags:          tagNames,
+		CreatedDate:   documentResponse.CreatedDate,
 	}, nil
 }
 
@@ -472,6 +474,14 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			originalFields["content"] = document.OriginalDocument.Content
 			updatedFields["content"] = suggestedContent
 		}
+
+		// Suggested CreatedDate
+		suggestedCreatedDate := document.SuggestedCreatedDate
+		if suggestedCreatedDate != "" {
+			originalFields["created_date"] = document.OriginalDocument.CreatedDate
+			updatedFields["created_date"] = suggestedCreatedDate
+		}
+
 		log.Debugf("Document %d: Original fields: %v", documentID, originalFields)
 		log.Debugf("Document %d: Updated fields: %v Tags: %v", documentID, updatedFields, tags)
 
@@ -497,7 +507,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			return fmt.Errorf("error updating document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
 		} else {
 			for field, value := range originalFields {
-				log.Printf("Document %d: Updated %s from %v to %v", documentID, field, originalFields[field], value)
+				log.Printf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
 				// Insert the modification record into the database
 				var modificationRecord ModificationHistory
 				if field == "tags" {

@@ -278,6 +278,61 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
 
+// getSuggestedCreatedDate generates a suggested createdDate for a document using the LLM
+func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, logger *logrus.Entry) (string, error) {
+	likelyLanguage := getLikelyLanguage()
+
+	templateMutex.RLock()
+	defer templateMutex.RUnlock()
+
+	// Get available tokens for content
+	templateData := map[string]interface{}{
+		"Language": likelyLanguage,
+		"Content":  content,
+	}
+
+	availableTokens, err := getAvailableTokensForContent(createdDateTemplate, templateData)
+	if err != nil {
+		logger.Errorf("Error calculating available tokens: %v", err)
+		return "", fmt.Errorf("error calculating available tokens: %v", err)
+	}
+
+	// Truncate content if needed
+	truncatedContent, err := truncateContentByTokens(content, availableTokens)
+	if err != nil {
+		logger.Errorf("Error truncating content: %v", err)
+		return "", fmt.Errorf("error truncating content: %v", err)
+	}
+
+	// Execute template with truncated content
+	var promptBuffer bytes.Buffer
+	templateData["Content"] = truncatedContent
+	err = createdDateTemplate.Execute(&promptBuffer, templateData)
+
+	if err != nil {
+		return "", fmt.Errorf("error executing createdDate template: %v", err)
+	}
+
+	prompt := promptBuffer.String()
+	logger.Debugf("CreatedDate suggestion prompt: %s", prompt)
+
+	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+		{
+			Parts: []llms.ContentPart{
+				llms.TextContent{
+					Text: prompt,
+				},
+			},
+			Role: llms.ChatMessageTypeHuman,
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("error getting response from LLM: %v", err)
+	}
+	result := stripReasoning(completion.Choices[0].Content)
+	return strings.TrimSpace(strings.Trim(result, "\"")), nil
+}
+
 // generateDocumentSuggestions generates suggestions for a set of documents
 func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionRequest GenerateSuggestionsRequest, logger *logrus.Entry) ([]DocumentSuggestion, error) {
 	// Fetch all available tags from paperless-ngx
@@ -326,6 +381,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			suggestedTitle := doc.Title
 			var suggestedTags []string
 			var suggestedCorrespondent string
+			var suggestedCreatedDate string
 
 			if suggestionRequest.GenerateTitles {
 				suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, docLogger)
@@ -360,6 +416,17 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 				}
 			}
 
+			if suggestionRequest.GenerateCreatedDate {
+				suggestedCreatedDate, err = app.getSuggestedCreatedDate(ctx, content, docLogger)
+				if err != nil {
+					mu.Lock()
+					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
+					mu.Unlock()
+					log.Errorf("Error generating createdDate for document %d: %v", documentID, err)
+					return
+				}
+			}
+
 			mu.Lock()
 			suggestion := DocumentSuggestion{
 				ID:               documentID,
@@ -387,6 +454,14 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 				suggestion.SuggestedCorrespondent = suggestedCorrespondent
 			} else {
 				suggestion.SuggestedCorrespondent = ""
+			}
+
+			// CreatedDate
+			if suggestionRequest.GenerateCreatedDate {
+				log.Printf("Suggested createdDate for document %d: %s", documentID, suggestedCreatedDate)
+				suggestion.SuggestedCreatedDate = suggestedCreatedDate
+			} else {
+				suggestion.SuggestedCreatedDate = ""
 			}
 			// Remove manual tag from the list of suggested tags
 			suggestion.RemoveTags = []string{manualTag, autoTag}

@@ -28,9 +28,18 @@ func getPromptsHandler(c *gin.Context) {
 		tagTemplateContent = []byte(defaultTagTemplate)
 	}
 
+	dateTemplateContent, err := os.ReadFile("prompts/date_prompt.tmpl")
+	if err != nil {
+		dateTemplateContent = []byte(defaultDateTemplate)
+	}
+
+	today := time.Now().Format("2006-01-02")
+
 	c.JSON(http.StatusOK, gin.H{
 		"title_template": string(titleTemplateContent),
 		"tag_template":   string(tagTemplateContent),
+		"date_template":  string(dateTemplateContent),
+		"today":          today,
 	})
 }
 
