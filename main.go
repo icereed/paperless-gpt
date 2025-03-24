@@ -118,7 +118,7 @@ Document Content:
 `
 	defaultCreatedDateTemplate = `I will provide you with the content of a document. Your task is to find the date when the document was created.
 Respond only with the date in YYYY-MM-DD format, without any additional information. If no date is found, respond with today's date.
-The content is likely in {{.Language}}.
+The content is likely in {{.Language}}. Today's date is {{.Today}}.
 
 Content:
 {{.Content}}

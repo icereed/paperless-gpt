@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	_ "image/jpeg"
 
@@ -289,6 +290,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	templateData := map[string]interface{}{
 		"Language": likelyLanguage,
 		"Content":  content,
+		"Today":    getTodayDate(), // must be in YYYY-MM-DD format
 	}
 
 	availableTokens, err := getAvailableTokensForContent(createdDateTemplate, templateData)
@@ -479,6 +481,11 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 	}
 
 	return documentSuggestions, nil
+}
+
+// getTodayDate returns the current date in YYYY-MM-DD format
+func getTodayDate() string {
+	return time.Now().Format("2006-01-02")
 }
 
 // stripReasoning removes the reasoning from the content indicated by <think> and </think> tags.
