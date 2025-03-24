@@ -21,7 +21,7 @@ type GetDocumentApiResponseResult struct {
 	Content string `json:"content"`
 	Tags    []int  `json:"tags"`
 	// Created             time.Time     `json:"created"`
-	// CreatedDate         string        `json:"created_date"`
+	CreatedDate string `json:"created_date"`
 	// Modified            time.Time     `json:"modified"`
 	// Added               time.Time     `json:"added"`
 	// ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
@@ -49,7 +49,7 @@ type GetDocumentApiResponse struct {
 	Content string `json:"content"`
 	Tags    []int  `json:"tags"`
 	// Created             time.Time     `json:"created"`
-	// CreatedDate         string        `json:"created_date"`
+	CreatedDate string `json:"created_date"`
 	// Modified            time.Time     `json:"modified"`
 	// Added               time.Time     `json:"added"`
 	// ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
@@ -68,6 +68,7 @@ type Document struct {
 	Content       string   `json:"content"`
 	Tags          []string `json:"tags"`
 	Correspondent string   `json:"correspondent"`
+	CreatedDate   string   `json:"created_date"`
 }
 
 // GenerateSuggestionsRequest is the request payload for generating suggestions for /generate-suggestions endpoint
@@ -76,6 +77,7 @@ type GenerateSuggestionsRequest struct {
 	GenerateTitles         bool       `json:"generate_titles,omitempty"`
 	GenerateTags           bool       `json:"generate_tags,omitempty"`
 	GenerateCorrespondents bool       `json:"generate_correspondents,omitempty"`
+	GenerateCreatedDate    bool       `json:"generate_created_date,omitempty"`
 }
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
@@ -86,6 +88,7 @@ type DocumentSuggestion struct {
 	SuggestedTags          []string `json:"suggested_tags,omitempty"`
 	SuggestedContent       string   `json:"suggested_content,omitempty"`
 	SuggestedCorrespondent string   `json:"suggested_correspondent,omitempty"`
+	SuggestedCreatedDate   string   `json:"suggested_created_date,omitempty"`
 	RemoveTags             []string `json:"remove_tags,omitempty"`
 }
 

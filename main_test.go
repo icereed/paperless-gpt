@@ -28,6 +28,8 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 	require.NoError(t, err)
 	correspondentTemplate, err = template.New("correspondent").Funcs(sprig.FuncMap()).Parse("")
 	require.NoError(t, err)
+	createdDateTemplate, err = template.New("created_date").Funcs(sprig.FuncMap()).Parse("")
+	require.NoError(t, err)
 
 	// Create test environment
 	env := newTestEnv(t)
@@ -104,10 +106,11 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 						}
 					}
 					response.Results[i] = GetDocumentApiResponseResult{
-						ID:      doc.ID,
-						Title:   doc.Title,
-						Tags:    tagIds,
-						Content: "Test content",
+						ID:          doc.ID,
+						Title:       doc.Title,
+						Tags:        tagIds,
+						Content:     "Test content",
+						CreatedDate: "1999-09-09",
 					}
 				}
 				w.WriteHeader(http.StatusOK)
@@ -146,6 +149,7 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 			autoGenerateTitle = "true"
 			autoGenerateTags = "true"
 			autoGenerateCorrespondents = "true"
+			autoGenerateCreatedDate = "true"
 
 			// Mock the document update responses
 			for _, doc := range tc.documents {
@@ -154,9 +158,10 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 					env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
 						w.WriteHeader(tc.updateResponse)
 						json.NewEncoder(w).Encode(map[string]interface{}{
-							"id":    doc.ID,
-							"title": "Updated " + doc.Title,
-							"tags":  []int{1, 3}, // Mock updated tag IDs
+							"id":           doc.ID,
+							"title":        "Updated " + doc.Title,
+							"tags":         []int{1, 3}, // Mock updated tag IDs
+							"created_date": "1999-09-19",
 						})
 					})
 				}

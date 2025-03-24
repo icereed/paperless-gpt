@@ -19,6 +19,7 @@ export interface GenerateSuggestionsRequest {
   generate_titles?: boolean;
   generate_tags?: boolean;
   generate_correspondents?: boolean;
+  generate_created_date?: boolean;
 }
 
 export interface DocumentSuggestion {
@@ -28,6 +29,7 @@ export interface DocumentSuggestion {
   suggested_tags?: string[];
   suggested_content?: string;
   suggested_correspondent?: string;
+  suggested_created_date?: string;
 }
 
 export interface TagOption {
@@ -47,6 +49,7 @@ const DocumentProcessor: React.FC = () => {
   const [generateTitles, setGenerateTitles] = useState(true);
   const [generateTags, setGenerateTags] = useState(true);
   const [generateCorrespondents, setGenerateCorrespondents] = useState(true);
+  const [generateCreatedDate, setGenerateCreatedDate] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Custom hook to fetch initial data
@@ -86,6 +89,7 @@ const DocumentProcessor: React.FC = () => {
         generate_titles: generateTitles,
         generate_tags: generateTags,
         generate_correspondents: generateCorrespondents,
+        generate_created_date: generateCreatedDate,
       };
 
       const { data } = await axios.post<DocumentSuggestion[]>(
@@ -155,6 +159,14 @@ const DocumentProcessor: React.FC = () => {
     setSuggestions((prevSuggestions) =>
       prevSuggestions.map((doc) =>
         doc.id === docId ? { ...doc, suggested_correspondent: correspondent } : doc
+      )
+    );
+  }
+
+  const handleCreatedDateChange = (docId: number, createdDate: string) => {
+    setSuggestions((prevSuggestions) =>
+      prevSuggestions.map((doc) =>
+        doc.id === docId ? { ...doc, suggested_created_date: createdDate } : doc
       )
     );
   }
@@ -230,6 +242,8 @@ const DocumentProcessor: React.FC = () => {
           setGenerateTags={setGenerateTags}
           generateCorrespondents={generateCorrespondents}
           setGenerateCorrespondents={setGenerateCorrespondents}
+          generateCreatedDate={generateCreatedDate}
+          setGenerateCreatedDate={setGenerateCreatedDate}
           onProcess={handleProcessDocuments}
           processing={processing}
           onReload={reloadDocuments}
@@ -242,6 +256,7 @@ const DocumentProcessor: React.FC = () => {
           onTagAddition={handleTagAddition}
           onTagDeletion={handleTagDeletion}
           onCorrespondentChange={handleCorrespondentChange}
+          onCreatedDateChange={handleCreatedDateChange}
           onBack={resetSuggestions}
           onUpdate={handleUpdateDocuments}
           updating={updating}

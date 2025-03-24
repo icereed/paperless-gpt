@@ -55,6 +55,10 @@ Content: {{.Content}}
 Language: {{.Language}}
 Content: {{.Content}}
 `
+	testCreatedDateContentTemplate = `
+Language: {{.Language}}
+Content: {{.Content}}
+`
 )
 
 func TestPromptTokenLimits(t *testing.T) {
@@ -67,6 +71,8 @@ func TestPromptTokenLimits(t *testing.T) {
 	tagTemplate, err = template.New("tag").Parse(testTagTemplate)
 	require.NoError(t, err)
 	correspondentTemplate, err = template.New("correspondent").Parse(testCorrespondentTemplate)
+	require.NoError(t, err)
+	createdDateTemplate, err = template.New("created_date").Parse(testCreatedDateContentTemplate)
 	require.NoError(t, err)
 
 	// Save current env and restore after test
@@ -266,6 +272,43 @@ func TestTokenLimitInTitleGeneration(t *testing.T) {
 	// Final prompt should be within token limit
 	assert.LessOrEqual(t, len(tokens), 50, "Final prompt should be within token limit")
 }
+
+func TestTokenLimitInCreatedDateGeneration(t *testing.T) {
+	testLogger := logrus.WithField("test", "test")
+
+	// Save current env and restore after test
+	originalLimit := os.Getenv("TOKEN_LIMIT")
+	defer os.Setenv("TOKEN_LIMIT", originalLimit)
+
+	// Create a test app with mock LLM
+	mockLLM := &mockLLM{}
+	app := &App{
+		LLM: mockLLM,
+	}
+
+	// Test content that would exceed reasonable token limits
+	longContent := "This is a very long content that would normally exceed token limits. " +
+		"It contains multiple sentences and should be truncated appropriately."
+
+	// Set a small token limit
+	os.Setenv("TOKEN_LIMIT", "50")
+	resetTokenLimit()
+
+	// Call getSuggestedCreatedDate
+	ctx := context.Background()
+
+	_, err := app.getSuggestedCreatedDate(ctx, longContent, testLogger)
+	require.NoError(t, err)
+
+	// Verify the final prompt size
+	splitter := textsplitter.NewTokenSplitter()
+	tokens, err := splitter.SplitText(mockLLM.lastPrompt)
+	require.NoError(t, err)
+
+	// Final prompt should be within token limit
+	assert.LessOrEqual(t, len(tokens), 50, "Final prompt should be within token limit")
+}
+
 func TestStripReasoning(t *testing.T) {
 	tests := []struct {
 		name     string
