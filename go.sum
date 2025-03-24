@@ -12,6 +12,8 @@ cloud.google.com/go/documentai v1.35.2 h1:hswVobCWUTXtmn+4QqUIVkai7sDOe0QS2KB3Ip
 cloud.google.com/go/documentai v1.35.2/go.mod h1:oh/0YXosgEq3hVhyH4ZQ7VNXPaveRO4eLVM3tBSZOsI=
 cloud.google.com/go/documentai v1.35.3 h1:aLEGWraq48QX/G6or4T8QtpaX66SES3+b87TrUaKv1g=
 cloud.google.com/go/documentai v1.35.3/go.mod h1:LsX1RO08WDd8mFBviYB03jgCytz2oIcwIZ9lBw5bKiM=
+cloud.google.com/go/documentai v1.36.0 h1:KOcTi9ANLODbBQY4djuAwrKtZHKZPa7G+3d7svb6SXU=
+cloud.google.com/go/documentai v1.36.0/go.mod h1:LsX1RO08WDd8mFBviYB03jgCytz2oIcwIZ9lBw5bKiM=
 cloud.google.com/go/longrunning v0.6.4 h1:3tyw9rO3E2XVXzSApn1gyEEnH2K9SynNQjMlBi3uHLg=
 cloud.google.com/go/longrunning v0.6.4/go.mod h1:ttZpLCe6e7EXvn9OxpBRx7kZEB0efv8yBO6YnVMfhJs=
 cloud.google.com/go/longrunning v0.6.6 h1:XJNDo5MUfMM05xK3ewpbSdmt7R2Zw+aQEMbdQR65Rbw=
