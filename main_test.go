@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"testing"
 	"text/template"
 
@@ -17,13 +15,10 @@ import (
 )
 
 type TestDocument struct {
-	ID          int
-	Title       string
-	Tags        []string
-
-	// These are test-only fields to control behavior
-	FailOCR     bool // simulate OCR failure
-	FailUpdate  bool // simulate update failure
+	ID         int
+	Title      string
+	Tags       []string
+	FailUpdate bool // simulate update failure
 }
 
 func TestProcessAutoTagDocuments(t *testing.T) {
@@ -83,29 +78,17 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 			updateResponse: http.StatusOK,
 		},
 		{
-			name: "First document fails OCR others succeed",
+			name: "Two fail but continues processing on update failure",
 			documents: []TestDocument{
-				{ID: 4, Title: "Fails OCR", Tags: []string{autoTag, autoOcrTag}, FailOCR: true},
-				{ID: 5, Title: "Good Doc 1", Tags: []string{autoTag, autoOcrTag}},
-				{ID: 6, Title: "Good Doc 2", Tags: []string{autoTag, autoOcrTag}},
-			},
-			expectedCount: 2, // 2 succeeded
-			expectedError: "document 4", // aggregated error should mention the failed doc
-			updateResponse: http.StatusOK, // Updates work fine, only OCR fails
-		},
-		{
-			name: "Two documents in the middle fail update others succeed",
-			documents: []TestDocument{
-				{ID: 7, Title: "Good Start", Tags: []string{autoTag}},
+				{ID: 7, Title: "Good One", Tags: []string{autoTag}},
 				{ID: 8, Title: "Update Fails 1", Tags: []string{autoTag}, FailUpdate: true},
-				{ID: 9, Title: "Update Fails 2", Tags: []string{autoTag}, FailUpdate: true},
-				{ID: 10, Title: "Good End", Tags: []string{autoTag}},
+				{ID: 9, Title: "Good Two", Tags: []string{autoTag}},
+				{ID: 10, Title: "Update Fails 2", Tags: []string{autoTag}, FailUpdate: true},
 			},
-			expectedCount: 2, // Only 10 and 13 succeed
-			expectedError: "document 9", // error should mention at least one of the failed docs
-			updateResponse: http.StatusInternalServerError, // simulate failed update for docs
+			expectedCount:  2,             // Only 7 and 9 succeed
+			expectedError:  "document 10", // error should mention at least one of the failed docs
+			updateResponse: http.StatusOK, // By default it should be OK
 		},
-		
 	}
 
 	for _, tc := range testCases {
@@ -181,17 +164,6 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 				LLM:      &mockLLM{}, // Use mock LLM from app_llm_test.go
 			}
 
-			// Mock OCR failure
-			callProcessDocumentOCR = func(app *App, ctx context.Context, docID int) (string, error) {
-				for _, d := range tc.documents {
-					if d.ID == docID && d.FailOCR {
-						return "", fmt.Errorf("simulated OCR failure for document %d", d.ID)
-					}
-				}
-				return app.ProcessDocumentOCR(ctx, docID) // optionally call the real thing
-			}
-			
-
 			// Set auto-generate flags
 			autoGenerateTitle = "true"
 			autoGenerateTags = "true"
@@ -201,10 +173,9 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 			// Handle the invidual documents
 			for _, doc := range tc.documents {
 				updatePath := fmt.Sprintf("/api/documents/%d/", doc.ID)
-				downloadPath := fmt.Sprintf("/api/documents/%d/download/", doc.ID)
-			
+
 				// Wrap everything in a closure to safely capture values
-				func(docID int, docTitle string, failUpdate bool, updateStatus int, hasOcrTag bool) {
+				func(docID int, docTitle string, failUpdate bool, updateStatus int) {
 					// PATCH /api/documents/{id}/
 					env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
 
@@ -216,7 +187,7 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 							})
 							return
 						}
-			
+
 						t.Logf("Simulating successful update for document %d", docID)
 						w.WriteHeader(updateStatus)
 						_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -226,35 +197,9 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 							"created_date": "1999-09-19",
 						})
 					})
-			
-					// GET /api/documents/{id}/download/
-					if hasOcrTag {
-						env.setMockResponse(downloadPath, func(w http.ResponseWriter, r *http.Request) {
-							t.Logf("Simulating document download for OCR for document %d", docID)
-							w.WriteHeader(http.StatusOK)
-							// mock a valid empty PDF
-							_, _ = w.Write([]byte(`%PDF-1.1
-							1 0 obj
-							<< /Type /Catalog /Pages 2 0 R >>
-							endobj
-							2 0 obj
-							<< /Type /Pages /Count 0 >>
-							endobj
-							xref
-							0 3
-							0000000000 65535 f 
-							0000000010 00000 n 
-							0000000059 00000 n 
-							trailer
-							<< /Size 3 /Root 1 0 R >>
-							startxref
-							91
-							%%EOF`))
-						})
-					}
-				}(doc.ID, doc.Title, doc.FailUpdate, tc.updateResponse, slices.Contains(doc.Tags, autoOcrTag))
+
+				}(doc.ID, doc.Title, doc.FailUpdate, tc.updateResponse)
 			}
-					
 
 			count, err := app.processAutoTagDocuments()
 

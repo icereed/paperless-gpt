@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"errors"
 	"text/template"
 	"time"
 
@@ -126,11 +126,6 @@ Content:
 `
 	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
 )
-
-// Enable flexible overriding in Tests
-var callProcessDocumentOCR = func(app *App, ctx context.Context, documentID int) (string, error) {
-	return app.ProcessDocumentOCR(ctx, documentID)
-}
 
 // App struct to hold dependencies
 type App struct {
@@ -553,7 +548,6 @@ func (app *App) processAutoTagDocuments() (int, error) {
 	return processedCount, nil
 }
 
-
 // processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
 func (app *App) processAutoOcrTagDocuments() (int, error) {
 	ctx := context.Background()
@@ -577,8 +571,7 @@ func (app *App) processAutoOcrTagDocuments() (int, error) {
 		docLogger := documentLogger(document.ID)
 		docLogger.Info("Processing document for OCR")
 
-		// We`re using out package-level var to enable overriding in test to mock different states
-		ocrContent, err := callProcessDocumentOCR(app, ctx, document.ID)
+		ocrContent, err := app.ProcessDocumentOCR(ctx, document.ID)
 		if err != nil {
 			docLogger.Errorf("OCR processing failed: %v", err)
 			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
@@ -606,11 +599,10 @@ func (app *App) processAutoOcrTagDocuments() (int, error) {
 
 	if len(errs) > 0 {
 		return successCount, fmt.Errorf("one or more errors occurred: %w", errors.Join(errs...))
-	}	
+	}
 
 	return successCount, nil
 }
-
 
 // removeTagFromList removes a specific tag from a list of tags
 func removeTagFromList(tags []string, tagToRemove string) []string {
