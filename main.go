@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -499,7 +500,9 @@ func (app *App) processAutoTagDocuments() (int, error) {
 
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
 
+	var errs []error
 	processedCount := 0
+
 	for _, document := range documents {
 		// Skip documents that have the autoOcrTag
 		if slices.Contains(document.Tags, autoOcrTag) {
@@ -520,17 +523,28 @@ func (app *App) processAutoTagDocuments() (int, error) {
 
 		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
 		if err != nil {
-			return processedCount, fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
+			err = fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
+			docLogger.Error(err.Error())
+			errs = append(errs, err)
+			continue
 		}
 
 		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 		if err != nil {
-			return processedCount, fmt.Errorf("error updating document %d: %w", document.ID, err)
+			err = fmt.Errorf("error updating document %d: %w", document.ID, err)
+			docLogger.Error(err.Error())
+			errs = append(errs, err)
+			continue
 		}
 
 		docLogger.Info("Successfully processed document")
 		processedCount++
 	}
+
+	if len(errs) > 0 {
+		return processedCount, errors.Join(errs...)
+	}
+
 	return processedCount, nil
 }
 
@@ -545,10 +559,13 @@ func (app *App) processAutoOcrTagDocuments() (int, error) {
 
 	if len(documents) == 0 {
 		log.Debugf("No documents with tag %s found", autoOcrTag)
-		return 0, nil // No documents to process
+		return 0, nil
 	}
 
-	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoOcrTag)
+	log.Debugf("Found %d documents with tag %s", len(documents), autoOcrTag)
+
+	successCount := 0
+	var errs []error
 
 	for _, document := range documents {
 		docLogger := documentLogger(document.ID)
@@ -556,7 +573,9 @@ func (app *App) processAutoOcrTagDocuments() (int, error) {
 
 		ocrContent, err := app.ProcessDocumentOCR(ctx, document.ID)
 		if err != nil {
-			return 0, fmt.Errorf("error processing OCR for document %d: %w", document.ID, err)
+			docLogger.Errorf("OCR processing failed: %v", err)
+			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
+			continue
 		}
 		docLogger.Debug("OCR processing completed")
 
@@ -569,12 +588,20 @@ func (app *App) processAutoOcrTagDocuments() (int, error) {
 			},
 		}, app.Database, false)
 		if err != nil {
-			return 0, fmt.Errorf("error updating document %d after OCR: %w", document.ID, err)
+			docLogger.Errorf("Update after OCR failed: %v", err)
+			errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
+			continue
 		}
 
 		docLogger.Info("Successfully processed document OCR")
+		successCount++
 	}
-	return 1, nil
+
+	if len(errs) > 0 {
+		return successCount, fmt.Errorf("one or more errors occurred: %w", errors.Join(errs...))
+	}
+
+	return successCount, nil
 }
 
 // removeTagFromList removes a specific tag from a list of tags

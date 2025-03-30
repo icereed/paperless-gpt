@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"testing"
 	"text/template"
 
@@ -14,6 +13,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type TestDocument struct {
+	ID         int
+	Title      string
+	Tags       []string
+	FailUpdate bool // simulate update failure
+}
 
 func TestProcessAutoTagDocuments(t *testing.T) {
 	// Initialize required global variables
@@ -38,14 +44,14 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 	// Set up test cases
 	testCases := []struct {
 		name           string
-		documents      []Document
+		documents      []TestDocument
 		expectedCount  int
 		expectedError  string
 		updateResponse int // HTTP status code for update response
 	}{
 		{
 			name: "Skip document with autoOcrTag",
-			documents: []Document{
+			documents: []TestDocument{
 				{
 					ID:    1,
 					Title: "Doc with OCR tag",
@@ -67,14 +73,27 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 		},
 		{
 			name:           "No documents to process",
-			documents:      []Document{},
+			documents:      []TestDocument{},
 			expectedCount:  0,
 			updateResponse: http.StatusOK,
+		},
+		{
+			name: "Two fail but continues processing on update failure",
+			documents: []TestDocument{
+				{ID: 7, Title: "Good One", Tags: []string{autoTag}},
+				{ID: 8, Title: "Update Fails 1", Tags: []string{autoTag}, FailUpdate: true},
+				{ID: 9, Title: "Good Two", Tags: []string{autoTag}},
+				{ID: 10, Title: "Update Fails 2", Tags: []string{autoTag}, FailUpdate: true},
+			},
+			expectedCount:  2,             // Only 7 and 9 succeed
+			expectedError:  "document 10", // error should mention at least one of the failed docs
+			updateResponse: http.StatusOK, // By default it should be OK
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Logf("Running Test-Case %s", tc.name)
 			// Mock the GetAllTags response
 			env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
 				response := map[string]interface{}{
@@ -151,23 +170,37 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 			autoGenerateCorrespondents = "true"
 			autoGenerateCreatedDate = "true"
 
-			// Mock the document update responses
+			// Handle the invidual documents
 			for _, doc := range tc.documents {
-				if !slices.Contains(doc.Tags, autoOcrTag) {
-					updatePath := fmt.Sprintf("/api/documents/%d/", doc.ID)
+				updatePath := fmt.Sprintf("/api/documents/%d/", doc.ID)
+
+				// Wrap everything in a closure to safely capture values
+				func(docID int, docTitle string, failUpdate bool, updateStatus int) {
+					// PATCH /api/documents/{id}/
 					env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
-						w.WriteHeader(tc.updateResponse)
-						json.NewEncoder(w).Encode(map[string]interface{}{
-							"id":           doc.ID,
-							"title":        "Updated " + doc.Title,
-							"tags":         []int{1, 3}, // Mock updated tag IDs
+
+						if failUpdate {
+							t.Logf("Simulating update failure for document %d", docID)
+							w.WriteHeader(http.StatusInternalServerError)
+							_ = json.NewEncoder(w).Encode(map[string]interface{}{
+								"detail": fmt.Sprintf("Simulated update failure for document %d", docID),
+							})
+							return
+						}
+
+						t.Logf("Simulating successful update for document %d", docID)
+						w.WriteHeader(updateStatus)
+						_ = json.NewEncoder(w).Encode(map[string]interface{}{
+							"id":           docID,
+							"title":        "Updated " + docTitle,
+							"tags":         []int{1, 3},
 							"created_date": "1999-09-19",
 						})
 					})
-				}
+
+				}(doc.ID, doc.Title, doc.FailUpdate, tc.updateResponse)
 			}
 
-			// Run the test
 			count, err := app.processAutoTagDocuments()
 
 			// Verify results
