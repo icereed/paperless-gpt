@@ -22,7 +22,7 @@ type LLMProvider struct {
 	provider string
 	model    string
 	llm      llms.Model
-	template string // OCR prompt template
+	prompt   string // OCR prompt template
 }
 
 func newLLMProvider(config Config) (*LLMProvider, error) {
@@ -56,7 +56,7 @@ func newLLMProvider(config Config) (*LLMProvider, error) {
 		provider: config.VisionLLMProvider,
 		model:    config.VisionLLMModel,
 		llm:      model,
-		template: defaultOCRPrompt,
+		prompt:   config.VisionLLMPrompt,
 	}, nil
 }
 
@@ -79,20 +79,22 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte) (*O
 		"height": bounds.Dy(),
 	}).Debug("Image dimensions")
 
+	logger.Debugf("Prompt: %s", p.prompt)
+
 	// Prepare content parts based on provider type
 	var parts []llms.ContentPart
 	if strings.ToLower(p.provider) != "openai" {
 		logger.Debug("Using binary image format for non-OpenAI provider")
 		parts = []llms.ContentPart{
 			llms.BinaryPart("image/jpeg", imageContent),
-			llms.TextPart(p.template),
+			llms.TextPart(p.prompt),
 		}
 	} else {
 		logger.Debug("Using base64 image format for OpenAI provider")
 		base64Image := base64.StdEncoding.EncodeToString(imageContent)
 		parts = []llms.ContentPart{
 			llms.ImageURLPart(fmt.Sprintf("data:image/jpeg;base64,%s", base64Image)),
-			llms.TextPart(p.template),
+			llms.TextPart(p.prompt),
 		}
 	}
 
@@ -143,5 +145,3 @@ func createOllamaClient(config Config) (llms.Model, error) {
 		ollama.WithServerURL(host),
 	)
 }
-
-const defaultOCRPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
