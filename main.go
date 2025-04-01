@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -134,6 +135,10 @@ type App struct {
 }
 
 func main() {
+	// Context for proper control of background-thread
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Validate Environment Variables
 	validateOrDefaultEnvVars()
 
@@ -226,8 +231,8 @@ func main() {
 		}
 	}
 
-	// Start background tasks for auto-tagging and auto-ocr
-	app.startBackgroundTasks()
+	// Start Background-Tasks for Auto-Tagging and Auto-OCR (if enabled)
+	StartBackgroundTasks(ctx, app)
 
 	// Create a Gin router with default middleware (logger and recovery)
 	router := gin.Default()

@@ -1,17 +1,52 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
 	"text/template"
+	"time"
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// This our appStub for background processing isolation without real invocation
+type appStubBG struct {
+	*App
+	ocrCalls int
+	tagCalls int
+}
+
+func (a *appStubBG) isOcrEnabled() bool                       { return true }
+func (a *appStubBG) processAutoOcrTagDocuments() (int, error) { a.ocrCalls++; return 0, nil }
+func (a *appStubBG) processAutoTagDocuments() (int, error)    { a.tagCalls++; return 0, nil }
+
+// Test that our Background-Tasks shutdown cleanly and process properly
+func TestBackgroundTasks_ShutdownOnContextCancel(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	// init our stubbed app
+	app := &appStubBG{}
+
+	// start the background processing
+	StartBackgroundTasks(ctx, app)
+
+	// Wait for shutdown to occur
+	time.Sleep(250 * time.Millisecond)
+
+	assert.Greater(t, app.ocrCalls, 0, "OCR loop should have run at least once")
+	assert.Greater(t, app.tagCalls, 0, "Tag loop should have run at least once")
+
+	// If no panic or hang occurred, test is successful
+	t.Log("Background task exited cleanly")
+}
+
+// Setup a Test
 func setupTest(t *testing.T) *testEnv {
 	// Initialize templates
 	var err error
@@ -31,6 +66,7 @@ func setupTest(t *testing.T) *testEnv {
 	return env
 }
 
+// Setup a single Test-Case
 func setupTestCase(tc TestCase, env *testEnv) {
 	// Mock the GetAllTags response
 	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {

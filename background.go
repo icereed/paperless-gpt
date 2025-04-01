@@ -9,8 +9,15 @@ import (
 	"time"
 )
 
-// Start our background jobs
-func (app *App) startBackgroundTasks() {
+// This is our interface, allowing us to enable proper testing
+type BackgroundProcessor interface {
+	processAutoOcrTagDocuments() (int, error)
+	processAutoTagDocuments() (int, error)
+	isOcrEnabled() bool
+}
+
+// Start our background tasks in a thread
+func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 	go func() {
 		minBackoffDuration := 10 * time.Second
 		maxBackoffDuration := time.Hour
@@ -19,6 +26,13 @@ func (app *App) startBackgroundTasks() {
 		backoffDuration := minBackoffDuration
 
 		for {
+			select {
+			case <-ctx.Done():
+				log.Infoln("Background tasks shutting down")
+				return
+			default: // needed to make this non-blocking
+			}
+
 			processedCount, err := func() (int, error) {
 				count := 0
 
