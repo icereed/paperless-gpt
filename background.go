@@ -16,7 +16,7 @@ type BackgroundProcessor interface {
 	isOcrEnabled() bool
 }
 
-// Start our background tasks in a thread
+// Start our background tasks in a goroutine
 func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 	go func() {
 		minBackoffDuration := 10 * time.Second
