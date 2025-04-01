@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// This is our Mocked TestDocument containing extra parameters for testing
+// TestDocument containing extra parameters for testing
 type TestDocument struct {
 	ID         int
 	Title      string

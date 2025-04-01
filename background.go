@@ -11,8 +11,8 @@ import (
 
 // This is our interface, allowing us to enable proper testing
 type BackgroundProcessor interface {
-	processAutoOcrTagDocuments() (int, error)
-	processAutoTagDocuments() (int, error)
+	processAutoOcrTagDocuments(ctx context.Context) (int, error)
+	processAutoTagDocuments(ctx context.Context) (int, error)
 	isOcrEnabled() bool
 }
 
@@ -33,12 +33,12 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 			default: // needed to make this non-blocking
 			}
 
-			processedCount, err := func() (int, error) {
-				count := 0
+			processedCount, err := func() (count int, err error) {
+				count = 0
 
 				// If OCR is enabled, run OCR tagging first
 				if app.isOcrEnabled() {
-					ocrCount, err := app.processAutoOcrTagDocuments()
+					ocrCount, err := app.processAutoOcrTagDocuments(ctx)
 					if err != nil {
 						return 0, fmt.Errorf("error in processAutoOcrTagDocuments: %w", err)
 					}
@@ -46,7 +46,7 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 				}
 
 				// Run auto-tagging after OCR
-				autoCount, err := app.processAutoTagDocuments()
+				autoCount, err := app.processAutoTagDocuments(ctx)
 				if err != nil {
 					return 0, fmt.Errorf("error in processAutoTagDocuments: %w", err)
 				}
@@ -79,8 +79,7 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 }
 
 // processAutoTagDocuments handles the background auto-tagging of documents
-func (app *App) processAutoTagDocuments() (int, error) {
-	ctx := context.Background()
+func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 
 	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag}, 25)
 	if err != nil {
@@ -143,8 +142,7 @@ func (app *App) processAutoTagDocuments() (int, error) {
 }
 
 // processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
-func (app *App) processAutoOcrTagDocuments() (int, error) {
-	ctx := context.Background()
+func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 
 	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoOcrTag}, 25)
 	if err != nil {

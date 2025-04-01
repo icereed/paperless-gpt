@@ -21,9 +21,15 @@ type appStubBG struct {
 	tagCalls int
 }
 
-func (a *appStubBG) isOcrEnabled() bool                       { return true }
-func (a *appStubBG) processAutoOcrTagDocuments() (int, error) { a.ocrCalls++; return 0, nil }
-func (a *appStubBG) processAutoTagDocuments() (int, error)    { a.tagCalls++; return 0, nil }
+func (a *appStubBG) isOcrEnabled() bool { return true }
+func (a *appStubBG) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
+	a.ocrCalls++
+	return 0, nil
+}
+func (a *appStubBG) processAutoTagDocuments(ctx context.Context) (int, error) {
+	a.tagCalls++
+	return 0, nil
+}
 
 // Setup a Test
 func setupTest(t *testing.T) *testEnv {
@@ -113,23 +119,31 @@ func setupTestCase(tc TestCase, env *testEnv) {
 
 // Test that our Background-Tasks shutdown cleanly and process properly
 func TestBackgroundTasks_ShutdownOnContextCancel(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// init our stubbed app
 	app := &appStubBG{}
+	done := make(chan struct{})
 
-	// start the background processing
-	StartBackgroundTasks(ctx, app)
+	// Start in test wrapper that closes when background exits
+	go func() {
+		StartBackgroundTasks(ctx, app)
+		close(done)
+	}()
 
-	// Wait for shutdown to occur
-	time.Sleep(250 * time.Millisecond)
+	// Let it run a bit
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+		// success
+	case <-time.After(1 * time.Second):
+		t.Fatal("background task did not shut down in time")
+	}
 
 	assert.Greater(t, app.ocrCalls, 0, "OCR loop should have run at least once")
 	assert.Greater(t, app.tagCalls, 0, "Tag loop should have run at least once")
-
-	// If no panic or hang occurred, test is successful
-	t.Log("Background task exited cleanly")
 }
 
 // Test processAutoTagDocument (OCR tag is used to test skipping)
@@ -193,6 +207,10 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 			// Setup the individual Test-Case
 			setupTestCase(tc, env)
 
+			// Create an isolated Context per Test-Case with Timeout, for proper cleanup
+			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+			defer cancel()
+
 			// Create test app
 			app := &App{
 				Client:   env.client,
@@ -238,7 +256,7 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 			}
 
 			// Test the processAutoTagDocuments method
-			count, err := app.processAutoTagDocuments()
+			count, err := app.processAutoTagDocuments(ctx)
 
 			// Verify results
 			if tc.expectedError != "" {
