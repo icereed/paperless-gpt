@@ -3,9 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
-	"image"
 	"slices"
 	"strings"
 	"sync"
@@ -163,64 +161,6 @@ func (app *App) getSuggestedTags(
 	}
 
 	return filteredTags, nil
-}
-
-func (app *App) doOCRViaLLM(ctx context.Context, jpegBytes []byte, logger *logrus.Entry) (string, error) {
-	templateMutex.RLock()
-	defer templateMutex.RUnlock()
-	likelyLanguage := getLikelyLanguage()
-
-	var promptBuffer bytes.Buffer
-	err := ocrTemplate.Execute(&promptBuffer, map[string]interface{}{
-		"Language": likelyLanguage,
-	})
-	if err != nil {
-		return "", fmt.Errorf("error executing tag template: %v", err)
-	}
-
-	prompt := promptBuffer.String()
-
-	// Log the image dimensions
-	img, _, err := image.Decode(bytes.NewReader(jpegBytes))
-	if err != nil {
-		return "", fmt.Errorf("error decoding image: %v", err)
-	}
-	bounds := img.Bounds()
-	logger.Debugf("Image dimensions: %dx%d", bounds.Dx(), bounds.Dy())
-
-	// If not OpenAI then use binary part for image, otherwise, use the ImageURL part with encoding from https://platform.openai.com/docs/guides/vision
-	var parts []llms.ContentPart
-	if strings.ToLower(visionLlmProvider) != "openai" {
-		// Log image size in kilobytes
-		logger.Debugf("Image size: %d KB", len(jpegBytes)/1024)
-		parts = []llms.ContentPart{
-			llms.BinaryPart("image/jpeg", jpegBytes),
-			llms.TextPart(prompt),
-		}
-	} else {
-		base64Image := base64.StdEncoding.EncodeToString(jpegBytes)
-		// Log image size in kilobytes
-		logger.Debugf("Image size: %d KB", len(base64Image)/1024)
-		parts = []llms.ContentPart{
-			llms.ImageURLPart(fmt.Sprintf("data:image/jpeg;base64,%s", base64Image)),
-			llms.TextPart(prompt),
-		}
-	}
-
-	// Convert the image to text
-	completion, err := app.VisionLLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: parts,
-			Role:  llms.ChatMessageTypeHuman,
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("error getting response from LLM: %v", err)
-	}
-
-	result := completion.Choices[0].Content
-	fmt.Println(result)
-	return result, nil
 }
 
 // getSuggestedTitle generates a suggested title for a document using the LLM

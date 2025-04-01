@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -176,6 +177,16 @@ func main() {
 		providerType = "llm" // Default to LLM provider
 	}
 
+	var promptBuffer bytes.Buffer
+	err = ocrTemplate.Execute(&promptBuffer, map[string]interface{}{
+		"Language": getLikelyLanguage(),
+	})
+	if err != nil {
+		log.Fatalf("error executing tag template: %v", err)
+	}
+
+	ocrPrompt := promptBuffer.String()
+
 	ocrConfig := ocr.Config{
 		Provider:          providerType,
 		GoogleProjectID:   os.Getenv("GOOGLE_PROJECT_ID"),
@@ -183,6 +194,7 @@ func main() {
 		GoogleProcessorID: os.Getenv("GOOGLE_PROCESSOR_ID"),
 		VisionLLMProvider: visionLlmProvider,
 		VisionLLMModel:    visionLlmModel,
+		VisionLLMPrompt:   ocrPrompt,
 		AzureEndpoint:     azureDocAIEndpoint,
 		AzureAPIKey:       azureDocAIKey,
 		AzureModelID:      azureDocAIModelID,

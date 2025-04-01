@@ -39,6 +39,7 @@ type Config struct {
 	// LLM settings (from existing config)
 	VisionLLMProvider string
 	VisionLLMModel    string
+	VisionLLMPrompt   string
 
 	// Azure Document Intelligence settings
 	AzureEndpoint string
