@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"paperless-gpt/ocr"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -137,6 +135,10 @@ type App struct {
 }
 
 func main() {
+	// Context for proper control of background-thread
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Validate Environment Variables
 	validateOrDefaultEnvVars()
 
@@ -229,48 +231,8 @@ func main() {
 		}
 	}
 
-	// Start background process for auto-tagging
-	go func() {
-		minBackoffDuration := 10 * time.Second
-		maxBackoffDuration := time.Hour
-		pollingInterval := 10 * time.Second
-
-		backoffDuration := minBackoffDuration
-		for {
-			processedCount, err := func() (int, error) {
-				count := 0
-				if app.isOcrEnabled() {
-					ocrCount, err := app.processAutoOcrTagDocuments()
-					if err != nil {
-						return 0, fmt.Errorf("error in processAutoOcrTagDocuments: %w", err)
-					}
-					count += ocrCount
-				}
-				autoCount, err := app.processAutoTagDocuments()
-				if err != nil {
-					return 0, fmt.Errorf("error in processAutoTagDocuments: %w", err)
-				}
-				count += autoCount
-				return count, nil
-			}()
-
-			if err != nil {
-				log.Errorf("Error in processAutoTagDocuments: %v", err)
-				time.Sleep(backoffDuration)
-				backoffDuration *= 2 // Exponential backoff
-				if backoffDuration > maxBackoffDuration {
-					log.Warnf("Repeated errors in processAutoTagDocuments detected. Setting backoff to %v", maxBackoffDuration)
-					backoffDuration = maxBackoffDuration
-				}
-			} else {
-				backoffDuration = minBackoffDuration
-			}
-
-			if processedCount == 0 {
-				time.Sleep(pollingInterval)
-			}
-		}
-	}()
+	// Start Background-Tasks for Auto-Tagging and Auto-OCR (if enabled)
+	StartBackgroundTasks(ctx, app)
 
 	// Create a Gin router with default middleware (logger and recovery)
 	router := gin.Default()
@@ -482,126 +444,6 @@ func validateOrDefaultEnvVars() {
 // documentLogger creates a logger with document context
 func documentLogger(documentID int) *logrus.Entry {
 	return log.WithField("document_id", documentID)
-}
-
-// processAutoTagDocuments handles the background auto-tagging of documents
-func (app *App) processAutoTagDocuments() (int, error) {
-	ctx := context.Background()
-
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag}, 25)
-	if err != nil {
-		return 0, fmt.Errorf("error fetching documents with autoTag: %w", err)
-	}
-
-	if len(documents) == 0 {
-		log.Debugf("No documents with tag %s found", autoTag)
-		return 0, nil // No documents to process
-	}
-
-	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
-
-	var errs []error
-	processedCount := 0
-
-	for _, document := range documents {
-		// Skip documents that have the autoOcrTag
-		if slices.Contains(document.Tags, autoOcrTag) {
-			log.Debugf("Skipping document %d as it has the OCR tag %s", document.ID, autoOcrTag)
-			continue
-		}
-
-		docLogger := documentLogger(document.ID)
-		docLogger.Info("Processing document for auto-tagging")
-
-		suggestionRequest := GenerateSuggestionsRequest{
-			Documents:              []Document{document},
-			GenerateTitles:         strings.ToLower(autoGenerateTitle) != "false",
-			GenerateTags:           strings.ToLower(autoGenerateTags) != "false",
-			GenerateCorrespondents: strings.ToLower(autoGenerateCorrespondents) != "false",
-			GenerateCreatedDate:    strings.ToLower(autoGenerateCreatedDate) != "false",
-		}
-
-		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
-		if err != nil {
-			err = fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
-			docLogger.Error(err.Error())
-			errs = append(errs, err)
-			continue
-		}
-
-		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
-		if err != nil {
-			err = fmt.Errorf("error updating document %d: %w", document.ID, err)
-			docLogger.Error(err.Error())
-			errs = append(errs, err)
-			continue
-		}
-
-		docLogger.Info("Successfully processed document")
-		processedCount++
-	}
-
-	if len(errs) > 0 {
-		return processedCount, errors.Join(errs...)
-	}
-
-	return processedCount, nil
-}
-
-// processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
-func (app *App) processAutoOcrTagDocuments() (int, error) {
-	ctx := context.Background()
-
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoOcrTag}, 25)
-	if err != nil {
-		return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
-	}
-
-	if len(documents) == 0 {
-		log.Debugf("No documents with tag %s found", autoOcrTag)
-		return 0, nil
-	}
-
-	log.Debugf("Found %d documents with tag %s", len(documents), autoOcrTag)
-
-	successCount := 0
-	var errs []error
-
-	for _, document := range documents {
-		docLogger := documentLogger(document.ID)
-		docLogger.Info("Processing document for OCR")
-
-		ocrContent, err := app.ProcessDocumentOCR(ctx, document.ID)
-		if err != nil {
-			docLogger.Errorf("OCR processing failed: %v", err)
-			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
-			continue
-		}
-		docLogger.Debug("OCR processing completed")
-
-		err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
-			{
-				ID:               document.ID,
-				OriginalDocument: document,
-				SuggestedContent: ocrContent,
-				RemoveTags:       []string{autoOcrTag},
-			},
-		}, app.Database, false)
-		if err != nil {
-			docLogger.Errorf("Update after OCR failed: %v", err)
-			errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
-			continue
-		}
-
-		docLogger.Info("Successfully processed document OCR")
-		successCount++
-	}
-
-	if len(errs) > 0 {
-		return successCount, fmt.Errorf("one or more errors occurred: %w", errors.Join(errs...))
-	}
-
-	return successCount, nil
 }
 
 // removeTagFromList removes a specific tag from a list of tags
