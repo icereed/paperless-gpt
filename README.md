@@ -4,12 +4,16 @@
 [![Discord Banner](https://img.shields.io/badge/Join%20us%20on-Discord-blue?logo=discord)](https://discord.gg/fJQppDH2J7)
 [![Docker Pulls](https://img.shields.io/docker/pulls/icereed/paperless-gpt)](https://hub.docker.com/r/icereed/paperless-gpt)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-icereed-ea4aaa?logo=github-sponsors)](https://github.com/sponsors/icereed)
 
 ![Screenshot](./paperless-gpt-screenshot.png)
 
-**paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**-ensuring high accuracy, even with tricky scans. If you’re craving next-level text extraction and effortless document organization, this is your solution.
+**paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**-ensuring high accuracy, even with tricky scans. If you're craving next-level text extraction and effortless document organization, this is your solution.
 
 https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
+
+> **❤️ Support This Project**  
+> If paperless-gpt is helping you organize your documents and saving you time, please consider [sponsoring its development](https://github.com/sponsors/icereed). Your support helps ensure continued improvements and maintenance!
 
 ---
 
@@ -72,6 +76,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 - [OCR using AI](#llm-based-ocr-compare-for-yourself)
 - [Usage](#usage)
 - [Contributing](#contributing)
+- [Support the Project](#support-the-project)
 - [License](#license)
 - [Star History](#star-history)
 - [Disclaimer](#disclaimer)
@@ -562,7 +567,7 @@ P.O. Box 94515
 ### How It Works
 
 - **Vanilla OCR** typically uses classical methods or Tesseract-like engines to extract text, which can result in garbled outputs for complex fonts or poor-quality scans.
-- **LLM-Powered OCR** uses your chosen AI backend—OpenAI or Ollama—to interpret the image’s text in a more context-aware manner. This leads to fewer errors and more coherent text.
+- **LLM-Powered OCR** uses your chosen AI backend—OpenAI or Ollama—to interpret the image's text in a more context-aware manner. This leads to fewer errors and more coherent text.
 
 ---
 
@@ -604,6 +609,19 @@ Common issues and solutions:
 4. Open a PR
 
 Check out our [contributing guidelines](CONTRIBUTING.md) for details.
+
+---
+
+## Support the Project
+
+If paperless-gpt is saving you time and making your document management easier, please consider supporting its continued development:
+
+- **[GitHub Sponsors](https://github.com/sponsors/icereed)**: Help fund ongoing development and maintenance
+- **Share** your success stories and use cases
+- **Star** the project on GitHub
+- **Contribute** code, documentation, or bug reports
+
+Your support helps ensure paperless-gpt remains actively maintained and continues to improve!
 
 ---
 
