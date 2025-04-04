@@ -12,7 +12,7 @@ const NoDocuments: React.FC<NoDocumentsProps> = ({
   onReload,
   processing,
 }) => (
-  <div className="flex flex-col items-center justify-center min-h-screen bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200">
+  <div className="flex flex-col items-center justify-center h-full bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 py-10">
     <p className="text-xl font-semibold mb-4">
       No documents found with filter tag{" "}
       {filterTag && (

@@ -3,7 +3,7 @@ import { Icon } from "@mdi/react";
 import axios from "axios";
 import React, { useCallback, useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import logo from "../assets/logo.svg";
+import logo from "../assets/logo.png";
 import "./Sidebar.css";
 
 interface SidebarProps {
