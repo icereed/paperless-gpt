@@ -304,9 +304,6 @@ func main() {
 	router.GET("/favicon.ico", func(c *gin.Context) {
 		serveEmbeddedFile(c, "", "favicon.ico")
 	})
-	router.GET("/vite.svg", func(c *gin.Context) {
-		serveEmbeddedFile(c, "", "vite.svg")
-	})
 	router.GET("/assets/*filepath", func(c *gin.Context) {
 		filepath := c.Param("filepath")
 		fmt.Printf("Serving asset: %s\n", filepath)
