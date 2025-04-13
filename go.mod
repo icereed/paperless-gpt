@@ -16,7 +16,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
 	github.com/tmc/langchaingo v0.1.13
-	golang.org/x/sync v0.12.0
+	golang.org/x/sync v0.13.0
 	google.golang.org/api v0.228.0
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.25.12
