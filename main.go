@@ -40,6 +40,7 @@ var (
 	azureDocAIKey               = os.Getenv("AZURE_DOCAI_KEY")
 	azureDocAIModelID           = os.Getenv("AZURE_DOCAI_MODEL_ID")
 	azureDocAITimeout           = os.Getenv("AZURE_DOCAI_TIMEOUT_SECONDS")
+	AzureDocAIOutputContentFormat = os.Getenv("AZURE_DOCAI_OUTPUT_CONTENT_FORMAT")
 	openaiAPIKey                = os.Getenv("OPENAI_API_KEY")
 	manualTag                   = os.Getenv("MANUAL_TAG")
 	autoTag                     = os.Getenv("AUTO_TAG")
@@ -198,6 +199,7 @@ func main() {
 		AzureEndpoint:     azureDocAIEndpoint,
 		AzureAPIKey:       azureDocAIKey,
 		AzureModelID:      azureDocAIModelID,
+		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
 	}
 
 	// Parse Azure timeout if set

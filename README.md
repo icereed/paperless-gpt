@@ -54,32 +54,36 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
 ## Table of Contents
 
-- [Key Highlights](#key-highlights)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-    - [Docker Compose](#docker-compose)
-    - [Manual Setup](#manual-setup)
-- [OCR Providers](#ocr-providers)
-  - [LLM-based OCR](#1-llm-based-ocr-default)
-  - [Azure Document Intelligence](#2-azure-document-intelligence)
-  - [Google Document AI](#3-google-document-ai)
-  - [Comparing OCR Providers](#comparing-ocr-providers)
-  - [Choosing the Right Provider](#choosing-the-right-provider)
-- [Configuration](#configuration)
-  - [Environment Variables](#environment-variables)
-  - [Custom Prompt Templates](#custom-prompt-templates)
-    - [Prompt Templates Directory](#prompt-templates-directory)
-    - [Mounting the Prompts Directory](#mounting-the-prompts-directory)
-    - [Editing the Prompt Templates](#editing-the-prompt-templates)
-    - [Template Syntax and Variables](#template-syntax-and-variables)
-- [OCR using AI](#llm-based-ocr-compare-for-yourself)
-- [Usage](#usage)
-- [Contributing](#contributing)
-- [Support the Project](#support-the-project)
-- [License](#license)
-- [Star History](#star-history)
-- [Disclaimer](#disclaimer)
+- [paperless-gpt](#paperless-gpt)
+  - [Key Highlights](#key-highlights)
+  - [Table of Contents](#table-of-contents)
+  - [Getting Started](#getting-started)
+    - [Prerequisites](#prerequisites)
+    - [Installation](#installation)
+      - [Docker Compose](#docker-compose)
+      - [Manual Setup](#manual-setup)
+  - [OCR Providers](#ocr-providers)
+    - [1. LLM-based OCR (Default)](#1-llm-based-ocr-default)
+    - [2. Azure Document Intelligence](#2-azure-document-intelligence)
+    - [3. Google Document AI](#3-google-document-ai)
+  - [Configuration](#configuration)
+    - [Environment Variables](#environment-variables)
+- [**Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.](#note-when-using-ollama-ensure-that-the-ollama-server-is-running-and-accessible-from-the-paperless-gpt-container)
+    - [Custom Prompt Templates](#custom-prompt-templates)
+      - [Template Variables](#template-variables)
+  - [Usage](#usage)
+  - [LLM-Based OCR: Compare for Yourself](#llm-based-ocr-compare-for-yourself)
+    - [Example 1](#example-1)
+    - [Example 2](#example-2)
+    - [How It Works](#how-it-works)
+  - [Troubleshooting](#troubleshooting)
+    - [Working with Local LLMs](#working-with-local-llms)
+      - [Token Management](#token-management)
+  - [Contributing](#contributing)
+  - [Support the Project](#support-the-project)
+  - [License](#license)
+  - [Star History](#star-history)
+  - [Disclaimer](#disclaimer)
 
 ---
 
@@ -141,6 +145,8 @@ services:
       # AZURE_DOCAI_KEY: 'your-key'        # Your Azure API key
       # AZURE_DOCAI_MODEL_ID: 'prebuilt-read' # Optional, defaults to prebuilt-read
       # AZURE_DOCAI_TIMEOUT_SECONDS: '120'  # Optional, defaults to 120 seconds
+      # AZURE_DOCAI_OUTPUT_CONTENT_FORMAT: 'text' # Optional, defaults to 'text', other valid option is 'markdown'
+              # 'markdown' requires the 'prebuilt-layout' model
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
@@ -228,6 +234,8 @@ paperless-gpt supports three different OCR providers, each with unique strengths
   AZURE_DOCAI_KEY: "your-key"
   AZURE_DOCAI_MODEL_ID: "prebuilt-read" # optional
   AZURE_DOCAI_TIMEOUT_SECONDS: "120" # optional
+  AZURE_DOCAI_OUTPUT_CONTENT_FORMAT: "text" # optional, defaults to text, other valid option is 'markdown'
+    # 'markdown' requires the 'prebuilt-layout' model
   ```
 
 ### 3. Google Document AI
@@ -274,6 +282,7 @@ paperless-gpt supports three different OCR providers, each with unique strengths
 | `AZURE_DOCAI_KEY`                | Azure Document Intelligence API key. Required if OCR_PROVIDER is `azure`.                                         | Cond.    |                        |
 | `AZURE_DOCAI_MODEL_ID`           | Azure Document Intelligence model ID. Optional if using `azure` provider.                                         | No       | prebuilt-read          |
 | `AZURE_DOCAI_TIMEOUT_SECONDS`    | Azure Document Intelligence timeout in seconds.                                                                   | No       | 120                    |
+| `AZURE_DOCAI_OUTPUT_CONTENT_FORMAT` | Azure Document Intelligence output content format. Optional if using `azure` provider. Defaults to `text`. 'markdown' is the other option and it requires the 'prebuild-layout' model ID.        | No       | text                   |
 | `GOOGLE_PROJECT_ID`              | Google Cloud project ID. Required if OCR_PROVIDER is `google_docai`.                                             | Cond.    |                        |
 | `GOOGLE_LOCATION`                | Google Cloud region (e.g. `us`, `eu`). Required if OCR_PROVIDER is `google_docai`.                               | Cond.    |                        |
 | `GOOGLE_PROCESSOR_ID`            | Document AI processor ID. Required if OCR_PROVIDER is `google_docai`.                                            | Cond.    |                        |
