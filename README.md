@@ -141,6 +141,8 @@ services:
       # AZURE_DOCAI_KEY: 'your-key'        # Your Azure API key
       # AZURE_DOCAI_MODEL_ID: 'prebuilt-read' # Optional, defaults to prebuilt-read
       # AZURE_DOCAI_TIMEOUT_SECONDS: '120'  # Optional, defaults to 120 seconds
+      # AZURE_DOCAI_OUTPUT_CONTENT_FORMAT: 'text' # Optional, defaults to 'text', other valid option is 'markdown'
+              # 'markdown' requires the 'prebuilt-layout' model
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
@@ -228,6 +230,8 @@ paperless-gpt supports three different OCR providers, each with unique strengths
   AZURE_DOCAI_KEY: "your-key"
   AZURE_DOCAI_MODEL_ID: "prebuilt-read" # optional
   AZURE_DOCAI_TIMEOUT_SECONDS: "120" # optional
+  AZURE_DOCAI_OUTPUT_CONTENT_FORMAT: "text" # optional, defaults to text, other valid option is 'markdown'
+    # 'markdown' requires the 'prebuilt-layout' model
   ```
 
 ### 3. Google Document AI
@@ -274,6 +278,7 @@ paperless-gpt supports three different OCR providers, each with unique strengths
 | `AZURE_DOCAI_KEY`                | Azure Document Intelligence API key. Required if OCR_PROVIDER is `azure`.                                         | Cond.    |                        |
 | `AZURE_DOCAI_MODEL_ID`           | Azure Document Intelligence model ID. Optional if using `azure` provider.                                         | No       | prebuilt-read          |
 | `AZURE_DOCAI_TIMEOUT_SECONDS`    | Azure Document Intelligence timeout in seconds.                                                                   | No       | 120                    |
+| `AZURE_DOCAI_OUTPUT_CONTENT_FORMAT` | Azure Document Intelligence output content format. Optional if using `azure` provider. Defaults to `text`. 'markdown' is the other option and it requires the 'prebuild-layout' model ID.        | No       | text                   |
 | `GOOGLE_PROJECT_ID`              | Google Cloud project ID. Required if OCR_PROVIDER is `google_docai`.                                             | Cond.    |                        |
 | `GOOGLE_LOCATION`                | Google Cloud region (e.g. `us`, `eu`). Required if OCR_PROVIDER is `google_docai`.                               | Cond.    |                        |
 | `GOOGLE_PROCESSOR_ID`            | Document AI processor ID. Required if OCR_PROVIDER is `google_docai`.                                            | Cond.    |                        |

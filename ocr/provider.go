@@ -46,6 +46,7 @@ type Config struct {
 	AzureAPIKey   string
 	AzureModelID  string // Optional, defaults to "prebuilt-read"
 	AzureTimeout  int    // Optional, defaults to 120 seconds
+	AzureOutputContentFormat string // Optional, defaults to ""
 
 	// OCR output options
 	EnableHOCR bool // Whether to request hOCR output if supported by the provider

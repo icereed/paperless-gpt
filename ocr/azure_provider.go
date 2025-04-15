@@ -20,6 +20,7 @@ const (
 	defaultModelID  = "prebuilt-read"
 	defaultTimeout  = 120
 	pollingInterval = 2 * time.Second
+	defaultOutputContentFormat = "text"
 )
 
 // AzureProvider implements OCR using Azure Document Intelligence
@@ -29,6 +30,7 @@ type AzureProvider struct {
 	modelID    string
 	timeout    time.Duration
 	httpClient *retryablehttp.Client
+	outputContentFormat string
 }
 
 // Request body for Azure Document Intelligence
@@ -55,6 +57,12 @@ func newAzureProvider(config Config) (*AzureProvider, error) {
 		modelID = config.AzureModelID
 	}
 
+	// Set default output content format
+	outputContentFormat := defaultOutputContentFormat
+	if config.AzureOutputContentFormat != "" {
+		outputContentFormat = config.AzureOutputContentFormat
+	}
+
 	timeout := defaultTimeout
 	if config.AzureTimeout > 0 {
 		timeout = config.AzureTimeout
@@ -73,6 +81,7 @@ func newAzureProvider(config Config) (*AzureProvider, error) {
 		modelID:    modelID,
 		timeout:    time.Duration(timeout) * time.Second,
 		httpClient: client,
+		outputContentFormat: outputContentFormat,
 	}
 
 	logger.Info("Successfully initialized Azure Document Intelligence provider")
@@ -128,8 +137,12 @@ func (p *AzureProvider) ProcessImage(ctx context.Context, imageContent []byte) (
 }
 
 func (p *AzureProvider) submitDocument(ctx context.Context, imageContent []byte) (string, error) {
-	requestURL := fmt.Sprintf("%s/documentintelligence/documentModels/%s:analyze?api-version=%s",
-		p.endpoint, p.modelID, apiVersion)
+	outputFormatParam := ""
+	if(p.outputContentFormat != "text") {
+		outputFormatParam = fmt.Sprintf("&outputContentFormat=%s", p.outputContentFormat)
+	}
+	requestURL := fmt.Sprintf("%s/documentintelligence/documentModels/%s:analyze?api-version=%s%s",
+		p.endpoint, p.modelID, apiVersion, outputFormatParam)
 
 	// Prepare request body
 	requestBody := analyzeRequest{
