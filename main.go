@@ -464,8 +464,16 @@ func validateOrDefaultEnvVars() {
 		log.Fatal("Please set the LLM_PROVIDER environment variable.")
 	}
 
-	if visionLlmProvider != "" && visionLlmProvider != "openai" && visionLlmProvider != "ollama" && visionLlmProvider != "mistral" {
-		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'ollama', or 'mistral'.")
+	if visionLlmProvider != "" &&
+		visionLlmProvider != "openai" &&
+		visionLlmProvider != "ollama" &&
+		visionLlmProvider != "mistral" &&
+		visionLlmProvider != "googleai" {
+
+		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai' or 'mistral'.")
+	}
+	if llmProvider != "openai" && llmProvider != "ollama" && llmProvider != "googleai" && llmProvider != "mistral" {
+		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai' or 'mistral'.")
 	}
 
 	// Validate OCR provider if set
@@ -799,8 +807,23 @@ func createLLM() (llms.Model, error) {
 
 		// Apply rate limiting with isVision=false
 		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
+	case "googleai":
+		ctx := context.Background()
+		apiKey := os.Getenv("GOOGLEAI_API_KEY")
+		var thinkingBudget *int32
+		if val, ok := os.LookupEnv("GOOGLEAI_THINKING_BUDGET"); ok {
+			if v, err := strconv.Atoi(val); err == nil {
+				b := int32(v)
+				thinkingBudget = &b
+			}
+		}
+		provider, err := NewGoogleAIProvider(ctx, llmModel, apiKey, thinkingBudget)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GoogleAI provider: %w", err)
+		}
+		return provider, nil
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s", llmProvider)
+		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, ollama, mistral, googleai)", llmProvider)
 	}
 }
 

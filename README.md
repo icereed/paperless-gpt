@@ -130,7 +130,7 @@ services:
 
   paperless-gpt:
     # Use one of these image sources:
-    image: icereed/paperless-gpt:latest  # Docker Hub
+    image: icereed/paperless-gpt:latest # Docker Hub
     # image: ghcr.io/icereed/paperless-gpt:latest  # GitHub Container Registry
     environment:
       PAPERLESS_BASE_URL: "http://paperless-ngx:8000"
@@ -139,12 +139,12 @@ services:
       MANUAL_TAG: "paperless-gpt" # Optional, default: paperless-gpt
       AUTO_TAG: "paperless-gpt-auto" # Optional, default: paperless-gpt-auto
       # LLM Configuration - Choose one:
-      
+
       # Option 1: Standard OpenAI
       LLM_PROVIDER: "openai"
       LLM_MODEL: "gpt-4o"
       OPENAI_API_KEY: "your_openai_api_key"
-      
+
       # Option 2: Mistral
       # LLM_PROVIDER: "mistral"
       # LLM_MODEL: "mistral-large-latest"
@@ -156,13 +156,13 @@ services:
       # OPENAI_API_KEY: "your_azure_api_key"
       # OPENAI_API_TYPE: "azure"
       # OPENAI_BASE_URL: "https://your-resource.openai.azure.com"
-      
+
       # Option 3: Ollama (Local)
       # LLM_PROVIDER: "ollama"
       # LLM_MODEL: "qwen3:8b"
       # OLLAMA_HOST: "http://host.docker.internal:11434"
       # TOKEN_LIMIT: 1000 # Recommended for smaller models
-      
+
       # Optional LLM Settings
       # LLM_LANGUAGE: "English" # Optional, default: English
 
@@ -191,7 +191,7 @@ services:
       # AZURE_DOCAI_MODEL_ID: 'prebuilt-read' # Optional, defaults to prebuilt-read
       # AZURE_DOCAI_TIMEOUT_SECONDS: '120'  # Optional, defaults to 120 seconds
       # AZURE_DOCAI_OUTPUT_CONTENT_FORMAT: 'text' # Optional, defaults to 'text', other valid option is 'markdown'
-              # 'markdown' requires the 'prebuilt-layout' model
+      # 'markdown' requires the 'prebuilt-layout' model
 
       # Enhanced OCR Features
       CREATE_LOCAL_HOCR: "false" # Optional, save hOCR files locally
@@ -259,14 +259,17 @@ services:
    ```
 
 ---
+
 ## OCR Providers
 
 For detailed provider-specific documentation:
+
 - [Mistral AI Integration](docs/mistral_llm.md)
 
 paperless-gpt supports four different OCR providers, each with unique strengths and capabilities:
 
 ### 1. LLM-based OCR (Default)
+
 - **Key Features**:
   - Uses vision-capable LLMs like gpt-4o or MiniCPM-V
   - High accuracy with complex layouts and difficult scans
@@ -284,6 +287,7 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   ```
 
 ### 2. Azure Document Intelligence
+
 - **Key Features**:
   - Enterprise-grade OCR solution
   - Prebuilt models for common document types
@@ -300,11 +304,13 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   AZURE_DOCAI_KEY: "your-key"
   AZURE_DOCAI_MODEL_ID: "prebuilt-read" # optional
   AZURE_DOCAI_TIMEOUT_SECONDS: "120" # optional
-  AZURE_DOCAI_OUTPUT_CONTENT_FORMAT: "text" # optional, defaults to text, other valid option is 'markdown'
+  AZURE_DOCAI_OUTPUT_CONTENT_FORMAT:
+    "text" # optional, defaults to text, other valid option is 'markdown'
     # 'markdown' requires the 'prebuilt-layout' model
   ```
 
 ### 3. Google Document AI
+
 - **Key Features**:
   - Enterprise-grade OCR/HTR solution
   - Specialized document processors
@@ -327,10 +333,11 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   CREATE_LOCAL_HOCR: "true" # Optional, for hOCR generation
   LOCAL_HOCR_PATH: "/app/hocr" # Optional, default path
   CREATE_LOCAL_PDF: "true" # Optional, for applying OCR to PDF
-  LOCAL_PDF_PATH: "/app/pdf" # Optional, default path 
+  LOCAL_PDF_PATH: "/app/pdf" # Optional, default path
   ```
 
 ### 4. Docling Server
+
 - **Key Features**:
   - Self-hosted OCR and document conversion service
   - Supports various input and output formats (including text)
@@ -351,22 +358,26 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
 paperless-gpt offers different methods for processing documents, giving you flexibility based on your needs and OCR provider capabilities:
 
 ### Image Mode (Default)
+
 - **How it works**: Converts PDF pages to images before processing
 - **Best for**: Compatibility with all OCR providers.
 - **Configuration**: `OCR_PROCESS_MODE: "image"`
 
 ### PDF Mode
+
 - **How it works**: Processes PDF pages directly without image conversion
 - **Best for**: Preserving PDF features, potentially faster processing and improved accuracy with some providers
 - **Configuration**: `OCR_PROCESS_MODE: "pdf"`
 
 ### Whole PDF Mode
+
 - **How it works**: Processes the entire PDF document in a single operation
 - **Best for**: Providers that handle multi-page documents efficiently, reduced API calls
 - **Configuration**: `OCR_PROCESS_MODE: "whole_pdf"`
 - **Note**: Processing large PDFs may cause you to hit the API limit of your OCR provider. If you encounter problems with large documents, consider switching to `pdf` mode, which processes pages individually.
 
 ### Existing OCR Detection
+
 When using PDF or whole PDF modes, you can enable automatic detection of existing OCR:
 
 ```yaml
@@ -397,10 +408,10 @@ paperless-gpt can save both the hOCR files and enhanced PDFs locally:
 ```yaml
 environment:
   # Enable local file saving
-  CREATE_LOCAL_HOCR: "true"   # Save hOCR files locally
-  CREATE_LOCAL_PDF: "true"    # Save generated PDFs locally
+  CREATE_LOCAL_HOCR: "true" # Save hOCR files locally
+  CREATE_LOCAL_PDF: "true" # Save generated PDFs locally
   LOCAL_HOCR_PATH: "/app/hocr" # Path to save hOCR files
-  LOCAL_PDF_PATH: "/app/pdf"   # Path to save PDF files
+  LOCAL_PDF_PATH: "/app/pdf" # Path to save PDF files
 volumes:
   # Mount volumes to access the files from your host
   - ./hocr_files:/app/hocr
@@ -420,10 +431,10 @@ Due to limitations in paperless-ngx's API, it's not possible to directly update 
 ```yaml
 environment:
   # PDF upload configuration
-  PDF_UPLOAD: "true"          # Upload processed PDFs to paperless-ngx
-  PDF_COPY_METADATA: "true"   # Copy metadata from original to new document 
-  PDF_REPLACE: "false"        # Whether to delete the original document (use with caution!)
-  PDF_OCR_TAGGING: "true"     # Add a tag to mark documents as OCR-processed
+  PDF_UPLOAD: "true" # Upload processed PDFs to paperless-ngx
+  PDF_COPY_METADATA: "true" # Copy metadata from original to new document
+  PDF_REPLACE: "false" # Whether to delete the original document (use with caution!)
+  PDF_OCR_TAGGING: "true" # Add a tag to mark documents as OCR-processed
   PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete" # Tag used to mark OCR-processed documents
 ```
 
@@ -455,7 +466,7 @@ To prevent accidental creation of incomplete documents, paperless-gpt includes s
 
 ```yaml
 environment:
-  OCR_LIMIT_PAGES: "5"  # Limit OCR to first 5 pages, set to 0 for no limit
+  OCR_LIMIT_PAGES: "5" # Limit OCR to first 5 pages, set to 0 for no limit
 ```
 
 2. **OCR Complete Tagging**: Documents that have been fully processed with OCR can be automatically tagged with a special tag, preventing duplicate processing.
@@ -482,62 +493,64 @@ For best results with the enhanced OCR features:
 
 > **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
 
-| Variable                            | Description                                                                                                                                                                               | Required | Default                    |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------- |
-| `PAPERLESS_BASE_URL`                | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                                                                                                    | Yes      |                            |
-| `PAPERLESS_API_TOKEN`               | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                                                                                         | Yes      |                            |
-| `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                        | No       |                            |
-| `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                | No       | paperless-gpt              |
-| `AUTO_TAG`                          | Tag for auto processing.                                                                                                                                                                  | No       | paperless-gpt-auto         |
-| `LLM_PROVIDER`                      | AI backend (`openai`, `mistral`, or `ollama`).                                                                                                                                            | Yes      |                            |
-| `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`).   | Yes      |                            |
-| `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                | Cond.    |                            |
-| `MISTRAL_API_KEY`                   | Mistral API key (required if using Mistral).                                                                                                                                              | Cond.    |                            |
-| `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                               | No       |                            |
-| `OPENAI_BASE_URL`                   | Base URL for OpenAI API. For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`).                                                                   | No       |                            |
-| `LLM_LANGUAGE`                      | Likely language for documents (e.g. `English`).                                                                                                                                           | No       | English                    |
-| `OLLAMA_HOST`                       | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                                                                                             | No       |                            |
-| `LLM_REQUESTS_PER_MINUTE`           | Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load.                                                                                            | No       | 120                        |
-| `LLM_MAX_RETRIES`                   | Maximum retry attempts for failed main LLM requests.                                                                                                                                      | No       | 3                          |
-| `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                         | No       | 30s                        |
-| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                  | No       | llm                        |
-| `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                              | No       | image                      |
-| `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                                                                                         | Cond.    |                            |
-| `VISION_LLM_MODEL`                  | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                                                                                             | Cond.    |                            |
-| `VISION_LLM_REQUESTS_PER_MINUTE`    | Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load.                                                                                          | No       | 120                        |
-| `VISION_LLM_MAX_RETRIES`            | Maximum retry attempts for failed Vision LLM requests.                                                                                                                                    | No       | 3                          |
-| `VISION_LLM_BACKOFF_MAX_WAIT`       | Maximum wait time between retries for the Vision LLM (e.g., `30s`).                                                                                                                       | No       | 30s                        |
-| `AZURE_DOCAI_ENDPOINT`              | Azure Document Intelligence endpoint. Required if OCR_PROVIDER is `azure`.                                                                                                                | Cond.    |                            |
-| `AZURE_DOCAI_KEY`                   | Azure Document Intelligence API key. Required if OCR_PROVIDER is `azure`.                                                                                                                 | Cond.    |                            |
-| `AZURE_DOCAI_MODEL_ID`              | Azure Document Intelligence model ID. Optional if using `azure` provider.                                                                                                                 | No       | prebuilt-read              |
-| `AZURE_DOCAI_TIMEOUT_SECONDS`       | Azure Document Intelligence timeout in seconds.                                                                                                                                           | No       | 120                        |
-| `AZURE_DOCAI_OUTPUT_CONTENT_FORMAT` | Azure Document Intelligence output content format. Optional if using `azure` provider. Defaults to `text`. 'markdown' is the other option and it requires the 'prebuild-layout' model ID. | No       | text                       |
-| `GOOGLE_PROJECT_ID`                 | Google Cloud project ID. Required if OCR_PROVIDER is `google_docai`.                                                                                                                      | Cond.    |                            |
-| `GOOGLE_LOCATION`                   | Google Cloud region (e.g. `us`, `eu`). Required if OCR_PROVIDER is `google_docai`.                                                                                                        | Cond.    |                            |
-| `GOOGLE_PROCESSOR_ID`               | Document AI processor ID. Required if OCR_PROVIDER is `google_docai`.                                                                                                                     | Cond.    |                            |
-| `GOOGLE_APPLICATION_CREDENTIALS`    | Path to the mounted Google service account key. Required if OCR_PROVIDER is `google_docai`.                                                                                               | Cond.    |                            |
-| `DOCLING_URL`                       | URL of the Docling server instance. Required if OCR_PROVIDER is `docling`.                                                                                                                | Cond.    |                            |
-| `DOCLING_IMAGE_EXPORT_MODE`         | Mode for image export. Optional; defaults to `embedded` if unset.                                                                                                                         | No       | embedded                   |
-| `CREATE_LOCAL_HOCR`                 | Whether to save hOCR files locally.                                                                                                                                                       | No       | false                      |
-| `LOCAL_HOCR_PATH`                   | Path where hOCR files will be saved when hOCR generation is enabled.                                                                                                                      | No       | /app/hocr                  |
-| `CREATE_LOCAL_PDF`                  | Whether to save enhanced PDFs locally.                                                                                                                                                    | No       | false                      |
-| `LOCAL_PDF_PATH`                    | Path where PDF files will be saved when PDF generation is enabled.                                                                                                                        | No       | /app/pdf                   |
-| `PDF_UPLOAD`                        | Whether to upload enhanced PDFs to paperless-ngx.                                                                                                                                         | No       | false                      |
-| `PDF_REPLACE`                       | Whether to delete the original document after uploading the enhanced version (DANGEROUS).                                                                                                 | No       | false                      |
-| `PDF_COPY_METADATA`                 | Whether to copy metadata from the original document to the uploaded PDF. Only applicable when using PDF_UPLOAD.                                                                           | No       | true                       |
-| `PDF_OCR_TAGGING`                   | Whether to add a tag to mark documents as OCR-processed.                                                                                                                                  | No       | true                       |
-| `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed.                                                                                                                                              | No       | paperless-gpt-ocr-complete |
-| `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                    | No       | false                      |
-| `AUTO_OCR_TAG`                      | Tag for automatically processing docs with OCR.                                                                                                                                           | No       | paperless-gpt-ocr-auto     |
-| `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit.                                                                                                                               | No       | 5                          |
-| `LOG_LEVEL`                         | Application log level (`info`, `debug`, `warn`, `error`).                                                                                                                                 | No       | info                       |
-| `LISTEN_INTERFACE`                  | Network interface to listen on.                                                                                                                                                           | No       | 8080                       |
-| `AUTO_GENERATE_TITLE`               | Generate titles automatically if `paperless-gpt-auto` is used.                                                                                                                            | No       | true                       |
-| `AUTO_GENERATE_TAGS`                | Generate tags automatically if `paperless-gpt-auto` is used.                                                                                                                              | No       | true                       |
-| `AUTO_GENERATE_CORRESPONDENTS`      | Generate correspondents automatically if `paperless-gpt-auto` is used.                                                                                                                    | No       | true                       |
-| `AUTO_GENERATE_CREATED_DATE`        | Generate the created dates automatically if `paperless-gpt-auto` is used.                                                                                                                 | No       | true                       |
-| `TOKEN_LIMIT`                       | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                                                                                         | No       |                            |
-| `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                          | No       |                            |
+| Variable                            | Description                                                                                                                                                                                   | Required | Default                    |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------- |
+| `PAPERLESS_BASE_URL`                | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                                                                                                        | Yes      |                            |
+| `PAPERLESS_API_TOKEN`               | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                                                                                             | Yes      |                            |
+| `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                            | No       |                            |
+| `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
+| `AUTO_TAG`                          | Tag for auto processing.                                                                                                                                                                      | No       | paperless-gpt-auto         |
+| `LLM_PROVIDER`                      | AI backend (`openai`, `ollama`, or `googleai`).                                                                                                                                               | Yes      |                            |
+| `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`).                                                                                                                           | Yes      |                            |
+| `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                    | Cond.    |                            |
+| `MISTRAL_API_KEY`                   | Mistral API key (required if using Mistral).                                                                                                                                                  | Cond.    |                            |
+| `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                                   | No       |                            |
+| `OPENAI_BASE_URL`                   | Base URL for OpenAI API. For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`).                                                                       | No       |                            |
+| `LLM_LANGUAGE`                      | Likely language for documents (e.g. `English`).                                                                                                                                               | No       | English                    |
+| `GOOGLEAI_API_KEY`                  | Google Gemini API key (required if using `LLM_PROVIDER=googleai`).                                                                                                                            | Cond.    |                            |
+| `GOOGLEAI_THINKING_BUDGET`          | (Optional, googleai only) Integer. Controls Gemini "thinking" budget. If unset, model default is used (thinking enabled if supported). Set to `0` to disable thinking (if model supports it). | No       |                            |
+| `OLLAMA_HOST`                       | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                                                                                                 | No       |                            |
+| `LLM_REQUESTS_PER_MINUTE`           | Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load.                                                                                                | No       | 120                        |
+| `LLM_MAX_RETRIES`                   | Maximum retry attempts for failed main LLM requests.                                                                                                                                          | No       | 3                          |
+| `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
+| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                      | No       | llm                        |
+| `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
+| `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                                                                                             | Cond.    |                            |
+| `VISION_LLM_MODEL`                  | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                                                                                                 | Cond.    |                            |
+| `VISION_LLM_REQUESTS_PER_MINUTE`    | Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load.                                                                                              | No       | 120                        |
+| `VISION_LLM_MAX_RETRIES`            | Maximum retry attempts for failed Vision LLM requests.                                                                                                                                        | No       | 3                          |
+| `VISION_LLM_BACKOFF_MAX_WAIT`       | Maximum wait time between retries for the Vision LLM (e.g., `30s`).                                                                                                                           | No       | 30s                        |
+| `AZURE_DOCAI_ENDPOINT`              | Azure Document Intelligence endpoint. Required if OCR_PROVIDER is `azure`.                                                                                                                    | Cond.    |                            |
+| `AZURE_DOCAI_KEY`                   | Azure Document Intelligence API key. Required if OCR_PROVIDER is `azure`.                                                                                                                     | Cond.    |                            |
+| `AZURE_DOCAI_MODEL_ID`              | Azure Document Intelligence model ID. Optional if using `azure` provider.                                                                                                                     | No       | prebuilt-read              |
+| `AZURE_DOCAI_TIMEOUT_SECONDS`       | Azure Document Intelligence timeout in seconds.                                                                                                                                               | No       | 120                        |
+| `AZURE_DOCAI_OUTPUT_CONTENT_FORMAT` | Azure Document Intelligence output content format. Optional if using `azure` provider. Defaults to `text`. 'markdown' is the other option and it requires the 'prebuild-layout' model ID.     | No       | text                       |
+| `GOOGLE_PROJECT_ID`                 | Google Cloud project ID. Required if OCR_PROVIDER is `google_docai`.                                                                                                                          | Cond.    |                            |
+| `GOOGLE_LOCATION`                   | Google Cloud region (e.g. `us`, `eu`). Required if OCR_PROVIDER is `google_docai`.                                                                                                            | Cond.    |                            |
+| `GOOGLE_PROCESSOR_ID`               | Document AI processor ID. Required if OCR_PROVIDER is `google_docai`.                                                                                                                         | Cond.    |                            |
+| `GOOGLE_APPLICATION_CREDENTIALS`    | Path to the mounted Google service account key. Required if OCR_PROVIDER is `google_docai`.                                                                                                   | Cond.    |                            |
+| `DOCLING_URL`                       | URL of the Docling server instance. Required if OCR_PROVIDER is `docling`.                                                                                                                    | Cond.    |                            |
+| `DOCLING_IMAGE_EXPORT_MODE`         | Mode for image export. Optional; defaults to `embedded` if unset.                                                                                                                             | No       | embedded                   |
+| `CREATE_LOCAL_HOCR`                 | Whether to save hOCR files locally.                                                                                                                                                           | No       | false                      |
+| `LOCAL_HOCR_PATH`                   | Path where hOCR files will be saved when hOCR generation is enabled.                                                                                                                          | No       | /app/hocr                  |
+| `CREATE_LOCAL_PDF`                  | Whether to save enhanced PDFs locally.                                                                                                                                                        | No       | false                      |
+| `LOCAL_PDF_PATH`                    | Path where PDF files will be saved when PDF generation is enabled.                                                                                                                            | No       | /app/pdf                   |
+| `PDF_UPLOAD`                        | Whether to upload enhanced PDFs to paperless-ngx.                                                                                                                                             | No       | false                      |
+| `PDF_REPLACE`                       | Whether to delete the original document after uploading the enhanced version (DANGEROUS).                                                                                                     | No       | false                      |
+| `PDF_COPY_METADATA`                 | Whether to copy metadata from the original document to the uploaded PDF. Only applicable when using PDF_UPLOAD.                                                                               | No       | true                       |
+| `PDF_OCR_TAGGING`                   | Whether to add a tag to mark documents as OCR-processed.                                                                                                                                      | No       | true                       |
+| `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed.                                                                                                                                                  | No       | paperless-gpt-ocr-complete |
+| `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                        | No       | false                      |
+| `AUTO_OCR_TAG`                      | Tag for automatically processing docs with OCR.                                                                                                                                               | No       | paperless-gpt-ocr-auto     |
+| `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit.                                                                                                                                   | No       | 5                          |
+| `LOG_LEVEL`                         | Application log level (`info`, `debug`, `warn`, `error`).                                                                                                                                     | No       | info                       |
+| `LISTEN_INTERFACE`                  | Network interface to listen on.                                                                                                                                                               | No       | 8080                       |
+| `AUTO_GENERATE_TITLE`               | Generate titles automatically if `paperless-gpt-auto` is used.                                                                                                                                | No       | true                       |
+| `AUTO_GENERATE_TAGS`                | Generate tags automatically if `paperless-gpt-auto` is used.                                                                                                                                  | No       | true                       |
+| `AUTO_GENERATE_CORRESPONDENTS`      | Generate correspondents automatically if `paperless-gpt-auto` is used.                                                                                                                        | No       | true                       |
+| `AUTO_GENERATE_CREATED_DATE`        | Generate the created dates automatically if `paperless-gpt-auto` is used.                                                                                                                     | No       | true                       |
+| `TOKEN_LIMIT`                       | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                                                                                             | No       |                            |
+| `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
 
 ### Custom Prompt Templates
 
@@ -563,11 +576,13 @@ Then tweak at will—**paperless-gpt** reloads them automatically on startup!
 Each template has access to specific variables:
 
 **title_prompt.tmpl**:
+
 - `{{.Language}}` - Target language (e.g., "English")
 - `{{.Content}}` - Document content text
 - `{{.Title}}` - Original document title
 
 **tag_prompt.tmpl**:
+
 - `{{.Language}}` - Target language
 - `{{.AvailableTags}}` - List of existing tags in paperless-ngx
 - `{{.OriginalTags}}` - Document's current tags
@@ -575,9 +590,11 @@ Each template has access to specific variables:
 - `{{.Content}}` - Document content text
 
 **ocr_prompt.tmpl**:
+
 - `{{.Language}}` - Target language
 
 **correspondent_prompt.tmpl**:
+
 - `{{.Language}}` - Target language
 - `{{.AvailableCorrespondents}}` - List of existing correspondents
 - `{{.BlackList}}` - List of blacklisted correspondent names
@@ -585,6 +602,7 @@ Each template has access to specific variables:
 - `{{.Content}}` - Document content text
 
 **created_date_prompt.tmpl**:
+
 - `{{.Language}}` - Target language
 - `{{.Content}}` - Document content text
 
