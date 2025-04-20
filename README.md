@@ -54,32 +54,36 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
 ## Table of Contents
 
-- [Key Highlights](#key-highlights)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-    - [Docker Compose](#docker-compose)
-    - [Manual Setup](#manual-setup)
-- [OCR Providers](#ocr-providers)
-  - [LLM-based OCR](#1-llm-based-ocr-default)
-  - [Azure Document Intelligence](#2-azure-document-intelligence)
-  - [Google Document AI](#3-google-document-ai)
-  - [Comparing OCR Providers](#comparing-ocr-providers)
-  - [Choosing the Right Provider](#choosing-the-right-provider)
-- [Configuration](#configuration)
-  - [Environment Variables](#environment-variables)
-  - [Custom Prompt Templates](#custom-prompt-templates)
-    - [Prompt Templates Directory](#prompt-templates-directory)
-    - [Mounting the Prompts Directory](#mounting-the-prompts-directory)
-    - [Editing the Prompt Templates](#editing-the-prompt-templates)
-    - [Template Syntax and Variables](#template-syntax-and-variables)
-- [OCR using AI](#llm-based-ocr-compare-for-yourself)
-- [Usage](#usage)
-- [Contributing](#contributing)
-- [Support the Project](#support-the-project)
-- [License](#license)
-- [Star History](#star-history)
-- [Disclaimer](#disclaimer)
+- [paperless-gpt](#paperless-gpt)
+  - [Key Highlights](#key-highlights)
+  - [Table of Contents](#table-of-contents)
+  - [Getting Started](#getting-started)
+    - [Prerequisites](#prerequisites)
+    - [Installation](#installation)
+      - [Docker Compose](#docker-compose)
+      - [Manual Setup](#manual-setup)
+  - [OCR Providers](#ocr-providers)
+    - [1. LLM-based OCR (Default)](#1-llm-based-ocr-default)
+    - [2. Azure Document Intelligence](#2-azure-document-intelligence)
+    - [3. Google Document AI](#3-google-document-ai)
+  - [Configuration](#configuration)
+    - [Environment Variables](#environment-variables)
+- [**Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.](#note-when-using-ollama-ensure-that-the-ollama-server-is-running-and-accessible-from-the-paperless-gpt-container)
+    - [Custom Prompt Templates](#custom-prompt-templates)
+      - [Template Variables](#template-variables)
+  - [Usage](#usage)
+  - [LLM-Based OCR: Compare for Yourself](#llm-based-ocr-compare-for-yourself)
+    - [Example 1](#example-1)
+    - [Example 2](#example-2)
+    - [How It Works](#how-it-works)
+  - [Troubleshooting](#troubleshooting)
+    - [Working with Local LLMs](#working-with-local-llms)
+      - [Token Management](#token-management)
+  - [Contributing](#contributing)
+  - [Support the Project](#support-the-project)
+  - [License](#license)
+  - [Star History](#star-history)
+  - [Disclaimer](#disclaimer)
 
 ---
 
@@ -265,9 +269,11 @@ paperless-gpt supports three different OCR providers, each with unique strengths
 | `PAPERLESS_PUBLIC_URL`           | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                               | No       |                        |
 | `MANUAL_TAG`                     | Tag for manual processing.                                                                                       | No       | paperless-gpt          |
 | `AUTO_TAG`                       | Tag for auto processing.                                                                                         | No       | paperless-gpt-auto     |
-| `LLM_PROVIDER`                   | AI backend (`openai` or `ollama`).                                                                               | Yes      |                        |
+| `LLM_PROVIDER`                   | AI backend (`openai`, `ollama`, or `googleai`).                                                                  | Yes      |                        |
 | `LLM_MODEL`                      | AI model name, e.g. `gpt-4o`, `gpt-3.5-turbo`, `deepseek-r1:8b`.                                                 | Yes      |                        |
 | `OPENAI_API_KEY`                 | OpenAI API key (required if using OpenAI).                                                                       | Cond.    |                        |
+| `GOOGLEAI_API_KEY`               | Google Gemini API key (required if using `LLM_PROVIDER=googleai`).                                               | Cond.    |                        |
+| `GOOGLEAI_THINKING_BUDGET`       | (Optional, googleai only) Integer. Controls Gemini "thinking" budget. If unset, model default is used (thinking enabled if supported). Set to `0` to disable thinking (if model supports it). | No |                        |
 | `OPENAI_BASE_URL`                | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                            | No       |                        |
 | `LLM_LANGUAGE`                   | Likely language for documents (e.g. `English`).                                                                  | No       | English                |
 | `OLLAMA_HOST`                    | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                    | No       |                        |

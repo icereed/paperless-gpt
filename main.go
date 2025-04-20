@@ -32,32 +32,32 @@ var (
 	log = logrus.New()
 
 	// Environment Variables
-	paperlessInsecureSkipVerify = os.Getenv("PAPERLESS_INSECURE_SKIP_VERIFY") == "true"
-	correspondentBlackList      = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
-	paperlessBaseURL            = os.Getenv("PAPERLESS_BASE_URL")
-	paperlessAPIToken           = os.Getenv("PAPERLESS_API_TOKEN")
-	azureDocAIEndpoint          = os.Getenv("AZURE_DOCAI_ENDPOINT")
-	azureDocAIKey               = os.Getenv("AZURE_DOCAI_KEY")
-	azureDocAIModelID           = os.Getenv("AZURE_DOCAI_MODEL_ID")
-	azureDocAITimeout           = os.Getenv("AZURE_DOCAI_TIMEOUT_SECONDS")
+	paperlessInsecureSkipVerify   = os.Getenv("PAPERLESS_INSECURE_SKIP_VERIFY") == "true"
+	correspondentBlackList        = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
+	paperlessBaseURL              = os.Getenv("PAPERLESS_BASE_URL")
+	paperlessAPIToken             = os.Getenv("PAPERLESS_API_TOKEN")
+	azureDocAIEndpoint            = os.Getenv("AZURE_DOCAI_ENDPOINT")
+	azureDocAIKey                 = os.Getenv("AZURE_DOCAI_KEY")
+	azureDocAIModelID             = os.Getenv("AZURE_DOCAI_MODEL_ID")
+	azureDocAITimeout             = os.Getenv("AZURE_DOCAI_TIMEOUT_SECONDS")
 	AzureDocAIOutputContentFormat = os.Getenv("AZURE_DOCAI_OUTPUT_CONTENT_FORMAT")
-	openaiAPIKey                = os.Getenv("OPENAI_API_KEY")
-	manualTag                   = os.Getenv("MANUAL_TAG")
-	autoTag                     = os.Getenv("AUTO_TAG")
-	manualOcrTag                = os.Getenv("MANUAL_OCR_TAG") // Not used yet
-	autoOcrTag                  = os.Getenv("AUTO_OCR_TAG")
-	llmProvider                 = os.Getenv("LLM_PROVIDER")
-	llmModel                    = os.Getenv("LLM_MODEL")
-	visionLlmProvider           = os.Getenv("VISION_LLM_PROVIDER")
-	visionLlmModel              = os.Getenv("VISION_LLM_MODEL")
-	logLevel                    = strings.ToLower(os.Getenv("LOG_LEVEL"))
-	listenInterface             = os.Getenv("LISTEN_INTERFACE")
-	autoGenerateTitle           = os.Getenv("AUTO_GENERATE_TITLE")
-	autoGenerateTags            = os.Getenv("AUTO_GENERATE_TAGS")
-	autoGenerateCorrespondents  = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
-	autoGenerateCreatedDate     = os.Getenv("AUTO_GENERATE_CREATED_DATE")
-	limitOcrPages               int // Will be read from OCR_LIMIT_PAGES
-	tokenLimit                  = 0 // Will be read from TOKEN_LIMIT
+	openaiAPIKey                  = os.Getenv("OPENAI_API_KEY")
+	manualTag                     = os.Getenv("MANUAL_TAG")
+	autoTag                       = os.Getenv("AUTO_TAG")
+	manualOcrTag                  = os.Getenv("MANUAL_OCR_TAG") // Not used yet
+	autoOcrTag                    = os.Getenv("AUTO_OCR_TAG")
+	llmProvider                   = os.Getenv("LLM_PROVIDER")
+	llmModel                      = os.Getenv("LLM_MODEL")
+	visionLlmProvider             = os.Getenv("VISION_LLM_PROVIDER")
+	visionLlmModel                = os.Getenv("VISION_LLM_MODEL")
+	logLevel                      = strings.ToLower(os.Getenv("LOG_LEVEL"))
+	listenInterface               = os.Getenv("LISTEN_INTERFACE")
+	autoGenerateTitle             = os.Getenv("AUTO_GENERATE_TITLE")
+	autoGenerateTags              = os.Getenv("AUTO_GENERATE_TAGS")
+	autoGenerateCorrespondents    = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
+	autoGenerateCreatedDate       = os.Getenv("AUTO_GENERATE_CREATED_DATE")
+	limitOcrPages                 int // Will be read from OCR_LIMIT_PAGES
+	tokenLimit                    = 0 // Will be read from TOKEN_LIMIT
 
 	// Templates
 	titleTemplate         *template.Template
@@ -189,16 +189,16 @@ func main() {
 	ocrPrompt := promptBuffer.String()
 
 	ocrConfig := ocr.Config{
-		Provider:          providerType,
-		GoogleProjectID:   os.Getenv("GOOGLE_PROJECT_ID"),
-		GoogleLocation:    os.Getenv("GOOGLE_LOCATION"),
-		GoogleProcessorID: os.Getenv("GOOGLE_PROCESSOR_ID"),
-		VisionLLMProvider: visionLlmProvider,
-		VisionLLMModel:    visionLlmModel,
-		VisionLLMPrompt:   ocrPrompt,
-		AzureEndpoint:     azureDocAIEndpoint,
-		AzureAPIKey:       azureDocAIKey,
-		AzureModelID:      azureDocAIModelID,
+		Provider:                 providerType,
+		GoogleProjectID:          os.Getenv("GOOGLE_PROJECT_ID"),
+		GoogleLocation:           os.Getenv("GOOGLE_LOCATION"),
+		GoogleProcessorID:        os.Getenv("GOOGLE_PROCESSOR_ID"),
+		VisionLLMProvider:        visionLlmProvider,
+		VisionLLMModel:           visionLlmModel,
+		VisionLLMPrompt:          ocrPrompt,
+		AzureEndpoint:            azureDocAIEndpoint,
+		AzureAPIKey:              azureDocAIKey,
+		AzureModelID:             azureDocAIModelID,
 		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
 	}
 
@@ -418,7 +418,10 @@ func validateOrDefaultEnvVars() {
 	}
 
 	if visionLlmProvider != "" && visionLlmProvider != "openai" && visionLlmProvider != "ollama" {
-		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai' or 'ollama'.")
+		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai' or 'ollama'.")
+	}
+	if llmProvider != "openai" && llmProvider != "ollama" && llmProvider != "googleai" {
+		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai', 'ollama', or 'googleai'.")
 	}
 
 	// Validate OCR provider if set
@@ -587,8 +590,23 @@ func createLLM() (llms.Model, error) {
 			ollama.WithModel(llmModel),
 			ollama.WithServerURL(host),
 		)
+	case "googleai":
+		ctx := context.Background()
+		apiKey := os.Getenv("GOOGLEAI_API_KEY")
+		var thinkingBudget *int32
+		if val, ok := os.LookupEnv("GOOGLEAI_THINKING_BUDGET"); ok {
+			if v, err := strconv.Atoi(val); err == nil {
+				b := int32(v)
+				thinkingBudget = &b
+			}
+		}
+		provider, err := NewGoogleAIProvider(ctx, llmModel, apiKey, thinkingBudget)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GoogleAI provider: %w", err)
+		}
+		return provider, nil
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s", llmProvider)
+		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, ollama, googleai)", llmProvider)
 	}
 }
 
