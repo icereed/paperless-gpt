@@ -60,12 +60,13 @@ func newLLMProvider(config Config) (*LLMProvider, error) {
 	}, nil
 }
 
-func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte) (*OCRResult, error) {
+func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error) {
 	logger := log.WithFields(logrus.Fields{
 		"provider": p.provider,
 		"model":    p.model,
+		"page":     pageNumber,
 	})
-	logger.Debug("Starting OCR processing")
+	logger.Debug("Starting LLM OCR processing")
 
 	// Log the image dimensions
 	img, _, err := image.Decode(bytes.NewReader(imageContent))

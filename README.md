@@ -236,20 +236,25 @@ paperless-gpt supports three different OCR providers, each with unique strengths
 
 ### 3. Google Document AI
 - **Key Features**:
+  - Enterprise-grade OCR/HTR solution
   - Specialized document processors
   - Strong form field detection
   - Multi-language support
   - High accuracy on structured documents
+  - hOCR generation for embedding OCR text in PDFs (experimental)
 - **Best For**:
   - Forms and structured documents
   - Documents with tables
   - Multi-language documents
+  - Handwritten text (HTR)
 - **Configuration**:
   ```yaml
   OCR_PROVIDER: "google_docai"
   GOOGLE_PROJECT_ID: "your-project"
   GOOGLE_LOCATION: "us"
   GOOGLE_PROCESSOR_ID: "processor-id"
+  OCR_ENABLE_HOCR: "true" # Optional, for hOCR generation
+  OCR_HOCR_OUTPUT_PATH: "/app/hocr" # Optional, default path
   ```
 
 ## Configuration
@@ -293,6 +298,8 @@ paperless-gpt supports three different OCR providers, each with unique strengths
 | `OCR_LIMIT_PAGES`                | Limit the number of pages for OCR. Set to `0` for no limit.                                                      | No       | 5                      |
 | `TOKEN_LIMIT`                    | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                | No       |                        |
 | `CORRESPONDENT_BLACK_LIST`       | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`. | No       |                        |
+| `OCR_ENABLE_HOCR`                | Enable hOCR generation (experimental, Google Document AI only).                                                  | No       | false                  |
+| `OCR_HOCR_OUTPUT_PATH`           | Path where hOCR files will be saved when hOCR generation is enabled.                                             | No       | /app/hocr              |
 
 ### Custom Prompt Templates
 

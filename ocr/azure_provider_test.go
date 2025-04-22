@@ -202,7 +202,7 @@ func TestAzureProvider_ProcessImage(t *testing.T) {
 				httpClient: client,
 			}
 
-			result, err := provider.ProcessImage(context.Background(), tt.imageContent)
+			result, err := provider.ProcessImage(context.Background(), tt.imageContent, 1)
 			if tt.wantErr {
 				assert.Error(t, err)
 				if tt.errContains != "" {
