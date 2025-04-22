@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/gardar/ocrchestra/pkg/hocr"
 	"github.com/sirupsen/logrus"
 )
 
@@ -14,8 +15,8 @@ type OCRResult struct {
 	// Plain text output (required)
 	Text string
 
-	// hOCR output (optional, if provider supports it)
-	HOCR string
+	// hOCR Page data (optional, if provider supports it)
+	HOCRPage *hocr.Page
 
 	// Additional provider-specific metadata
 	Metadata map[string]string
@@ -23,7 +24,7 @@ type OCRResult struct {
 
 // Provider defines the interface for OCR processing
 type Provider interface {
-	ProcessImage(ctx context.Context, imageContent []byte) (*OCRResult, error)
+	ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error)
 }
 
 // Config holds the OCR provider configuration
@@ -42,14 +43,15 @@ type Config struct {
 	VisionLLMPrompt   string
 
 	// Azure Document Intelligence settings
-	AzureEndpoint string
-	AzureAPIKey   string
-	AzureModelID  string // Optional, defaults to "prebuilt-read"
-	AzureTimeout  int    // Optional, defaults to 120 seconds
+	AzureEndpoint            string
+	AzureAPIKey              string
+	AzureModelID             string // Optional, defaults to "prebuilt-read"
+	AzureTimeout             int    // Optional, defaults to 120 seconds
 	AzureOutputContentFormat string // Optional, defaults to ""
 
 	// OCR output options
-	EnableHOCR bool // Whether to request hOCR output if supported by the provider
+	EnableHOCR     bool   // Whether to request hOCR output if supported by the provider
+	HOCROutputPath string // Where to save hOCR output files
 }
 
 // NewProvider creates a new OCR provider based on configuration

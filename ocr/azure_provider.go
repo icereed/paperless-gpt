@@ -16,20 +16,20 @@ import (
 )
 
 const (
-	apiVersion      = "2024-11-30"
-	defaultModelID  = "prebuilt-read"
-	defaultTimeout  = 120
-	pollingInterval = 2 * time.Second
+	apiVersion                 = "2024-11-30"
+	defaultModelID             = "prebuilt-read"
+	defaultTimeout             = 120
+	pollingInterval            = 2 * time.Second
 	defaultOutputContentFormat = "text"
 )
 
 // AzureProvider implements OCR using Azure Document Intelligence
 type AzureProvider struct {
-	endpoint   string
-	apiKey     string
-	modelID    string
-	timeout    time.Duration
-	httpClient *retryablehttp.Client
+	endpoint            string
+	apiKey              string
+	modelID             string
+	timeout             time.Duration
+	httpClient          *retryablehttp.Client
 	outputContentFormat string
 }
 
@@ -76,11 +76,11 @@ func newAzureProvider(config Config) (*AzureProvider, error) {
 	client.Logger = logger
 
 	provider := &AzureProvider{
-		endpoint:   config.AzureEndpoint,
-		apiKey:     config.AzureAPIKey,
-		modelID:    modelID,
-		timeout:    time.Duration(timeout) * time.Second,
-		httpClient: client,
+		endpoint:            config.AzureEndpoint,
+		apiKey:              config.AzureAPIKey,
+		modelID:             modelID,
+		timeout:             time.Duration(timeout) * time.Second,
+		httpClient:          client,
 		outputContentFormat: outputContentFormat,
 	}
 
@@ -88,9 +88,10 @@ func newAzureProvider(config Config) (*AzureProvider, error) {
 	return provider, nil
 }
 
-func (p *AzureProvider) ProcessImage(ctx context.Context, imageContent []byte) (*OCRResult, error) {
+func (p *AzureProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error) {
 	logger := log.WithFields(logrus.Fields{
 		"model_id": p.modelID,
+		"page":     pageNumber,
 	})
 	logger.Debug("Starting Azure Document Intelligence processing")
 
@@ -138,7 +139,7 @@ func (p *AzureProvider) ProcessImage(ctx context.Context, imageContent []byte) (
 
 func (p *AzureProvider) submitDocument(ctx context.Context, imageContent []byte) (string, error) {
 	outputFormatParam := ""
-	if(p.outputContentFormat != "text") {
+	if p.outputContentFormat != "text" {
 		outputFormatParam = fmt.Sprintf("&outputContentFormat=%s", p.outputContentFormat)
 	}
 	requestURL := fmt.Sprintf("%s/documentintelligence/documentModels/%s:analyze?api-version=%s%s",

@@ -3,12 +3,12 @@ package ocr
 import (
 	"context"
 	"fmt"
-	"html"
-	"strings"
 
 	documentai "cloud.google.com/go/documentai/apiv1"
 	"cloud.google.com/go/documentai/apiv1/documentaipb"
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/gardar/ocrchestra/pkg/gdocai"
+	"github.com/gardar/ocrchestra/pkg/hocr"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/api/option"
 )
@@ -19,6 +19,8 @@ type GoogleDocAIProvider struct {
 	location    string
 	processorID string
 	client      *documentai.DocumentProcessorClient
+	enableHOCR  bool        // Whether HOCR generation is enabled
+	hocrPages   []hocr.Page // Storage for HOCR pages
 }
 
 func newGoogleDocAIProvider(config Config) (*GoogleDocAIProvider, error) {
@@ -42,17 +44,20 @@ func newGoogleDocAIProvider(config Config) (*GoogleDocAIProvider, error) {
 		location:    config.GoogleLocation,
 		processorID: config.GoogleProcessorID,
 		client:      client,
+		enableHOCR:  config.EnableHOCR,
+		hocrPages:   make([]hocr.Page, 0),
 	}
 
-	logger.Info("Successfully initialized Google Document AI provider")
+	logger.WithField("enable_hocr", config.EnableHOCR).Info("Successfully initialized Google Document AI provider")
 	return provider, nil
 }
 
-func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []byte) (*OCRResult, error) {
+func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error) {
 	logger := log.WithFields(logrus.Fields{
 		"project_id":   p.projectID,
 		"location":     p.location,
 		"processor_id": p.processorID,
+		"page_number":  pageNumber,
 	})
 	logger.Debug("Starting Document AI processing")
 
@@ -99,6 +104,7 @@ func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []b
 		"mime_type":    mtype.String(),
 		"page_count":   fmt.Sprintf("%d", len(resp.Document.GetPages())),
 		"processor_id": p.processorID,
+		"page_number":  fmt.Sprintf("%d", pageNumber),
 	}
 
 	// Safely add language code if available
@@ -113,19 +119,18 @@ func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []b
 		Metadata: metadata,
 	}
 
-	// Add hOCR output if available
-	if len(resp.Document.GetPages()) > 0 {
-		var hocr string
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					logger.WithField("error", r).Error("Panic during hOCR generation")
-				}
-			}()
-			hocr = generateHOCR(resp.Document)
-		}()
-		if hocr != "" {
-			result.HOCR = hocr
+	// Create hOCR page structure (only if hOCR is enabled)
+	if p.enableHOCR && len(resp.Document.GetPages()) > 0 {
+		// Use the provided page number (1-based)
+		hocrPage, err := gdocai.CreateHOCRPage(resp.Document.Pages[0], resp.Document.Text, pageNumber)
+		if err != nil {
+			logger.WithError(err).Error("Failed to create HOCR page")
+		} else {
+			// Store the HOCR page
+			p.hocrPages = append(p.hocrPages, hocrPage)
+			result.HOCRPage = &hocrPage
+
+			logger.WithField("page_number", pageNumber).Info("Created and stored HOCR page struct")
 		}
 	}
 
@@ -146,81 +151,38 @@ func isImageMIMEType(mimeType string) bool {
 	return supportedTypes[mimeType]
 }
 
-// generateHOCR converts Document AI response to hOCR format
-func generateHOCR(doc *documentaipb.Document) string {
-	if len(doc.GetPages()) == 0 {
-		return ""
+// IsHOCREnabled returns whether hOCR generation is enabled
+func (p *GoogleDocAIProvider) IsHOCREnabled() bool {
+	return p.enableHOCR
+}
+
+// GetHOCRPages returns the collected hOCR pages struct
+func (p *GoogleDocAIProvider) GetHOCRPages() []hocr.Page {
+	return p.hocrPages
+}
+
+// GetHOCRDocument creates an hOCR document from the collected pages
+func (p *GoogleDocAIProvider) GetHOCRDocument() (*hocr.HOCR, error) {
+	if !p.enableHOCR {
+		return nil, fmt.Errorf("hOCR generation is not enabled")
 	}
 
-	var hocr strings.Builder
-	hocr.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
-<head>
-    <title>OCR Output</title>
-    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
-    <meta name='ocr-system' content='google-docai' />
-</head>
-<body>`)
-
-	for pageNum, page := range doc.GetPages() {
-		pageWidth := page.GetDimension().GetWidth()
-		pageHeight := page.GetDimension().GetHeight()
-		// Validate dimensions
-		if pageWidth <= 0 || pageHeight <= 0 {
-			continue
-		}
-
-		hocr.WriteString(fmt.Sprintf(`
-    <div class='ocr_page' id='page_%d' title='image;bbox 0 0 %d %d'>`,
-			pageNum+1, int(pageWidth), int(pageHeight)))
-
-		// Process paragraphs
-		for _, para := range page.GetParagraphs() {
-			paraBox := para.GetLayout().GetBoundingPoly().GetNormalizedVertices()
-			if len(paraBox) < 4 {
-				continue
-			}
-
-			// Convert normalized coordinates to absolute
-			// Use float64 for intermediate calculations to prevent overflow
-			x1 := int(float64(paraBox[0].GetX()) * float64(pageWidth))
-			y1 := int(float64(paraBox[0].GetY()) * float64(pageHeight))
-			x2 := int(float64(paraBox[2].GetX()) * float64(pageWidth))
-			y2 := int(float64(paraBox[2].GetY()) * float64(pageHeight))
-
-			// Validate coordinates
-			if x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0 ||
-				x1 > int(pageWidth) || y1 > int(pageHeight) ||
-				x2 > int(pageWidth) || y2 > int(pageHeight) {
-				continue
-			}
-
-			hocr.WriteString(fmt.Sprintf(`
-        <p class='ocr_par' id='par_%d_%d' title='bbox %d %d %d %d'>`,
-				pageNum+1, len(page.GetParagraphs()), x1, y1, x2, y2))
-
-			// Process words within paragraph
-			for _, token := range para.GetLayout().GetTextAnchor().GetTextSegments() {
-				text := doc.Text[token.GetStartIndex():token.GetEndIndex()]
-				if text == "" {
-					continue
-				}
-
-				// Escape HTML special characters
-				text = html.EscapeString(text)
-
-				hocr.WriteString(fmt.Sprintf(`
-            <span class='ocrx_word'>%s</span>`, text))
-			}
-
-			hocr.WriteString("\n        </p>")
-		}
-		hocr.WriteString("\n    </div>")
+	if len(p.hocrPages) == 0 {
+		return nil, fmt.Errorf("no hOCR pages collected")
 	}
 
-	hocr.WriteString("\n</body>\n</html>")
-	return hocr.String()
+	// Create hOCR document struct from the collected pages
+	hocrDoc, err := gdocai.CreateHOCRDocument(nil, p.hocrPages...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create hOCR document struct: %w", err)
+	}
+
+	return hocrDoc, nil
+}
+
+// ResetHOCR clears the collected HOCR pages
+func (p *GoogleDocAIProvider) ResetHOCR() {
+	p.hocrPages = make([]hocr.Page, 0)
 }
 
 // Close releases resources used by the provider
