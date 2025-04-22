@@ -459,6 +459,12 @@ func validateOrDefaultEnvVars() {
 	// Set default for hOCR output path
 	if ocrHOCROutputPath == "" {
 		ocrHOCROutputPath = "/app/hocr"
+
+		// Fallback dir
+		if _, err := os.Stat("/app"); os.IsNotExist(err) {
+			ocrHOCROutputPath = filepath.Join(os.TempDir(), "hocr")
+			log.Warnf("'/app' directory not found, using %s as fallback for hOCR output", ocrHOCROutputPath)
+		}
 	}
 	// If OCR is enabled and using a provider that supports hOCR, log the hOCR settings
 	if ocrEnableHOCR {
