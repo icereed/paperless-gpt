@@ -613,7 +613,8 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 	var imagePaths []string
 	for n := 0; n < pagesToProcess; n++ {
 		imagePath := filepath.Join(docDir, fmt.Sprintf("page%03d.jpg", n))
-		if _, err := os.Stat(imagePath); os.IsExist(err) {
+		if _, err := os.Stat(imagePath); err == nil {
+			// File exists
 			imagePaths = append(imagePaths, imagePath)
 		}
 	}
