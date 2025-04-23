@@ -27,6 +27,7 @@ func newTestDoclingProvider(serverURL string) *DoclingProvider {
 
 	return &DoclingProvider{
 		baseURL:    serverURL,
+		imageExportMode: "md",
 		httpClient: client,
 	}
 }
