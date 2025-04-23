@@ -32,34 +32,35 @@ var (
 	log = logrus.New()
 
 	// Environment Variables
-	paperlessInsecureSkipVerify   = os.Getenv("PAPERLESS_INSECURE_SKIP_VERIFY") == "true"
-	correspondentBlackList        = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
-	paperlessBaseURL              = os.Getenv("PAPERLESS_BASE_URL")
-	paperlessAPIToken             = os.Getenv("PAPERLESS_API_TOKEN")
-	azureDocAIEndpoint            = os.Getenv("AZURE_DOCAI_ENDPOINT")
-	azureDocAIKey                 = os.Getenv("AZURE_DOCAI_KEY")
-	azureDocAIModelID             = os.Getenv("AZURE_DOCAI_MODEL_ID")
-	azureDocAITimeout             = os.Getenv("AZURE_DOCAI_TIMEOUT_SECONDS")
-	AzureDocAIOutputContentFormat = os.Getenv("AZURE_DOCAI_OUTPUT_CONTENT_FORMAT")
-	openaiAPIKey                  = os.Getenv("OPENAI_API_KEY")
-	manualTag                     = os.Getenv("MANUAL_TAG")
-	autoTag                       = os.Getenv("AUTO_TAG")
-	manualOcrTag                  = os.Getenv("MANUAL_OCR_TAG") // Not used yet
-	autoOcrTag                    = os.Getenv("AUTO_OCR_TAG")
-	llmProvider                   = os.Getenv("LLM_PROVIDER")
-	llmModel                      = os.Getenv("LLM_MODEL")
-	visionLlmProvider             = os.Getenv("VISION_LLM_PROVIDER")
-	visionLlmModel                = os.Getenv("VISION_LLM_MODEL")
-	logLevel                      = strings.ToLower(os.Getenv("LOG_LEVEL"))
-	listenInterface               = os.Getenv("LISTEN_INTERFACE")
-	autoGenerateTitle             = os.Getenv("AUTO_GENERATE_TITLE")
-	autoGenerateTags              = os.Getenv("AUTO_GENERATE_TAGS")
-	autoGenerateCorrespondents    = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
-	autoGenerateCreatedDate       = os.Getenv("AUTO_GENERATE_CREATED_DATE")
-	limitOcrPages                 int // Will be read from OCR_LIMIT_PAGES
-	tokenLimit                    = 0 // Will be read from TOKEN_LIMIT
+	paperlessInsecureSkipVerify = os.Getenv("PAPERLESS_INSECURE_SKIP_VERIFY") == "true"
+	correspondentBlackList      = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
+	paperlessBaseURL            = os.Getenv("PAPERLESS_BASE_URL")
+	paperlessAPIToken           = os.Getenv("PAPERLESS_API_TOKEN")
+	azureDocAIEndpoint          = os.Getenv("AZURE_DOCAI_ENDPOINT")
+	azureDocAIKey               = os.Getenv("AZURE_DOCAI_KEY")
+	azureDocAIModelID           = os.Getenv("AZURE_DOCAI_MODEL_ID")
+	azureDocAITimeout           = os.Getenv("AZURE_DOCAI_TIMEOUT_SECONDS")
+	openaiAPIKey                = os.Getenv("OPENAI_API_KEY")
+	manualTag                   = os.Getenv("MANUAL_TAG")
+	autoTag                     = os.Getenv("AUTO_TAG")
+	manualOcrTag                = os.Getenv("MANUAL_OCR_TAG") // Not used yet
+	autoOcrTag                  = os.Getenv("AUTO_OCR_TAG")
+	llmProvider                 = os.Getenv("LLM_PROVIDER")
+	llmModel                    = os.Getenv("LLM_MODEL")
+	visionLlmProvider           = os.Getenv("VISION_LLM_PROVIDER")
+	visionLlmModel              = os.Getenv("VISION_LLM_MODEL")
+	logLevel                    = strings.ToLower(os.Getenv("LOG_LEVEL"))
+	listenInterface             = os.Getenv("LISTEN_INTERFACE")
+	autoGenerateTitle           = os.Getenv("AUTO_GENERATE_TITLE")
+	autoGenerateTags            = os.Getenv("AUTO_GENERATE_TAGS")
+	autoGenerateCorrespondents  = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
+	autoGenerateCreatedDate     = os.Getenv("AUTO_GENERATE_CREATED_DATE")
+	limitOcrPages               int // Will be read from OCR_LIMIT_PAGES
+	tokenLimit                  = 0 // Will be read from TOKEN_LIMIT
 	ocrEnableHOCR                 = os.Getenv("OCR_ENABLE_HOCR") == "true"
 	ocrHOCROutputPath             = os.Getenv("OCR_HOCR_OUTPUT_PATH")
+	doclingURL                  = os.Getenv("DOCLING_URL")
+	doclingImageExportMode      = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
 
 	// Templates
 	titleTemplate         *template.Template
@@ -192,18 +193,20 @@ func main() {
 	ocrPrompt := promptBuffer.String()
 
 	ocrConfig := ocr.Config{
-		Provider:                 providerType,
-		GoogleProjectID:          os.Getenv("GOOGLE_PROJECT_ID"),
-		GoogleLocation:           os.Getenv("GOOGLE_LOCATION"),
-		GoogleProcessorID:        os.Getenv("GOOGLE_PROCESSOR_ID"),
-		VisionLLMProvider:        visionLlmProvider,
-		VisionLLMModel:           visionLlmModel,
-		VisionLLMPrompt:          ocrPrompt,
-		AzureEndpoint:            azureDocAIEndpoint,
-		AzureAPIKey:              azureDocAIKey,
-		AzureModelID:             azureDocAIModelID,
+		Provider:          providerType,
+		GoogleProjectID:   os.Getenv("GOOGLE_PROJECT_ID"),
+		GoogleLocation:    os.Getenv("GOOGLE_LOCATION"),
+		GoogleProcessorID: os.Getenv("GOOGLE_PROCESSOR_ID"),
+		VisionLLMProvider: visionLlmProvider,
+		VisionLLMModel:    visionLlmModel,
+		VisionLLMPrompt:   ocrPrompt,
+		AzureEndpoint:     azureDocAIEndpoint,
+		AzureAPIKey:       azureDocAIKey,
+		AzureModelID:      azureDocAIModelID,
 		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
 		EnableHOCR:               ocrEnableHOCR,
+		DoclingURL:        doclingURL,
+		DoclingImageExportMode: doclingImageExportMode,
 	}
 
 	// Parse Azure timeout if set
@@ -434,6 +437,16 @@ func validateOrDefaultEnvVars() {
 		}
 		if azureDocAIKey == "" {
 			log.Fatal("Please set the AZURE_DOCAI_KEY environment variable for Azure provider")
+		}
+	}
+
+	if ocrProvider == "docling" {
+		if doclingURL == "" {
+			log.Fatal("Please set the DOCLING_URL environment variable for Docling provider")
+		}
+		if doclingImageExportMode == "" {
+			doclingImageExportMode = "embedded" // Default to PNG
+			log.Infof("DOCLING_IMAGE_EXPORT_MODE not set, defaulting to %s", doclingImageExportMode)
 		}
 	}
 

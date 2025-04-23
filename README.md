@@ -27,6 +27,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
    - **LLM OCR**: Use OpenAI or Ollama to extract text from images.
    - **Google Document AI**: Leverage Google's powerful Document AI for OCR tasks.
    - **Azure Document Intelligence**: Use Microsoft's enterprise OCR solution.
+   - **Docling Server**: Self-hosted OCR and document conversion service
 
 3. **Automatic Title, Tag & Created Date Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
@@ -64,6 +65,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
   - [LLM-based OCR](#1-llm-based-ocr-default)
   - [Azure Document Intelligence](#2-azure-document-intelligence)
   - [Google Document AI](#3-google-document-ai)
+  - [Docling Server](#4-docling-server)
   - [Comparing OCR Providers](#comparing-ocr-providers)
   - [Choosing the Right Provider](#choosing-the-right-provider)
 - [Configuration](#configuration)
@@ -144,6 +146,10 @@ services:
       # AZURE_DOCAI_OUTPUT_CONTENT_FORMAT: 'text' # Optional, defaults to 'text', other valid option is 'markdown'
               # 'markdown' requires the 'prebuilt-layout' model
 
+      # Option 4: Docling Server
+      # OCR_PROVIDER: 'docling'              # Use a Docling server
+      # DOCLING_URL: 'http://your-docling-server:port' # URL of your Docling instance
+
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
       LOG_LEVEL: "info" # Optional: debug, warn, error
@@ -194,7 +200,7 @@ services:
 ---
 ## OCR Providers
 
-paperless-gpt supports three different OCR providers, each with unique strengths and capabilities:
+paperless-gpt supports four different OCR providers, each with unique strengths and capabilities:
 
 ### 1. LLM-based OCR (Default)
 - **Key Features**:
@@ -257,6 +263,22 @@ paperless-gpt supports three different OCR providers, each with unique strengths
   OCR_HOCR_OUTPUT_PATH: "/app/hocr" # Optional, default path
   ```
 
+### 4. Docling Server
+- **Key Features**:
+  - Self-hosted OCR and document conversion service
+  - Supports various input and output formats (including text)
+  - Utilizes multiple OCR engines (EasyOCR, Tesseract, etc.)
+  - Can be run locally or in a private network
+- **Best For**:
+  - Users who prefer a self-hosted solution
+  - Environments where data privacy is paramount
+  - Processing a wide variety of document types
+- **Configuration**:
+  ```yaml
+  OCR_PROVIDER: "docling"
+  DOCLING_URL: "http://your-docling-server:port"
+  ```
+
 ## Configuration
 
 ### Environment Variables
@@ -288,6 +310,7 @@ paperless-gpt supports three different OCR providers, each with unique strengths
 | `GOOGLE_LOCATION`                | Google Cloud region (e.g. `us`, `eu`). Required if OCR_PROVIDER is `google_docai`.                               | Cond.    |                        |
 | `GOOGLE_PROCESSOR_ID`            | Document AI processor ID. Required if OCR_PROVIDER is `google_docai`.                                            | Cond.    |                        |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to the mounted Google service account key. Required if OCR_PROVIDER is `google_docai`.                      | Cond.    |                        |
+| `DOCLING_URL`                    | URL of the Docling server instance. Required if OCR_PROVIDER is `docling`.                                        | Cond.    |                        |
 | `AUTO_OCR_TAG`                   | Tag for automatically processing docs with OCR.                                                                  | No       | paperless-gpt-ocr-auto |
 | `LOG_LEVEL`                      | Application log level (`info`, `debug`, `warn`, `error`).                                                        | No       | info                   |
 | `LISTEN_INTERFACE`               | Network interface to listen on.                                                                                  | No       | 8080                   |
