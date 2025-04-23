@@ -38,7 +38,7 @@ type HOCRCapable interface {
 }
 
 // ProcessDocumentOCR processes a document through OCR and returns the combined text, hOCR and PDF
-func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions) (string, error) {
+func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions) (*ProcessedDocument, error) {
 	docLogger := documentLogger(documentID)
 	docLogger.Info("Starting OCR processing")
 
@@ -46,14 +46,17 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	if app.pdfOCRTagging {
 		document, err := app.Client.GetDocument(ctx, documentID)
 		if err != nil {
-			return "", fmt.Errorf("error fetching document %d: %w", documentID, err)
+			return nil, fmt.Errorf("error fetching document %d: %w", documentID, err)
 		}
 
 		// Check if the document already has the OCR complete tag
 		for _, tag := range document.Tags {
 			if tag == app.pdfOCRCompleteTag {
 				docLogger.Infof("Document already has OCR complete tag '%s', skipping OCR processing", app.pdfOCRCompleteTag)
-				return document.Content, nil
+				return &ProcessedDocument{
+					ID:   documentID,
+					Text: document.Content,
+				}, nil
 			}
 		}
 	}
@@ -71,7 +74,13 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		docLogger.Debug("OCR provider does not support hOCR")
 	}
 
-	imagePaths, totalPdfPages, err := app.Client.DownloadDocumentAsImages(ctx, documentID, limitOcrPages)
+	// Use the page limit from options if provided, otherwise use the global setting
+	pageLimit := limitOcrPages
+	if options.LimitPages > 0 {
+		pageLimit = options.LimitPages
+	}
+
+	imagePaths, totalPdfPages, err := app.Client.DownloadDocumentAsImages(ctx, documentID, pageLimit)
 	defer func() {
 		for _, imagePath := range imagePaths {
 			if err := os.Remove(imagePath); err != nil {
@@ -80,14 +89,14 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		}
 	}()
 	if err != nil {
-		return "", fmt.Errorf("error downloading document images for document %d: %w", documentID, err)
+		return nil, fmt.Errorf("error downloading document images for document %d: %w", documentID, err)
 	}
 
 	// Log the page count information
 	docLogger.WithFields(logrus.Fields{
 		"processed_page_count": len(imagePaths),
 		"total_page_count":     totalPdfPages,
-		"limit_pages":          limitOcrPages,
+		"limit_pages":          pageLimit,
 	}).Debug("Downloaded document images")
 
 	var ocrTexts []string
@@ -99,7 +108,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 
 		imageContent, err := os.ReadFile(imagePath)
 		if err != nil {
-			return "", fmt.Errorf("error reading image file for document %d, page %d: %w", documentID, i+1, err)
+			return nil, fmt.Errorf("error reading image file for document %d, page %d: %w", documentID, i+1, err)
 		}
 
 		// Store image data for potential PDF generation
@@ -108,11 +117,11 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		// Pass the page number (1-based index) to ProcessImage
 		result, err := app.ocrProvider.ProcessImage(ctx, imageContent, i+1)
 		if err != nil {
-			return "", fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
+			return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
 		}
 		if result == nil {
 			pageLogger.Error("Got nil result from OCR provider")
-			return "", fmt.Errorf("error performing OCR for document %d, page %d: nil result", documentID, i+1)
+			return nil, fmt.Errorf("error performing OCR for document %d, page %d: nil result", documentID, i+1)
 		}
 
 		pageLogger.WithField("has_hocr_page", result.HOCRPage != nil).
@@ -162,7 +171,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 						docLogger.WithFields(logrus.Fields{
 							"processed_pages": len(imagePaths),
 							"total_pages":     totalPdfPages,
-							"limit":           limitOcrPages,
+							"limit":           pageLimit,
 						}).Warn("Not generating PDF because fewer pages were processed than exist in the original document")
 					} else {
 						docLogger.Info("Applying OCR to PDF")
@@ -179,7 +188,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 							processedDoc.PDFData = pdfData
 
 							// Save the PDF to a file
-							if err := app.savePDFToFile(documentID, pdfData); err != nil {
+							if err := app.savePDFToFile(ctx, documentID, pdfData); err != nil {
 								docLogger.WithError(err).Error("Failed to save PDF file")
 							} else {
 								docLogger.Info("Successfully generated and saved PDF")
@@ -203,7 +212,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	}
 
 	docLogger.Info("OCR processing completed successfully")
-	return fullText, nil
+	return processedDoc, nil
 }
 
 // saveHOCRToFile saves the hOCR HTML to a file
