@@ -45,7 +45,7 @@ func newDoclingProvider(config Config) (*DoclingProvider, error) {
 }
 
 // ProcessImage sends the image content to the Docling server for OCR
-func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte) (*OCRResult, error) {
+func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error) {
 	logger := log.WithFields(logrus.Fields{
 		"provider": "docling",
 		"url":      p.baseURL,
@@ -93,6 +93,7 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Accept", "application/json") // Ensure we get JSON back
 
+	p.httpClient.HTTPClient.Timeout = 60 * time.Second
 	logger.Debug("Sending request to Docling server")
 	resp, err := p.httpClient.Do(req)
 	if err != nil {

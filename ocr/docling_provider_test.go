@@ -175,7 +175,7 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 				defer server.Close()
 			}
 
-			result, err := provider.ProcessImage(context.Background(), sampleImageContent)
+			result, err := provider.ProcessImage(context.Background(), sampleImageContent, 1)
 
 			if tt.expectedErrStr != "" {
 				assert.Error(t, err)
