@@ -58,7 +58,7 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 
 	// Add image file part
 	// Using a generic filename as the actual name isn't critical here
-	part, err := writer.CreateFormFile("files", "image.bin")
+	part, err := writer.CreateFormFile("files", "document.pdf")
 	if err != nil {
 		logger.WithError(err).Error("Failed to create form file")
 		return nil, fmt.Errorf("failed to create form file: %w", err)
@@ -71,9 +71,9 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 
 	// Add required form fields
 	// Note: Docling expects boolean fields as strings "true"/"false"
-	_ = writer.WriteField("to_formats", "md") // Request plain text output
-	_ = writer.WriteField("do_ocr", "true")      // Ensure OCR is performed
-	_ = writer.WriteField("pipeline", "vlm")      // Ensure OCR is performed
+	_ = writer.WriteField("to_formats", "md") // Request markdown output
+	_ = writer.WriteField("do_ocr", "true")     // Ensure OCR is performed
+	_ = writer.WriteField("pipeline", "vlm")    // Use the VLM pipeline
 	_ = writer.WriteField("image_export_mode", p.imageExportMode)
 
 	// Close multipart writer
@@ -93,8 +93,15 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Accept", "application/json") // Ensure we get JSON back
 
-	p.httpClient.HTTPClient.Timeout = 60 * time.Second
 	logger.Debug("Sending request to Docling server")
+	// Add detailed logging of request parameters
+	logger.WithFields(logrus.Fields{
+		"to_formats": "md",
+		"do_ocr": "true",
+		"pipeline": "vlm",
+		"image_export_mode": p.imageExportMode,
+	}).Debug("Docling request parameters")
+	
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		logger.WithError(err).Error("Failed to send request to Docling server")
@@ -143,14 +150,19 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 	}
 
 	if ocrText == "" {
-		logger.Warn("Received empty text and markdown content from Docling")
-		// Return empty result instead of error, as the process technically succeeded
+		logger.WithFields(logrus.Fields{
+			"document": doclingResp.Document,
+			"response_status": doclingResp.Status,
+		}).Warn("Received empty text and markdown content from Docling")
+		// Log more details about the response to help debug
+		logger.WithField("raw_response", string(respBodyBytes)).Debug("Raw Docling response")
 	}
 
 	result := &OCRResult{
 		Text: ocrText,
 		Metadata: map[string]string{
-			"provider": "docling",
+			"provider":    "docling",
+			"has_content": fmt.Sprintf("%t", ocrText != ""),
 		},
 	}
 
