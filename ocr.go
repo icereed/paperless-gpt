@@ -350,9 +350,39 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 
 	// If replacing the original is requested, delete it after upload
 	if options.ReplaceOriginal {
-		// Wait longer (10 seconds) to ensure processing completes
+		// Poll for task completion
+		maxRetries := 12
+		waitTime := 5 * time.Second
+
 		logger.Info("Waiting for document processing to complete before deletion...")
-		time.Sleep(10 * time.Second)
+
+		for i := 0; i < maxRetries; i++ {
+			taskStatus, err := app.Client.GetTaskStatus(ctx, taskID)
+			if err != nil {
+				logger.WithError(err).Warn("Failed to check task status, proceeding with deletion anyway")
+				break
+			}
+
+			status, ok := taskStatus["status"].(string)
+			if !ok {
+				logger.Warn("Could not determine task status, proceeding with deletion anyway")
+				break
+			}
+
+			if status == "SUCCESS" {
+				logger.Info("Document processing completed successfully")
+				break
+			}
+
+			if status == "FAILURE" {
+				return fmt.Errorf("document processing failed, not deleting original document")
+			}
+
+			if i < maxRetries-1 {
+				logger.Infof("Document still processing (status: %s), waiting %v before checking again", status, waitTime)
+				time.Sleep(waitTime)
+			}
+		}
 
 		// Delete original document
 		if err := app.Client.DeleteDocument(ctx, documentID); err != nil {
