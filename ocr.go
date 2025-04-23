@@ -236,26 +236,17 @@ func (app *App) saveHOCRToFile(documentID int, hOCR string) error {
 }
 
 // savePDFToFile saves the PDF data to a file
-func (app *App) savePDFToFile(documentID int, pdfData []byte) error {
+func (app *App) savePDFToFile(ctx context.Context, documentID int, pdfData []byte) error {
 	// Ensure the directory exists
 	if err := os.MkdirAll(app.localPDFPath, 0755); err != nil {
 		return fmt.Errorf("failed to create PDF output directory: %w", err)
 	}
 
 	// Get the original document to check its extension
-	ctx := context.Background()
 	originalDoc, err := app.Client.GetDocument(ctx, documentID)
 
-	// Default filename pattern
+	// Always use PDF extension for generated PDFs
 	filename := fmt.Sprintf("%08d_paperless-gpt_ocr.pdf", documentID)
-
-	// If we successfully got the original document, use its extension
-	if err == nil && originalDoc.OriginalFileName != "" {
-		ext := filepath.Ext(originalDoc.OriginalFileName)
-		if ext != "" {
-			filename = fmt.Sprintf("%08d_paperless-gpt_ocr%s", documentID, ext)
-		}
-	}
 
 	// Create the file path
 	filePath := filepath.Join(app.localPDFPath, filename)
@@ -276,17 +267,8 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 		return fmt.Errorf("error fetching original document: %w", err)
 	}
 
-	// Determine original filename or generate a default one
+	// Always use PDF extension for generated PDFs
 	filename := fmt.Sprintf("%08d_paperless-gpt_ocr.pdf", documentID)
-
-	// Get the original file name
-	originalFileName := originalDoc.OriginalFileName
-	if originalFileName != "" {
-		ext := filepath.Ext(originalFileName)
-		if ext != "" {
-			filename = fmt.Sprintf("%08d_paperless-gpt_ocr%s", documentID, ext)
-		}
-	}
 
 	// Prepare metadata for the upload
 	metadata := map[string]interface{}{
