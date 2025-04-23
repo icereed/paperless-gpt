@@ -116,4 +116,5 @@ type OCROptions struct {
 	UploadPDF       bool // Whether to upload the generated PDF
 	ReplaceOriginal bool // Whether to delete the original document after uploading
 	CopyMetadata    bool // Whether to copy metadata from the original document
+	LimitPages      int  // Limit on the number of pages to process (0 = no limit)
 }
