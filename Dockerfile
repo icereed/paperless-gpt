@@ -4,7 +4,7 @@ ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 
 # Stage 1: Build Vite frontend
-FROM node:22-alpine AS frontend
+FROM docker.io/node:22-alpine AS frontend
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -25,7 +25,7 @@ COPY web-app /app/
 RUN npm run build
 
 # Stage 2: Build the Go binary
-FROM golang:1.24.2-alpine3.21 AS builder
+FROM docker.io/golang:1.24.2-alpine3.21 AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -82,7 +82,7 @@ RUN sed -i \
 RUN CGO_ENABLED=1 GOMAXPROCS=$(nproc) go build -tags musl -o paperless-gpt .
 
 # Stage 3: Create a lightweight image with just the binary
-FROM alpine:3.21.3
+FROM docker.io/alpine:3.21.3
 
 ENV GIN_MODE=release
 

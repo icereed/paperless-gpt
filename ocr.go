@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gardar/ocrchestra/pkg/hocr"
+	"github.com/gardar/ocrchestra/pkg/pdfocr"
+	"github.com/sirupsen/logrus"
 )
 
 // ProcessedDocument represents a document after OCR processing
@@ -15,7 +18,8 @@ type ProcessedDocument struct {
 	ID         int
 	Text       string
 	HOCRStruct *hocr.HOCR
-	HOCRHTML   string
+	HOCR       string
+	PDFData    []byte
 }
 
 // HOCRCapable defines an interface for OCR providers that can generate hOCR
@@ -33,10 +37,26 @@ type HOCRCapable interface {
 	ResetHOCR()
 }
 
-// ProcessDocumentOCR processes a document through OCR and returns the combined text and hOCR
-func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int) (string, error) {
+// ProcessDocumentOCR processes a document through OCR and returns the combined text, hOCR and PDF
+func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions) (string, error) {
 	docLogger := documentLogger(documentID)
 	docLogger.Info("Starting OCR processing")
+
+	// Skip OCR if the document already has the OCR complete tag
+	if app.pdfOCRTagging {
+		document, err := app.Client.GetDocument(ctx, documentID)
+		if err != nil {
+			return "", fmt.Errorf("error fetching document %d: %w", documentID, err)
+		}
+
+		// Check if the document already has the OCR complete tag
+		for _, tag := range document.Tags {
+			if tag == app.pdfOCRCompleteTag {
+				docLogger.Infof("Document already has OCR complete tag '%s', skipping OCR processing", app.pdfOCRCompleteTag)
+				return document.Content, nil
+			}
+		}
+	}
 
 	// Check if we have an hOCR-capable provider
 	var hocrCapable HOCRCapable
@@ -44,14 +64,14 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int) (string,
 
 	hocrCapable, hasHOCR = app.ocrProvider.(HOCRCapable)
 
-	// Reset hOCR if the provider supports it and it's enabled
-	if hasHOCR && hocrCapable.IsHOCREnabled() {
+	// Reset hOCR if the provider supports it
+	if hasHOCR {
 		hocrCapable.ResetHOCR()
 	} else {
-		hasHOCR = false // Not hOCR capable or not enabled
+		docLogger.Debug("OCR provider does not support hOCR")
 	}
 
-	imagePaths, err := app.Client.DownloadDocumentAsImages(ctx, documentID, limitOcrPages)
+	imagePaths, totalPdfPages, err := app.Client.DownloadDocumentAsImages(ctx, documentID, limitOcrPages)
 	defer func() {
 		for _, imagePath := range imagePaths {
 			if err := os.Remove(imagePath); err != nil {
@@ -63,9 +83,15 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int) (string,
 		return "", fmt.Errorf("error downloading document images for document %d: %w", documentID, err)
 	}
 
-	docLogger.WithField("page_count", len(imagePaths)).Debug("Downloaded document images")
+	// Log the page count information
+	docLogger.WithFields(logrus.Fields{
+		"processed_page_count": len(imagePaths),
+		"total_page_count":     totalPdfPages,
+		"limit_pages":          limitOcrPages,
+	}).Debug("Downloaded document images")
 
 	var ocrTexts []string
+	var imageDataList [][]byte
 
 	for i, imagePath := range imagePaths {
 		pageLogger := docLogger.WithField("page", i+1)
@@ -75,6 +101,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int) (string,
 		if err != nil {
 			return "", fmt.Errorf("error reading image file for document %d, page %d: %w", documentID, i+1, err)
 		}
+
+		// Store image data for potential PDF generation
+		imageDataList = append(imageDataList, imageContent)
 
 		// Pass the page number (1-based index) to ProcessImage
 		result, err := app.ocrProvider.ProcessImage(ctx, imageContent, i+1)
@@ -93,21 +122,77 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int) (string,
 		ocrTexts = append(ocrTexts, result.Text)
 	}
 
-	// Generate complete hOCR if we have hOCR capability and it's enabled
-	if hasHOCR && hocrCapable.IsHOCREnabled() {
+	fullText := strings.Join(ocrTexts, "\n\n")
+
+	// Create ProcessedDocument to hold all the results
+	processedDoc := &ProcessedDocument{
+		ID:   documentID,
+		Text: fullText,
+	}
+
+	// Generate complete hOCR if we have hOCR capability
+	if hasHOCR {
 		hocrDoc, err := hocrCapable.GetHOCRDocument()
 		if err == nil && hocrDoc != nil {
+			// Store the hOCR struct in the processed document
+			processedDoc.HOCRStruct = hocrDoc
+
 			// Generate the HTML from the complete document
-			hocrHTML, err := hocr.GenerateHOCRDocument(hocrDoc)
+			hOCR, err := hocr.GenerateHOCRDocument(hocrDoc)
 			if err == nil {
 				docLogger.WithField("page_count", len(hocrCapable.GetHOCRPages())).
 					Info("Successfully generated hOCR document")
 
-				// Save the HOCR to a file
-				if err := app.saveHOCRToFile(documentID, hocrHTML); err != nil {
-					docLogger.WithError(err).Error("Failed to save HOCR file")
-				} else {
-					docLogger.Info("Successfully saved HOCR file")
+				// Store the HTML in the processed document
+				processedDoc.HOCR = hOCR
+
+				// Save the hOCR to a file if enabled
+				if app.createLocalHOCR && app.localHOCRPath != "" {
+					if err := app.saveHOCRToFile(documentID, hOCR); err != nil {
+						docLogger.WithError(err).Error("Failed to save hOCR file")
+					} else {
+						docLogger.Info("Successfully saved hOCR file")
+					}
+				}
+
+				// Apply OCR to PDF if the feature is enabled
+				if app.createLocalPDF && app.localPDFPath != "" {
+					// SAFETY CHECK: Don't generate PDF if we're processing fewer pages than original document
+					if len(imagePaths) < totalPdfPages {
+						docLogger.WithFields(logrus.Fields{
+							"processed_pages": len(imagePaths),
+							"total_pages":     totalPdfPages,
+							"limit":           limitOcrPages,
+						}).Warn("Not generating PDF because fewer pages were processed than exist in the original document")
+					} else {
+						docLogger.Info("Applying OCR to PDF")
+
+						// Set up PDF configuration
+						pdfConfig := pdfocr.DefaultConfig()
+
+						// Create the PDF
+						pdfData, err := pdfocr.AssembleWithOCR(hocrDoc, imageDataList, pdfConfig)
+						if err != nil {
+							docLogger.WithError(err).Error("Failed to apply OCR to PDF")
+						} else {
+							// Store PDF data in the processed document struct
+							processedDoc.PDFData = pdfData
+
+							// Save the PDF to a file
+							if err := app.savePDFToFile(documentID, pdfData); err != nil {
+								docLogger.WithError(err).Error("Failed to save PDF file")
+							} else {
+								docLogger.Info("Successfully generated and saved PDF")
+							}
+
+							// Upload PDF to paperless-ngx if requested
+							if options.UploadPDF && pdfData != nil {
+								if err := app.uploadProcessedPDF(ctx, documentID, pdfData, options, docLogger); err != nil {
+									docLogger.WithError(err).Error("Failed to upload processed PDF")
+								}
+							}
+						}
+					}
 				}
 			} else {
 				docLogger.WithError(err).Error("Failed to generate hOCR")
@@ -117,25 +202,172 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int) (string,
 		}
 	}
 
-	fullText := strings.Join(ocrTexts, "\n\n")
 	docLogger.Info("OCR processing completed successfully")
 	return fullText, nil
 }
 
 // saveHOCRToFile saves the hOCR HTML to a file
 // TODO: Implement a proper solution to store this alongside the document in Paperless
-func (app *App) saveHOCRToFile(documentID int, hocrHTML string) error {
+func (app *App) saveHOCRToFile(documentID int, hOCR string) error {
 	// Ensure the directory exists
-	if err := os.MkdirAll(app.hocrOutputPath, 0755); err != nil {
+	if err := os.MkdirAll(app.localHOCRPath, 0755); err != nil {
 		return fmt.Errorf("failed to create HOCR output directory: %w", err)
 	}
 
 	// Create the file path
-	filePath := filepath.Join(app.hocrOutputPath, fmt.Sprintf("doc_%d.hocr", documentID))
+	filename := fmt.Sprintf("%08d_paperless-gpt_ocr.hocr", documentID)
+	filePath := filepath.Join(app.localHOCRPath, filename)
 
 	// Write the HOCR to the file
-	if err := os.WriteFile(filePath, []byte(hocrHTML), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte(hOCR), 0644); err != nil {
 		return fmt.Errorf("failed to write HOCR file: %w", err)
+	}
+
+	return nil
+}
+
+// savePDFToFile saves the PDF data to a file
+func (app *App) savePDFToFile(documentID int, pdfData []byte) error {
+	// Ensure the directory exists
+	if err := os.MkdirAll(app.localPDFPath, 0755); err != nil {
+		return fmt.Errorf("failed to create PDF output directory: %w", err)
+	}
+
+	// Get the original document to check its extension
+	ctx := context.Background()
+	originalDoc, err := app.Client.GetDocument(ctx, documentID)
+
+	// Default filename pattern
+	filename := fmt.Sprintf("%08d_paperless-gpt_ocr.pdf", documentID)
+
+	// If we successfully got the original document, use its extension
+	if err == nil && originalDoc.OriginalFileName != "" {
+		ext := filepath.Ext(originalDoc.OriginalFileName)
+		if ext != "" {
+			filename = fmt.Sprintf("%08d_paperless-gpt_ocr%s", documentID, ext)
+		}
+	}
+
+	// Create the file path
+	filePath := filepath.Join(app.localPDFPath, filename)
+
+	// Write the PDF to the file
+	if err := os.WriteFile(filePath, pdfData, 0644); err != nil {
+		return fmt.Errorf("failed to write PDF file: %w", err)
+	}
+
+	return nil
+}
+
+// Upload PDF to Paperless
+func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData []byte, options OCROptions, logger *logrus.Entry) error {
+	// Get the original document metadata
+	originalDoc, err := app.Client.GetDocument(ctx, documentID)
+	if err != nil {
+		return fmt.Errorf("error fetching original document: %w", err)
+	}
+
+	// Determine original filename or generate a default one
+	filename := fmt.Sprintf("%08d_paperless-gpt_ocr.pdf", documentID)
+
+	// Get the original file name
+	originalFileName := originalDoc.OriginalFileName
+	if originalFileName != "" {
+		ext := filepath.Ext(originalFileName)
+		if ext != "" {
+			filename = fmt.Sprintf("%08d_paperless-gpt_ocr%s", documentID, ext)
+		}
+	}
+
+	// Prepare metadata for the upload
+	metadata := map[string]interface{}{
+		"title": originalDoc.Title,
+	}
+
+	// Copy metadata from original document if requested
+	if options.CopyMetadata {
+		// Get tag IDs
+		allTags, err := app.Client.GetAllTags(ctx)
+		if err == nil {
+			var tagIDs []int
+			for _, tagName := range originalDoc.Tags {
+				if tagID, ok := allTags[tagName]; ok {
+					tagIDs = append(tagIDs, tagID)
+				}
+			}
+
+			// Add or create the OCR complete tag if tagging is enabled
+			if app.pdfOCRTagging {
+				if tagID, ok := allTags[app.pdfOCRCompleteTag]; ok {
+					tagIDs = append(tagIDs, tagID)
+				} else {
+					// Create the tag if it doesn't exist
+					tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag)
+					if err == nil {
+						tagIDs = append(tagIDs, tagID)
+					} else {
+						logger.WithError(err).Warn("Could not create OCR complete tag")
+					}
+				}
+			}
+
+			if len(tagIDs) > 0 {
+				metadata["tags"] = tagIDs
+			}
+		}
+
+		// Get correspondent ID
+		if originalDoc.Correspondent != "" {
+			allCorrespondents, err := app.Client.GetAllCorrespondents(ctx)
+			if err == nil {
+				if correspondentID, ok := allCorrespondents[originalDoc.Correspondent]; ok {
+					metadata["correspondent"] = correspondentID
+				}
+			}
+		}
+
+		// Set created date if available
+		if originalDoc.CreatedDate != "" {
+			metadata["created"] = originalDoc.CreatedDate
+		}
+	} else if app.pdfOCRTagging {
+		// Even if not copying all metadata, still add the OCR complete tag if tagging is enabled
+		allTags, err := app.Client.GetAllTags(ctx)
+		if err == nil {
+			if tagID, ok := allTags[app.pdfOCRCompleteTag]; ok {
+				metadata["tags"] = []int{tagID}
+			} else {
+				// Create the tag if it doesn't exist
+				tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag)
+				if err == nil {
+					metadata["tags"] = []int{tagID}
+				} else {
+					logger.WithError(err).Warn("Could not create OCR complete tag")
+				}
+			}
+		}
+	}
+
+	// Upload the PDF
+	logger.WithField("filename", filename).Info("Uploading processed PDF to Paperless-ngx")
+	taskID, err := app.Client.UploadDocument(ctx, pdfData, filename, metadata)
+	if err != nil {
+		return fmt.Errorf("error uploading PDF: %w", err)
+	}
+
+	logger.WithField("task_id", taskID).Info("PDF uploaded successfully")
+
+	// If replacing the original is requested, delete it after upload
+	if options.ReplaceOriginal {
+		// Wait longer (10 seconds) to ensure processing completes
+		logger.Info("Waiting for document processing to complete before deletion...")
+		time.Sleep(10 * time.Second)
+
+		// Delete original document
+		if err := app.Client.DeleteDocument(ctx, documentID); err != nil {
+			return fmt.Errorf("error deleting original document: %w", err)
+		}
+		logger.Info("Original document deleted successfully")
 	}
 
 	return nil

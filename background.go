@@ -163,7 +163,48 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		docLogger := documentLogger(document.ID)
 		docLogger.Info("Processing document for OCR")
 
-		ocrContent, err := app.ProcessDocumentOCR(ctx, document.ID)
+		// Skip OCR if the document already has the OCR complete tag and tagging is enabled
+		if app.pdfOCRTagging {
+			hasCompleteTag := false
+			for _, tag := range document.Tags {
+				if tag == app.pdfOCRCompleteTag {
+					hasCompleteTag = true
+					break
+				}
+			}
+
+			if hasCompleteTag {
+				docLogger.Infof("Document already has OCR complete tag '%s', skipping OCR processing", app.pdfOCRCompleteTag)
+
+				// Remove only the autoOcrTag to take it out of the processing queue
+				// while preserving the OCR complete tag
+				err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+					{
+						ID:               document.ID,
+						OriginalDocument: document,
+						RemoveTags:       []string{autoOcrTag},
+					},
+				}, app.Database, false)
+
+				if err != nil {
+					docLogger.Errorf("Update to remove autoOcrTag failed: %v", err)
+					errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
+					continue
+				}
+
+				docLogger.Info("Successfully removed auto OCR tag")
+				successCount++
+				continue
+			}
+		}
+
+		options := OCROptions{
+			UploadPDF:       app.pdfUpload,
+			ReplaceOriginal: app.pdfReplace,
+			CopyMetadata:    app.pdfCopyMetadata,
+		}
+
+		ocrContent, err := app.ProcessDocumentOCR(ctx, document.ID, options)
 		if err != nil {
 			docLogger.Errorf("OCR processing failed: %v", err)
 			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))

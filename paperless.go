@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"image/jpeg"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -350,12 +352,13 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	}
 
 	return Document{
-		ID:            documentResponse.ID,
-		Title:         documentResponse.Title,
-		Content:       documentResponse.Content,
-		Correspondent: correspondentName,
-		Tags:          tagNames,
-		CreatedDate:   documentResponse.CreatedDate,
+		ID:               documentResponse.ID,
+		Title:            documentResponse.Title,
+		Content:          documentResponse.Content,
+		Correspondent:    correspondentName,
+		Tags:             tagNames,
+		CreatedDate:      documentResponse.CreatedDate,
+		OriginalFileName: documentResponse.OriginalFileName,
 	}, nil
 }
 
@@ -552,79 +555,81 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 
 // DownloadDocumentAsImages downloads the PDF file of the specified document and converts it to images
 // If limitPages > 0, only the first N pages will be processed
-func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentId int, limitPages int) ([]string, error) {
+// Returns the image paths and the total number of pages in the original document
+func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentId int, limitPages int) ([]string, int, error) {
 	// Create a directory named after the document ID
 	docDir := filepath.Join(client.GetCacheFolder(), fmt.Sprintf("document-%d", documentId))
 	if _, err := os.Stat(docDir); os.IsNotExist(err) {
 		err = os.MkdirAll(docDir, 0755)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
-	// Check if images already exist
-	var imagePaths []string
-	for n := 0; ; n++ {
-		if limitPages > 0 && n >= limitPages {
-			break
-		}
-		imagePath := filepath.Join(docDir, fmt.Sprintf("page%03d.jpg", n))
-		if _, err := os.Stat(imagePath); os.IsNotExist(err) {
-			break
-		}
-		imagePaths = append(imagePaths, imagePath)
-	}
-
-	// If images exist, return them
-	if len(imagePaths) > 0 {
-		return imagePaths, nil
-	}
-
-	// Proceed with downloading and converting the document to images
+	// Proceed with downloading the document to get the total page count
 	path := fmt.Sprintf("api/documents/%d/download/", documentId)
 	resp, err := client.Do(ctx, "GET", path, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("error downloading document %d: %d, %s", documentId, resp.StatusCode, string(bodyBytes))
+		return nil, 0, fmt.Errorf("error downloading document %d: %d, %s", documentId, resp.StatusCode, string(bodyBytes))
 	}
 
 	pdfData, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	tmpFile, err := os.CreateTemp("", "document-*.pdf")
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer os.Remove(tmpFile.Name())
 
 	_, err = tmpFile.Write(pdfData)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	tmpFile.Close()
 
 	doc, err := fitz.New(tmpFile.Name())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer doc.Close()
 
 	totalPages := doc.NumPage()
+	pagesToProcess := totalPages
+
 	if limitPages > 0 && limitPages < totalPages {
-		totalPages = limitPages
+		pagesToProcess = limitPages
 	}
+
+	// Check if images already exist
+	var imagePaths []string
+	for n := 0; n < pagesToProcess; n++ {
+		imagePath := filepath.Join(docDir, fmt.Sprintf("page%03d.jpg", n))
+		if _, err := os.Stat(imagePath); os.IsExist(err) {
+			imagePaths = append(imagePaths, imagePath)
+		}
+	}
+
+	// If all images exist, return them
+	if len(imagePaths) == pagesToProcess {
+		return imagePaths, totalPages, nil
+	}
+
+	// Clear existing images to ensure consistency
+	imagePaths = []string{}
 
 	var mu sync.Mutex
 	var g errgroup.Group
 
-	for n := 0; n < totalPages; n++ {
+	for n := 0; n < pagesToProcess; n++ {
 		n := n // capture loop variable
 		g.Go(func() error {
 			mu.Lock()
@@ -669,13 +674,13 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 	}
 
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return nil, totalPages, err
 	}
 
 	// sort the image paths to ensure they are in order
 	slices.Sort(imagePaths)
 
-	return imagePaths, nil
+	return imagePaths, totalPages, nil
 }
 
 // GetCacheFolder returns the cache folder for the PaperlessClient
@@ -781,4 +786,159 @@ func (client *PaperlessClient) GetAllCorrespondents(ctx context.Context) (map[st
 	}
 
 	return correspondentIDMapping, nil
+}
+
+// DeleteDocument deletes a document by its ID
+func (client *PaperlessClient) DeleteDocument(ctx context.Context, documentID int) error {
+	path := fmt.Sprintf("api/documents/%d/", documentID)
+	resp, err := client.Do(ctx, "DELETE", path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("error deleting document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+// GetTaskStatus checks the status of a document processing task
+func (client *PaperlessClient) GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error) {
+	path := fmt.Sprintf("api/tasks/?task_id=%s", taskID)
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error checking task status: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("error parsing response: %w", err)
+	}
+
+	return result, nil
+}
+
+// CreateTag creates a new tag and returns its ID
+func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (int, error) {
+	type tagRequest struct {
+		Name string `json:"name"`
+	}
+
+	requestBody, err := json.Marshal(tagRequest{Name: tagName})
+	if err != nil {
+		return 0, fmt.Errorf("error marshaling tag request: %w", err)
+	}
+
+	resp, err := client.Do(ctx, "POST", "api/tags/", bytes.NewBuffer(requestBody))
+	if err != nil {
+		return 0, fmt.Errorf("error creating tag: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("error creating tag: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var createdTag struct {
+		ID int `json:"id"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&createdTag); err != nil {
+		return 0, fmt.Errorf("error parsing created tag response: %w", err)
+	}
+
+	return createdTag.ID, nil
+}
+
+// UploadDocument uploads a document to paperless-ngx
+func (client *PaperlessClient) UploadDocument(ctx context.Context, pdfData []byte, filename string, metadata map[string]interface{}) (string, error) {
+	// Create a new multipart form
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Add the document file part
+	part, err := writer.CreateFormFile("document", filename)
+	if err != nil {
+		return "", fmt.Errorf("error creating form file: %w", err)
+	}
+	if _, err := io.Copy(part, bytes.NewReader(pdfData)); err != nil {
+		return "", fmt.Errorf("error copying file data: %w", err)
+	}
+
+	// Add metadata fields
+	for key, value := range metadata {
+		if value == nil {
+			continue
+		}
+
+		var strValue string
+		switch v := value.(type) {
+		case string:
+			strValue = v
+		case int:
+			strValue = strconv.Itoa(v)
+		case []int:
+			for _, tagID := range v {
+				if err := writer.WriteField("tags", strconv.Itoa(tagID)); err != nil {
+					return "", fmt.Errorf("error adding tag ID: %w", err)
+				}
+			}
+			continue
+		default:
+			continue
+		}
+
+		if err := writer.WriteField(key, strValue); err != nil {
+			return "", fmt.Errorf("error adding metadata field %s: %w", key, err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return "", fmt.Errorf("error closing multipart writer: %w", err)
+	}
+
+	// Create the request
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/documents/post_document/", client.BaseURL), body)
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", fmt.Sprintf("Token %s", client.APIToken))
+
+	// Send the request
+	resp, err := client.HTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error sending request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("error uploading document: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Read the response directly as a string (per Swagger docs)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response: %w", err)
+	}
+
+	// Trim any whitespace and quotes
+	taskID := strings.Trim(strings.TrimSpace(string(bodyBytes)), "\"")
+	if taskID == "" {
+		return "", fmt.Errorf("empty task ID returned")
+	}
+
+	log.Infof("Successfully uploaded document, received task ID: %s", taskID)
+	return taskID, nil
 }

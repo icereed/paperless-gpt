@@ -58,8 +58,15 @@ var (
 	autoGenerateCreatedDate       = os.Getenv("AUTO_GENERATE_CREATED_DATE")
 	limitOcrPages                 int // Will be read from OCR_LIMIT_PAGES
 	tokenLimit                    = 0 // Will be read from TOKEN_LIMIT
-	ocrEnableHOCR                 = os.Getenv("OCR_ENABLE_HOCR") == "true"
-	ocrHOCROutputPath             = os.Getenv("OCR_HOCR_OUTPUT_PATH")
+	createLocalHOCR               = os.Getenv("CREATE_LOCAL_HOCR") == "true"
+	createLocalPDF                = os.Getenv("CREATE_LOCAL_PDF") == "true"
+	localHOCRPath                 = os.Getenv("LOCAL_HOCR_PATH")
+	localPDFPath                  = os.Getenv("LOCAL_PDF_PATH")
+	pdfUpload                     = os.Getenv("PDF_UPLOAD") == "true"
+	pdfReplace                    = os.Getenv("PDF_REPLACE") == "true"
+	pdfCopyMetadata               = os.Getenv("PDF_COPY_METADATA") == "true"
+	pdfOCRCompleteTag             = os.Getenv("PDF_OCR_COMPLETE_TAG")
+	pdfOCRTagging                 = os.Getenv("PDF_OCR_TAGGING") == "true"
 
 	// Templates
 	titleTemplate         *template.Template
@@ -131,12 +138,21 @@ Content:
 
 // App struct to hold dependencies
 type App struct {
-	Client         *PaperlessClient
-	Database       *gorm.DB
-	LLM            llms.Model
-	VisionLLM      llms.Model
-	ocrProvider    ocr.Provider // OCR provider interface
-	hocrOutputPath string
+	Client            *PaperlessClient
+	Database          *gorm.DB
+	LLM               llms.Model
+	VisionLLM         llms.Model
+	ocrProvider       ocr.Provider // OCR provider interface
+	localHOCRPath     string       // Path for saving hOCR files locally
+	localPDFPath      string       // Path for saving PDF files locally
+	createLocalHOCR   bool         // Whether to save hOCR files locally
+	createLocalPDF    bool         // Whether to create PDF files locally
+	pdfUpload         bool         // Whether to upload processed PDFs to paperless-ngx
+	pdfReplace        bool         // Whether to replace original document after upload
+	pdfCopyMetadata   bool         // Whether to copy metadata from original to uploaded PDF
+	pdfOCRCompleteTag string       // Tag to add to documents that have been OCR processed
+	pdfOCRTagging     bool         // Whether to add the OCR complete tag to processed PDFs
+
 }
 
 func main() {
@@ -203,7 +219,7 @@ func main() {
 		AzureAPIKey:              azureDocAIKey,
 		AzureModelID:             azureDocAIModelID,
 		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
-		EnableHOCR:               ocrEnableHOCR,
+		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 	}
 
 	// Parse Azure timeout if set
@@ -227,12 +243,20 @@ func main() {
 
 	// Initialize App with dependencies
 	app := &App{
-		Client:         client,
-		Database:       database,
-		LLM:            llm,
-		VisionLLM:      visionLlm,
-		ocrProvider:    ocrProvider,
-		hocrOutputPath: ocrHOCROutputPath,
+		Client:            client,
+		Database:          database,
+		LLM:               llm,
+		VisionLLM:         visionLlm,
+		ocrProvider:       ocrProvider,
+		localHOCRPath:     localHOCRPath,
+		localPDFPath:      localPDFPath,
+		createLocalHOCR:   createLocalHOCR,
+		createLocalPDF:    createLocalPDF,
+		pdfUpload:         pdfUpload,
+		pdfReplace:        pdfReplace,
+		pdfCopyMetadata:   pdfCopyMetadata,
+		pdfOCRCompleteTag: pdfOCRCompleteTag,
+		pdfOCRTagging:     pdfOCRTagging,
 	}
 
 	if app.isOcrEnabled() {
@@ -410,6 +434,10 @@ func validateOrDefaultEnvVars() {
 		autoOcrTag = "paperless-gpt-ocr-auto"
 	}
 
+	if pdfOCRCompleteTag == "" {
+		pdfOCRCompleteTag = "paperless-gpt-ocr-complete"
+	}
+
 	if paperlessBaseURL == "" {
 		log.Fatal("Please set the PAPERLESS_BASE_URL environment variable.")
 	}
@@ -457,19 +485,53 @@ func validateOrDefaultEnvVars() {
 	}
 
 	// Set default for hOCR output path
-	if ocrHOCROutputPath == "" {
-		ocrHOCROutputPath = "/app/hocr"
+	if localHOCRPath == "" && createLocalHOCR {
+		localHOCRPath = "/app/hocr"
 
 		// Fallback dir
 		if _, err := os.Stat("/app"); os.IsNotExist(err) {
-			ocrHOCROutputPath = filepath.Join(os.TempDir(), "hocr")
-			log.Warnf("'/app' directory not found, using %s as fallback for hOCR output", ocrHOCROutputPath)
+			localHOCRPath = filepath.Join(os.TempDir(), "hocr")
+			log.Warnf("'/app' directory not found, using %s as fallback for hOCR output", localHOCRPath)
 		}
 	}
-	// If OCR is enabled and using a provider that supports hOCR, log the hOCR settings
-	if ocrEnableHOCR {
-		log.Infof("hOCR generation enabled, output path: %s", ocrHOCROutputPath)
+
+	// Set default for PDF output path
+	if localPDFPath == "" && createLocalPDF {
+		localPDFPath = "/app/pdf"
+
+		// Fallback dir
+		if _, err := os.Stat("/app"); os.IsNotExist(err) {
+			localPDFPath = filepath.Join(os.TempDir(), "pdf")
+			log.Warnf("'/app' directory not found, using %s as fallback for PDF output", localPDFPath)
+		}
 	}
+
+	// Log OCR feature settings
+	ocrProviderEnv := os.Getenv("OCR_PROVIDER")
+	if ocrProviderEnv != "" {
+		log.Infof("OCR provider: %s", os.Getenv("OCR_PROVIDER"))
+
+		if createLocalHOCR {
+			log.Infof("hOCR file creation is enabled, output path: %s", localHOCRPath)
+		}
+
+		if createLocalPDF {
+			log.Infof("PDF generation is enabled, output path: %s", localPDFPath)
+		}
+	}
+	if pdfUpload {
+		log.Infof("PDF upload to paperless-ngx is enabled")
+		if pdfReplace {
+			log.Infof("Original documents will be replaced after OCR upload")
+		}
+		if pdfCopyMetadata {
+			log.Infof("Metadata will be copied from original documents")
+		}
+		if pdfOCRTagging {
+			log.Infof("OCR complete tagging enabled with tag: %s", pdfOCRCompleteTag)
+		}
+	}
+
 }
 
 // documentLogger creates a logger with document context
