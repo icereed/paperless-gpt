@@ -283,3 +283,64 @@ func TestUploadProcessedPDF(t *testing.T) {
 		})
 	}
 }
+
+func TestOCROptionsValidation(t *testing.T) {
+	validateOptions := func(opts OCROptions) error {
+		if !opts.UploadPDF && opts.ReplaceOriginal {
+			return fmt.Errorf("invalid OCROptions: cannot set ReplaceOriginal=true when UploadPDF=false")
+		}
+		return nil
+	}
+
+	testCases := []struct {
+		name        string
+		options     OCROptions
+		expectError bool
+	}{
+		{
+			name: "Safe: both false",
+			options: OCROptions{
+				UploadPDF:       false,
+				ReplaceOriginal: false,
+			},
+			expectError: false,
+		},
+		{
+			name: "Safe: both true",
+			options: OCROptions{
+				UploadPDF:       true,
+				ReplaceOriginal: true,
+			},
+			expectError: false,
+		},
+		{
+			name: "Safe: upload without replace",
+			options: OCROptions{
+				UploadPDF:       true,
+				ReplaceOriginal: false,
+			},
+			expectError: false,
+		},
+		{
+			name: "Unsafe: replace without upload",
+			options: OCROptions{
+				UploadPDF:       false,
+				ReplaceOriginal: true,
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateOptions(tc.options)
+
+			if tc.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid OCROptions")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

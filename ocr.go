@@ -39,6 +39,11 @@ type HOCRCapable interface {
 
 // ProcessDocumentOCR processes a document through OCR and returns the combined text, hOCR and PDF
 func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions) (*ProcessedDocument, error) {
+	// Validate options for safety
+	if !options.UploadPDF && options.ReplaceOriginal {
+		return nil, fmt.Errorf("invalid OCROptions: cannot set ReplaceOriginal=true when UploadPDF=false")
+	}
+
 	docLogger := documentLogger(documentID)
 	docLogger.Info("Starting OCR processing")
 
