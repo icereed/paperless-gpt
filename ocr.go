@@ -242,9 +242,6 @@ func (app *App) savePDFToFile(ctx context.Context, documentID int, pdfData []byt
 		return fmt.Errorf("failed to create PDF output directory: %w", err)
 	}
 
-	// Get the original document to check its extension
-	originalDoc, err := app.Client.GetDocument(ctx, documentID)
-
 	// Always use PDF extension for generated PDFs
 	filename := fmt.Sprintf("%08d_paperless-gpt_ocr.pdf", documentID)
 

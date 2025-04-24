@@ -132,16 +132,17 @@ func processJob(app *App, job *Job) {
 			UploadPDF:       app.pdfUpload,
 			ReplaceOriginal: app.pdfReplace,
 			CopyMetadata:    app.pdfCopyMetadata,
+			LimitPages:      limitOcrPages,
 		}
 	}
 
-	fullOcrText, err := app.ProcessDocumentOCR(ctx, job.DocumentID, options)
+	processedDoc, err := app.ProcessDocumentOCR(ctx, job.DocumentID, options)
 	if err != nil {
 		logger.Errorf("Error processing document OCR for job %s: %v", job.ID, err)
 		jobStore.updateJobStatus(job.ID, "failed", err.Error())
 		return
 	}
 
-	jobStore.updateJobStatus(job.ID, "completed", fullOcrText)
+	jobStore.updateJobStatus(job.ID, "completed", processedDoc.Text)
 	logger.Infof("Job completed: %s", job.ID)
 }

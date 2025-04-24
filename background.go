@@ -202,9 +202,10 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			UploadPDF:       app.pdfUpload,
 			ReplaceOriginal: app.pdfReplace,
 			CopyMetadata:    app.pdfCopyMetadata,
+			LimitPages:      limitOcrPages,
 		}
 
-		ocrContent, err := app.ProcessDocumentOCR(ctx, document.ID, options)
+		processedDoc, err := app.ProcessDocumentOCR(ctx, document.ID, options)
 		if err != nil {
 			docLogger.Errorf("OCR processing failed: %v", err)
 			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
@@ -216,7 +217,7 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			{
 				ID:               document.ID,
 				OriginalDocument: document,
-				SuggestedContent: ocrContent,
+				SuggestedContent: processedDoc.Text,
 				RemoveTags:       []string{autoOcrTag},
 			},
 		}, app.Database, false)

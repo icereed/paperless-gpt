@@ -191,6 +191,21 @@ func TestUploadProcessedPDF(t *testing.T) {
 		w.Write([]byte(fmt.Sprintf("\"%s\"", mockTaskID)))
 	})
 
+	// Mock task status endpoint
+	env.setMockResponse("/api/tasks/", func(w http.ResponseWriter, r *http.Request) {
+		taskID := r.URL.Query().Get("task_id")
+		require.Equal(t, mockTaskID, taskID, "Unexpected task ID in status request")
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "SUCCESS",
+			"task_id": taskID,
+			"result": map[string]interface{}{
+				"document_id": documentID,
+			},
+		})
+	})
+
 	// For testing document replacement
 	deleteDocCalled := false
 	env.setMockResponse(fmt.Sprintf("/api/documents/%d/", documentID), func(w http.ResponseWriter, r *http.Request) {
@@ -224,6 +239,7 @@ func TestUploadProcessedPDF(t *testing.T) {
 				UploadPDF:       true,
 				ReplaceOriginal: false,
 				CopyMetadata:    true,
+				LimitPages:      0,
 			},
 			expectReplacement:  false,
 			expectTagging:      true,
@@ -235,6 +251,7 @@ func TestUploadProcessedPDF(t *testing.T) {
 				UploadPDF:       true,
 				ReplaceOriginal: true,
 				CopyMetadata:    true,
+				LimitPages:      0,
 			},
 			expectReplacement:  true,
 			expectTagging:      true,
