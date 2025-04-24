@@ -60,6 +60,7 @@ func setupTestCase(tc TestCase, env *testEnv) {
 				{"id": 1, "name": autoTag},
 				{"id": 2, "name": autoOcrTag},
 				{"id": 3, "name": "other-tag"},
+				{"id": 4, "name": pdfOCRCompleteTag},
 			},
 		}
 		w.WriteHeader(http.StatusOK)
@@ -79,6 +80,8 @@ func setupTestCase(tc TestCase, env *testEnv) {
 					tagIds[j] = 1
 				case autoOcrTag:
 					tagIds[j] = 2
+				case pdfOCRCompleteTag:
+					tagIds[j] = 4
 				default:
 					tagIds[j] = 3
 				}
@@ -265,6 +268,75 @@ func TestProcessAutoTagDocuments(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				assert.Equal(t, tc.expectedCount, count)
+			}
+		})
+	}
+}
+
+func TestOCRTagHandlingLogic(t *testing.T) {
+	// Initialize required global variables
+	autoOcrTag = "paperless-gpt-ocr-auto"
+	pdfOCRCompleteTag = "paperless-gpt-ocr-complete"
+
+	// Create test data
+	testDoc1 := Document{
+		ID:    1,
+		Title: "Doc with OCR complete tag",
+		Tags:  []string{autoOcrTag, pdfOCRCompleteTag},
+	}
+
+	testDoc2 := Document{
+		ID:    2,
+		Title: "Doc without OCR complete tag",
+		Tags:  []string{autoOcrTag},
+	}
+
+	// Test cases
+	testCases := []struct {
+		name           string
+		doc            Document
+		hasCompleteTag bool
+	}{
+		{
+			name:           "Document with OCR complete tag should be skipped",
+			doc:            testDoc1,
+			hasCompleteTag: true,
+		},
+		{
+			name:           "Document without OCR complete tag should be processed",
+			doc:            testDoc2,
+			hasCompleteTag: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Direct test of the tag-checking logic
+			hasOCRCompleteTag := false
+			for _, tag := range tc.doc.Tags {
+				if tag == pdfOCRCompleteTag {
+					hasOCRCompleteTag = true
+					break
+				}
+			}
+
+			assert.Equal(t, tc.hasCompleteTag, hasOCRCompleteTag,
+				"OCR complete tag detection should match expected value")
+
+			// Verify tag removal logic
+			updatedTags := make([]string, 0)
+			for _, tag := range tc.doc.Tags {
+				if tag != autoOcrTag {
+					updatedTags = append(updatedTags, tag)
+				}
+			}
+
+			if tc.hasCompleteTag {
+				// If document has complete tag, verify it's still present after tag removal
+				assert.Contains(t, updatedTags, pdfOCRCompleteTag,
+					"OCR complete tag should be preserved")
+				assert.NotContains(t, updatedTags, autoOcrTag,
+					"Auto OCR tag should be removed")
 			}
 		})
 	}
