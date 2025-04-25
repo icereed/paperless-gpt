@@ -16,9 +16,9 @@ import (
 
 // DoclingProvider implements OCR using a Docling server
 type DoclingProvider struct {
-	baseURL    string
+	baseURL         string
 	imageExportMode string
-	httpClient *retryablehttp.Client
+	httpClient      *retryablehttp.Client
 }
 
 // newDoclingProvider creates a new Docling OCR provider
@@ -35,9 +35,9 @@ func newDoclingProvider(config Config) (*DoclingProvider, error) {
 	client.Logger = logger // Use the logger from the ocr package
 
 	provider := &DoclingProvider{
-		baseURL:    config.DoclingURL,
+		baseURL:         config.DoclingURL,
 		imageExportMode: config.DoclingImageExportMode,
-		httpClient: client,
+		httpClient:      client,
 	}
 
 	logger.Info("Successfully initialized Docling provider")
@@ -71,11 +71,18 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 
 	// Add required form fields
 	// Note: Docling expects boolean fields as strings "true"/"false"
-	_ = writer.WriteField("to_formats", "md") // Request markdown output
-	_ = writer.WriteField("do_ocr", "true")     // Ensure OCR is performed
-	_ = writer.WriteField("pipeline", "vlm")    // Use the VLM pipeline
-	_ = writer.WriteField("image_export_mode", p.imageExportMode)
-
+	if err := writer.WriteField("to_formats", "md"); err != nil {
+		return nil, fmt.Errorf("set to_formats: %w", err)
+	}
+	if err := writer.WriteField("do_ocr", "true"); err != nil {
+		return nil, fmt.Errorf("set do_ocr: %w", err)
+	}
+	if err := writer.WriteField("pipeline", "vlm"); err != nil {
+		return nil, fmt.Errorf("set pipeline: %w", err)
+	}
+	if err := writer.WriteField("image_export_mode", p.imageExportMode); err != nil {
+		return nil, fmt.Errorf("set image_export_mode: %w", err)
+	}
 	// Close multipart writer
 	err = writer.Close()
 	if err != nil {
@@ -96,12 +103,12 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 	logger.Debug("Sending request to Docling server")
 	// Add detailed logging of request parameters
 	logger.WithFields(logrus.Fields{
-		"to_formats": "md",
-		"do_ocr": "true",
-		"pipeline": "vlm",
+		"to_formats":        "md",
+		"do_ocr":            "true",
+		"pipeline":          "vlm",
 		"image_export_mode": p.imageExportMode,
 	}).Debug("Docling request parameters")
-	
+
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		logger.WithError(err).Error("Failed to send request to Docling server")
@@ -151,7 +158,7 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 
 	if ocrText == "" {
 		logger.WithFields(logrus.Fields{
-			"document": doclingResp.Document,
+			"document":        doclingResp.Document,
 			"response_status": doclingResp.Status,
 		}).Warn("Received empty text and markdown content from Docling")
 		// Log more details about the response to help debug
@@ -179,8 +186,8 @@ type DoclingConvertResponse struct {
 
 // DoclingDocumentResponse mirrors the 'document' part of the response
 type DoclingDocumentResponse struct {
-	Filename   string `json:"filename"`
-	MdContent  string `json:"md_content"`
+	Filename    string `json:"filename"`
+	MdContent   string `json:"md_content"`
 	TextContent string `json:"text_content"`
 	// Add other fields like json_content, html_content if needed
 }
