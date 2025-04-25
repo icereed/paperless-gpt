@@ -58,8 +58,6 @@ var (
 	autoGenerateCreatedDate       = os.Getenv("AUTO_GENERATE_CREATED_DATE")
 	limitOcrPages                 int // Will be read from OCR_LIMIT_PAGES
 	tokenLimit                    = 0 // Will be read from TOKEN_LIMIT
-	ocrEnableHOCR                 = os.Getenv("OCR_ENABLE_HOCR") == "true"
-	ocrHOCROutputPath             = os.Getenv("OCR_HOCR_OUTPUT_PATH")
 	createLocalHOCR               = os.Getenv("CREATE_LOCAL_HOCR") == "true"
 	createLocalPDF                = os.Getenv("CREATE_LOCAL_PDF") == "true"
 	localHOCRPath                 = os.Getenv("LOCAL_HOCR_PATH")
