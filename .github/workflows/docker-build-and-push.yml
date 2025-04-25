@@ -3,6 +3,7 @@ name: Build and Push Docker Images
 permissions:
   pull-requests: write
   contents: read
+  packages: write # Added permission for GitHub Container Registry
 
 on:
   push:
@@ -52,6 +53,7 @@ jobs:
         run: go mod download
       - name: Run Go tests
         run: go test ./...
+
   build-amd64:
     runs-on: ubuntu-latest
     needs: test
@@ -68,16 +70,26 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set Docker tags
         id: set_tags
         run: |
+          # Set repository names
+          DOCKERHUB_REPO="icereed/paperless-gpt"
+          GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
+          
           if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            echo "TAGS=icereed/paperless-gpt:pr-${GITHUB_SHA}-amd64" >> $GITHUB_ENV
+            echo "TAGS=${DOCKERHUB_REPO}:pr-${GITHUB_SHA}-amd64,${GHCR_REPO}:pr-${GITHUB_SHA}-amd64" >> $GITHUB_ENV
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
-            echo "TAGS=icereed/paperless-gpt:${VERSION}-amd64" >> $GITHUB_ENV
+            echo "TAGS=${DOCKERHUB_REPO}:${VERSION}-amd64,${GHCR_REPO}:${VERSION}-amd64" >> $GITHUB_ENV
           else
-            echo "TAGS=icereed/paperless-gpt:unreleased-amd64" >> $GITHUB_ENV
+            echo "TAGS=${DOCKERHUB_REPO}:unreleased-amd64,${GHCR_REPO}:unreleased-amd64" >> $GITHUB_ENV
           fi
       - name: Build and push AMD64 image
         id: build_amd64
@@ -122,14 +134,25 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Log in to GitHub Container Registry
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set Docker tags
         id: set_tags
         run: |
+          # Set repository names
+          DOCKERHUB_REPO="icereed/paperless-gpt"
+          GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
+          
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
-            echo "TAGS=icereed/paperless-gpt:${VERSION}-arm64" >> $GITHUB_ENV
+            echo "TAGS=${DOCKERHUB_REPO}:${VERSION}-arm64,${GHCR_REPO}:${VERSION}-arm64" >> $GITHUB_ENV
           else
-            echo "TAGS=icereed/paperless-gpt:unreleased-arm64" >> $GITHUB_ENV
+            echo "TAGS=${DOCKERHUB_REPO}:unreleased-arm64,${GHCR_REPO}:unreleased-arm64" >> $GITHUB_ENV
           fi
       - name: Build and push ARM64 image
         id: build_arm64
@@ -161,6 +184,7 @@ jobs:
     if: github.event_name != 'pull_request'
     env:
       DOCKERHUB_REPO: icereed/paperless-gpt
+      GHCR_REPO: ghcr.io/${{ github.repository }}
     steps:
       - name: Download amd64 digest
         uses: actions/download-artifact@v4
@@ -179,6 +203,12 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Determine version/tag
         id: get_version
         run: |
@@ -188,23 +218,43 @@ jobs:
           else
             echo "VERSION=unreleased" >> $GITHUB_ENV
           fi
-      - name: Create and push manifest list
+      - name: Create and push manifest lists
         run: |
           AMD64_DIGEST=$(cat ${{ runner.temp }}/digests/digest-amd64.txt)
           ARM64_DIGEST=$(cat ${{ runner.temp }}/digests/digest-arm64.txt)
-          # Create manifest with the single-arch image digests
+          
+          # Create manifests for Docker Hub
           docker buildx imagetools create -t ${DOCKERHUB_REPO}:${VERSION} \
             ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
+            
+          # Create manifests for GHCR
+          docker buildx imagetools create -t ${GHCR_REPO}:${VERSION} \
+            ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
+            
           # Also push "latest" tag when on a tag
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            # Docker Hub latest
             docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest \
+              ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
+              
+            # GHCR latest
+            docker buildx imagetools create -t ${GHCR_REPO}:latest \
               ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
           fi
       - name: Inspect manifest
         run: |
+          echo "Inspecting Docker Hub manifest:"
           docker buildx imagetools inspect ${DOCKERHUB_REPO}:${VERSION}
+          
+          echo "Inspecting GHCR manifest:"
+          docker buildx imagetools inspect ${GHCR_REPO}:${VERSION}
+          
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "Inspecting Docker Hub latest manifest:"
             docker buildx imagetools inspect ${DOCKERHUB_REPO}:latest
+            
+            echo "Inspecting GHCR latest manifest:"
+            docker buildx imagetools inspect ${GHCR_REPO}:latest
           fi
 
   e2e-tests:
