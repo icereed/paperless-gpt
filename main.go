@@ -483,8 +483,17 @@ func validateOrDefaultEnvVars() {
 		log.Fatal("Please set the LLM_MODEL environment variable.")
 	}
 
-	if (llmProvider == "openai" || visionLlmProvider == "openai") && openaiAPIKey == "" {
-		log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
+	if llmProvider == "openai" || visionLlmProvider == "openai" {
+		if openaiAPIKey == "" {
+			log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
+		}
+
+		// Check Azure specific configuration
+		if strings.ToLower(os.Getenv("OPENAI_API_TYPE")) == "azure" {
+			if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL == "" {
+				log.Fatal("Please set the OPENAI_BASE_URL environment variable for Azure OpenAI.")
+			}
+		}
 	}
 
 	// Initialize token limit from environment variable
@@ -669,11 +678,24 @@ func createLLM() (llms.Model, error) {
 			return nil, fmt.Errorf("OpenAI API key is not set")
 		}
 
-		return openai.New(
+		options := []openai.Option{
 			openai.WithModel(llmModel),
 			openai.WithToken(openaiAPIKey),
 			openai.WithHTTPClient(createCustomHTTPClient()),
-		)
+		}
+
+		if strings.ToLower(os.Getenv("OPENAI_API_TYPE")) == "azure" {
+			baseURL := os.Getenv("OPENAI_BASE_URL")
+			if baseURL == "" {
+				return nil, fmt.Errorf("OPENAI_BASE_URL is required for Azure OpenAI")
+			}
+			options = append(options,
+				openai.WithAPIType(openai.APITypeAzure),
+				openai.WithBaseURL(baseURL),
+			)
+		}
+
+		return openai.New(options...)
 	case "ollama":
 		host := os.Getenv("OLLAMA_HOST")
 		if host == "" {
@@ -695,11 +717,24 @@ func createVisionLLM() (llms.Model, error) {
 			return nil, fmt.Errorf("OpenAI API key is not set")
 		}
 
-		return openai.New(
+		options := []openai.Option{
 			openai.WithModel(visionLlmModel),
 			openai.WithToken(openaiAPIKey),
 			openai.WithHTTPClient(createCustomHTTPClient()),
-		)
+		}
+
+		if strings.ToLower(os.Getenv("OPENAI_API_TYPE")) == "azure" {
+			baseURL := os.Getenv("OPENAI_BASE_URL")
+			if baseURL == "" {
+				return nil, fmt.Errorf("OPENAI_BASE_URL is required for Azure OpenAI")
+			}
+			options = append(options,
+				openai.WithAPIType(openai.APITypeAzure),
+				openai.WithBaseURL(baseURL),
+			)
+		}
+
+		return openai.New(options...)
 	case "ollama":
 		host := os.Getenv("OLLAMA_HOST")
 		if host == "" {
