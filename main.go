@@ -67,6 +67,8 @@ var (
 	pdfCopyMetadata               = os.Getenv("PDF_COPY_METADATA") == "true"
 	pdfOCRCompleteTag             = os.Getenv("PDF_OCR_COMPLETE_TAG")
 	pdfOCRTagging                 = os.Getenv("PDF_OCR_TAGGING") == "true"
+	doclingURL                    = os.Getenv("DOCLING_URL")
+	doclingImageExportMode        = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
 
 	// Templates
 	titleTemplate         *template.Template
@@ -219,6 +221,8 @@ func main() {
 		AzureAPIKey:              azureDocAIKey,
 		AzureModelID:             azureDocAIModelID,
 		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
+		DoclingURL:               doclingURL,
+		DoclingImageExportMode:   doclingImageExportMode,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 	}
 
@@ -462,6 +466,16 @@ func validateOrDefaultEnvVars() {
 		}
 		if azureDocAIKey == "" {
 			log.Fatal("Please set the AZURE_DOCAI_KEY environment variable for Azure provider")
+		}
+	}
+
+	if ocrProvider == "docling" {
+		if doclingURL == "" {
+			log.Fatal("Please set the DOCLING_URL environment variable for Docling provider")
+		}
+		if doclingImageExportMode == "" {
+			doclingImageExportMode = "embedded" // Default to PNG
+			log.Infof("DOCLING_IMAGE_EXPORT_MODE not set, defaulting to %s", doclingImageExportMode)
 		}
 	}
 
