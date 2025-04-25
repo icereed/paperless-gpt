@@ -3,6 +3,7 @@
 [![License](https://img.shields.io/github/license/icereed/paperless-gpt)](LICENSE)
 [![Discord Banner](https://img.shields.io/badge/Join%20us%20on-Discord-blue?logo=discord)](https://discord.gg/fJQppDH2J7)
 [![Docker Pulls](https://img.shields.io/docker/pulls/icereed/paperless-gpt)](https://hub.docker.com/r/icereed/paperless-gpt)
+[![GitHub Container Registry](https://img.shields.io/badge/GHCR-Package-181717?logo=github)](https://github.com/icereed/paperless-gpt/pkgs/container/paperless-gpt)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-icereed-ea4aaa?logo=github-sponsors)](https://github.com/sponsors/icereed)
 
@@ -123,7 +124,9 @@ services:
     # ... (your existing paperless-ngx config)
 
   paperless-gpt:
-    image: icereed/paperless-gpt:latest
+    # Use one of these image sources:
+    image: icereed/paperless-gpt:latest  # Docker Hub
+    # image: ghcr.io/icereed/paperless-gpt:latest  # GitHub Container Registry
     environment:
       PAPERLESS_BASE_URL: "http://paperless-ngx:8000"
       PAPERLESS_API_TOKEN: "your_paperless_api_token"
