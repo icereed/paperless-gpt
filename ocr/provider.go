@@ -49,6 +49,10 @@ type Config struct {
 	AzureTimeout             int    // Optional, defaults to 120 seconds
 	AzureOutputContentFormat string // Optional, defaults to ""
 
+	// Docling settings
+	DoclingURL string
+	DoclingImageExportMode string
+
 	// OCR output options
 	EnableHOCR     bool   // Whether to generate hOCR data if supported by the provider
 	HOCROutputPath string // Where to save hOCR output files
@@ -84,6 +88,13 @@ func NewProvider(config Config) (Provider, error) {
 			return nil, fmt.Errorf("missing required Azure Document Intelligence configuration")
 		}
 		return newAzureProvider(config)
+
+	case "docling":
+		if config.DoclingURL == "" {
+			return nil, fmt.Errorf("missing required Docling configuration (DOCLING_URL)")
+		}
+		log.WithField("url", config.DoclingURL).Info("Using Docling provider")
+		return newDoclingProvider(config)
 
 	default:
 		return nil, fmt.Errorf("unsupported OCR provider: %s", config.Provider)
