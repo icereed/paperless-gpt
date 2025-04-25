@@ -223,7 +223,6 @@ func main() {
 		AzureAPIKey:              azureDocAIKey,
 		AzureModelID:             azureDocAIModelID,
 		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
-		EnableHOCR:               ocrEnableHOCR,
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it

@@ -23,12 +23,12 @@ func setupDoclingTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Se
 func newTestDoclingProvider(serverURL string) *DoclingProvider {
 	client := retryablehttp.NewClient()
 	client.RetryMax = 0 // Disable retries for testing
-	client.Logger = nil  // Suppress log output during tests
+	client.Logger = nil // Suppress log output during tests
 
 	return &DoclingProvider{
-		baseURL:    serverURL,
+		baseURL:         serverURL,
 		imageExportMode: "md",
-		httpClient: client,
+		httpClient:      client,
 	}
 }
 
@@ -39,7 +39,7 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 		name           string
 		mockHandler    func(w http.ResponseWriter, r *http.Request)
 		expectedResult *OCRResult
-		expectedErrStr string // Substring of the expected error message
+		expectedErrStr string                // Substring of the expected error message
 		checkRequest   func(r *http.Request) // Optional function to validate the request received by the server
 	}{
 		{
@@ -54,7 +54,7 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 					Status: "success",
 					Document: DoclingDocumentResponse{
 						TextContent: "Successfully processed text.",
-						Filename:    "image.bin",
+						Filename:    "document.pdf",
 					},
 				}
 				w.Header().Set("Content-Type", "application/json")
@@ -63,18 +63,19 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 			expectedResult: &OCRResult{
 				Text: "Successfully processed text.",
 				Metadata: map[string]string{
-					"provider": "docling",
+					"provider":    "docling",
+					"has_content": "true",
 				},
 			},
 			checkRequest: func(r *http.Request) {
 				err := r.ParseMultipartForm(10 << 20) // 10 MB max memory
 				assert.NoError(t, err)
-				assert.Equal(t, "text", r.FormValue("to_formats"))
+				assert.Equal(t, "md", r.FormValue("to_formats"))
 				assert.Equal(t, "true", r.FormValue("do_ocr"))
 				f, fh, err := r.FormFile("files")
 				assert.NoError(t, err)
 				assert.NotNil(t, f)
-				assert.Equal(t, "image.bin", fh.Filename)
+				assert.Equal(t, "document.pdf", fh.Filename)
 				fileContent, _ := io.ReadAll(f)
 				assert.Equal(t, sampleImageContent, fileContent)
 				f.Close()
@@ -88,7 +89,7 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 					Document: DoclingDocumentResponse{
 						TextContent: "", // Empty text content
 						MdContent:   "# Markdown Content",
-						Filename:    "image.bin",
+						Filename:    "document.pdf",
 					},
 				}
 				w.Header().Set("Content-Type", "application/json")
@@ -97,7 +98,8 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 			expectedResult: &OCRResult{
 				Text: "# Markdown Content",
 				Metadata: map[string]string{
-					"provider": "docling",
+					"provider":    "docling",
+					"has_content": "true",
 				},
 			},
 		},
@@ -109,7 +111,7 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 					Document: DoclingDocumentResponse{
 						TextContent: "",
 						MdContent:   "",
-						Filename:    "image.bin",
+						Filename:    "document.pdf",
 					},
 				}
 				w.Header().Set("Content-Type", "application/json")
@@ -118,7 +120,8 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 			expectedResult: &OCRResult{
 				Text: "",
 				Metadata: map[string]string{
-					"provider": "docling",
+					"provider":    "docling",
+					"has_content": "false",
 				},
 			},
 		},
@@ -163,7 +166,7 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 			})
 
 			server := setupDoclingTestServer(t, checkedHandler)
-			
+
 			serverURL := server.URL
 			if tt.name == "Server Connection Error" {
 				server.Close() // Intentionally close server to cause connection error
@@ -188,4 +191,4 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 			}
 		})
 	}
-} 
+}
