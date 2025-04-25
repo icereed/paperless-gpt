@@ -53,7 +53,7 @@ type GetDocumentApiResponse struct {
 	// Modified            time.Time     `json:"modified"`
 	// Added               time.Time     `json:"added"`
 	// ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
-	// OriginalFileName    string        `json:"original_file_name"`
+	OriginalFileName string `json:"original_file_name"`
 	// ArchivedFileName    string        `json:"archived_file_name"`
 	// Owner         int           `json:"owner"`
 	// UserCanChange bool          `json:"user_can_change"`
@@ -63,12 +63,13 @@ type GetDocumentApiResponse struct {
 // Document is a stripped down version of the document object from paperless-ngx.
 // Response payload for /documents endpoint and part of request payload for /generate-suggestions endpoint
 type Document struct {
-	ID            int      `json:"id"`
-	Title         string   `json:"title"`
-	Content       string   `json:"content"`
-	Tags          []string `json:"tags"`
-	Correspondent string   `json:"correspondent"`
-	CreatedDate   string   `json:"created_date"`
+	ID               int      `json:"id"`
+	Title            string   `json:"title"`
+	Content          string   `json:"content"`
+	Tags             []string `json:"tags"`
+	Correspondent    string   `json:"correspondent"`
+	CreatedDate      string   `json:"created_date"`
+	OriginalFileName string   `json:"original_file_name"`
 }
 
 // GenerateSuggestionsRequest is the request payload for generating suggestions for /generate-suggestions endpoint
@@ -108,4 +109,12 @@ type Correspondent struct {
 			Groups []int `json:"groups"`
 		} `json:"change"`
 	} `json:"set_permissions"`
+}
+
+// OCROptions contains options for the OCR processing
+type OCROptions struct {
+	UploadPDF       bool // Whether to upload the generated PDF
+	ReplaceOriginal bool // Whether to delete the original document after uploading
+	CopyMetadata    bool // Whether to copy metadata from the original document
+	LimitPages      int  // Limit on the number of pages to process (0 = no limit)
 }

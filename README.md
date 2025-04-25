@@ -38,15 +38,19 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 5. **Automatic Correspondent Generation**  
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
 
-6. **Extensive Customization**
+6. **Searchable & Selectable PDFs**  
+   Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance.
+
+7. **Extensive Customization**
 
    - **Prompt Templates**: Tweak your AI prompts to reflect your domain, style, or preference.
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
+   - **PDF Processing**: Configure how OCR-enhanced PDFs are handled, with options to save locally or upload to paperless-ngx.
 
-7. **Simple Docker Deployment**  
+8. **Simple Docker Deployment**  
    A few environment variables, and you're off! Compose it alongside paperless-ngx with minimal fuss.
 
-8. **Unified Web UI**
+9. **Unified Web UI**
 
    - **Manual Review**: Approve or tweak AI's suggestions.
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
@@ -68,6 +72,13 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
   - [Docling Server](#4-docling-server)
   - [Comparing OCR Providers](#comparing-ocr-providers)
   - [Choosing the Right Provider](#choosing-the-right-provider)
+- [Enhanced OCR Features](#enhanced-ocr-features)
+  - [PDF Text Layer Generation](#pdf-text-layer-generation)
+  - [Local File Saving](#local-file-saving)
+  - [PDF Upload to paperless-ngx](#pdf-upload-to-paperless-ngx)
+  - [Metadata Copying Limitations](#metadata-copying-limitations)
+  - [Safety Features](#safety-features)
+  - [Usage Recommendations](#usage-recommendations)
 - [Configuration](#configuration)
   - [Environment Variables](#environment-variables)
   - [Custom Prompt Templates](#custom-prompt-templates)
@@ -146,6 +157,17 @@ services:
       # AZURE_DOCAI_OUTPUT_CONTENT_FORMAT: 'text' # Optional, defaults to 'text', other valid option is 'markdown'
               # 'markdown' requires the 'prebuilt-layout' model
 
+      # Enhanced OCR Features
+      CREATE_LOCAL_HOCR: "false" # Optional, save hOCR files locally
+      LOCAL_HOCR_PATH: "/app/hocr" # Optional, path for hOCR files
+      CREATE_LOCAL_PDF: "false" # Optional, save enhanced PDFs locally
+      LOCAL_PDF_PATH: "/app/pdf" # Optional, path for PDF files
+      PDF_UPLOAD: "false" # Optional, upload enhanced PDFs to paperless-ngx
+      PDF_REPLACE: "false" # Optional and DANGEROUS, delete original after upload
+      PDF_COPY_METADATA: "true" # Optional, copy metadata from original document
+      PDF_OCR_TAGGING: "true" # Optional, add tag to processed documents
+      PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete" # Optional, tag name
+
       # Option 4: Docling Server
       # OCR_PROVIDER: 'docling'              # Use a Docling server
       # DOCLING_URL: 'http://your-docling-server:port' # URL of your Docling instance
@@ -157,6 +179,9 @@ services:
       - ./prompts:/app/prompts # Mount the prompts directory
       # For Google Document AI:
       - ${HOME}/.config/gcloud/application_default_credentials.json:/app/credentials.json
+      # For local hOCR and PDF saving:
+      - ./hocr:/app/hocr # Only if CREATE_LOCAL_HOCR is true
+      - ./pdf:/app/pdf # Only if CREATE_LOCAL_PDF is true
     ports:
       - "8080:8080"
     depends_on:
@@ -247,7 +272,8 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   - Strong form field detection
   - Multi-language support
   - High accuracy on structured documents
-  - hOCR generation for embedding OCR text in PDFs (experimental)
+  - **Exclusive hOCR generation** for creating searchable PDFs with text layers
+  - **Only provider that supports** enhanced PDF generation features
 - **Best For**:
   - Forms and structured documents
   - Documents with tables
@@ -259,8 +285,10 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   GOOGLE_PROJECT_ID: "your-project"
   GOOGLE_LOCATION: "us"
   GOOGLE_PROCESSOR_ID: "processor-id"
-  OCR_ENABLE_HOCR: "true" # Optional, for hOCR generation
-  OCR_HOCR_OUTPUT_PATH: "/app/hocr" # Optional, default path
+  CREATE_LOCAL_HOCR: "true" # Optional, for hOCR generation
+  LOCAL_HOCR_PATH: "/app/hocr" # Optional, default path
+  CREATE_LOCAL_PDF: "true" # Optional, for applying OCR to PDF
+  LOCAL_PDF_PATH: "/app/pdf" # Optional, default path 
   ```
 
 ### 4. Docling Server
@@ -279,11 +307,110 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   DOCLING_URL: "http://your-docling-server:port"
   ```
 
+## Enhanced OCR Features
+
+paperless-gpt now includes powerful OCR enhancements that go beyond basic text extraction:
+
+> **Important Note**: The PDF text layer generation and hOCR features are currently **only supported with Google Document AI** as the OCR provider. These features are not available when using LLM-based OCR or Azure Document Intelligence.
+
+### PDF Text Layer Generation
+
+- **Searchable & Selectable PDFs**: Creates PDFs with transparent text overlays accurately positioned over each word in the document
+- **hOCR Integration**: Utilizes hOCR format (HTML-based OCR representation) to maintain precise text positioning
+- **Document Quality Improvement**: Makes documents both searchable and selectable while preserving the original appearance
+- **Google Document AI Required**: These features rely on Google Document AI's ability to generate hOCR data with accurate word positions
+
+### Local File Saving
+
+paperless-gpt can save both the hOCR files and enhanced PDFs locally:
+
+```yaml
+environment:
+  # Enable local file saving
+  CREATE_LOCAL_HOCR: "true"   # Save hOCR files locally
+  CREATE_LOCAL_PDF: "true"    # Save generated PDFs locally
+  LOCAL_HOCR_PATH: "/app/hocr" # Path to save hOCR files
+  LOCAL_PDF_PATH: "/app/pdf"   # Path to save PDF files
+volumes:
+  # Mount volumes to access the files from your host
+  - ./hocr_files:/app/hocr
+  - ./pdf_files:/app/pdf
+```
+
+> **Note**: You must mount these directories as volumes in your Docker configuration to access the generated files from your host system.
+
+### PDF Upload to paperless-ngx
+
+Due to limitations in paperless-ngx's API, it's not possible to directly update existing documents with their OCR-enhanced versions. As a workaround, paperless-gpt can:
+
+1. Upload the enhanced PDF as a new document
+2. Copy metadata from the original document to the new one
+3. Optionally delete the original document
+
+```yaml
+environment:
+  # PDF upload configuration
+  PDF_UPLOAD: "true"          # Upload processed PDFs to paperless-ngx
+  PDF_COPY_METADATA: "true"   # Copy metadata from original to new document 
+  PDF_REPLACE: "false"        # Whether to delete the original document (use with caution!)
+  PDF_OCR_TAGGING: "true"     # Add a tag to mark documents as OCR-processed
+  PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete" # Tag used to mark OCR-processed documents
+```
+
+> **⚠️ WARNING ⚠️**  
+> Setting `PDF_REPLACE: "true"` will delete the original document after uploading the enhanced version. This process cannot be undone and may result in data loss if something goes wrong during the upload or metadata copying process. Use with extreme caution!
+
+### Metadata Copying Limitations
+
+When copying metadata from the original document to the new one, paperless-gpt attempts to copy:
+
+- Document title
+- Tags (including adding the OCR complete tag)
+- Correspondent information
+- Created date
+
+However, some metadata **cannot** be copied due to paperless-ngx API limitations:
+
+- Document ID (new document always gets a new ID)
+- Added date (will reflect the current upload date)
+- Modified date
+- Custom fields that might be added by other paperless-ngx plugins
+- Notes and annotations
+
+### Safety Features
+
+To prevent accidental creation of incomplete documents, paperless-gpt includes several safety features:
+
+1. **Page Count Check**: If using `OCR_LIMIT_PAGES` to process only a subset of pages (for speed or resource reasons), PDF generation will be skipped entirely if fewer pages would be processed than exist in the original document.
+
+```yaml
+environment:
+  OCR_LIMIT_PAGES: "5"  # Limit OCR to first 5 pages, set to 0 for no limit
+```
+
+2. **OCR Complete Tagging**: Documents that have been fully processed with OCR can be automatically tagged with a special tag, preventing duplicate processing.
+
+3. **Processing Skip**: If a document already has the OCR complete tag, processing will be skipped automatically.
+
+### Usage Recommendations
+
+For best results with the enhanced OCR features:
+
+1. **Initial Testing**: Start with `PDF_REPLACE: "false"` until you've confirmed the process works well with your documents.
+
+2. **Regular Backups**: Ensure you have backups of your paperless-ngx database and documents before enabling document replacement.
+
+3. **Process Management**: For large documents, consider using `OCR_LIMIT_PAGES: "0"` to ensure all pages are processed, even though this will take longer.
+
+4. **Local Copies**: Enable local file saving (`CREATE_LOCAL_HOCR` and `CREATE_LOCAL_PDF`) to keep copies of the enhanced files as an extra precaution.
+
+5. **Tagging Strategy**: Use the OCR complete tag (`PDF_OCR_COMPLETE_TAG`) to track which documents have already been processed.
+
 ## Configuration
 
 ### Environment Variables
 
-# **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
+> **Note:** When using Ollama, ensure that the Ollama server is running and accessible from the paperless-gpt container.
 
 | Variable                         | Description                                                                                                      | Required | Default                |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------- | ---------------------- |
@@ -298,7 +425,7 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
 | `OPENAI_BASE_URL`                | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                            | No       |                        |
 | `LLM_LANGUAGE`                   | Likely language for documents (e.g. `English`).                                                                  | No       | English                |
 | `OLLAMA_HOST`                    | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                    | No       |                        |
-| `OCR_PROVIDER`                   | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                        | No       | llm                    |
+| `OCR_PROVIDER`                   | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                         | No       | llm                    |
 | `VISION_LLM_PROVIDER`            | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                | Cond.    |                        |
 | `VISION_LLM_MODEL`               | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                    | Cond.    |                        |
 | `AZURE_DOCAI_ENDPOINT`           | Azure Document Intelligence endpoint. Required if OCR_PROVIDER is `azure`.                                        | Cond.    |                        |
@@ -311,18 +438,25 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
 | `GOOGLE_PROCESSOR_ID`            | Document AI processor ID. Required if OCR_PROVIDER is `google_docai`.                                            | Cond.    |                        |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to the mounted Google service account key. Required if OCR_PROVIDER is `google_docai`.                      | Cond.    |                        |
 | `DOCLING_URL`                    | URL of the Docling server instance. Required if OCR_PROVIDER is `docling`.                                        | Cond.    |                        |
+| `CREATE_LOCAL_HOCR`              | Whether to save hOCR files locally.                                                                              | No       | false                  |
+| `LOCAL_HOCR_PATH`                | Path where hOCR files will be saved when hOCR generation is enabled.                                             | No       | /app/hocr              |
+| `CREATE_LOCAL_PDF`               | Whether to save enhanced PDFs locally.                                                                           | No       | false                  |
+| `LOCAL_PDF_PATH`                 | Path where PDF files will be saved when PDF generation is enabled.                                               | No       | /app/pdf               |
+| `PDF_UPLOAD`                     | Whether to upload enhanced PDFs to paperless-ngx.                                                                | No       | false                  |
+| `PDF_REPLACE`                    | Whether to delete the original document after uploading the enhanced version (DANGEROUS).                        | No       | false                  |
+| `PDF_COPY_METADATA`              | Whether to copy metadata from the original document to the uploaded PDF.                                         | No       | true                   |
+| `PDF_OCR_TAGGING`                | Whether to add a tag to mark documents as OCR-processed.                                                         | No       | true                   |
+| `PDF_OCR_COMPLETE_TAG`           | Tag used to mark documents as OCR-processed.                                                                     | No       | paperless-gpt-ocr-complete |
 | `AUTO_OCR_TAG`                   | Tag for automatically processing docs with OCR.                                                                  | No       | paperless-gpt-ocr-auto |
+| `OCR_LIMIT_PAGES`                | Limit the number of pages for OCR. Set to `0` for no limit.                                                      | No       | 5                      |
 | `LOG_LEVEL`                      | Application log level (`info`, `debug`, `warn`, `error`).                                                        | No       | info                   |
 | `LISTEN_INTERFACE`               | Network interface to listen on.                                                                                  | No       | 8080                   |
 | `AUTO_GENERATE_TITLE`            | Generate titles automatically if `paperless-gpt-auto` is used.                                                   | No       | true                   |
 | `AUTO_GENERATE_TAGS`             | Generate tags automatically if `paperless-gpt-auto` is used.                                                     | No       | true                   |
 | `AUTO_GENERATE_CORRESPONDENTS`   | Generate correspondents automatically if `paperless-gpt-auto` is used.                                           | No       | true                   |
 | `AUTO_GENERATE_CREATED_DATE`     | Generate the created dates automatically if `paperless-gpt-auto` is used.                                        | No       | true                   |
-| `OCR_LIMIT_PAGES`                | Limit the number of pages for OCR. Set to `0` for no limit.                                                      | No       | 5                      |
 | `TOKEN_LIMIT`                    | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                | No       |                        |
 | `CORRESPONDENT_BLACK_LIST`       | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`. | No       |                        |
-| `OCR_ENABLE_HOCR`                | Enable hOCR generation (experimental, Google Document AI only).                                                  | No       | false                  |
-| `OCR_HOCR_OUTPUT_PATH`           | Path where hOCR files will be saved when hOCR generation is enabled.                                             | No       | /app/hocr              |
 
 ### Custom Prompt Templates
 
@@ -375,31 +509,6 @@ Each template has access to specific variables:
 
 The templates use Go's text/template syntax. paperless-gpt automatically reloads template changes on startup.
 
----
-
-## Usage
-
-1. **Tag Documents**
-
-   - Add `paperless-gpt` tag to documents for manual processing
-   - Add `paperless-gpt-auto` for automatic processing
-   - Add `paperless-gpt-ocr-auto` for automatic OCR processing
-
-2. **Visit Web UI**
-
-   - Go to `http://localhost:8080` (or your host) in your browser
-   - Review documents tagged for processing
-
-3. **Generate & Apply Suggestions**
-
-   - Click "Generate Suggestions" to see AI-proposed titles/tags/correspondents
-   - Review and approve or edit suggestions
-   - Click "Apply" to save changes to paperless-ngx
-
-4. **OCR Processing**
-   - Tag documents with appropriate OCR tag to process them
-   - Monitor progress in the Web UI
-   - Review results and apply changes
 ---
 
 ## LLM-Based OCR: Compare for Yourself
@@ -603,8 +712,37 @@ P.O. Box 94515
 
 - **Vanilla OCR** typically uses classical methods or Tesseract-like engines to extract text, which can result in garbled outputs for complex fonts or poor-quality scans.
 - **LLM-Powered OCR** uses your chosen AI backend—OpenAI or Ollama—to interpret the image's text in a more context-aware manner. This leads to fewer errors and more coherent text.
+- **Google Document AI and Azure Document Intelligence** provide high-accuracy OCR with advanced layout analysis.
+- **Enhanced PDF Generation** combines OCR results with the original document to create searchable PDFs with properly positioned text layers.
 
 ---
+
+## Usage
+
+1. **Tag Documents**
+
+   - Add `paperless-gpt` tag to documents for manual processing
+   - Add `paperless-gpt-auto` for automatic processing
+   - Add `paperless-gpt-ocr-auto` for automatic OCR processing
+
+2. **Visit Web UI**
+
+   - Go to `http://localhost:8080` (or your host) in your browser
+   - Review documents tagged for processing
+
+3. **Generate & Apply Suggestions**
+
+   - Click "Generate Suggestions" to see AI-proposed titles/tags/correspondents
+   - Review and approve or edit suggestions
+   - Click "Apply" to save changes to paperless-ngx
+
+4. **OCR Processing**
+   - Tag documents with appropriate OCR tag to process them
+   - If enhanced PDF features are enabled, documents will be processed accordingly:
+     - For local file saving, check the configured directories for output files
+     - For PDF uploads, new documents will appear in paperless-ngx with copied metadata
+   - Monitor progress in the Web UI
+   - Review results and apply changes
 
 ## Troubleshooting
 
@@ -633,6 +771,14 @@ Common issues and solutions:
 - If you see truncated or incomplete responses, try lowering the `TOKEN_LIMIT`
 - If processing is too limited, gradually increase the limit while monitoring performance
 - For models with larger context windows, you can increase the limit or disable it entirely
+
+### PDF Processing Issues
+
+- If PDFs aren't being generated, check that `OCR_LIMIT_PAGES` isn't set too low compared to your document page count
+- Ensure volumes are properly mounted if using `CREATE_LOCAL_PDF` or `CREATE_LOCAL_HOCR`
+- When using `PDF_REPLACE: "true"`, verify you have recent backups of your paperless-ngx data
+
+---
 
 ## Contributing
 

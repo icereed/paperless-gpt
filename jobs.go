@@ -19,7 +19,8 @@ type Job struct {
 	Result     string // OCR result or error message
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
-	PagesDone  int // Number of pages processed
+	PagesDone  int        // Number of pages processed
+	Options    OCROptions // OCR processing options
 }
 
 // JobStore manages jobs and their statuses
@@ -123,13 +124,25 @@ func processJob(app *App, job *Job) {
 
 	ctx := context.Background()
 
-	fullOcrText, err := app.ProcessDocumentOCR(ctx, job.DocumentID)
+	// Create OCR options from job options or app defaults
+	options := job.Options
+	if (options == OCROptions{}) {
+		// Use app defaults if job options are not set
+		options = OCROptions{
+			UploadPDF:       app.pdfUpload,
+			ReplaceOriginal: app.pdfReplace,
+			CopyMetadata:    app.pdfCopyMetadata,
+			LimitPages:      limitOcrPages,
+		}
+	}
+
+	processedDoc, err := app.ProcessDocumentOCR(ctx, job.DocumentID, options)
 	if err != nil {
 		logger.Errorf("Error processing document OCR for job %s: %v", job.ID, err)
 		jobStore.updateJobStatus(job.ID, "failed", err.Error())
 		return
 	}
 
-	jobStore.updateJobStatus(job.ID, "completed", fullOcrText)
+	jobStore.updateJobStatus(job.ID, "completed", processedDoc.Text)
 	logger.Infof("Job completed: %s", job.ID)
 }

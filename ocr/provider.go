@@ -54,7 +54,7 @@ type Config struct {
 	DoclingImageExportMode string
 
 	// OCR output options
-	EnableHOCR     bool   // Whether to request hOCR output if supported by the provider
+	EnableHOCR     bool   // Whether to generate hOCR data if supported by the provider
 	HOCROutputPath string // Where to save hOCR output files
 }
 
