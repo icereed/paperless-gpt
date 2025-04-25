@@ -130,13 +130,28 @@ services:
       PAPERLESS_PUBLIC_URL: "http://paperless.mydomain.com" # Optional
       MANUAL_TAG: "paperless-gpt" # Optional, default: paperless-gpt
       AUTO_TAG: "paperless-gpt-auto" # Optional, default: paperless-gpt-auto
-      LLM_PROVIDER: "openai" # or 'ollama'
-      LLM_MODEL: "gpt-4o" # or 'deepseek-r1:8b'
-      # Optional, but recommended for Ollama
-      TOKEN_LIMIT: 1000
+      # LLM Configuration - Choose one:
+      
+      # Option 1: Standard OpenAI
+      LLM_PROVIDER: "openai"
+      LLM_MODEL: "gpt-4o"
       OPENAI_API_KEY: "your_openai_api_key"
-      # Optional - OPENAI_BASE_URL: 'https://litellm.yourinstallationof.it.com/v1'
-      LLM_LANGUAGE: "English" # Optional, default: English
+      
+      # Option 2: Azure OpenAI
+      # LLM_PROVIDER: "openai"
+      # LLM_MODEL: "your-deployment-name"
+      # OPENAI_API_KEY: "your_azure_api_key"
+      # OPENAI_API_TYPE: "azure"
+      # OPENAI_BASE_URL: "https://your-resource.openai.azure.com"
+      
+      # Option 3: Ollama (Local)
+      # LLM_PROVIDER: "ollama"
+      # LLM_MODEL: "deepseek-r1:8b"
+      # OLLAMA_HOST: "http://host.docker.internal:11434"
+      # TOKEN_LIMIT: 1000 # Recommended for smaller models
+      
+      # Optional LLM Settings
+      # LLM_LANGUAGE: "English" # Optional, default: English
 
       # OCR Configuration - Choose one:
       # Option 1: LLM-based OCR
@@ -426,7 +441,8 @@ For best results with the enhanced OCR features:
 | `LLM_PROVIDER`                   | AI backend (`openai` or `ollama`).                                                                               | Yes      |                        |
 | `LLM_MODEL`                      | AI model name, e.g. `gpt-4o`, `gpt-3.5-turbo`, `deepseek-r1:8b`.                                                 | Yes      |                        |
 | `OPENAI_API_KEY`                 | OpenAI API key (required if using OpenAI).                                                                       | Cond.    |                        |
-| `OPENAI_BASE_URL`                | OpenAI base URL (optional, if using a custom OpenAI compatible service like LiteLLM).                            | No       |                        |
+| `OPENAI_API_TYPE`                | Set to `azure` to use Azure OpenAI Service.                                                                      | No       |                        |
+| `OPENAI_BASE_URL`                | Base URL for OpenAI API. For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                        |
 | `LLM_LANGUAGE`                   | Likely language for documents (e.g. `English`).                                                                  | No       | English                |
 | `OLLAMA_HOST`                    | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                    | No       |                        |
 | `OCR_PROVIDER`                   | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                         | No       | llm                    |
