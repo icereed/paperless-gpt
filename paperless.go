@@ -6,8 +6,10 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"image"
 	"image/jpeg"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -19,6 +21,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/disintegration/imaging"
 	"github.com/gen2brain/go-fitz"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -633,22 +636,82 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 	for n := 0; n < pagesToProcess; n++ {
 		n := n // capture loop variable
 		g.Go(func() error {
-			mu.Lock()
-			// I assume the libmupdf library is not thread-safe
-			img, err := doc.Image(n)
+			// DPI calculation constants
+			const minDPI = 72                     // Minimum DPI to ensure readable text
+			const maxPixelDimension = 10_000      // Maximum pixels along any side (10,000px)
+			const maxTotalPixels = 40_000_000     // Maximum total pixel count (40 megapixels)
+			const maxRenderDPI = 600              // Maximum DPI to use when rendering
+			const maxFileBytes = 10 * 1024 * 1024 // Maximum JPEG file size (10 MB)
+
+			mu.Lock() // MuPDF is not thread-safe
+			rect, err := doc.Bound(n)
+			if err != nil {
+				mu.Unlock()
+				return err
+			}
+
+			// Calculate optimal DPI based on page dimensions (in points)
+			wPts := float64(rect.Dx())
+			hPts := float64(rect.Dy())
+
+			// Calculate DPI limits based on maximum allowed dimension and total pixels
+			dpiSide := float64(maxPixelDimension*72) / math.Max(wPts, hPts)
+			dpiArea := math.Sqrt(float64(maxTotalPixels) * 72 * 72 / (wPts * hPts))
+
+			// Use the more restrictive of the two limits
+			dpi := math.Min(dpiSide, dpiArea)
+
+			// Ensure DPI stays within acceptable bounds
+			dpi = math.Min(dpi, float64(maxRenderDPI))
+			dpi = math.Max(dpi, float64(minDPI))
+
+			// Render the page at calculated DPI
+			var img image.Image
+			img, err = doc.ImageDPI(n, dpi)
 			mu.Unlock()
 			if err != nil {
 				return err
 			}
 
+			// Encode to buffer first to measure size
+			buf := &bytes.Buffer{}
+			if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: jpeg.DefaultQuality}); err != nil {
+				return err
+			}
+
+			// Try moderate quality reduction first to avoid OCR-affecting artifacts
+			// More granular steps (85, 80, 75, 70, 65, 60)
+			for q := 85; buf.Len() > maxFileBytes && q >= 60; q -= 5 {
+				buf.Reset()
+				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: q}); err != nil {
+					return err
+				}
+			}
+
+			// If quality reduction wasn't enough, resize the image as last resort
+			if buf.Len() > maxFileBytes {
+				// Calculate precise scale factor needed to meet file size target
+				scale := math.Sqrt(float64(maxFileBytes) / float64(buf.Len()))
+
+				// Resize image proportionally using high-quality Lanczos algorithm
+				img = imaging.Resize(img,
+					int(float64(img.Bounds().Dx())*scale),
+					int(float64(img.Bounds().Dy())*scale),
+					imaging.Lanczos)
+				buf.Reset()
+				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: jpeg.DefaultQuality}); err != nil {
+					return err
+				}
+			}
+
+			// Save image to file
 			imagePath := filepath.Join(docDir, fmt.Sprintf("page%03d.jpg", n))
 			f, err := os.Create(imagePath)
 			if err != nil {
 				return err
 			}
 
-			err = jpeg.Encode(f, img, &jpeg.Options{Quality: jpeg.DefaultQuality})
-			if err != nil {
+			if _, err := f.Write(buf.Bytes()); err != nil {
 				f.Close()
 				return err
 			}
