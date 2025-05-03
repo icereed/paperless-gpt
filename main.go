@@ -222,6 +222,8 @@ func main() {
 		AzureAPIKey:              azureDocAIKey,
 		AzureModelID:             azureDocAIModelID,
 		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
+		MistralAPIKey:            os.Getenv("MISTRAL_API_KEY"),
+		MistralModel:             os.Getenv("MISTRAL_MODEL"),
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it

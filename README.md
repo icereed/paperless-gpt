@@ -164,8 +164,8 @@ services:
       # OCR Configuration - Choose one:
       # Option 1: LLM-based OCR
       OCR_PROVIDER: "llm" # Default OCR provider
-      VISION_LLM_PROVIDER: "mistral" # openai, ollama, or mistral
-      VISION_LLM_MODEL: "pixtral-large-latest" # minicpm-v (ollama), gpt-4o (openai), or pixtral-large-latest (mistral)
+      VISION_LLM_PROVIDER: "ollama" # openai or ollama
+      VISION_LLM_MODEL: "minicpm-v" # minicpm-v (ollama) or gpt-4o (openai)
       OLLAMA_HOST: "http://host.docker.internal:11434" # If using Ollama
 
       # Option 2: Google Document AI
@@ -270,8 +270,8 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
 - **Configuration**:
   ```yaml
   OCR_PROVIDER: "llm"
-  VISION_LLM_PROVIDER: "openai" # or "ollama" or "mistral"
-  VISION_LLM_MODEL: "gpt-4o" # or "minicpm-v" or "pixtral-large-latest"
+  VISION_LLM_PROVIDER: "openai" # or "ollama"
+  VISION_LLM_MODEL: "gpt-4o" # or "minicpm-v"
   ```
 
 ### 2. Azure Document Intelligence
@@ -461,7 +461,7 @@ For best results with the enhanced OCR features:
 | `LLM_MAX_RETRIES`                | Maximum retry attempts for failed main LLM requests.                                                             | No       | 3                      |
 | `LLM_BACKOFF_MAX_WAIT`           | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                | No       | 30s                    |
 | `OCR_PROVIDER`                   | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                         | No       | llm                    |
-| `VISION_LLM_PROVIDER`            | AI backend for LLM OCR (`openai`, `ollama`, or `mistral`). Required if OCR_PROVIDER is `llm`.                    | Cond.    |                        |
+| `VISION_LLM_PROVIDER`            | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                | Cond.    |                        |
 | `VISION_LLM_MODEL`               | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                    | Cond.    |                        |
 | `VISION_LLM_REQUESTS_PER_MINUTE` | Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load.                   | No       | 120                    |
 | `VISION_LLM_MAX_RETRIES`         | Maximum retry attempts for failed Vision LLM requests.                                                           | No       | 3                      |

@@ -88,19 +88,21 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 
 	// Prepare content parts based on provider type
 	var parts []llms.ContentPart
-	if strings.ToLower(p.provider) != "openai" {
-		logger.Debug("Using binary image format for non-OpenAI provider")
-		parts = []llms.ContentPart{
-			llms.BinaryPart("image/jpeg", imageContent),
-			llms.TextPart(p.prompt),
-		}
+
+	var imagePart llms.ContentPart
+	providerName := strings.ToLower(p.provider)
+
+	if providerName == "openai" || providerName == "mistral" {
+		logger.Info("Using OpenAI image format")
+		imagePart = llms.ImageURLPart("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageContent))
 	} else {
-		logger.Debug("Using base64 image format for OpenAI provider")
-		base64Image := base64.StdEncoding.EncodeToString(imageContent)
-		parts = []llms.ContentPart{
-			llms.ImageURLPart(fmt.Sprintf("data:image/jpeg;base64,%s", base64Image)),
-			llms.TextPart(p.prompt),
-		}
+		logger.Info("Using binary image format")
+		imagePart = llms.BinaryPart("image/jpeg", imageContent)
+	}
+
+	parts = []llms.ContentPart{
+		imagePart,
+		llms.TextPart(p.prompt),
 	}
 
 	// Convert the image to text

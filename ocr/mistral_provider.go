@@ -36,10 +36,21 @@ type MistralOCRRequest struct {
 
 // MistralOCRResponse represents the response from Mistral's OCR API
 type MistralOCRResponse struct {
-	Text     string `json:"text"`
-	Metadata struct {
-		Pages int `json:"pages"`
-	} `json:"metadata"`
+	Pages []struct {
+		Index      int           `json:"index"`
+		Markdown   string        `json:"markdown"`
+		Images     []interface{} `json:"images"`
+		Dimensions struct {
+			Dpi    int `json:"dpi"`
+			Height int `json:"height"`
+			Width  int `json:"width"`
+		} `json:"dimensions"`
+	} `json:"pages"`
+	Model     string `json:"model"`
+	UsageInfo struct {
+		PagesProcessed int         `json:"pages_processed"`
+		DocSizeBytes   interface{} `json:"doc_size_bytes"`
+	} `json:"usage_info"`
 }
 
 // MistralFileUploadResponse represents the response from Mistral's file upload API
@@ -70,6 +81,8 @@ func newMistralOCRProvider(config Config) (Provider, error) {
 
 // ProcessImage implements the OCR Provider interface
 func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, pageNumber int) (*OCRResult, error) {
+	log.Info("Processing image with Mistral OCR provider")
+
 	// Convert image data to base64
 	base64Data := base64.StdEncoding.EncodeToString(data)
 	imageURL := fmt.Sprintf("data:image/jpeg;base64,%s", base64Data)
@@ -207,5 +220,15 @@ func (p *MistralOCRProvider) processDocument(req MistralOCRRequest) (string, err
 		return "", err
 	}
 
-	return ocrResp.Text, nil
+	// Combine text from all pages
+	var combinedText string
+	for _, page := range ocrResp.Pages {
+		combinedText += page.Markdown + "\n"
+	}
+	// Remove trailing newline
+	if len(combinedText) > 0 {
+		combinedText = combinedText[:len(combinedText)-1]
+	}
+
+	return combinedText, nil
 }

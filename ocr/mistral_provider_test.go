@@ -37,11 +37,38 @@ func setupTestServer() (*httptest.Server, func()) {
 
 func handleOCRRequest(w http.ResponseWriter, r *http.Request) {
 	resp := MistralOCRResponse{
-		Text: "Test OCR output",
-		Metadata: struct {
-			Pages int "json:\"pages\""
+		Pages: []struct {
+			Index      int           `json:"index"`
+			Markdown   string        `json:"markdown"`
+			Images     []interface{} `json:"images"`
+			Dimensions struct {
+				Dpi    int `json:"dpi"`
+				Height int `json:"height"`
+				Width  int `json:"width"`
+			} `json:"dimensions"`
 		}{
-			Pages: 1,
+			{
+				Index:    0,
+				Markdown: "Test OCR output",
+				Images:   []interface{}{},
+				Dimensions: struct {
+					Dpi    int `json:"dpi"`
+					Height int `json:"height"`
+					Width  int `json:"width"`
+				}{
+					Dpi:    300,
+					Height: 1000,
+					Width:  800,
+				},
+			},
+		},
+		Model: "mistral-ocr-latest",
+		UsageInfo: struct {
+			PagesProcessed int         `json:"pages_processed"`
+			DocSizeBytes   interface{} `json:"doc_size_bytes"`
+		}{
+			PagesProcessed: 1,
+			DocSizeBytes:   1024,
 		},
 	}
 	json.NewEncoder(w).Encode(resp)
@@ -241,7 +268,7 @@ func TestMistralOCRProvider_ErrorHandling(t *testing.T) {
 		{
 			name:       "successful response",
 			statusCode: 200,
-			response:   `{"text": "Test output", "metadata": {"pages": 1}}`,
+			response:   `{"pages":[{"index":0,"markdown":"Test OCR output","images":[],"dimensions":{"dpi":300,"height":1000,"width":800}}],"model":"mistral-ocr-latest","usage_info":{"pages_processed":1,"doc_size_bytes":1024}}`,
 			wantErr:    false,
 		},
 	}

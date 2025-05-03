@@ -109,7 +109,7 @@ func newFailingRateLimitMock() *rateLimitMockLLM {
 	callErrors := make([]error, 4)
 	generateResponses := make([]*llms.ContentResponse, 4)
 	generateErrors := make([]error, 4)
-	
+
 	// Fill arrays with error responses
 	for i := 0; i < 4; i++ {
 		callResponses[i] = ""
@@ -117,7 +117,7 @@ func newFailingRateLimitMock() *rateLimitMockLLM {
 		generateResponses[i] = nil
 		generateErrors[i] = errors.New("mock error")
 	}
-	
+
 	return &rateLimitMockLLM{
 		callResponses:     callResponses,
 		callErrors:        callErrors,
@@ -229,7 +229,7 @@ func TestRateLimitedLLM_GenerateContent_Success(t *testing.T) {
 			llms.TextContent{Text: "test message"},
 		},
 	}
-	
+
 	response, err := rateLimitedLLM.GenerateContent(context.Background(), []llms.MessageContent{message})
 
 	assert.NoError(t, err)
@@ -254,7 +254,7 @@ func TestRateLimitedLLM_GenerateContent_Error(t *testing.T) {
 			llms.TextContent{Text: "test message"},
 		},
 	}
-	
+
 	response, err := rateLimitedLLM.GenerateContent(context.Background(), []llms.MessageContent{message})
 
 	assert.Error(t, err)
@@ -279,7 +279,7 @@ func TestRateLimitedLLM_GenerateContent_EventualSuccess(t *testing.T) {
 			llms.TextContent{Text: "test message"},
 		},
 	}
-	
+
 	response, err := rateLimitedLLM.GenerateContent(context.Background(), []llms.MessageContent{message})
 
 	assert.NoError(t, err)

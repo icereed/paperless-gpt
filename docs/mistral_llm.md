@@ -1,36 +1,22 @@
-# Mistral AI Integration in paperless-gpt (OCR and Vision LLM)
+# Mistral AI Integration in paperless-gpt (OCR)
 
-This guide covers how to use Mistral AI's capabilities in paperless-gpt, including both their Vision models and dedicated OCR service.
+This guide covers how to use Mistral AI's dedicated OCR service in paperless-gpt.
 
 ## Overview
 
-Mistral AI provides two different approaches for OCR in paperless-gpt:
+Mistral AI provides a purpose-built OCR endpoint optimized for document processing. Unlike other providers, the Mistral LLM interface in the underlying library does not currently support image uploads, so only the dedicated OCR provider is available.
 
-1. **Vision LLM**: Uses Mistral's Vision models for adaptable, customizable OCR with interactive capabilities
-2. **Dedicated OCR Service**: Purpose-built OCR endpoint optimized for document processing
+## OCR Capabilities
 
-## Choosing Between OCR Methods
-
-### 1. Dedicated OCR Provider (Recommended for most cases)
-- More cost-effective
-- Optimized for document processing
+### Dedicated OCR Provider
+- Cost-effective document processing
+- Optimized for text extraction from documents
 - Built-in document structure preservation
 - Returns markdown-formatted text
 - Best for standard OCR needs
 - Limited to 50MB/1000 pages per document
 
-### 2. Vision LLM Approach
-- Highly customizable via prompts
-- Can handle special formats or layouts
-- More expensive
-- Best for cases requiring:
-  * Custom text interpretation
-  * Special output formats
-  * Complex document understanding
-
 ## Configuration
-
-### Method 1: Dedicated OCR Provider
 
 ```yaml
 environment:
@@ -41,65 +27,27 @@ environment:
   MISTRAL_MODEL: "mistral-ocr-latest"
 ```
 
-### Method 2: Vision LLM
-
-```yaml
-environment:
-  # OCR Configuration
-  OCR_PROVIDER: "llm"
-  VISION_LLM_PROVIDER: "mistral"
-  VISION_LLM_MODEL: "pixtral-large-latest"
-  MISTRAL_API_KEY: "your_mistral_api_key"
-```
-
 ## Size Limits and Constraints
 
-### Dedicated OCR Provider
 - Maximum file size: 50MB
 - Maximum page count: 1,000 pages
 - Supported formats: PDF, images (JPEG, PNG)
 
-### Vision LLM
-- Limits depend on the model used
-- Generally handles single images or small documents better
-- No explicit file size limit, but larger files may impact performance
-
 ## Best Practices
 
-1. **Choosing the Right Method**
-   - Use dedicated OCR provider for:
-     * Batch processing
-     * Large documents
-     * Standard OCR needs
-   - Use Vision LLM for:
-     * Custom extraction requirements
-     * Complex layouts needing interpretation
-     * When you need to customize the OCR behavior
+1. **Performance Optimization**
+   - Stay within size limits
+   - Use markdown output for structured text
 
 2. **Cost Optimization**
-   - Dedicated OCR provider is more cost-effective for bulk processing
-   - Vision LLM might be more expensive but offers more flexibility
-
-3. **Performance Optimization**
-   - For dedicated OCR:
-     * Stay within size limits
-     * Use markdown output for structured text
-   - For Vision LLM:
-     * Customize prompts for specific needs
-     * Use appropriate context sizes
+   - The dedicated OCR provider is cost-effective for bulk processing
 
 ## Output Format
 
-### Dedicated OCR Provider
 - Returns markdown-formatted text
 - Preserves document structure
 - Maintains formatting like headers and lists
 - Handles tables and columns
-
-### Vision LLM
-- Returns plain text by default
-- Can be customized via prompts
-- More flexible but requires more configuration
 
 ## Error Handling
 
