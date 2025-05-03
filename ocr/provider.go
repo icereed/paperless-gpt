@@ -29,8 +29,12 @@ type Provider interface {
 
 // Config holds the OCR provider configuration
 type Config struct {
-	// Provider type (e.g., "llm", "google_docai", "azure")
+	// Provider type (e.g., "llm", "google_docai", "azure", "mistral_ocr")
 	Provider string
+
+	// Mistral OCR settings
+	MistralAPIKey string
+	MistralModel  string // Optional, defaults to "mistral-ocr-latest"
 
 	// Google Document AI settings
 	GoogleProjectID   string
@@ -50,7 +54,7 @@ type Config struct {
 	AzureOutputContentFormat string // Optional, defaults to ""
 
 	// Docling settings
-	DoclingURL string
+	DoclingURL             string
 	DoclingImageExportMode string
 
 	// OCR output options
@@ -95,6 +99,15 @@ func NewProvider(config Config) (Provider, error) {
 		}
 		log.WithField("url", config.DoclingURL).Info("Using Docling provider")
 		return newDoclingProvider(config)
+
+	case "mistral_ocr":
+		if config.MistralAPIKey == "" {
+			return nil, fmt.Errorf("missing required Mistral API key")
+		}
+		log.WithFields(logrus.Fields{
+			"model": config.MistralModel,
+		}).Info("Using Mistral OCR provider")
+		return newMistralOCRProvider(config)
 
 	default:
 		return nil, fmt.Errorf("unsupported OCR provider: %s", config.Provider)

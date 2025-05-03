@@ -13,6 +13,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/mistral"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 )
@@ -42,6 +43,9 @@ func newLLMProvider(config Config) (*LLMProvider, error) {
 	case "ollama":
 		logger.Debug("Initializing Ollama vision model")
 		model, err = createOllamaClient(config)
+	case "mistral":
+		logger.Debug("Initializing Mistral vision model")
+		model, err = createMistralClient(config)
 	default:
 		return nil, fmt.Errorf("unsupported vision LLM provider: %s", config.VisionLLMProvider)
 	}
@@ -144,5 +148,17 @@ func createOllamaClient(config Config) (llms.Model, error) {
 	return ollama.New(
 		ollama.WithModel(config.VisionLLMModel),
 		ollama.WithServerURL(host),
+	)
+}
+
+// createMistralClient creates a new Mistral vision model client
+func createMistralClient(config Config) (llms.Model, error) {
+	apiKey := os.Getenv("MISTRAL_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("Mistral API key is not set")
+	}
+	return mistral.New(
+		mistral.WithModel(config.VisionLLMModel),
+		mistral.WithAPIKey(apiKey),
 	)
 }
