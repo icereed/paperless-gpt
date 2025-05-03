@@ -7,9 +7,10 @@ toolchain go1.24.2
 require (
 	cloud.google.com/go/documentai v1.36.1
 	github.com/Masterminds/sprig/v3 v3.3.0
+	github.com/disintegration/imaging v1.6.2
 	github.com/fatih/color v1.18.0
 	github.com/gabriel-vasile/mimetype v1.4.9
-	github.com/gardar/ocrchestra v0.0.0-20250421224415-f2d4fcb82f54
+	github.com/gardar/ocrchestra v0.0.0-20250426014726-2d2886627610
 	github.com/gen2brain/go-fitz v1.24.14
 	github.com/gin-gonic/gin v1.10.0
 	github.com/google/uuid v1.6.0
@@ -37,7 +38,6 @@ require (
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/disintegration/imaging v1.6.2 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/ebitengine/purego v0.8.2 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
