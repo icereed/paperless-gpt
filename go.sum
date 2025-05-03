@@ -49,6 +49,8 @@ github.com/gabriel-vasile/mimetype v1.4.9 h1:5k+WDwEsD9eTLL8Tz3L0VnmVh9QxGjRmjBv
 github.com/gabriel-vasile/mimetype v1.4.9/go.mod h1:WnSQhFKJuBlRyLiKohA/2DtIlPFAbguNaG7QCHcyGok=
 github.com/gardar/ocrchestra v0.0.0-20250421224415-f2d4fcb82f54 h1:kp9fShKriAbyzBQ//4haDbvIkHMv3hw/4Mb82Zux1d4=
 github.com/gardar/ocrchestra v0.0.0-20250421224415-f2d4fcb82f54/go.mod h1:Q4I7iTP4X1qIOMilMNBBjTfWXxYEeN6PCUWWPwwY100=
+github.com/gardar/ocrchestra v0.0.0-20250426014726-2d2886627610 h1:P3gKmha4if+RNxVciwsWsB9sjHfLVdbLJGBHUSMKLCU=
+github.com/gardar/ocrchestra v0.0.0-20250426014726-2d2886627610/go.mod h1:Q4I7iTP4X1qIOMilMNBBjTfWXxYEeN6PCUWWPwwY100=
 github.com/gen2brain/go-fitz v1.24.14 h1:09weRkjVtLYNGo7l0J7DyOwBExbwi8SJ9h8YPhw9WEo=
 github.com/gen2brain/go-fitz v1.24.14/go.mod h1:0KaZeQgASc20Yp5R/pFzyy7SmP01XcoHKNF842U2/S4=
 github.com/gin-contrib/sse v1.0.0 h1:y3bT1mUWUxDpW4JLQg/HnTqV4rozuW4tC9eFKTxYI9E=
