@@ -87,8 +87,8 @@ func (m *rateLimitMockLLM) GenerateContent(ctx context.Context, messages []llms.
 // newSuccessfulRateLimitMock creates a mock LLM that always returns successful responses
 func newSuccessfulRateLimitMock() *rateLimitMockLLM {
 	return &rateLimitMockLLM{
-		callResponses: []string{"mock response"},
-		callErrors:    []error{nil},
+		callResponses: []string{"mock response", "mock response", "mock response", "mock response", "mock response"},
+		callErrors:    []error{nil, nil, nil, nil, nil},
 		generateResponses: []*llms.ContentResponse{
 			{
 				Choices: []*llms.ContentChoice{
@@ -97,8 +97,36 @@ func newSuccessfulRateLimitMock() *rateLimitMockLLM {
 					},
 				},
 			},
+			{
+				Choices: []*llms.ContentChoice{
+					{
+						Content: "mock content response",
+					},
+				},
+			},
+			{
+				Choices: []*llms.ContentChoice{
+					{
+						Content: "mock content response",
+					},
+				},
+			},
+			{
+				Choices: []*llms.ContentChoice{
+					{
+						Content: "mock content response",
+					},
+				},
+			},
+			{
+				Choices: []*llms.ContentChoice{
+					{
+						Content: "mock content response",
+					},
+				},
+			},
 		},
-		generateErrors: []error{nil},
+		generateErrors: []error{nil, nil, nil, nil, nil},
 	}
 }
 
@@ -308,4 +336,30 @@ func TestRateLimitedLLM_ContextCancellation(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "context")
+}
+
+func TestRateLimitedLLM_RateLimiting(t *testing.T) {
+	mockLLM := newSuccessfulRateLimitMock()
+	config := RateLimitConfig{
+		RequestsPerMinute: 60, // 1 per second
+		MaxRetries:        0,  // No retries for this test
+	}
+
+	rateLimitedLLM := NewRateLimitedLLM(mockLLM, config)
+
+	// Make multiple calls and measure time
+	start := time.Now()
+
+	// Make 3 calls
+	for i := 0; i < 3; i++ {
+		_, err := rateLimitedLLM.Call(context.Background(), "test prompt")
+		assert.NoError(t, err)
+	}
+
+	elapsed := time.Since(start)
+
+	// With rate limit of 1 per second, 3 calls should take at least 2 seconds
+	// (first call immediate, then wait 1s, second call, wait 1s, third call)
+	assert.GreaterOrEqual(t, elapsed.Seconds(), 2.0,
+		"Rate limiting should space requests by at least 1 second")
 }
