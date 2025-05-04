@@ -98,6 +98,7 @@ type DocumentSuggestion struct {
 	SuggestedCreatedDate   string   `json:"suggested_created_date,omitempty"`
 	KeepOriginalTags       bool     `json:"keep_original_tags,omitempty"`
 	RemoveTags             []string `json:"remove_tags,omitempty"`
+	AddTags                []string `json:"add_tags,omitempty"`
 }
 
 type Correspondent struct {
@@ -144,5 +145,5 @@ type ClientInterface interface {
 
 // DocumentProcessor defines the interface for processing documents with OCR
 type DocumentProcessor interface {
-	ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions) (*ProcessedDocument, error)
+	ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions, jobID string) (*ProcessedDocument, error)
 }

@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"paperless-gpt/ocr"
 
 	"github.com/gardar/ocrchestra/pkg/hocr"
 	"github.com/gardar/ocrchestra/pkg/pdfocr"
@@ -38,13 +41,16 @@ type HOCRCapable interface {
 }
 
 // ProcessDocumentOCR processes a document through OCR and returns the combined text, hOCR and PDF
-func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions) (*ProcessedDocument, error) {
+func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions, jobID string) (*ProcessedDocument, error) {
 	// Validate options for safety
 	if !options.UploadPDF && options.ReplaceOriginal {
 		return nil, fmt.Errorf("invalid OCROptions: cannot set ReplaceOriginal=true when UploadPDF=false")
 	}
 
 	docLogger := documentLogger(documentID)
+	if jobID != "" {
+		docLogger = docLogger.WithField("job_id", jobID)
+	}
 	docLogger.Info("Starting OCR processing")
 
 	// Determine the actual process mode to use
@@ -128,6 +134,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	var originalPDFData []byte
 	var totalPdfPages int
 	var imagePaths []string
+	var ocrResults []*ocr.OCRResult
 
 	// Default process mode to app's ocrProcessMode if not set in options
 	processMode = options.ProcessMode
@@ -185,6 +192,14 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		originalPDFData = pdfData
 		totalPdfPages = pdfPageCount
 
+		if jobID != "" {
+			jobStore.Lock()
+			if job, exists := jobStore.jobs[jobID]; exists {
+				job.TotalPages = totalPdfPages
+			}
+			jobStore.Unlock()
+		}
+
 		// Log the page count information
 		docLogger.WithFields(logrus.Fields{
 			"processed_page_count": len(pdfPaths),
@@ -233,6 +248,14 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 
 		totalPdfPages = imgPageCount
 
+		if jobID != "" {
+			jobStore.Lock()
+			if job, exists := jobStore.jobs[jobID]; exists {
+				job.TotalPages = totalPdfPages
+			}
+			jobStore.Unlock()
+		}
+
 		// Log the page count information
 		docLogger.WithFields(logrus.Fields{
 			"processed_page_count": len(imagePaths),
@@ -241,6 +264,17 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		}).Debug("Downloaded document images")
 
 		for i, imagePath := range imagePaths {
+			select {
+			case <-ctx.Done():
+				docLogger.Info("Job cancelled before processing page")
+				// Return partial results if cancelled
+				return &ProcessedDocument{
+					ID:   documentID,
+					Text: strings.Join(ocrTexts, "\n\n"),
+				}, ctx.Err()
+			default:
+			}
+
 			pageLogger := docLogger.WithField("page", i+1)
 			pageLogger.Debug("Processing page")
 
@@ -262,11 +296,29 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				return nil, fmt.Errorf("error performing OCR for document %d, page %d: nil result", documentID, i+1)
 			}
 
+			if jobID != "" {
+				jobStore.updatePagesDone(jobID, i+1)
+			}
+
 			pageLogger.WithField("has_hocr_page", result.HOCRPage != nil).
 				WithField("metadata", result.Metadata).
 				Debug("OCR completed for page")
 
 			ocrTexts = append(ocrTexts, result.Text)
+			ocrResults = append(ocrResults, result)
+
+			var genInfoJSON string
+			if result.GenerationInfo != nil {
+				if b, err := json.Marshal(result.GenerationInfo); err == nil {
+					genInfoJSON = string(b)
+				}
+			}
+
+			saveErr := SaveSingleOcrPageResult(app.Database, documentID, i, result.Text, result.OcrLimitHit, genInfoJSON)
+			if saveErr != nil {
+				pageLogger.WithError(saveErr).Error("Failed to save OCR page result to database")
+				// Continue processing other pages even if saving fails for one
+			}
 		}
 	}
 
