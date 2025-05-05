@@ -141,21 +141,21 @@ Content:
 
 // App struct to hold dependencies
 type App struct {
-	Client            *PaperlessClient
+	Client            ClientInterface
 	Database          *gorm.DB
 	LLM               llms.Model
 	VisionLLM         llms.Model
-	ocrProvider       ocr.Provider // OCR provider interface
-	localHOCRPath     string       // Path for saving hOCR files locally
-	localPDFPath      string       // Path for saving PDF files locally
-	createLocalHOCR   bool         // Whether to save hOCR files locally
-	createLocalPDF    bool         // Whether to create PDF files locally
-	pdfUpload         bool         // Whether to upload processed PDFs to paperless-ngx
-	pdfReplace        bool         // Whether to replace original document after upload
-	pdfCopyMetadata   bool         // Whether to copy metadata from original to uploaded PDF
-	pdfOCRCompleteTag string       // Tag to add to documents that have been OCR processed
-	pdfOCRTagging     bool         // Whether to add the OCR complete tag to processed PDFs
-
+	ocrProvider       ocr.Provider      // OCR provider interface
+	docProcessor      DocumentProcessor // Optional: Can be used for mocking
+	localHOCRPath     string            // Path for saving hOCR files locally
+	localPDFPath      string            // Path for saving PDF files locally
+	createLocalHOCR   bool              // Whether to save hOCR files locally
+	createLocalPDF    bool              // Whether to create PDF files locally
+	pdfUpload         bool              // Whether to upload processed PDFs to paperless-ngx
+	pdfReplace        bool              // Whether to replace original document after upload
+	pdfCopyMetadata   bool              // Whether to copy metadata from original to uploaded PDF
+	pdfOCRCompleteTag string            // Tag to add to documents that have been OCR processed
+	pdfOCRTagging     bool              // Whether to add the OCR complete tag to processed PDFs
 }
 
 func main() {
@@ -255,6 +255,7 @@ func main() {
 		LLM:               llm,
 		VisionLLM:         visionLlm,
 		ocrProvider:       ocrProvider,
+		docProcessor:      nil, // App itself implements DocumentProcessor
 		localHOCRPath:     localHOCRPath,
 		localPDFPath:      localPDFPath,
 		createLocalHOCR:   createLocalHOCR,
@@ -557,11 +558,10 @@ func validateOrDefaultEnvVars() {
 		if pdfCopyMetadata {
 			log.Infof("Metadata will be copied from original documents")
 		}
-		if pdfOCRTagging {
-			log.Infof("OCR complete tagging enabled with tag: %s", pdfOCRCompleteTag)
-		}
 	}
-
+	if pdfOCRTagging {
+		log.Infof("OCR complete tagging enabled with tag: %s", pdfOCRCompleteTag)
+	}
 }
 
 // documentLogger creates a logger with document context

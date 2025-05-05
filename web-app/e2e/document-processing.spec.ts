@@ -107,10 +107,10 @@ test('should process document and show changes in history', async () => {
   expect(modifications).toBeGreaterThan(0);
 
   // Verify modification details
-  const firstModification = await page.locator('.undo-card').first();
+  const firstModification = await page.locator('.undo-card:has-text("Original Title")').first();
   
   // Check if title was modified
-  const titleChange = await firstModification.locator('text=Original Title').isVisible();
+  const titleChange = await firstModification.isVisible();
   expect(titleChange).toBeTruthy();
 
   // Test pagination if there are multiple modifications

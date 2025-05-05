@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "echo \"TODO\"",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --workers 4",
     "test:e2e:ui": "playwright test --ui",
     "docker:test:up": "docker compose -f docker-compose.test.yml up -d",
     "docker:test:down": "docker compose -f docker-compose.test.yml down -v"

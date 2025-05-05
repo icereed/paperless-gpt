@@ -143,7 +143,6 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 
 // processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
 func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
-
 	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoOcrTag}, 25)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
@@ -205,7 +204,16 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			LimitPages:      limitOcrPages,
 		}
 
-		processedDoc, err := app.ProcessDocumentOCR(ctx, document.ID, options)
+		// Use the DocumentProcessor interface instead of calling the method directly
+		var processedDoc *ProcessedDocument
+		var err error
+		if app.docProcessor != nil {
+			// Use injected processor if available
+			processedDoc, err = app.docProcessor.ProcessDocumentOCR(ctx, document.ID, options)
+		} else {
+			// Use the app's own implementation if no processor is injected
+			processedDoc, err = app.ProcessDocumentOCR(ctx, document.ID, options)
+		}
 		if err != nil {
 			docLogger.Errorf("OCR processing failed: %v", err)
 			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
@@ -213,13 +221,22 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		}
 		docLogger.Debug("OCR processing completed")
 
+		documentSuggestion := DocumentSuggestion{
+			ID:               document.ID,
+			OriginalDocument: document,
+			SuggestedContent: processedDoc.Text,
+			RemoveTags:       []string{autoOcrTag},
+		}
+
+		if (app.pdfOCRTagging) && app.pdfOCRCompleteTag != "" {
+			// Add the OCR complete tag if tagging is enabled
+			documentSuggestion.SuggestedTags = []string{app.pdfOCRCompleteTag}
+			documentSuggestion.KeepOriginalTags = true
+			docLogger.Infof("Adding OCR complete tag '%s'", app.pdfOCRCompleteTag)
+		}
+
 		err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
-			{
-				ID:               document.ID,
-				OriginalDocument: document,
-				SuggestedContent: processedDoc.Text,
-				RemoveTags:       []string{autoOcrTag},
-			},
+			documentSuggestion,
 		}, app.Database, false)
 		if err != nil {
 			docLogger.Errorf("Update after OCR failed: %v", err)

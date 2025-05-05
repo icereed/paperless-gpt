@@ -11,6 +11,36 @@
       "mode": "auto",
       "program": "${fileDirname}",
       "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "Debug Playwright Tests",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/web-app",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["playwright", "test", "--debug"],
+      "autoAttachChildProcesses": true,
+      "skipFiles": ["<node_internals>/**"],
+      "console": "integratedTerminal",
+      "env": {
+        "OPENAI_API_KEY": "${env:OPENAI_API_KEY}"
+      }
+    },
+    {
+      "name": "Debug Current Playwright Test File",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/web-app",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["playwright", "test", "${relativeFile}", "--debug"],
+      "autoAttachChildProcesses": true,
+      "skipFiles": ["<node_internals>/**"],
+      "console": "integratedTerminal",
+      "env": {
+        "OPENAI_API_KEY": "${env:OPENAI_API_KEY}"
+        // Add other specific environment variables here as needed
+        // "ANOTHER_ENV_VAR": "${env:ANOTHER_ENV_VAR}"
+      }
     }
   ]
 }

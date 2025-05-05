@@ -1,4 +1,4 @@
-import { Browser, chromium } from '@playwright/test';
+import { Browser, chromium, Page } from '@playwright/test';
 import * as fs from 'fs';
 import { GenericContainer, Network, StartedTestContainer, Wait } from 'testcontainers';
 
@@ -13,6 +13,12 @@ export const PORTS = {
   paperlessNgx: 8000,
   paperlessGpt: 8080,
 };
+
+export const PREDEFINED_TAGS = [
+  'paperless-gpt',
+  'paperless-gpt-ocr-auto',
+  'paperless-gpt-ocr-complete',
+]
 
 export async function setupTestEnvironment(): Promise<TestEnvironment> {
   console.log('Setting up test environment...');
@@ -67,10 +73,13 @@ export async function setupTestEnvironment(): Promise<TestEnvironment> {
   const credentials = { username: 'admin', password: 'admin' };
 
   try {
-    console.log('Creating paperless-gpt tag...');
-    await createTag(baseUrl, 'paperless-gpt', credentials);
+    console.log('Creating predefined tags...');
+    // Create predefined tags
+    for (const tag of PREDEFINED_TAGS) {
+      await createTag(baseUrl, tag, credentials);
+    }
   } catch (error) {
-    console.error('Failed to create paperless-gpt tag:', error);
+    console.error('Failed to create tag:', error);
     await paperlessNgx.stop();
     throw error;
   }
@@ -87,6 +96,12 @@ export async function setupTestEnvironment(): Promise<TestEnvironment> {
       LLM_MODEL: "gpt-4o-mini",
       LLM_LANGUAGE: "english",
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+      // Vision LLM settings for OCR
+      OCR_PROVIDER: "llm",
+      VISION_LLM_PROVIDER: "openai",
+      VISION_LLM_MODEL: "gpt-4o-mini",
+      PDF_OCR_TAGGING: "true",
+      PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete",
     })
     .withExposedPorts(gptPort)
     .withWaitStrategy(Wait.forHttp('/', gptPort))
@@ -117,7 +132,7 @@ export async function setupTestEnvironment(): Promise<TestEnvironment> {
   };
 }
 
-export async function waitForElement(page: any, selector: string, timeout = 5000): Promise<void> {
+export async function waitForElement(page: Page, selector: string, timeout = 5000): Promise<void> {
   await page.waitForSelector(selector, { timeout });
 }
 
@@ -211,6 +226,15 @@ export async function createTag(
   credentials: { username: string; password: string }
 ): Promise<number> {
   console.log(`Creating tag: ${name}`);
+  
+  // First check if the tag already exists
+  const existingTagId = await getTagByName(baseUrl, name, credentials);
+  if (existingTagId !== null) {
+    console.log(`Tag "${name}" already exists with ID: ${existingTagId}`);
+    return existingTagId;
+  }
+  
+  // Create new tag if it doesn't exist
   const response = await fetch(`${baseUrl}/api/tags/`, {
     method: 'POST',
     body: JSON.stringify({ name }),
@@ -252,6 +276,39 @@ export async function getApiToken(
   const token = await response.json();
   console.log(`API token fetched successfully: ${token.token}`);
   return token.token;
+}
+
+// Helper to get a tag by name
+export async function getTagByName(
+  baseUrl: string,
+  name: string,
+  credentials: { username: string; password: string }
+): Promise<number | null> {
+  console.log(`Getting tag by name: ${name}`);
+  const response = await fetch(`${baseUrl}/api/tags/?name=${encodeURIComponent(name)}`, {
+    headers: {
+      'Authorization': 'Basic ' + btoa(`${credentials.username}:${credentials.password}`),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch tag: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  if (!data.results || data.results.length === 0) {
+    return null;
+  }
+
+// iterate through all tags and find the one with the correct name
+  const tag = data.results.find((tag: { name: string }) => tag.name === name);
+  if (!tag) {
+    console.error(`Tag "${name}" not found`);
+    return null;
+  }
+
+  console.log(`Tag found with ID: ${tag.id}`);
+  return tag.id;
 }
 
 // Helper to add a tag to a document
