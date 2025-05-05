@@ -32,7 +32,7 @@ func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llm
 	attempt := 0
 
 	for {
-		response, err := r.llm.Call(ctx, prompt)
+		response, err := r.llm.Call(ctx, prompt, options...)
 		if err == nil {
 			return response, nil
 		}
@@ -124,7 +124,7 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 	attempt := 0
 
 	for {
-		resp, err := r.llm.GenerateContent(ctx, messages)
+		resp, err := r.llm.GenerateContent(ctx, messages, options...)
 		if err == nil {
 			// Return the pointer response directly
 			return resp, nil

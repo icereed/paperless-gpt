@@ -145,7 +145,7 @@ func (p *MistralOCRProvider) uploadFile(data []byte) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return "", fmt.Errorf("file upload failed with status: %d", resp.StatusCode)
 	}
 
