@@ -140,7 +140,12 @@ services:
       LLM_MODEL: "gpt-4o"
       OPENAI_API_KEY: "your_openai_api_key"
       
-      # Option 2: Azure OpenAI
+      # Option 2: Mistral
+      # LLM_PROVIDER: "mistral"
+      # LLM_MODEL: "mistral-large-latest"
+      # MISTRAL_API_KEY: "your_mistral_api_key"
+
+      # Option 3: Azure OpenAI
       # LLM_PROVIDER: "openai"
       # LLM_MODEL: "your-deployment-name"
       # OPENAI_API_KEY: "your_azure_api_key"
@@ -246,6 +251,9 @@ services:
 
 ---
 ## OCR Providers
+
+For detailed provider-specific documentation:
+- [Mistral AI Integration](docs/mistral_llm.md)
 
 paperless-gpt supports four different OCR providers, each with unique strengths and capabilities:
 
@@ -441,16 +449,23 @@ For best results with the enhanced OCR features:
 | `PAPERLESS_PUBLIC_URL`           | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                               | No       |                        |
 | `MANUAL_TAG`                     | Tag for manual processing.                                                                                       | No       | paperless-gpt          |
 | `AUTO_TAG`                       | Tag for auto processing.                                                                                         | No       | paperless-gpt-auto     |
-| `LLM_PROVIDER`                   | AI backend (`openai` or `ollama`).                                                                               | Yes      |                        |
-| `LLM_MODEL`                      | AI model name, e.g. `gpt-4o`, `gpt-3.5-turbo`, `deepseek-r1:8b`.                                                 | Yes      |                        |
+| `LLM_PROVIDER`                   | AI backend (`openai`, `mistral`, or `ollama`).                                                                   | Yes      |                        |
+| `LLM_MODEL`                      | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `deepseek-r1:8b`).                                             | Yes      |                        |
 | `OPENAI_API_KEY`                 | OpenAI API key (required if using OpenAI).                                                                       | Cond.    |                        |
+| `MISTRAL_API_KEY`               | Mistral API key (required if using Mistral).                                                                     | Cond.    |                        |
 | `OPENAI_API_TYPE`                | Set to `azure` to use Azure OpenAI Service.                                                                      | No       |                        |
 | `OPENAI_BASE_URL`                | Base URL for OpenAI API. For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                        |
 | `LLM_LANGUAGE`                   | Likely language for documents (e.g. `English`).                                                                  | No       | English                |
 | `OLLAMA_HOST`                    | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                    | No       |                        |
+| `LLM_REQUESTS_PER_MINUTE`        | Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load.                     | No       | 120                    |
+| `LLM_MAX_RETRIES`                | Maximum retry attempts for failed main LLM requests.                                                             | No       | 3                      |
+| `LLM_BACKOFF_MAX_WAIT`           | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                | No       | 30s                    |
 | `OCR_PROVIDER`                   | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                         | No       | llm                    |
 | `VISION_LLM_PROVIDER`            | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                | Cond.    |                        |
 | `VISION_LLM_MODEL`               | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                    | Cond.    |                        |
+| `VISION_LLM_REQUESTS_PER_MINUTE` | Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load.                   | No       | 120                    |
+| `VISION_LLM_MAX_RETRIES`         | Maximum retry attempts for failed Vision LLM requests.                                                           | No       | 3                      |
+| `VISION_LLM_BACKOFF_MAX_WAIT`    | Maximum wait time between retries for the Vision LLM (e.g., `30s`).                                              | No       | 30s                    |
 | `AZURE_DOCAI_ENDPOINT`           | Azure Document Intelligence endpoint. Required if OCR_PROVIDER is `azure`.                                        | Cond.    |                        |
 | `AZURE_DOCAI_KEY`                | Azure Document Intelligence API key. Required if OCR_PROVIDER is `azure`.                                         | Cond.    |                        |
 | `AZURE_DOCAI_MODEL_ID`           | Azure Document Intelligence model ID. Optional if using `azure` provider.                                         | No       | prebuilt-read          |

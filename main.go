@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/mistral"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 	"gorm.io/gorm"
@@ -221,6 +222,8 @@ func main() {
 		AzureAPIKey:              azureDocAIKey,
 		AzureModelID:             azureDocAIModelID,
 		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
+		MistralAPIKey:            os.Getenv("MISTRAL_API_KEY"),
+		MistralModel:             os.Getenv("MISTRAL_MODEL"),
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
@@ -454,8 +457,8 @@ func validateOrDefaultEnvVars() {
 		log.Fatal("Please set the LLM_PROVIDER environment variable.")
 	}
 
-	if visionLlmProvider != "" && visionLlmProvider != "openai" && visionLlmProvider != "ollama" {
-		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai' or 'ollama'.")
+	if visionLlmProvider != "" && visionLlmProvider != "openai" && visionLlmProvider != "ollama" && visionLlmProvider != "mistral" {
+		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'ollama', or 'mistral'.")
 	}
 
 	// Validate OCR provider if set
@@ -483,7 +486,11 @@ func validateOrDefaultEnvVars() {
 		log.Fatal("Please set the LLM_MODEL environment variable.")
 	}
 
-	if llmProvider == "openai" || visionLlmProvider == "openai" {
+	if llmProvider == "mistral" {
+		if os.Getenv("MISTRAL_API_KEY") == "" {
+			log.Fatal("Please set the MISTRAL_API_KEY environment variable for Mistral provider.")
+		}
+	} else if llmProvider == "openai" || visionLlmProvider == "openai" {
 		if openaiAPIKey == "" {
 			log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
 		}
@@ -670,9 +677,67 @@ func loadTemplates() {
 	}
 }
 
+// getRateLimitConfig gets rate limiting configuration from environment variables
+// with LLM or VISION_LLM prefixes or default values
+func getRateLimitConfig(isVision bool) RateLimitConfig {
+	// Use LLM or VISION_LLM prefix based on the type of LLM
+	prefix := "LLM_"
+	if isVision {
+		prefix = "VISION_LLM_"
+	}
+
+	// Read environment variables with appropriate prefix
+	rpmStr := os.Getenv(prefix + "REQUESTS_PER_MINUTE")
+	maxRetriesStr := os.Getenv(prefix + "MAX_RETRIES")
+	backoffMaxWaitStr := os.Getenv(prefix + "BACKOFF_MAX_WAIT")
+
+	// Default values
+	var rpm float64 = 120                 // Default to 120 requests per minute (2/second)
+	var maxRetries int = 3                // Default to 3 retries
+	var backoffMaxWait = 30 * time.Second // Default to 30 seconds
+
+	// Parse values if provided
+	if rpmStr != "" {
+		if parsed, err := strconv.ParseFloat(rpmStr, 64); err == nil {
+			rpm = parsed
+		}
+	}
+	if maxRetriesStr != "" {
+		if parsed, err := strconv.Atoi(maxRetriesStr); err == nil {
+			maxRetries = parsed
+		}
+	}
+	if backoffMaxWaitStr != "" {
+		if parsed, err := time.ParseDuration(backoffMaxWaitStr); err == nil {
+			backoffMaxWait = parsed
+		}
+	}
+
+	return RateLimitConfig{
+		RequestsPerMinute: rpm,
+		MaxRetries:        maxRetries,
+		BackoffMaxWait:    backoffMaxWait,
+	}
+}
+
 // createLLM creates the appropriate LLM client based on the provider
 func createLLM() (llms.Model, error) {
 	switch strings.ToLower(llmProvider) {
+	case "mistral":
+		mistralApiKey := os.Getenv("MISTRAL_API_KEY")
+		if mistralApiKey == "" {
+			return nil, fmt.Errorf("Mistral API key is not set")
+		}
+		llm, err := mistral.New(
+			mistral.WithModel(llmModel),
+			mistral.WithAPIKey(mistralApiKey),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Apply rate limiting with isVision=false
+		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
 	case "openai":
 		if openaiAPIKey == "" {
 			return nil, fmt.Errorf("OpenAI API key is not set")
@@ -695,16 +760,28 @@ func createLLM() (llms.Model, error) {
 			)
 		}
 
-		return openai.New(options...)
+		llm, err := openai.New(options...)
+		if err != nil {
+			return nil, err
+		}
+
+		// Apply rate limiting with isVision=false
+		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
 	case "ollama":
 		host := os.Getenv("OLLAMA_HOST")
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
-		return ollama.New(
+		llm, err := ollama.New(
 			ollama.WithModel(llmModel),
 			ollama.WithServerURL(host),
 		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Apply rate limiting with isVision=false
+		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", llmProvider)
 	}
@@ -712,6 +789,22 @@ func createLLM() (llms.Model, error) {
 
 func createVisionLLM() (llms.Model, error) {
 	switch strings.ToLower(visionLlmProvider) {
+	case "mistral":
+		mistralApiKey := os.Getenv("MISTRAL_API_KEY")
+		if mistralApiKey == "" {
+			return nil, fmt.Errorf("Mistral API key is not set")
+		}
+		llm, err := openai.New(
+			openai.WithToken(mistralApiKey),
+			openai.WithModel(visionLlmModel),
+			openai.WithBaseURL("https://api.mistral.ai/v1"),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Apply rate limiting with isVision=true
+		return NewRateLimitedLLM(llm, getRateLimitConfig(true)), nil
 	case "openai":
 		if openaiAPIKey == "" {
 			return nil, fmt.Errorf("OpenAI API key is not set")
@@ -734,16 +827,28 @@ func createVisionLLM() (llms.Model, error) {
 			)
 		}
 
-		return openai.New(options...)
+		llm, err := openai.New(options...)
+		if err != nil {
+			return nil, err
+		}
+
+		// Apply rate limiting with isVision=true
+		return NewRateLimitedLLM(llm, getRateLimitConfig(true)), nil
 	case "ollama":
 		host := os.Getenv("OLLAMA_HOST")
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
-		return ollama.New(
+		llm, err := ollama.New(
 			ollama.WithModel(visionLlmModel),
 			ollama.WithServerURL(host),
 		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Apply rate limiting with isVision=true
+		return NewRateLimitedLLM(llm, getRateLimitConfig(true)), nil
 	default:
 		log.Infoln("Vision LLM not enabled")
 		return nil, nil

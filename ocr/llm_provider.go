@@ -13,6 +13,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/mistral"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 )
@@ -42,6 +43,9 @@ func newLLMProvider(config Config) (*LLMProvider, error) {
 	case "ollama":
 		logger.Debug("Initializing Ollama vision model")
 		model, err = createOllamaClient(config)
+	case "mistral":
+		logger.Debug("Initializing Mistral vision model")
+		model, err = createMistralClient(config)
 	default:
 		return nil, fmt.Errorf("unsupported vision LLM provider: %s", config.VisionLLMProvider)
 	}
@@ -84,19 +88,21 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 
 	// Prepare content parts based on provider type
 	var parts []llms.ContentPart
-	if strings.ToLower(p.provider) != "openai" {
-		logger.Debug("Using binary image format for non-OpenAI provider")
-		parts = []llms.ContentPart{
-			llms.BinaryPart("image/jpeg", imageContent),
-			llms.TextPart(p.prompt),
-		}
+
+	var imagePart llms.ContentPart
+	providerName := strings.ToLower(p.provider)
+
+	if providerName == "openai" || providerName == "mistral" {
+		logger.Info("Using OpenAI image format")
+		imagePart = llms.ImageURLPart("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageContent))
 	} else {
-		logger.Debug("Using base64 image format for OpenAI provider")
-		base64Image := base64.StdEncoding.EncodeToString(imageContent)
-		parts = []llms.ContentPart{
-			llms.ImageURLPart(fmt.Sprintf("data:image/jpeg;base64,%s", base64Image)),
-			llms.TextPart(p.prompt),
-		}
+		logger.Info("Using binary image format")
+		imagePart = llms.BinaryPart("image/jpeg", imageContent)
+	}
+
+	parts = []llms.ContentPart{
+		imagePart,
+		llms.TextPart(p.prompt),
 	}
 
 	// Convert the image to text
@@ -144,5 +150,17 @@ func createOllamaClient(config Config) (llms.Model, error) {
 	return ollama.New(
 		ollama.WithModel(config.VisionLLMModel),
 		ollama.WithServerURL(host),
+	)
+}
+
+// createMistralClient creates a new Mistral vision model client
+func createMistralClient(config Config) (llms.Model, error) {
+	apiKey := os.Getenv("MISTRAL_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("Mistral API key is not set")
+	}
+	return mistral.New(
+		mistral.WithModel(config.VisionLLMModel),
+		mistral.WithAPIKey(apiKey),
 	)
 }
