@@ -1,7 +1,7 @@
 import { expect, Page, test } from '@playwright/test';
 import path, { dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { addTagToDocument, PORTS, setupTestEnvironment, TestEnvironment, uploadDocument } from './test-environment';
+import { addTagToDocument, createTag, getTagByName, PORTS, setupTestEnvironment, TestEnvironment, uploadDocument } from './test-environment';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -35,6 +35,12 @@ test('should OCR document via paperless-gpt-ocr-auto tag', async () => {
   // 1. Create the OCR auto tag
   console.log('Creating OCR auto tag...');
   const ocrTagId = await createTag(baseUrl, 'paperless-gpt-ocr-auto', credentials);
+  
+  // 1.1 Create the OCR complete tag
+  console.log('Creating OCR complete tag...');
+  const ocrCompleteTagId = await createTag(baseUrl, 'paperless-gpt-ocr-complete', credentials);
+  expect(ocrTagId).not.toBeNull();
+  expect(ocrCompleteTagId).not.toBeNull();
 
   // 2. Upload document and get ID
   const documentPath = path.join(__dirname, '..', '..', 'demo', 'ocr-example1.jpg');
@@ -84,10 +90,39 @@ test('should OCR document via paperless-gpt-ocr-auto tag', async () => {
     attempts++;
   }
 
-  // 5. Verify content was updated
+  // 5. Verify content was updated and OCR complete tag was added
   expect(contentChanged).toBeTruthy();
   expect(documentContent).not.toBe(initialContent);
   expect(documentContent?.length).toBeGreaterThan(0);
+
+  // Check OCR complete tag was added
+  const completeTagId = await getTagByName(baseUrl, 'paperless-gpt-ocr-complete', credentials);
+  expect(completeTagId).not.toBeNull();
+
+  // Wait for the tag to be added to the document
+  attempts = 0;
+  let hasCompleteTag = false;
+  while (attempts < maxAttempts && !hasCompleteTag) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    const docResponse = await fetch(`${baseUrl}/api/documents/${documentId}/`, {
+      headers: {
+        'Authorization': 'Basic ' + btoa(`${credentials.username}:${credentials.password}`),
+      },
+    });
+
+    if (docResponse.ok) {
+      const doc = await docResponse.json();
+      if (doc.tags.includes(completeTagId)) {
+        hasCompleteTag = true;
+        console.log('OCR complete tag added to document');
+      }
+    }
+
+    attempts++;
+  }
+
+  expect(hasCompleteTag).toBeTruthy();
 
   // 6. Check UI for processing status
   await page.goto(`http://localhost:${paperlessGptPort}`);
@@ -95,26 +130,3 @@ test('should OCR document via paperless-gpt-ocr-auto tag', async () => {
   // Take screenshot of final state
   await page.screenshot({ path: 'test-results/ocr-final-state.png' });
 });
-
-// Helper function to create a tag
-async function createTag(
-  baseUrl: string,
-  name: string,
-  credentials: { username: string; password: string }
-): Promise<number> {
-  const response = await fetch(`${baseUrl}/api/tags/`, {
-    method: 'POST',
-    body: JSON.stringify({ name }),
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Basic ' + btoa(`${credentials.username}:${credentials.password}`),
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to create tag: ${response.statusText}`);
-  }
-
-  const tag = await response.json();
-  return tag.id;
-}

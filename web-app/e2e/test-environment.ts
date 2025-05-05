@@ -91,6 +91,8 @@ export async function setupTestEnvironment(): Promise<TestEnvironment> {
       OCR_PROVIDER: "llm",
       VISION_LLM_PROVIDER: "openai",
       VISION_LLM_MODEL: "gpt-4o-mini",
+      PDF_OCR_TAGGING: "true",
+      PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete",
     })
     .withExposedPorts(gptPort)
     .withWaitStrategy(Wait.forHttp('/', gptPort))
@@ -256,6 +258,31 @@ export async function getApiToken(
   const token = await response.json();
   console.log(`API token fetched successfully: ${token.token}`);
   return token.token;
+}
+
+// Helper to get a tag by name
+export async function getTagByName(
+  baseUrl: string,
+  name: string,
+  credentials: { username: string; password: string }
+): Promise<number | null> {
+  console.log(`Getting tag by name: ${name}`);
+  const response = await fetch(`${baseUrl}/api/tags/?name=${encodeURIComponent(name)}`, {
+    headers: {
+      'Authorization': 'Basic ' + btoa(`${credentials.username}:${credentials.password}`),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch tag: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  if (!data.results || data.results.length === 0) {
+    return null;
+  }
+
+  return data.results[0].id;
 }
 
 // Helper to add a tag to a document

@@ -1,5 +1,11 @@
 package main
 
+import (
+	"context"
+
+	"gorm.io/gorm"
+)
+
 // GetDocumentsApiResponse is the response payload for /documents endpoint.
 // But we are only interested in a subset of the fields.
 type GetDocumentsApiResponse struct {
@@ -90,6 +96,7 @@ type DocumentSuggestion struct {
 	SuggestedContent       string   `json:"suggested_content,omitempty"`
 	SuggestedCorrespondent string   `json:"suggested_correspondent,omitempty"`
 	SuggestedCreatedDate   string   `json:"suggested_created_date,omitempty"`
+	KeepOriginalTags       bool     `json:"keep_original_tags,omitempty"`
 	RemoveTags             []string `json:"remove_tags,omitempty"`
 }
 
@@ -117,4 +124,23 @@ type OCROptions struct {
 	ReplaceOriginal bool // Whether to delete the original document after uploading
 	CopyMetadata    bool // Whether to copy metadata from the original document
 	LimitPages      int  // Limit on the number of pages to process (0 = no limit)
+}
+
+// ClientInterface defines the interface for PaperlessClient operations
+type ClientInterface interface {
+	GetDocumentsByTags(ctx context.Context, tags []string, pageSize int) ([]Document, error)
+	UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error
+	GetDocument(ctx context.Context, documentID int) (Document, error)
+	GetAllTags(ctx context.Context) (map[string]int, error)
+	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
+	CreateTag(ctx context.Context, tagName string) (int, error)
+	DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error)
+	UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error)
+	GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error)
+	DeleteDocument(ctx context.Context, documentID int) error
+}
+
+// DocumentProcessor defines the interface for processing documents with OCR
+type DocumentProcessor interface {
+	ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions) (*ProcessedDocument, error)
 }

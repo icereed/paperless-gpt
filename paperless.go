@@ -422,6 +422,11 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			// remove autoTag to prevent infinite loop - this is required in case of undo
 			tags = removeTagFromList(tags, autoTag)
 
+			if document.KeepOriginalTags {
+				// Keep original tags
+				tags = append(tags, originalTags...)
+			}
+
 			// remove duplicates
 			slices.Sort(tags)
 			tags = slices.Compact(tags)
