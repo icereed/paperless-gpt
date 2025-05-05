@@ -90,7 +90,7 @@ export async function setupTestEnvironment(): Promise<TestEnvironment> {
       // Vision LLM settings for OCR
       OCR_PROVIDER: "llm",
       VISION_LLM_PROVIDER: "openai",
-      VISION_LLM_MODEL: "gpt-4o",
+      VISION_LLM_MODEL: "gpt-4o-mini",
     })
     .withExposedPorts(gptPort)
     .withWaitStrategy(Wait.forHttp('/', gptPort))
