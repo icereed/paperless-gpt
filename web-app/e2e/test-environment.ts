@@ -1,4 +1,4 @@
-import { Browser, chromium } from '@playwright/test';
+import { Browser, chromium, Page } from '@playwright/test';
 import * as fs from 'fs';
 import { GenericContainer, Network, StartedTestContainer, Wait } from 'testcontainers';
 
@@ -87,6 +87,10 @@ export async function setupTestEnvironment(): Promise<TestEnvironment> {
       LLM_MODEL: "gpt-4o-mini",
       LLM_LANGUAGE: "english",
       OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+      // Vision LLM settings for OCR
+      OCR_PROVIDER: "llm",
+      VISION_LLM_PROVIDER: "openai",
+      VISION_LLM_MODEL: "gpt-4o",
     })
     .withExposedPorts(gptPort)
     .withWaitStrategy(Wait.forHttp('/', gptPort))
@@ -117,7 +121,7 @@ export async function setupTestEnvironment(): Promise<TestEnvironment> {
   };
 }
 
-export async function waitForElement(page: any, selector: string, timeout = 5000): Promise<void> {
+export async function waitForElement(page: Page, selector: string, timeout = 5000): Promise<void> {
   await page.waitForSelector(selector, { timeout });
 }
 
