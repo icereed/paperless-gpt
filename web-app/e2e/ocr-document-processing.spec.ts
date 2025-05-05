@@ -35,7 +35,7 @@ test('should OCR document via paperless-gpt-ocr-auto tag', async () => {
   // 1. Create the OCR auto tag
   console.log('Creating OCR auto tag...');
   const ocrTagId = await createTag(baseUrl, 'paperless-gpt-ocr-auto', credentials);
-  
+
   // 1.1 Create the OCR complete tag
   console.log('Creating OCR complete tag...');
   const ocrCompleteTagId = await createTag(baseUrl, 'paperless-gpt-ocr-complete', credentials);
@@ -70,7 +70,7 @@ test('should OCR document via paperless-gpt-ocr-auto tag', async () => {
   while (attempts < maxAttempts && !contentChanged) {
     // Wait 1 second between checks
     await new Promise(resolve => setTimeout(resolve, 1000));
-    
+
     // Fetch latest document content
     const response = await fetch(`${baseUrl}/api/documents/${documentId}/`, {
       headers: {
@@ -82,29 +82,31 @@ test('should OCR document via paperless-gpt-ocr-auto tag', async () => {
       const document = await response.json();
       if (document.content !== documentContent) {
         contentChanged = true;
-        documentContent = document.content;
         console.log('Document content updated after OCR');
       }
+      documentContent = document.content;
     }
 
     attempts++;
   }
 
   // 5. Verify content was updated and OCR complete tag was added
-  expect(contentChanged).toBeTruthy();
-  expect(documentContent).not.toBe(initialContent);
-  expect(documentContent?.length).toBeGreaterThan(0);
-
   // Check OCR complete tag was added
   const completeTagId = await getTagByName(baseUrl, 'paperless-gpt-ocr-complete', credentials);
   expect(completeTagId).not.toBeNull();
+
+  // Check content was updated
+  expect(documentContent).not.toBe(initialContent);
+  expect(documentContent?.length).toBeGreaterThan(0);
+
+
 
   // Wait for the tag to be added to the document
   attempts = 0;
   let hasCompleteTag = false;
   while (attempts < maxAttempts && !hasCompleteTag) {
     await new Promise(resolve => setTimeout(resolve, 1000));
-    
+
     const docResponse = await fetch(`${baseUrl}/api/documents/${documentId}/`, {
       headers: {
         'Authorization': 'Basic ' + btoa(`${credentials.username}:${credentials.password}`),
@@ -126,7 +128,7 @@ test('should OCR document via paperless-gpt-ocr-auto tag', async () => {
 
   // 6. Check UI for processing status
   await page.goto(`http://localhost:${paperlessGptPort}`);
-  
+
   // Take screenshot of final state
   await page.screenshot({ path: 'test-results/ocr-final-state.png' });
 });

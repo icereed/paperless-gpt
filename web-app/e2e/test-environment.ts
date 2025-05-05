@@ -14,6 +14,12 @@ export const PORTS = {
   paperlessGpt: 8080,
 };
 
+export const PREDEFINED_TAGS = [
+  'paperless-gpt',
+  'paperless-gpt-ocr-auto',
+  'paperless-gpt-ocr-complete',
+]
+
 export async function setupTestEnvironment(): Promise<TestEnvironment> {
   console.log('Setting up test environment...');
   const paperlessPort = PORTS.paperlessNgx;
@@ -67,10 +73,13 @@ export async function setupTestEnvironment(): Promise<TestEnvironment> {
   const credentials = { username: 'admin', password: 'admin' };
 
   try {
-    console.log('Creating paperless-gpt tag...');
-    await createTag(baseUrl, 'paperless-gpt', credentials);
+    console.log('Creating predefined tags...');
+    // Create predefined tags
+    for (const tag of PREDEFINED_TAGS) {
+      await createTag(baseUrl, tag, credentials);
+    }
   } catch (error) {
-    console.error('Failed to create paperless-gpt tag:', error);
+    console.error('Failed to create tag:', error);
     await paperlessNgx.stop();
     throw error;
   }
@@ -217,6 +226,15 @@ export async function createTag(
   credentials: { username: string; password: string }
 ): Promise<number> {
   console.log(`Creating tag: ${name}`);
+  
+  // First check if the tag already exists
+  const existingTagId = await getTagByName(baseUrl, name, credentials);
+  if (existingTagId !== null) {
+    console.log(`Tag "${name}" already exists with ID: ${existingTagId}`);
+    return existingTagId;
+  }
+  
+  // Create new tag if it doesn't exist
   const response = await fetch(`${baseUrl}/api/tags/`, {
     method: 'POST',
     body: JSON.stringify({ name }),
@@ -282,7 +300,15 @@ export async function getTagByName(
     return null;
   }
 
-  return data.results[0].id;
+// iterate through all tags and find the one with the correct name
+  const tag = data.results.find((tag: { name: string }) => tag.name === name);
+  if (!tag) {
+    console.error(`Tag "${name}" not found`);
+    return null;
+  }
+
+  console.log(`Tag found with ID: ${tag.id}`);
+  return tag.id;
 }
 
 // Helper to add a tag to a document
