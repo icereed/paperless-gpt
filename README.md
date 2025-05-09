@@ -853,7 +853,7 @@ paperless-gpt is licensed under the [MIT License](LICENSE). Feel free to adapt a
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=icereed/paperless-gpt&type=Date)](https://star-history.com/#icereed/paperless-gpt&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=icereed/paperless-gpt&type=Date)](https://www.star-history.com/#icereed/paperless-gpt&Date)
 
 ---
 
