@@ -757,6 +757,7 @@ func createLLM() (llms.Model, error) {
 			options = append(options,
 				openai.WithAPIType(openai.APITypeAzure),
 				openai.WithBaseURL(baseURL),
+				openai.WithEmbeddingModel("this-is-not-used"), // This is mandatory for Azure by langchain-go
 			)
 		}
 
@@ -824,6 +825,7 @@ func createVisionLLM() (llms.Model, error) {
 			options = append(options,
 				openai.WithAPIType(openai.APITypeAzure),
 				openai.WithBaseURL(baseURL),
+				openai.WithEmbeddingModel("this-is-not-used"), // This is mandatory for Azure by langchain-go
 			)
 		}
 
