@@ -439,3 +439,34 @@ func TestDownloadDocumentAsImages_ManyPages(t *testing.T) {
 	// Verify total pages count
 	assert.Equal(t, 52, totalPages, "Total pages should be 52")
 }
+
+// TestDownloadDocumentAsPDF tests the DownloadDocumentAsPDF method
+func TestDownloadDocumentAsPDF(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	documentID := 123
+
+	// Get sample PDF from tests/pdf/sample.pdf
+	pdfFile := "tests/pdf/sample.pdf"
+	pdfContent, err := os.ReadFile(pdfFile)
+	require.NoError(t, err)
+
+	// Set mock response
+	downloadPath := fmt.Sprintf("/api/documents/%d/download/", documentID)
+	env.setMockResponse(downloadPath, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(pdfContent)
+	})
+
+	ctx := context.Background()
+
+	// Test without PDF splitting
+	pdfPaths, pdfData, totalPages, err := env.client.DownloadDocumentAsPDF(ctx, documentID, 0, false)
+	require.NoError(t, err)
+	assert.Empty(t, pdfPaths, "No paths should be returned when split=false")
+	assert.Equal(t, pdfContent, pdfData)
+	assert.Equal(t, 1, totalPages)
+
+	// Testing with splitting=true would be more complex so we'll skip that for simplicity
+}

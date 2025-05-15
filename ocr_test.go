@@ -265,10 +265,12 @@ func TestUploadProcessedPDF(t *testing.T) {
 			deleteDocCalled = false
 
 			app := &App{
-				Client:            env.client,
-				Database:          env.db,
-				pdfOCRTagging:     tc.expectTagging,
-				pdfOCRCompleteTag: "paperless-gpt-ocr-complete",
+				Client:             env.client,
+				Database:           env.db,
+				pdfOCRTagging:      tc.expectTagging,
+				pdfOCRCompleteTag:  "paperless-gpt-ocr-complete",
+				ocrProcessMode:     "image",
+				pdfSkipExistingOCR: false,
 			}
 
 			logger := logrus.WithField("test", "upload_pdf")

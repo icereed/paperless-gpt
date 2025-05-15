@@ -47,6 +47,7 @@ var (
 	autoTag                       = os.Getenv("AUTO_TAG")
 	manualOcrTag                  = os.Getenv("MANUAL_OCR_TAG") // Not used yet
 	autoOcrTag                    = os.Getenv("AUTO_OCR_TAG")
+	ocrProcessMode                = os.Getenv("OCR_PROCESS_MODE")
 	llmProvider                   = os.Getenv("LLM_PROVIDER")
 	llmModel                      = os.Getenv("LLM_MODEL")
 	visionLlmProvider             = os.Getenv("VISION_LLM_PROVIDER")
@@ -68,6 +69,7 @@ var (
 	pdfCopyMetadata               = os.Getenv("PDF_COPY_METADATA") == "true"
 	pdfOCRCompleteTag             = os.Getenv("PDF_OCR_COMPLETE_TAG")
 	pdfOCRTagging                 = os.Getenv("PDF_OCR_TAGGING") == "true"
+	pdfSkipExistingOCR            = os.Getenv("PDF_SKIP_EXISTING_OCR") == "true"
 	doclingURL                    = os.Getenv("DOCLING_URL")
 	doclingImageExportMode        = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
 
@@ -141,21 +143,23 @@ Content:
 
 // App struct to hold dependencies
 type App struct {
-	Client            ClientInterface
-	Database          *gorm.DB
-	LLM               llms.Model
-	VisionLLM         llms.Model
-	ocrProvider       ocr.Provider      // OCR provider interface
-	docProcessor      DocumentProcessor // Optional: Can be used for mocking
-	localHOCRPath     string            // Path for saving hOCR files locally
-	localPDFPath      string            // Path for saving PDF files locally
-	createLocalHOCR   bool              // Whether to save hOCR files locally
-	createLocalPDF    bool              // Whether to create PDF files locally
-	pdfUpload         bool              // Whether to upload processed PDFs to paperless-ngx
-	pdfReplace        bool              // Whether to replace original document after upload
-	pdfCopyMetadata   bool              // Whether to copy metadata from original to uploaded PDF
-	pdfOCRCompleteTag string            // Tag to add to documents that have been OCR processed
-	pdfOCRTagging     bool              // Whether to add the OCR complete tag to processed PDFs
+	Client             ClientInterface
+	Database           *gorm.DB
+	LLM                llms.Model
+	VisionLLM          llms.Model
+	ocrProvider        ocr.Provider      // OCR provider interface
+	ocrProcessMode     string            // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
+	docProcessor       DocumentProcessor // Optional: Can be used for mocking
+	localHOCRPath      string            // Path for saving hOCR files locally
+	localPDFPath       string            // Path for saving PDF files locally
+	createLocalHOCR    bool              // Whether to save hOCR files locally
+	createLocalPDF     bool              // Whether to create PDF files locally
+	pdfUpload          bool              // Whether to upload processed PDFs to paperless-ngx
+	pdfReplace         bool              // Whether to replace original document after upload
+	pdfCopyMetadata    bool              // Whether to copy metadata from original to uploaded PDF
+	pdfOCRCompleteTag  string            // Tag to add to documents that have been OCR processed
+	pdfOCRTagging      bool              // Whether to add the OCR complete tag to processed PDFs
+	pdfSkipExistingOCR bool              // Whether to skip processing PDFs that already have OCR detected
 }
 
 func main() {
@@ -250,21 +254,23 @@ func main() {
 
 	// Initialize App with dependencies
 	app := &App{
-		Client:            client,
-		Database:          database,
-		LLM:               llm,
-		VisionLLM:         visionLlm,
-		ocrProvider:       ocrProvider,
-		docProcessor:      nil, // App itself implements DocumentProcessor
-		localHOCRPath:     localHOCRPath,
-		localPDFPath:      localPDFPath,
-		createLocalHOCR:   createLocalHOCR,
-		createLocalPDF:    createLocalPDF,
-		pdfUpload:         pdfUpload,
-		pdfReplace:        pdfReplace,
-		pdfCopyMetadata:   pdfCopyMetadata,
-		pdfOCRCompleteTag: pdfOCRCompleteTag,
-		pdfOCRTagging:     pdfOCRTagging,
+		Client:             client,
+		Database:           database,
+		LLM:                llm,
+		VisionLLM:          visionLlm,
+		ocrProvider:        ocrProvider,
+		ocrProcessMode:     ocrProcessMode,
+		docProcessor:       nil, // App itself implements DocumentProcessor
+		localHOCRPath:      localHOCRPath,
+		localPDFPath:       localPDFPath,
+		createLocalHOCR:    createLocalHOCR,
+		createLocalPDF:     createLocalPDF,
+		pdfUpload:          pdfUpload,
+		pdfReplace:         pdfReplace,
+		pdfCopyMetadata:    pdfCopyMetadata,
+		pdfOCRCompleteTag:  pdfOCRCompleteTag,
+		pdfOCRTagging:      pdfOCRTagging,
+		pdfSkipExistingOCR: pdfSkipExistingOCR,
 	}
 
 	if app.isOcrEnabled() {
@@ -502,6 +508,16 @@ func validateOrDefaultEnvVars() {
 				log.Fatal("Please set the OPENAI_BASE_URL environment variable for Azure OpenAI.")
 			}
 		}
+	}
+
+	if ocrProcessMode == "" {
+		ocrProcessMode = "image"
+		log.Infof("OCR_PROCESS_MODE not set, defaulting to %s", ocrProcessMode)
+	} else if (ocrProcessMode == "pdf" || ocrProcessMode == "whole_pdf") && os.Getenv("PDF_SKIP_EXISTING_OCR") == "true" {
+		log.Infof("PDF OCR detection enabled, will skip OCR for PDFs with existing text layers")
+	} else if ocrProcessMode != "image" && ocrProcessMode != "pdf" && ocrProcessMode != "whole_pdf" {
+		log.Warnf("Invalid OCR_PROCESS_MODE value: %s, defaulting to image", ocrProcessMode)
+		ocrProcessMode = "image"
 	}
 
 	// Initialize token limit from environment variable

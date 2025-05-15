@@ -202,6 +202,7 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			ReplaceOriginal: app.pdfReplace,
 			CopyMetadata:    app.pdfCopyMetadata,
 			LimitPages:      limitOcrPages,
+			ProcessMode:     app.ocrProcessMode,
 		}
 
 		// Use the DocumentProcessor interface instead of calling the method directly
