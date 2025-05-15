@@ -839,11 +839,9 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 
 	// Clear existing PDFs to ensure consistency
-	pdfPaths = []string{}
-
-	// Use pdfcpu to split the PDF
-	err = api.SplitFile(originalPDFPath, docDir, 1, nil)
-	if err != nil {
+        // Use pdfcpu to split the PDF
+        err = api.SplitFile(originalPDFPath, docDir, 1, nil)
+        if err != nil {
 		return nil, nil, 0, fmt.Errorf("error splitting PDF: %w", err)
 	}
 
@@ -851,7 +849,8 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	pdfPaths = []string{}
 	for n := 0; n < pagesToProcess; n++ {
 		// The expected output from pdfcpu SplitFile
-		filePath := filepath.Join(docDir, fmt.Sprintf("original_%d.pdf", n+1))
+		// Zero-pad to 3 digits => original_001.pdf … original_999.pdf
+		filePath := filepath.Join(docDir, fmt.Sprintf("original_%03d.pdf", n+1))
 
 		// Check if the file exists
 		if _, err := os.Stat(filePath); err == nil {
@@ -862,8 +861,11 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 
 	// Sort the PDF paths to ensure they are in order
-	slices.Sort(pdfPaths)
-
+	sort.SliceStable(pdfPaths, func(i, j int) bool {
+		ni, _ := strconv.Atoi(strings.TrimSuffix(strings.Split(pdfPaths[i], "_")[1], ".pdf"))
+		nj, _ := strconv.Atoi(strings.TrimSuffix(strings.Split(pdfPaths[j], "_")[1], ".pdf"))
+		return ni < nj
+	})
 	return pdfPaths, pdfData, totalPages, nil
 }
 
