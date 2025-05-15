@@ -311,11 +311,12 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 					}
 
 					// SAFETY CHECK: Don't generate PDF if we're processing fewer pages than original document
-					if processedPageCount < totalPdfPages && pageLimit > 0 {
+					if processedPageCount != totalPdfPages {
 						docLogger.WithFields(logrus.Fields{
 							"processed_pages": processedPageCount,
 							"total_pages":     totalPdfPages,
 							"limit":           pageLimit,
+							"process_mode":    processMode,
 						}).Warn("Not generating PDF because fewer pages were processed than exist in the original document")
 					} else {
 						docLogger.Info("Applying OCR to PDF")
