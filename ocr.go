@@ -51,6 +51,8 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	processMode := options.ProcessMode
 	if processMode == "" {
 		processMode = app.ocrProcessMode
+	} else if processMode != "image" && processMode != "pdf" && processMode != "whole_pdf" {
+		return nil, fmt.Errorf("invalid ProcessMode: %s, must be one of: image, pdf, whole_pdf", processMode)
 	}
 
 	// Skip OCR if PDF already has OCR
