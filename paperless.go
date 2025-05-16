@@ -23,6 +23,7 @@ import (
 
 	"github.com/disintegration/imaging"
 	"github.com/gen2brain/go-fitz"
+	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
@@ -564,9 +565,9 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 // DownloadDocumentAsImages downloads the PDF file of the specified document and converts it to images
 // If limitPages > 0, only the first N pages will be processed
 // Returns the image paths and the total number of pages in the original document
-func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentId int, limitPages int) ([]string, int, error) {
+func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentID int, limitPages int) ([]string, int, error) {
 	// Create a directory named after the document ID
-	docDir := filepath.Join(client.GetCacheFolder(), fmt.Sprintf("document-%d", documentId))
+	docDir := filepath.Join(client.GetCacheFolder(), fmt.Sprintf("document-%d", documentID))
 	if _, err := os.Stat(docDir); os.IsNotExist(err) {
 		err = os.MkdirAll(docDir, 0755)
 		if err != nil {
@@ -575,7 +576,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 	}
 
 	// Proceed with downloading the document to get the total page count
-	path := fmt.Sprintf("api/documents/%d/download/", documentId)
+	path := fmt.Sprintf("api/documents/%d/download/", documentID)
 	resp, err := client.Do(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, 0, err
@@ -584,7 +585,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, 0, fmt.Errorf("error downloading document %d: %d, %s", documentId, resp.StatusCode, string(bodyBytes))
+		return nil, 0, fmt.Errorf("error downloading document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
 	}
 
 	pdfData, err := io.ReadAll(resp.Body)
@@ -750,6 +751,122 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 	slices.Sort(imagePaths)
 
 	return imagePaths, totalPages, nil
+}
+
+// DownloadDocumentAsPDF downloads the PDF file of the specified document and splits it into individual PDFs if needed
+// If limitPages > 0, only the first N pages will be processed
+// Returns the PDF paths, original PDF data, and the total number of pages in the original document
+func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error) {
+	// Create a directory named after the document ID
+	docDir := filepath.Join(client.GetCacheFolder(), fmt.Sprintf("document-%d-pdf", documentID))
+	if _, err := os.Stat(docDir); os.IsNotExist(err) {
+		err = os.MkdirAll(docDir, 0755)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+	}
+
+	// Proceed with downloading the document
+	path := fmt.Sprintf("api/documents/%d/download/?original=true", documentID)
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, nil, 0, fmt.Errorf("error downloading document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+	}
+
+	pdfData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	// Save the original PDF
+	originalPDFPath := filepath.Join(docDir, "original.pdf")
+	err = os.WriteFile(originalPDFPath, pdfData, 0644)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	// Get the number of pages in the PDF
+	tmpFile, err := os.CreateTemp("", "document-*.pdf")
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	_, err = tmpFile.Write(pdfData)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	tmpFile.Close()
+
+	doc, err := fitz.New(tmpFile.Name())
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer doc.Close()
+
+	totalPages := doc.NumPage()
+	pagesToProcess := totalPages
+
+	if limitPages > 0 && limitPages < totalPages {
+		pagesToProcess = limitPages
+	}
+
+	// If skipping splitting is requested, return early with empty paths array
+	if !split {
+		return []string{}, pdfData, totalPages, nil
+	}
+
+	// Continue with splitting logic only if we're not skipping it
+	// Check if PDFs already exist
+	var pdfPaths []string
+	for n := 0; n < pagesToProcess; n++ {
+		pdfPath := filepath.Join(docDir, fmt.Sprintf("page%03d.pdf", n))
+		if _, err := os.Stat(pdfPath); err == nil {
+			// File exists
+			pdfPaths = append(pdfPaths, pdfPath)
+		}
+	}
+
+	// If all PDFs exist, return them
+	if len(pdfPaths) == pagesToProcess {
+		return pdfPaths, pdfData, totalPages, nil
+	}
+
+	// Clear existing PDFs to ensure consistency
+        // Use pdfcpu to split the PDF
+        err = api.SplitFile(originalPDFPath, docDir, 1, nil)
+        if err != nil {
+		return nil, nil, 0, fmt.Errorf("error splitting PDF: %w", err)
+	}
+
+	// pdfcpu creates files with names like "original_1.pdf", "original_2.pdf", etc.
+	pdfPaths = []string{}
+	for n := 0; n < pagesToProcess; n++ {
+		// The expected output from pdfcpu SplitFile
+		// Zero-pad to 3 digits => original_001.pdf … original_999.pdf
+		filePath := filepath.Join(docDir, fmt.Sprintf("original_%03d.pdf", n+1))
+
+		// Check if the file exists
+		if _, err := os.Stat(filePath); err == nil {
+			pdfPaths = append(pdfPaths, filePath)
+		} else {
+			return nil, nil, 0, fmt.Errorf("expected split PDF not found: %s", filePath)
+		}
+	}
+
+	// Sort the PDF paths to ensure they are in order
+	sort.SliceStable(pdfPaths, func(i, j int) bool {
+		ni, _ := strconv.Atoi(strings.TrimSuffix(strings.Split(pdfPaths[i], "_")[1], ".pdf"))
+		nj, _ := strconv.Atoi(strings.TrimSuffix(strings.Split(pdfPaths[j], "_")[1], ".pdf"))
+		return ni < nj
+	})
+	return pdfPaths, pdfData, totalPages, nil
 }
 
 // GetCacheFolder returns the cache folder for the PaperlessClient

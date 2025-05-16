@@ -120,10 +120,11 @@ type Correspondent struct {
 
 // OCROptions contains options for the OCR processing
 type OCROptions struct {
-	UploadPDF       bool // Whether to upload the generated PDF
-	ReplaceOriginal bool // Whether to delete the original document after uploading
-	CopyMetadata    bool // Whether to copy metadata from the original document
-	LimitPages      int  // Limit on the number of pages to process (0 = no limit)
+	UploadPDF       bool   // Whether to upload the generated PDF
+	ReplaceOriginal bool   // Whether to delete the original document after uploading
+	CopyMetadata    bool   // Whether to copy metadata from the original document
+	LimitPages      int    // Limit on the number of pages to process (0 = no limit)
+	ProcessMode     string // OCR processing mode: "image" (default) or "pdf"
 }
 
 // ClientInterface defines the interface for PaperlessClient operations
@@ -135,6 +136,7 @@ type ClientInterface interface {
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
 	CreateTag(ctx context.Context, tagName string) (int, error)
 	DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error)
+	DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error)
 	UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error)
 	GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error)
 	DeleteDocument(ctx context.Context, documentID int) error

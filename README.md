@@ -73,6 +73,11 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [2. Azure Document Intelligence](#2-azure-document-intelligence)
     - [3. Google Document AI](#3-google-document-ai)
     - [4. Docling Server](#4-docling-server)
+  - [OCR Processing Modes](#ocr-processing-modes)
+    - [Image Mode (Default)](#image-mode-default)
+    - [PDF Mode](#pdf-mode)
+    - [Whole PDF Mode](#whole-pdf-mode)
+    - [Existing OCR Detection](#existing-ocr-detection)
   - [Enhanced OCR Features](#enhanced-ocr-features)
     - [PDF Text Layer Generation](#pdf-text-layer-generation)
     - [Local File Saving](#local-file-saving)
@@ -167,6 +172,10 @@ services:
       VISION_LLM_PROVIDER: "ollama" # openai or ollama
       VISION_LLM_MODEL: "minicpm-v" # minicpm-v (ollama) or gpt-4o (openai)
       OLLAMA_HOST: "http://host.docker.internal:11434" # If using Ollama
+
+      # OCR Processing Mode
+      OCR_PROCESS_MODE: "image" # Optional, default: image, other options: pdf, whole_pdf
+      PDF_SKIP_EXISTING_OCR: "false" # Optional, skip OCR for PDFs with existing OCR
 
       # Option 2: Google Document AI
       # OCR_PROVIDER: 'google_docai'       # Use Google Document AI
@@ -337,9 +346,40 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   DOCLING_URL: "http://your-docling-server:port"
   ```
 
+## OCR Processing Modes
+
+paperless-gpt offers different methods for processing documents, giving you flexibility based on your needs and OCR provider capabilities:
+
+### Image Mode (Default)
+- **How it works**: Converts PDF pages to images before processing
+- **Best for**: Compatibility with all OCR providers.
+- **Configuration**: `OCR_PROCESS_MODE: "image"`
+
+### PDF Mode
+- **How it works**: Processes PDF pages directly without image conversion
+- **Best for**: Preserving PDF features, potentially faster processing and improved accuracy with some providers
+- **Configuration**: `OCR_PROCESS_MODE: "pdf"`
+
+### Whole PDF Mode
+- **How it works**: Processes the entire PDF document in a single operation
+- **Best for**: Providers that handle multi-page documents efficiently, reduced API calls
+- **Configuration**: `OCR_PROCESS_MODE: "whole_pdf"`
+- **Note**: Processing large PDFs may cause you to hit the API limit of your OCR provider. If you encounter problems with large documents, consider switching to `pdf` mode, which processes pages individually.
+
+### Existing OCR Detection
+When using PDF or whole PDF modes, you can enable automatic detection of existing OCR:
+
+```yaml
+environment:
+  OCR_PROCESS_MODE: "pdf" # or "whole_pdf"
+  PDF_SKIP_EXISTING_OCR: "true" # Skip processing if existing OCR is detected in the PDF
+```
+
+> **Note**: Not all OCR providers support all processing modes. Some may work better with certain modes than others. Processing as PDF might use more or fewer API tokens than processing as images, depending on the provider. Results may vary based on document complexity and provider capabilities. It's recommended to experiment with different modes to find what works best for your specific documents and OCR provider.
+
 ## Enhanced OCR Features
 
-paperless-gpt now includes powerful OCR enhancements that go beyond basic text extraction:
+paperless-gpt includes powerful OCR enhancements that go beyond basic text extraction:
 
 > **Important Note**: The PDF text layer generation and hOCR features are currently **only supported with Google Document AI** as the OCR provider. These features are not available when using LLM-based OCR or Azure Document Intelligence.
 
@@ -461,6 +501,7 @@ For best results with the enhanced OCR features:
 | `LLM_MAX_RETRIES`                   | Maximum retry attempts for failed main LLM requests.                                                                                                                                      | No       | 3                          |
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                         | No       | 30s                        |
 | `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                  | No       | llm                        |
+| `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                              | No       | image                      |
 | `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                                                                                         | Cond.    |                            |
 | `VISION_LLM_MODEL`                  | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                                                                                             | Cond.    |                            |
 | `VISION_LLM_REQUESTS_PER_MINUTE`    | Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load.                                                                                          | No       | 120                        |
@@ -484,8 +525,9 @@ For best results with the enhanced OCR features:
 | `PDF_UPLOAD`                        | Whether to upload enhanced PDFs to paperless-ngx.                                                                                                                                         | No       | false                      |
 | `PDF_REPLACE`                       | Whether to delete the original document after uploading the enhanced version (DANGEROUS).                                                                                                 | No       | false                      |
 | `PDF_COPY_METADATA`                 | Whether to copy metadata from the original document to the uploaded PDF. Only applicable when using PDF_UPLOAD.                                                                           | No       | true                       |
-| `PDF_OCR_TAGGING`                   | Whether to add a tag to mark documents as OCR-processed.                                                                                                                                 | No       | true                       |
+| `PDF_OCR_TAGGING`                   | Whether to add a tag to mark documents as OCR-processed.                                                                                                                                  | No       | true                       |
 | `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed.                                                                                                                                              | No       | paperless-gpt-ocr-complete |
+| `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                    | No       | false                      |
 | `AUTO_OCR_TAG`                      | Tag for automatically processing docs with OCR.                                                                                                                                           | No       | paperless-gpt-ocr-auto     |
 | `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit.                                                                                                                               | No       | 5                          |
 | `LOG_LEVEL`                         | Application log level (`info`, `debug`, `warn`, `error`).                                                                                                                                 | No       | info                       |

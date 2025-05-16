@@ -519,12 +519,14 @@ func TestProcessAutoOcrTagDocuments(t *testing.T) {
 
 			// Create test app with mocks
 			app := &App{
-				Client:            client,
-				Database:          env.db,
-				ocrProvider:       &mockOCRProvider{text: tc.mockOCRText},
-				docProcessor:      docProcessor,
-				pdfOCRTagging:     tc.pdfOCRTagging,
-				pdfOCRCompleteTag: pdfOCRCompleteTag,
+				Client:             client,
+				Database:           env.db,
+				ocrProvider:        &mockOCRProvider{text: tc.mockOCRText},
+				docProcessor:       docProcessor,
+				ocrProcessMode:     "image",
+				pdfOCRTagging:      tc.pdfOCRTagging,
+				pdfOCRCompleteTag:  pdfOCRCompleteTag,
+				pdfSkipExistingOCR: false,
 			}
 
 			// Test the processAutoOcrTagDocuments method
