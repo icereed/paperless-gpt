@@ -10,11 +10,12 @@ require (
 	github.com/disintegration/imaging v1.6.2
 	github.com/fatih/color v1.18.0
 	github.com/gabriel-vasile/mimetype v1.4.9
-	github.com/gardar/ocrchestra v0.0.0-20250514012445-424ff2f657f2
+	github.com/gardar/ocrchestra v0.0.0-20250518190221-d0d7cffc33b4
 	github.com/gen2brain/go-fitz v1.24.14
 	github.com/gin-gonic/gin v1.10.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-retryablehttp v0.7.7
+	github.com/pdfcpu/pdfcpu v0.10.2
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
 	github.com/tmc/langchaingo v0.1.13
@@ -72,7 +73,6 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/pdfcpu/pdfcpu v0.10.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/phpdave11/gofpdi v1.0.13 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
