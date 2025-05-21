@@ -10,7 +10,7 @@ require (
 	github.com/disintegration/imaging v1.6.2
 	github.com/fatih/color v1.18.0
 	github.com/gabriel-vasile/mimetype v1.4.9
-	github.com/gardar/ocrchestra v0.0.0-20250518190221-d0d7cffc33b4
+	github.com/gardar/ocrchestra v0.0.0-20250521145628-aaae7e4d40e9
 	github.com/gen2brain/go-fitz v1.24.14
 	github.com/gin-gonic/gin v1.10.1
 	github.com/google/uuid v1.6.0

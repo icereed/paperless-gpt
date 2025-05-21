@@ -65,6 +65,8 @@ github.com/gardar/ocrchestra v0.0.0-20250514012445-424ff2f657f2 h1:d0so2EL7hct6l
 github.com/gardar/ocrchestra v0.0.0-20250514012445-424ff2f657f2/go.mod h1:KyEcdoxMqdFEld5EYXr0nXSl/AaiWmz0IVD7ITHltUc=
 github.com/gardar/ocrchestra v0.0.0-20250518190221-d0d7cffc33b4 h1:O4f3XQRS7gh1iShaxPipuexwVjbkUkoXNLPXg4HrLyg=
 github.com/gardar/ocrchestra v0.0.0-20250518190221-d0d7cffc33b4/go.mod h1:KyEcdoxMqdFEld5EYXr0nXSl/AaiWmz0IVD7ITHltUc=
+github.com/gardar/ocrchestra v0.0.0-20250521145628-aaae7e4d40e9 h1:5akDtE0utMq6MrxfK8ZQ7mKjZPQAhAc/U/kY958UtRA=
+github.com/gardar/ocrchestra v0.0.0-20250521145628-aaae7e4d40e9/go.mod h1:KyEcdoxMqdFEld5EYXr0nXSl/AaiWmz0IVD7ITHltUc=
 github.com/gen2brain/go-fitz v1.24.14 h1:09weRkjVtLYNGo7l0J7DyOwBExbwi8SJ9h8YPhw9WEo=
 github.com/gen2brain/go-fitz v1.24.14/go.mod h1:0KaZeQgASc20Yp5R/pFzyy7SmP01XcoHKNF842U2/S4=
 github.com/gin-contrib/sse v1.0.0 h1:y3bT1mUWUxDpW4JLQg/HnTqV4rozuW4tC9eFKTxYI9E=
