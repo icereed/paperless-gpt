@@ -826,7 +826,7 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	// Check if PDFs already exist
 	var pdfPaths []string
 	for n := 0; n < pagesToProcess; n++ {
-		pdfPath := filepath.Join(docDir, fmt.Sprintf("page%03d.pdf", n))
+		pdfPath := filepath.Join(docDir, fmt.Sprintf("page%d.pdf", n))
 		if _, err := os.Stat(pdfPath); err == nil {
 			// File exists
 			pdfPaths = append(pdfPaths, pdfPath)
@@ -850,7 +850,7 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	for n := 0; n < pagesToProcess; n++ {
 		// The expected output from pdfcpu SplitFile
 		// Zero-pad to 3 digits => original_001.pdf … original_999.pdf
-		filePath := filepath.Join(docDir, fmt.Sprintf("original_%03d.pdf", n+1))
+		filePath := filepath.Join(docDir, fmt.Sprintf("original_%d.pdf", n+1))
 
 		// Check if the file exists
 		if _, err := os.Stat(filePath); err == nil {
