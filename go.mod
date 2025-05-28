@@ -24,7 +24,7 @@ require (
 	google.golang.org/api v0.234.0
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.26.1
-	github.com/gabriel-vasile/mimetype
+	github.com/gabriel-vasile/mimetype v1.4.9
 )
 
 require (
