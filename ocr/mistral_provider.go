@@ -248,7 +248,7 @@ func (p *MistralOCRProvider) getSignedURL(fileID string) (string, error) {
 
 	logger.WithField("url", url).Debug("Sending signed URL request")
 
-	client := &http.Client{Timeout: time.Second * 10}
+	client := &http.Client{Timeout: time.Second * 180}
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.WithError(err).Error("Signed URL request failed")
