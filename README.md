@@ -33,8 +33,8 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 3. **Automatic Title, Tag & Created Date Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
 
-4. **Supports DeepSeek reasoning models in Ollama**  
-   Greatly enhance accuracy by using a reasoning model like `deepseek-r1:8b`. The perfect tradeoff between privacy and performance! Of course, if you got enough GPUs or NPUs, a bigger model will enhance the experience.
+4. **Supports reasoning models in Ollama**  
+   Greatly enhance accuracy by using a reasoning model like `qwen3:8b`. The perfect tradeoff between privacy and performance! Of course, if you got enough GPUs or NPUs, a bigger model will enhance the experience.
 
 5. **Automatic Correspondent Generation**  
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
@@ -114,7 +114,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 - A running instance of [paperless-ngx][paperless-ngx].
 - Access to an LLM provider:
   - **OpenAI**: An API key with models like `gpt-4o` or `gpt-3.5-turbo`.
-  - **Ollama**: A running Ollama server with models like `deepseek-r1:8b`.
+  - **Ollama**: A running Ollama server with models like `qwen3:8b`.
 
 ### Installation
 
@@ -159,7 +159,7 @@ services:
       
       # Option 3: Ollama (Local)
       # LLM_PROVIDER: "ollama"
-      # LLM_MODEL: "deepseek-r1:8b"
+      # LLM_MODEL: "qwen3:8b"
       # OLLAMA_HOST: "http://host.docker.internal:11434"
       # TOKEN_LIMIT: 1000 # Recommended for smaller models
       
@@ -490,7 +490,7 @@ For best results with the enhanced OCR features:
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                | No       | paperless-gpt              |
 | `AUTO_TAG`                          | Tag for auto processing.                                                                                                                                                                  | No       | paperless-gpt-auto         |
 | `LLM_PROVIDER`                      | AI backend (`openai`, `mistral`, or `ollama`).                                                                                                                                            | Yes      |                            |
-| `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `deepseek-r1:8b`).                                                                                                                 | Yes      |                            |
+| `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b:8b`).                                                                                                                 | Yes      |                            |
 | `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                | Cond.    |                            |
 | `MISTRAL_API_KEY`                   | Mistral API key (required if using Mistral).                                                                                                                                              | Cond.    |                            |
 | `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                               | No       |                            |
@@ -844,7 +844,7 @@ Example configuration for smaller models:
 environment:
   TOKEN_LIMIT: "2000" # Adjust based on your model's context window
   LLM_PROVIDER: "ollama"
-  LLM_MODEL: "deepseek-r1:8b" # Or other local model
+  LLM_MODEL: "qwen3:8b" # Or other local model
 ```
 
 Common issues and solutions:
