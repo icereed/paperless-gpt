@@ -86,20 +86,28 @@ var (
 Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
 Respond only with the title, without any additional information. The content is likely in {{.Language}}.
 
-Content:
+The data will be provided using an XML-like format for clarity:
+
+<content>
 {{.Content}}
+</content>
 `
 
 	defaultTagTemplate = `I will provide you with the content and the title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information. The content is likely in {{.Language}}.
 
-Available Tags:
+The data will be provided using an XML-like format for clarity:
+
+<available_tags>
 {{.AvailableTags | join ", "}}
+</available_tags>
 
-Title:
+<title>
 {{.Title}}
+</title>
 
-Content:
+<content>
 {{.Content}}
+</content>
 
 Please concisely select the {{.Language}} tags from the list above that best describe the document.
 Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
@@ -117,26 +125,35 @@ Try to avoid any legal or financial suffixes like "GmbH" or "AG" in the correspo
 
 If you can't find a suitable correspondent, you can respond with "Unknown".
 
-Example Correspondents:
+The data will be provided using an XML-like format for clarity:
+
+<example_correspondents>
 {{.AvailableCorrespondents | join ", "}}
+</example_correspondents>
 
-List of Correspondents with Blacklisted Names. Please avoid these correspondents or variations of their names:
+<blacklisted_correspondents>
 {{.BlackList | join ", "}}
+</blacklisted_correspondents>
 
-Title of the document:
+<title>
 {{.Title}}
+</title>
+
+<content>
+{{.Content}}
+</content>
 
 The content is likely in {{.Language}}.
-
-Document Content:
-{{.Content}}
 `
 	defaultCreatedDateTemplate = `I will provide you with the content of a document. Your task is to find the date when the document was created.
 Respond only with the date in YYYY-MM-DD format, without any additional information. If no day was found, use the first day of the month. If no month was found, use January. If no date was found at all, answer with today's date.
 The content is likely in {{.Language}}. Today's date is {{.Today}}.
 
-Content:
+The data will be provided using an XML-like format for clarity:
+
+<content>
 {{.Content}}
+</content>
 `
 	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
 )
