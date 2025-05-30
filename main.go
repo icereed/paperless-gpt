@@ -24,6 +24,7 @@ import (
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 	"gorm.io/gorm"
+	"math"
 )
 
 // Global Variables and Constants
@@ -812,9 +813,11 @@ func createLLM() (llms.Model, error) {
 		apiKey := os.Getenv("GOOGLEAI_API_KEY")
 		var thinkingBudget *int32
 		if val, ok := os.LookupEnv("GOOGLEAI_THINKING_BUDGET"); ok {
-			if v, err := strconv.Atoi(val); err == nil {
-				b := int32(v)
-				thinkingBudget = &b
+			if v, err := strconv.ParseInt(val, 10, 32); err == nil {
+				if v >= math.MinInt32 && v <= math.MaxInt32 {
+					b := int32(v)
+					thinkingBudget = &b
+				}
 			}
 		}
 		provider, err := NewGoogleAIProvider(ctx, llmModel, apiKey, thinkingBudget)
