@@ -63,7 +63,20 @@ func (p *GoogleAIProvider) GenerateText(ctx context.Context, prompt string) (str
 		return "", fmt.Errorf("googleai GenerateContent API returned empty response")
 	}
 
-	return resp.Candidates[0].Content.Parts[0].Text, nil
+	candidate := resp.Candidates[0]
+	if candidate.Content == nil {
+		return "", fmt.Errorf("googleai GenerateContent API returned a candidate with nil content")
+	}
+
+	if candidate.Content.Parts == nil || len(candidate.Content.Parts) == 0 {
+		return "", fmt.Errorf("googleai GenerateContent API returned a candidate with no content parts")
+	}
+
+	if candidate.Content.Parts[0].Text == "" {
+		return "", fmt.Errorf("googleai GenerateContent API returned a candidate with empty text")
+	}
+
+	return candidate.Content.Parts[0].Text, nil
 }
 
 // Close closes any resources held by the provider
