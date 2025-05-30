@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -58,6 +59,7 @@ var (
 	autoGenerateTags              = os.Getenv("AUTO_GENERATE_TAGS")
 	autoGenerateCorrespondents    = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
 	autoGenerateCreatedDate       = os.Getenv("AUTO_GENERATE_CREATED_DATE")
+	ollamaStructuredOutput        = os.Getenv("OLLAMA_STRUCTURED_OUTPUT") == "true"
 	limitOcrPages                 int // Will be read from OCR_LIMIT_PAGES
 	tokenLimit                    = 0 // Will be read from TOKEN_LIMIT
 	createLocalHOCR               = os.Getenv("CREATE_LOCAL_HOCR") == "true"
@@ -84,13 +86,13 @@ var (
 	// Default templates
 	defaultTitleTemplate = `I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
 Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
-Respond only with the title, without any additional information. The content is likely in {{.Language}}.
+{{if .UseJSON}}Respond only with valid JSON in the format: {"title": "your suggested title"}{{else}}Respond only with the title, without any additional information.{{end}} The content is likely in {{.Language}}.
 
 Content:
 {{.Content}}
 `
 
-	defaultTagTemplate = `I will provide you with the content and the title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information. The content is likely in {{.Language}}.
+	defaultTagTemplate = `I will provide you with the content and the title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. {{if .UseJSON}}Respond only with valid JSON in the format: {"tags": ["tag1", "tag2", "tag3"]}{{else}}Respond only with the selected tags as a comma-separated list, without any additional information.{{end}} The content is likely in {{.Language}}.
 
 Available Tags:
 {{.AvailableTags | join ", "}}
@@ -110,7 +112,7 @@ Correspondents are the senders of documents that reach you. In the other directi
 In Paperless-ngx we can imagine correspondents as virtual drawers in which all documents of a person or company are stored. With just one click, we can find all the documents assigned to a specific correspondent.
 Try to suggest a correspondent, either from the example list or come up with a new correspondent.
 
-Respond only with a correspondent, without any additional information!
+{{if .UseJSON}}Respond only with valid JSON in the format: {"correspondent": "suggested correspondent name"}{{else}}Respond only with a correspondent, without any additional information!{{end}}
 
 Be sure to choose a correspondent that is most relevant to the document.
 Try to avoid any legal or financial suffixes like "GmbH" or "AG" in the correspondent name. For example use "Microsoft" instead of "Microsoft Ireland Operations Limited" or "Amazon" instead of "Amazon EU S.a.r.l.".
@@ -132,7 +134,7 @@ Document Content:
 {{.Content}}
 `
 	defaultCreatedDateTemplate = `I will provide you with the content of a document. Your task is to find the date when the document was created.
-Respond only with the date in YYYY-MM-DD format, without any additional information. If no day was found, use the first day of the month. If no month was found, use January. If no date was found at all, answer with today's date.
+{{if .UseJSON}}Respond only with valid JSON in the format: {"created_date": "YYYY-MM-DD"}{{else}}Respond only with the date in YYYY-MM-DD format, without any additional information.{{end}} If no day was found, use the first day of the month. If no month was found, use January. If no date was found at all, answer with today's date.
 The content is likely in {{.Language}}. Today's date is {{.Today}}.
 
 Content:

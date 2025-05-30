@@ -18,6 +18,7 @@ import (
 // getSuggestedCorrespondent generates a suggested correspondent for a document using the LLM
 func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, suggestedTitle string, availableCorrespondents []string, correspondentBlackList []string) (string, error) {
 	likelyLanguage := getLikelyLanguage()
+	useStructured := isStructuredOutputEnabled()
 
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
@@ -28,6 +29,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 		"AvailableCorrespondents": availableCorrespondents,
 		"BlackList":               correspondentBlackList,
 		"Title":                   suggestedTitle,
+		"UseJSON":                 useStructured,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(correspondentTemplate, templateData)
@@ -52,22 +54,24 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	prompt := promptBuffer.String()
 	log.Debugf("Correspondent suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
+	completion, err := app.callLLMWithStructuredOutput(ctx, prompt, useStructured, CorrespondentResponse{})
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := stripReasoning(strings.TrimSpace(completion.Choices[0].Content))
-	return response, nil
+	response := strings.TrimSpace(completion.Choices[0].Content)
+
+	// Parse structured response if enabled
+	if useStructured {
+		var corrResp CorrespondentResponse
+		if err := parseStructuredResponse(response, &corrResp); err == nil {
+			return corrResp.Correspondent, nil
+		}
+		log.Warnf("Failed to parse structured correspondent response, falling back to text parsing: %v", err)
+	}
+
+	// Fallback to text parsing
+	return stripReasoning(response), nil
 }
 
 // getSuggestedTags generates suggested tags for a document using the LLM
@@ -79,6 +83,7 @@ func (app *App) getSuggestedTags(
 	originalTags []string,
 	logger *logrus.Entry) ([]string, error) {
 	likelyLanguage := getLikelyLanguage()
+	useStructured := isStructuredOutputEnabled()
 
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
@@ -94,6 +99,7 @@ func (app *App) getSuggestedTags(
 		"AvailableTags": availableTags,
 		"OriginalTags":  originalTags,
 		"Title":         suggestedTitle,
+		"UseJSON":       useStructured,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(tagTemplate, templateData)
@@ -121,24 +127,33 @@ func (app *App) getSuggestedTags(
 	prompt := promptBuffer.String()
 	logger.Debugf("Tag suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
+	completion, err := app.callLLMWithStructuredOutput(ctx, prompt, useStructured, TagsResponse{})
 	if err != nil {
 		logger.Errorf("Error getting response from LLM: %v", err)
 		return nil, fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := stripReasoning(completion.Choices[0].Content)
+	response := strings.TrimSpace(completion.Choices[0].Content)
+	var suggestedTags []string
 
-	suggestedTags := strings.Split(response, ",")
+	// Parse structured response if enabled
+	if useStructured {
+		var tagsResp TagsResponse
+		if err := parseStructuredResponse(response, &tagsResp); err == nil {
+			suggestedTags = tagsResp.Tags
+		} else {
+			logger.Warnf("Failed to parse structured tags response, falling back to text parsing: %v", err)
+			// Fallback to text parsing
+			response = stripReasoning(response)
+			suggestedTags = strings.Split(response, ",")
+		}
+	} else {
+		// Text parsing
+		response = stripReasoning(response)
+		suggestedTags = strings.Split(response, ",")
+	}
+
+	// Clean up tag names
 	for i, tag := range suggestedTags {
 		suggestedTags[i] = strings.TrimSpace(tag)
 	}
@@ -166,6 +181,7 @@ func (app *App) getSuggestedTags(
 // getSuggestedTitle generates a suggested title for a document using the LLM
 func (app *App) getSuggestedTitle(ctx context.Context, content string, originalTitle string, logger *logrus.Entry) (string, error) {
 	likelyLanguage := getLikelyLanguage()
+	useStructured := isStructuredOutputEnabled()
 
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
@@ -175,6 +191,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 		"Language": likelyLanguage,
 		"Content":  content,
 		"Title":    originalTitle,
+		"UseJSON":  useStructured,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(titleTemplate, templateData)
@@ -194,7 +211,6 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	var promptBuffer bytes.Buffer
 	templateData["Content"] = truncatedContent
 	err = titleTemplate.Execute(&promptBuffer, templateData)
-
 	if err != nil {
 		return "", fmt.Errorf("error executing title template: %v", err)
 	}
@@ -202,26 +218,31 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	prompt := promptBuffer.String()
 	logger.Debugf("Title suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
+	completion, err := app.callLLMWithStructuredOutput(ctx, prompt, useStructured, TitleResponse{})
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
-	result := stripReasoning(completion.Choices[0].Content)
+
+	response := strings.TrimSpace(completion.Choices[0].Content)
+
+	// Parse structured response if enabled
+	if useStructured {
+		var titleResp TitleResponse
+		if err := parseStructuredResponse(response, &titleResp); err == nil {
+			return strings.TrimSpace(strings.Trim(titleResp.Title, "\"")), nil
+		}
+		logger.Warnf("Failed to parse structured title response, falling back to text parsing: %v", err)
+	}
+
+	// Fallback to text parsing
+	result := stripReasoning(response)
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
 
 // getSuggestedCreatedDate generates a suggested createdDate for a document using the LLM
 func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, logger *logrus.Entry) (string, error) {
 	likelyLanguage := getLikelyLanguage()
+	useStructured := isStructuredOutputEnabled()
 
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
@@ -230,7 +251,8 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	templateData := map[string]interface{}{
 		"Language": likelyLanguage,
 		"Content":  content,
-		"Today":    getTodayDate(), // must be in YYYY-MM-DD format
+		"Today":    getTodayDate(),
+		"UseJSON":  useStructured,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(createdDateTemplate, templateData)
@@ -250,7 +272,6 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	var promptBuffer bytes.Buffer
 	templateData["Content"] = truncatedContent
 	err = createdDateTemplate.Execute(&promptBuffer, templateData)
-
 	if err != nil {
 		return "", fmt.Errorf("error executing createdDate template: %v", err)
 	}
@@ -258,20 +279,24 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	prompt := promptBuffer.String()
 	logger.Debugf("CreatedDate suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
+	completion, err := app.callLLMWithStructuredOutput(ctx, prompt, useStructured, CreatedDateResponse{})
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
-	result := stripReasoning(completion.Choices[0].Content)
+
+	response := strings.TrimSpace(completion.Choices[0].Content)
+
+	// Parse structured response if enabled
+	if useStructured {
+		var dateResp CreatedDateResponse
+		if err := parseStructuredResponse(response, &dateResp); err == nil {
+			return strings.TrimSpace(strings.Trim(dateResp.CreatedDate, "\"")), nil
+		}
+		logger.Warnf("Failed to parse structured date response, falling back to text parsing: %v", err)
+	}
+
+	// Fallback to text parsing
+	result := stripReasoning(response)
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
 
