@@ -12,7 +12,6 @@ import (
 	_ "image/jpeg"
 
 	"github.com/sirupsen/logrus"
-	"github.com/tmc/langchaingo/llms"
 )
 
 // getSuggestedCorrespondent generates a suggested correspondent for a document using the LLM
@@ -54,7 +53,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	prompt := promptBuffer.String()
 	log.Debugf("Correspondent suggestion prompt: %s", prompt)
 
-	completion, err := app.callLLMWithStructuredOutput(ctx, prompt, useStructured, CorrespondentResponse{})
+	completion, err := app.callLLMWithStructuredOutput(ctx, prompt, useStructured, StructuredCorrespondentResponse{})
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
@@ -63,7 +62,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 
 	// Parse structured response if enabled
 	if useStructured {
-		var corrResp CorrespondentResponse
+		var corrResp StructuredCorrespondentResponse
 		if err := parseStructuredResponse(response, &corrResp); err == nil {
 			return corrResp.Correspondent, nil
 		}

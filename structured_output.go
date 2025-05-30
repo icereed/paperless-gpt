@@ -18,7 +18,7 @@ type TagsResponse struct {
 	Tags []string `json:"tags"`
 }
 
-type CorrespondentResponse struct {
+type StructuredCorrespondentResponse struct {
 	Correspondent string `json:"correspondent"`
 }
 
