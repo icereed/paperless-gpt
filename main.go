@@ -59,6 +59,7 @@ var (
 	autoGenerateCorrespondents    = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
 	autoGenerateCreatedDate       = os.Getenv("AUTO_GENERATE_CREATED_DATE")
 	ollamaStructuredOutput        = os.Getenv("OLLAMA_STRUCTURED_OUTPUT") == "true"
+	structuredOutputStrict        = os.Getenv("STRUCTURED_OUTPUT_STRICT") == "true"
 	limitOcrPages                 int // Will be read from OCR_LIMIT_PAGES
 	tokenLimit                    = 0 // Will be read from TOKEN_LIMIT
 	createLocalHOCR               = os.Getenv("CREATE_LOCAL_HOCR") == "true"
