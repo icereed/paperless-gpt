@@ -57,9 +57,7 @@ func (app *App) callLLMWithStructuredOutput(ctx context.Context, prompt string, 
 	messages := []llms.MessageContent{
 		{
 			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
+				llms.TextPart(prompt),
 			},
 			Role: llms.ChatMessageTypeHuman,
 		},
@@ -93,16 +91,21 @@ func (app *App) callVisionLLMWithStructuredOutput(ctx context.Context, prompt st
 	}
 
 	parts := []llms.ContentPart{
-		llms.TextContent{
-			Text: prompt,
-		},
+		llms.TextPart(prompt),
 	}
 
-	// Add image content if provided
+	// Add image content if provided, using the same approach as the working OCR provider
 	if len(imageData) > 0 {
-		parts = append(parts, llms.ImageURLContent{
-			URL: fmt.Sprintf("data:image/jpeg;base64,%s", encodeImageToBase64(imageData)),
-		})
+		// Determine the correct image format based on provider
+		var imagePart llms.ContentPart
+		providerName := strings.ToLower(visionLlmProvider)
+
+		if providerName == "openai" || providerName == "mistral" {
+			imagePart = llms.ImageURLPart("data:image/jpeg;base64," + encodeImageToBase64(imageData))
+		} else {
+			imagePart = llms.BinaryPart("image/jpeg", imageData)
+		}
+		parts = append(parts, imagePart)
 	}
 
 	messages := []llms.MessageContent{

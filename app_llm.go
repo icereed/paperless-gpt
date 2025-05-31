@@ -59,6 +59,10 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
+	if completion == nil || len(completion.Choices) == 0 {
+		return "", fmt.Errorf("received empty response from LLM")
+	}
+
 	response := strings.TrimSpace(completion.Choices[0].Content)
 
 	// Parse structured response if enabled
@@ -132,6 +136,11 @@ func (app *App) getSuggestedTags(
 	if err != nil {
 		logger.Errorf("Error getting response from LLM: %v", err)
 		return nil, fmt.Errorf("error getting response from LLM: %v", err)
+	}
+
+	if completion == nil || len(completion.Choices) == 0 {
+		logger.Errorf("Received empty response from LLM")
+		return nil, fmt.Errorf("received empty response from LLM")
 	}
 
 	response := strings.TrimSpace(completion.Choices[0].Content)
@@ -228,6 +237,10 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
+	if completion == nil || len(completion.Choices) == 0 {
+		return "", fmt.Errorf("received empty response from LLM")
+	}
+
 	response := strings.TrimSpace(completion.Choices[0].Content)
 
 	// Parse structured response if enabled
@@ -288,6 +301,10 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	completion, err := app.callLLMWithStructuredOutput(ctx, prompt, useStructured, CreatedDateResponse{})
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
+	}
+
+	if completion == nil || len(completion.Choices) == 0 {
+		return "", fmt.Errorf("received empty response from LLM")
 	}
 
 	response := strings.TrimSpace(completion.Choices[0].Content)
