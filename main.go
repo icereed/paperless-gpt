@@ -137,6 +137,12 @@ Requirements:
 - Use markdown format (no code blocks)
 - Don't miss any text
 
+CRITICAL RULE FOR UNREADABLE CONTENT:
+- If the entire document is unreadable/illegible, write "[UNREADABLE]" as the content
+- If only portions are unreadable, mark those specific sections as [UNREADABLE] but transcribe the rest
+- NEVER invent, guess, or create example text for unreadable sections
+- DO NOT make up content when text is unclear or blurry
+
 Respond with JSON:
 {
   "intro_comment": "initial thoughts (optional)",
@@ -144,7 +150,7 @@ Respond with JSON:
   "finish_comment": "final observations (optional)"
 }
 
-CRITICAL: "content" field = transcribed text ONLY. Use other fields for your comments/observations.`
+CRITICAL: "content" field = transcribed text ONLY. Use other fields for your comments/observations. For unreadable parts, use [UNREADABLE] marker.`
 )
 
 // App struct to hold dependencies
