@@ -64,12 +64,13 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	if useStructured {
 		var corrResp StructuredCorrespondentResponse
 		if err := parseStructuredResponse(response, &corrResp); err == nil {
+			// Apply stripReasoning to the correspondent field from structured response
 			return stripReasoning(corrResp.Correspondent), nil
 		}
 		log.Warnf("Failed to parse structured correspondent response, falling back to text parsing: %v", err)
 	}
 
-	// Fallback to text parsing
+	// Fallback to text parsing - always apply stripReasoning to raw response
 	return stripReasoning(response), nil
 }
 
@@ -139,19 +140,19 @@ func (app *App) getSuggestedTags(
 	if useStructured {
 		var tagsResp TagsResponse
 		if err := parseStructuredResponse(response, &tagsResp); err == nil {
-			// Apply stripReasoning to each tag
+			// Apply stripReasoning to each tag from structured response
 			suggestedTags = make([]string, len(tagsResp.Tags))
 			for i, tag := range tagsResp.Tags {
 				suggestedTags[i] = stripReasoning(tag)
 			}
 		} else {
 			logger.Warnf("Failed to parse structured tags response, falling back to text parsing: %v", err)
-			// Fallback to text parsing
+			// Fallback to text parsing - always apply stripReasoning
 			response = stripReasoning(response)
 			suggestedTags = strings.Split(response, ",")
 		}
 	} else {
-		// Text parsing
+		// Text parsing - always apply stripReasoning
 		response = stripReasoning(response)
 		suggestedTags = strings.Split(response, ",")
 	}
@@ -227,19 +228,22 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	}
 
 	response := strings.TrimSpace(completion.Choices[0].Content)
+	
+	// Always apply stripReasoning to the raw response first
+	response = stripReasoning(response)
 
 	// Parse structured response if enabled
 	if useStructured {
 		var titleResp TitleResponse
 		if err := parseStructuredResponse(response, &titleResp); err == nil {
+			// Apply stripReasoning to the title field from structured response
 			return strings.TrimSpace(strings.Trim(stripReasoning(titleResp.Title), "\"")), nil
 		}
 		logger.Warnf("Failed to parse structured title response, falling back to text parsing: %v", err)
 	}
 
-	// Fallback to text parsing
-	result := stripReasoning(response)
-	return strings.TrimSpace(strings.Trim(result, "\"")), nil
+	// Fallback to text parsing - response already has stripReasoning applied
+	return strings.TrimSpace(strings.Trim(response, "\"")), nil
 }
 
 // getSuggestedCreatedDate generates a suggested createdDate for a document using the LLM
@@ -288,19 +292,22 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	}
 
 	response := strings.TrimSpace(completion.Choices[0].Content)
+	
+	// Always apply stripReasoning to the raw response first
+	response = stripReasoning(response)
 
 	// Parse structured response if enabled
 	if useStructured {
 		var dateResp CreatedDateResponse
 		if err := parseStructuredResponse(response, &dateResp); err == nil {
+			// Apply stripReasoning to the created_date field from structured response
 			return strings.TrimSpace(strings.Trim(stripReasoning(dateResp.CreatedDate), "\"")), nil
 		}
 		logger.Warnf("Failed to parse structured date response, falling back to text parsing: %v", err)
 	}
 
-	// Fallback to text parsing
-	result := stripReasoning(response)
-	return strings.TrimSpace(strings.Trim(result, "\"")), nil
+	// Fallback to text parsing - response already has stripReasoning applied
+	return strings.TrimSpace(strings.Trim(response, "\"")), nil
 }
 
 // generateDocumentSuggestions generates suggestions for a set of documents
@@ -456,15 +463,64 @@ func getTodayDate() string {
 	return time.Now().Format("2006-01-02")
 }
 
-// stripReasoning removes the reasoning from the content indicated by <think> and </think> tags.
+// stripReasoning removes reasoning patterns from LLM responses.
+// This handles various reasoning formats including XML-style tags, 
+// reasoning prefixes, and other common patterns.
 func stripReasoning(content string) string {
-	// Remove reasoning from the content
+	// Remove <think> and </think> XML-style tags
 	reasoningStart := strings.Index(content, "<think>")
 	if reasoningStart != -1 {
 		reasoningEnd := strings.Index(content, "</think>")
 		if reasoningEnd != -1 {
 			content = content[:reasoningStart] + content[reasoningEnd+len("</think>"):]
 		}
+	}
+
+	// Remove reasoning patterns like "Let me think about this..." or "I think..."
+	// Common reasoning prefixes that should be stripped
+	reasoningPrefixes := []string{
+		"Let me think about this",
+		"Let me analyze",
+		"I think",
+		"I believe",
+		"In my opinion",
+		"It seems",
+		"Looking at this",
+		"Based on my analysis",
+		"After analyzing",
+		"Upon review",
+		"My reasoning is",
+		"The reasoning behind",
+		"Here's my thinking",
+		"My thought process",
+	}
+
+	lines := strings.Split(content, "\n")
+	filteredLines := []string{}
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		
+		// Check if line starts with reasoning prefix
+		isReasoningLine := false
+		for _, prefix := range reasoningPrefixes {
+			if strings.HasPrefix(strings.ToLower(line), strings.ToLower(prefix)) {
+				isReasoningLine = true
+				break
+			}
+		}
+		
+		if !isReasoningLine {
+			filteredLines = append(filteredLines, line)
+		}
+	}
+	
+	// Rejoin the filtered lines
+	if len(filteredLines) > 0 {
+		content = strings.Join(filteredLines, "\n")
 	}
 
 	// Trim whitespace
