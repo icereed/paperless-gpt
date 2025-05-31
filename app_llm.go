@@ -64,7 +64,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	if useStructured {
 		var corrResp StructuredCorrespondentResponse
 		if err := parseStructuredResponse(response, &corrResp); err == nil {
-			return corrResp.Correspondent, nil
+			return stripReasoning(corrResp.Correspondent), nil
 		}
 		log.Warnf("Failed to parse structured correspondent response, falling back to text parsing: %v", err)
 	}
@@ -139,7 +139,11 @@ func (app *App) getSuggestedTags(
 	if useStructured {
 		var tagsResp TagsResponse
 		if err := parseStructuredResponse(response, &tagsResp); err == nil {
-			suggestedTags = tagsResp.Tags
+			// Apply stripReasoning to each tag
+			suggestedTags = make([]string, len(tagsResp.Tags))
+			for i, tag := range tagsResp.Tags {
+				suggestedTags[i] = stripReasoning(tag)
+			}
 		} else {
 			logger.Warnf("Failed to parse structured tags response, falling back to text parsing: %v", err)
 			// Fallback to text parsing
@@ -228,7 +232,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	if useStructured {
 		var titleResp TitleResponse
 		if err := parseStructuredResponse(response, &titleResp); err == nil {
-			return strings.TrimSpace(strings.Trim(titleResp.Title, "\"")), nil
+			return strings.TrimSpace(strings.Trim(stripReasoning(titleResp.Title), "\"")), nil
 		}
 		logger.Warnf("Failed to parse structured title response, falling back to text parsing: %v", err)
 	}
@@ -289,7 +293,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	if useStructured {
 		var dateResp CreatedDateResponse
 		if err := parseStructuredResponse(response, &dateResp); err == nil {
-			return strings.TrimSpace(strings.Trim(dateResp.CreatedDate, "\"")), nil
+			return strings.TrimSpace(strings.Trim(stripReasoning(dateResp.CreatedDate), "\"")), nil
 		}
 		logger.Warnf("Failed to parse structured date response, falling back to text parsing: %v", err)
 	}
