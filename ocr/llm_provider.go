@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"image"
 	"os"
+	"regexp"
 	"strings"
 
 	_ "image/jpeg"
@@ -17,6 +19,13 @@ import (
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 )
+
+// OCRResponse represents the structured JSON response from LLM OCR
+type OCRResponse struct {
+	IntroComment  *string `json:"intro_comment,omitempty"`  // Optional initial thoughts about the document
+	Content       string  `json:"content"`                  // The actual transcribed text content
+	FinishComment *string `json:"finish_comment,omitempty"` // Optional final observations
+}
 
 // LLMProvider implements OCR using LLM vision models
 type LLMProvider struct {
@@ -105,21 +114,52 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		llms.TextPart(p.prompt),
 	}
 
-	// Convert the image to text
-	logger.Debug("Sending request to vision model")
-	completion, err := p.llm.GenerateContent(ctx, []llms.MessageContent{
+	messages := []llms.MessageContent{
 		{
 			Parts: parts,
 			Role:  llms.ChatMessageTypeHuman,
 		},
-	})
+	}
+
+	var options []llms.CallOption
+	if isStructuredOutputEnabled() {
+		options = append(options, llms.WithJSONMode())
+		logger.Debug("Using structured output (JSON mode)")
+	}
+
+	// Convert the image to text
+	logger.Debug("Sending request to vision model")
+	completion, err := p.llm.GenerateContent(ctx, messages, options...)
 	if err != nil {
 		logger.WithError(err).Error("Failed to get response from vision model")
 		return nil, fmt.Errorf("error getting response from LLM: %w", err)
 	}
 
+	response := strings.TrimSpace(completion.Choices[0].Content)
+	var extractedContent string
+
+	// Check if structured output is enabled
+	useStructured := isStructuredOutputEnabled()
+
+	// Parse structured response if enabled
+	if useStructured {
+		var ocrResp OCRResponse
+		if err := parseStructuredResponse(response, &ocrResp); err == nil {
+			extractedContent = ocrResp.Content
+			logger.Debug("Successfully parsed structured OCR response")
+		} else {
+			logger.WithError(err).Warn("Failed to parse structured OCR response, falling back to full response")
+			extractedContent = response
+		}
+	} else {
+		extractedContent = response
+	}
+
+	// Apply reasoning removal in all cases
+	extractedContent = stripReasoning(extractedContent)
+
 	result := &OCRResult{
-		Text: completion.Choices[0].Content,
+		Text: extractedContent,
 		Metadata: map[string]string{
 			"provider": p.provider,
 			"model":    p.model,
@@ -163,4 +203,59 @@ func createMistralClient(config Config) (llms.Model, error) {
 		mistral.WithModel(config.VisionLLMModel),
 		mistral.WithAPIKey(apiKey),
 	)
+}
+
+// isStructuredOutputEnabled checks if structured output should be used
+func isStructuredOutputEnabled() bool {
+	return os.Getenv("OLLAMA_STRUCTURED_OUTPUT") == "true" || os.Getenv("STRUCTURED_OUTPUT_ENABLED") == "true"
+}
+
+// parseStructuredResponse attempts to parse JSON response, falls back to text if needed
+func parseStructuredResponse(response string, target interface{}) error {
+	if err := json.Unmarshal([]byte(response), target); err != nil {
+		return fmt.Errorf("failed to parse structured response: %w", err)
+	}
+	return nil
+}
+
+// stripReasoning removes reasoning patterns from LLM responses.
+// This handles various reasoning formats including XML-style tags, 
+// reasoning prefixes, and other common patterns using regex for robust parsing.
+func stripReasoning(content string) string {
+	// Remove <think> and </think> XML-style tags (case insensitive, multiline)
+	// This regex matches opening and closing think tags with any content in between,
+	// including newlines, and removes the entire block
+	thinkRegex := regexp.MustCompile(`(?i)<think>.*?</think>`)
+	content = thinkRegex.ReplaceAllString(content, "")
+
+	// Remove reasoning patterns at the beginning of lines
+	// Common reasoning prefixes that should be stripped
+	reasoningPatterns := []string{
+		`(?i)^\s*Let me think about this.*$`,
+		`(?i)^\s*Let me analyze.*$`,
+		`(?i)^\s*I think.*$`,
+		`(?i)^\s*I believe.*$`,
+		`(?i)^\s*In my opinion.*$`,
+		`(?i)^\s*It seems.*$`,
+		`(?i)^\s*Looking at this.*$`,
+		`(?i)^\s*Based on my analysis.*$`,
+		`(?i)^\s*After analyzing.*$`,
+		`(?i)^\s*Upon review.*$`,
+		`(?i)^\s*My reasoning is.*$`,
+		`(?i)^\s*The reasoning behind.*$`,
+		`(?i)^\s*Here's my thinking.*$`,
+		`(?i)^\s*My thought process.*$`,
+	}
+
+	// Apply each reasoning pattern to remove matching lines
+	for _, pattern := range reasoningPatterns {
+		regex := regexp.MustCompile(pattern)
+		content = regex.ReplaceAllString(content, "")
+	}
+
+	// Clean up multiple consecutive newlines and trim whitespace
+	content = regexp.MustCompile(`\n\s*\n`).ReplaceAllString(content, "\n")
+	content = strings.TrimSpace(content)
+	
+	return content
 }
