@@ -156,7 +156,9 @@ The data will be provided using an XML-like format for clarity:
 {{.Content}}
 </content>
 `
-	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
+	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.
+
+IMPORTANT: Never hallucinate or make up text that isn't clearly visible. If any text or part of the image is unclear, blurry, or unreadable, use "[UNREADABLE]" at that exact location instead of guessing what it might say. Only transcribe text that you can clearly and confidently read.`
 )
 
 // App struct to hold dependencies
