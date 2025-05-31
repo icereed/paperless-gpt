@@ -11,19 +11,23 @@ import (
 
 // Structured output response schemas
 type TitleResponse struct {
-	Title string `json:"title"`
+	Think *string `json:"think,omitempty"` // Optional reasoning field to help models produce better results
+	Title string  `json:"title"`
 }
 
 type TagsResponse struct {
-	Tags []string `json:"tags"`
+	Think *string  `json:"think,omitempty"` // Optional reasoning field to help models produce better results
+	Tags  []string `json:"tags"`
 }
 
 type StructuredCorrespondentResponse struct {
-	Correspondent string `json:"correspondent"`
+	Think         *string `json:"think,omitempty"` // Optional reasoning field to help models produce better results
+	Correspondent string  `json:"correspondent"`
 }
 
 type CreatedDateResponse struct {
-	CreatedDate string `json:"created_date"`
+	Think       *string `json:"think,omitempty"` // Optional reasoning field to help models produce better results
+	CreatedDate string  `json:"created_date"`
 }
 
 // isStructuredOutputEnabled checks if structured output should be used
