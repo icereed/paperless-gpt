@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -465,65 +466,42 @@ func getTodayDate() string {
 
 // stripReasoning removes reasoning patterns from LLM responses.
 // This handles various reasoning formats including XML-style tags, 
-// reasoning prefixes, and other common patterns.
+// reasoning prefixes, and other common patterns using regex for robust parsing.
 func stripReasoning(content string) string {
-	// Remove <think> and </think> XML-style tags
-	reasoningStart := strings.Index(content, "<think>")
-	if reasoningStart != -1 {
-		reasoningEnd := strings.Index(content, "</think>")
-		if reasoningEnd != -1 {
-			content = content[:reasoningStart] + content[reasoningEnd+len("</think>"):]
-		}
-	}
+	// Remove <think> and </think> XML-style tags (case insensitive, multiline)
+	// This regex matches opening and closing think tags with any content in between,
+	// including newlines, and removes the entire block
+	thinkRegex := regexp.MustCompile(`(?i)<think>.*?</think>`)
+	content = thinkRegex.ReplaceAllString(content, "")
 
-	// Remove reasoning patterns like "Let me think about this..." or "I think..."
+	// Remove reasoning patterns at the beginning of lines
 	// Common reasoning prefixes that should be stripped
-	reasoningPrefixes := []string{
-		"Let me think about this",
-		"Let me analyze",
-		"I think",
-		"I believe",
-		"In my opinion",
-		"It seems",
-		"Looking at this",
-		"Based on my analysis",
-		"After analyzing",
-		"Upon review",
-		"My reasoning is",
-		"The reasoning behind",
-		"Here's my thinking",
-		"My thought process",
+	reasoningPatterns := []string{
+		`(?i)^\s*Let me think about this.*$`,
+		`(?i)^\s*Let me analyze.*$`,
+		`(?i)^\s*I think.*$`,
+		`(?i)^\s*I believe.*$`,
+		`(?i)^\s*In my opinion.*$`,
+		`(?i)^\s*It seems.*$`,
+		`(?i)^\s*Looking at this.*$`,
+		`(?i)^\s*Based on my analysis.*$`,
+		`(?i)^\s*After analyzing.*$`,
+		`(?i)^\s*Upon review.*$`,
+		`(?i)^\s*My reasoning is.*$`,
+		`(?i)^\s*The reasoning behind.*$`,
+		`(?i)^\s*Here's my thinking.*$`,
+		`(?i)^\s*My thought process.*$`,
 	}
 
-	lines := strings.Split(content, "\n")
-	filteredLines := []string{}
-	
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		
-		// Check if line starts with reasoning prefix
-		isReasoningLine := false
-		for _, prefix := range reasoningPrefixes {
-			if strings.HasPrefix(strings.ToLower(line), strings.ToLower(prefix)) {
-				isReasoningLine = true
-				break
-			}
-		}
-		
-		if !isReasoningLine {
-			filteredLines = append(filteredLines, line)
-		}
-	}
-	
-	// Rejoin the filtered lines
-	if len(filteredLines) > 0 {
-		content = strings.Join(filteredLines, "\n")
+	// Apply each reasoning pattern to remove matching lines
+	for _, pattern := range reasoningPatterns {
+		regex := regexp.MustCompile(pattern)
+		content = regex.ReplaceAllString(content, "")
 	}
 
-	// Trim whitespace
+	// Clean up multiple consecutive newlines and trim whitespace
+	content = regexp.MustCompile(`\n\s*\n`).ReplaceAllString(content, "\n")
 	content = strings.TrimSpace(content)
+	
 	return content
 }
