@@ -30,6 +30,12 @@ type CreatedDateResponse struct {
 	CreatedDate string  `json:"created_date"`
 }
 
+type OCRResponse struct {
+	IntroComment  *string `json:"intro_comment,omitempty"`  // Optional initial thoughts about the document
+	Content       string  `json:"content"`                  // The actual transcribed text content
+	FinishComment *string `json:"finish_comment,omitempty"` // Optional final observations
+}
+
 // isStructuredOutputEnabled checks if structured output should be used
 func isStructuredOutputEnabled() bool {
 	return ollamaStructuredOutput && strings.ToLower(llmProvider) == "ollama"

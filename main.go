@@ -140,7 +140,23 @@ The content is likely in {{.Language}}. Today's date is {{.Today}}.
 Content:
 {{.Content}}
 `
-	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
+	defaultOcrPrompt = `You are performing OCR (Optical Character Recognition) on a document image. Your task is to transcribe ALL the text in this image with high accuracy while preserving formatting and layout.
+
+CRITICAL INSTRUCTIONS:
+- Be thorough and transcribe EVERY piece of text visible in the image
+- Preserve the original formatting and layout as much as possible
+- Use markdown format but without code blocks
+- Continue until you reach the bottom of the page
+- Pay attention to details and don't miss any text
+
+Respond with valid JSON in this exact format:
+{
+  "intro_comment": "Your initial thoughts about the document (optional)",
+  "content": "THE COMPLETE TRANSCRIBED TEXT CONTENT ONLY - NO OTHER TEXT OR COMMENTS HERE",
+  "finish_comment": "Any final observations or notes (optional)"
+}
+
+IMPORTANT: The "content" field must contain ONLY the transcribed text from the document. Do not include any of your own comments, explanations, or observations in the content field. Use intro_comment and finish_comment for your reasoning and observations.`
 )
 
 // App struct to hold dependencies
