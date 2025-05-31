@@ -84,79 +84,67 @@ var (
 	templateMutex         sync.RWMutex
 
 	// Default templates
-	defaultTitleTemplate = `I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
-Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
-{{if .UseJSON}}Respond only with valid JSON in the format: {"think": "your reasoning (optional)", "title": "your suggested title"}. You can use the optional "think" field to work through your reasoning before providing the final title.{{else}}Respond only with the title, without any additional information.{{end}} The content is likely in {{.Language}}.
+	defaultTitleTemplate = `Create a document title for paperless-ngx from this OCR content (may have errors).
+{{if .UseJSON}}Respond with JSON: {"think": "reasoning (optional)", "title": "your title"}. Use "think" for reasoning, "title" for the final result.{{else}}Respond only with the title.{{end}} Content language: {{.Language}}.
 
 Content:
 {{.Content}}
 `
 
-	defaultTagTemplate = `I will provide you with the content and the title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. {{if .UseJSON}}Respond only with valid JSON in the format: {"think": "your reasoning (optional)", "tags": ["tag1", "tag2", "tag3"]}. You can use the optional "think" field to work through your reasoning before selecting the final tags.{{else}}Respond only with the selected tags as a comma-separated list, without any additional information.{{end}} The content is likely in {{.Language}}.
+	defaultTagTemplate = `Select relevant tags from the available list for this document. Only use tags from the provided list. Be selective - choose only the most relevant tags.
+{{if .UseJSON}}Respond with JSON: {"think": "reasoning (optional)", "tags": ["tag1", "tag2"]}. Use "think" for reasoning, "tags" for your selections.{{else}}Respond with comma-separated tags.{{end}} Language: {{.Language}}.
 
 Available Tags:
 {{.AvailableTags | join ", "}}
 
-Title:
-{{.Title}}
-
-Content:
-{{.Content}}
-
-Please concisely select the {{.Language}} tags from the list above that best describe the document.
-Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
-`
-	defaultCorrespondentTemplate = `I will provide you with the content of a document. Your task is to suggest a correspondent that is most relevant to the document.
-
-Correspondents are the senders of documents that reach you. In the other direction, correspondents are the recipients of documents that you send.
-In Paperless-ngx we can imagine correspondents as virtual drawers in which all documents of a person or company are stored. With just one click, we can find all the documents assigned to a specific correspondent.
-Try to suggest a correspondent, either from the example list or come up with a new correspondent.
-
-{{if .UseJSON}}Respond only with valid JSON in the format: {"think": "your reasoning (optional)", "correspondent": "suggested correspondent name"}. You can use the optional "think" field to work through your reasoning before selecting the final correspondent.{{else}}Respond only with a correspondent, without any additional information!{{end}}
-
-Be sure to choose a correspondent that is most relevant to the document.
-Try to avoid any legal or financial suffixes like "GmbH" or "AG" in the correspondent name. For example use "Microsoft" instead of "Microsoft Ireland Operations Limited" or "Amazon" instead of "Amazon EU S.a.r.l.".
-
-If you can't find a suitable correspondent, you can respond with "Unknown".
-
-Example Correspondents:
-{{.AvailableCorrespondents | join ", "}}
-
-List of Correspondents with Blacklisted Names. Please avoid these correspondents or variations of their names:
-{{.BlackList | join ", "}}
-
-Title of the document:
-{{.Title}}
-
-The content is likely in {{.Language}}.
-
-Document Content:
-{{.Content}}
-`
-	defaultCreatedDateTemplate = `I will provide you with the content of a document. Your task is to find the date when the document was created.
-{{if .UseJSON}}Respond only with valid JSON in the format: {"think": "your reasoning (optional)", "created_date": "YYYY-MM-DD"}. You can use the optional "think" field to work through your reasoning before providing the final date.{{else}}Respond only with the date in YYYY-MM-DD format, without any additional information.{{end}} If no day was found, use the first day of the month. If no month was found, use January. If no date was found at all, answer with today's date.
-The content is likely in {{.Language}}. Today's date is {{.Today}}.
+Title: {{.Title}}
 
 Content:
 {{.Content}}
 `
-	defaultOcrPrompt = `You are performing OCR (Optical Character Recognition) on a document image. Your task is to transcribe ALL the text in this image with high accuracy while preserving formatting and layout.
+	defaultCorrespondentTemplate = `Suggest a correspondent (sender/recipient) for this document. Correspondents are like virtual filing drawers for organizing documents by person/company.
+{{if .UseJSON}}Respond with JSON: {"think": "reasoning (optional)", "correspondent": "name"}. Use "think" for reasoning, "correspondent" for your suggestion.{{else}}Respond only with the correspondent name.{{end}}
 
-CRITICAL INSTRUCTIONS:
-- Be thorough and transcribe EVERY piece of text visible in the image
-- Preserve the original formatting and layout as much as possible
-- Use markdown format but without code blocks
-- Continue until you reach the bottom of the page
-- Pay attention to details and don't miss any text
+Rules:
+- Avoid legal suffixes (use "Microsoft" not "Microsoft Ireland Operations Limited")
+- Choose from examples or create new one
+- Use "Unknown" if uncertain
+- Avoid blacklisted names
 
-Respond with valid JSON in this exact format:
+Examples: {{.AvailableCorrespondents | join ", "}}
+Blacklisted: {{.BlackList | join ", "}}
+
+Title: {{.Title}}
+Language: {{.Language}}
+
+Content:
+{{.Content}}
+`
+	defaultCreatedDateTemplate = `Find the document creation date from the content.
+{{if .UseJSON}}Respond with JSON: {"think": "reasoning (optional)", "created_date": "YYYY-MM-DD"}. Use "think" for reasoning, "created_date" for the result.{{else}}Respond only with date in YYYY-MM-DD format.{{end}}
+
+Fallback rules: Missing day → use 1st, missing month → use January, no date found → use today.
+Language: {{.Language}}. Today: {{.Today}}
+
+Content:
+{{.Content}}
+`
+	defaultOcrPrompt = `Perform OCR on this document image. Transcribe ALL visible text with high accuracy while preserving formatting.
+
+Requirements:
+- Transcribe every piece of text visible
+- Preserve original formatting and layout
+- Use markdown format (no code blocks)
+- Don't miss any text
+
+Respond with JSON:
 {
-  "intro_comment": "Your initial thoughts about the document (optional)",
-  "content": "THE COMPLETE TRANSCRIBED TEXT CONTENT ONLY - NO OTHER TEXT OR COMMENTS HERE",
-  "finish_comment": "Any final observations or notes (optional)"
+  "intro_comment": "initial thoughts (optional)",
+  "content": "COMPLETE TRANSCRIBED TEXT ONLY",
+  "finish_comment": "final observations (optional)"
 }
 
-IMPORTANT: The "content" field must contain ONLY the transcribed text from the document. Do not include any of your own comments, explanations, or observations in the content field. Use intro_comment and finish_comment for your reasoning and observations.`
+CRITICAL: "content" field = transcribed text ONLY. Use other fields for your comments/observations.`
 )
 
 // App struct to hold dependencies
