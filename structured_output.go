@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/tmc/langchaingo/llms"
@@ -39,7 +40,16 @@ type OCRResponse struct {
 
 // isStructuredOutputEnabled checks if structured output should be used
 func isStructuredOutputEnabled() bool {
-	return ollamaStructuredOutput && strings.ToLower(llmProvider) == "ollama"
+	if ollamaStructuredOutput && strings.ToLower(llmProvider) == "ollama" {
+		return true
+	}
+	
+	// Enable for OpenAI and other providers that support JSON mode
+	if strings.ToLower(llmProvider) == "openai" || strings.ToLower(llmProvider) == "mistral" {
+		return os.Getenv("STRUCTURED_OUTPUT_ENABLED") == "true"
+	}
+	
+	return false
 }
 
 // callLLMWithStructuredOutput makes a text-only LLM call with optional structured output
@@ -57,8 +67,20 @@ func (app *App) callLLMWithStructuredOutput(ctx context.Context, prompt string, 
 
 	var options []llms.CallOption
 	if useStructured && schema != nil {
-		// Add structured output options for Ollama
 		options = append(options, llms.WithJSONMode())
+		
+		// For providers that support strict schema enforcement
+		if structuredOutputStrict {
+			// Add schema validation if the provider supports it
+			// This would need provider-specific implementation based on the provider
+			switch strings.ToLower(llmProvider) {
+			case "openai":
+				// OpenAI supports strict schema enforcement in some cases
+				// This would require additional OpenAI-specific options
+			default:
+				// Other providers may implement schema validation differently
+			}
+		}
 	}
 
 	return app.LLM.GenerateContent(ctx, messages, options...)
@@ -92,8 +114,20 @@ func (app *App) callVisionLLMWithStructuredOutput(ctx context.Context, prompt st
 
 	var options []llms.CallOption
 	if useStructured && schema != nil {
-		// Add structured output options for vision models
 		options = append(options, llms.WithJSONMode())
+		
+		// For providers that support strict schema enforcement
+		if structuredOutputStrict {
+			// Add schema validation if the provider supports it
+			// This would need provider-specific implementation based on the vision provider
+			switch strings.ToLower(visionLlmProvider) {
+			case "openai":
+				// OpenAI supports strict schema enforcement in some cases
+				// This would require additional OpenAI-specific options
+			default:
+				// Other providers may implement schema validation differently
+			}
+		}
 	}
 
 	return app.VisionLLM.GenerateContent(ctx, messages, options...)

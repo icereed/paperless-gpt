@@ -229,9 +229,6 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	}
 
 	response := strings.TrimSpace(completion.Choices[0].Content)
-	
-	// Always apply stripReasoning to the raw response first
-	response = stripReasoning(response)
 
 	// Parse structured response if enabled
 	if useStructured {
@@ -243,7 +240,8 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 		logger.Warnf("Failed to parse structured title response, falling back to text parsing: %v", err)
 	}
 
-	// Fallback to text parsing - response already has stripReasoning applied
+	// Apply stripReasoning only for fallback text parsing
+	response = stripReasoning(response)
 	return strings.TrimSpace(strings.Trim(response, "\"")), nil
 }
 
@@ -293,9 +291,6 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	}
 
 	response := strings.TrimSpace(completion.Choices[0].Content)
-	
-	// Always apply stripReasoning to the raw response first
-	response = stripReasoning(response)
 
 	// Parse structured response if enabled
 	if useStructured {
@@ -307,7 +302,8 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 		logger.Warnf("Failed to parse structured date response, falling back to text parsing: %v", err)
 	}
 
-	// Fallback to text parsing - response already has stripReasoning applied
+	// Apply stripReasoning only for fallback text parsing
+	response = stripReasoning(response)
 	return strings.TrimSpace(strings.Trim(response, "\"")), nil
 }
 
