@@ -26,8 +26,8 @@ type AzureAnalyzeResult struct {
 type AzurePage struct {
 	PageNumber int         `json:"pageNumber"`
 	Angle      float64     `json:"angle"`
-	Width      int         `json:"width"`
-	Height     int         `json:"height"`
+	Width      float64     `json:"width"`
+	Height     float64     `json:"height"`
 	Unit       string      `json:"unit"`
 	Words      []AzureWord `json:"words"`
 	Lines      []AzureLine `json:"lines"`
@@ -37,7 +37,7 @@ type AzurePage struct {
 // AzureWord represents a single word with its properties
 type AzureWord struct {
 	Content    string    `json:"content"`
-	Polygon    []int     `json:"polygon"`
+	Polygon    []float64 `json:"polygon"`
 	Confidence float64   `json:"confidence"`
 	Span       AzureSpan `json:"span"`
 }
@@ -45,7 +45,7 @@ type AzureWord struct {
 // AzureLine represents a line of text
 type AzureLine struct {
 	Content string      `json:"content"`
-	Polygon []int       `json:"polygon"`
+	Polygon []float64   `json:"polygon"`
 	Spans   []AzureSpan `json:"spans"`
 }
 
@@ -64,8 +64,8 @@ type AzureParagraph struct {
 
 // AzureBoundingBox represents the location of content on a page
 type AzureBoundingBox struct {
-	PageNumber int   `json:"pageNumber"`
-	Polygon    []int `json:"polygon"`
+	PageNumber int       `json:"pageNumber"`
+	Polygon    []float64 `json:"polygon"`
 }
 
 // AzureStyle represents style information for text segments - changed to interface{} as per input
