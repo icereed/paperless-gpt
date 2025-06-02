@@ -107,7 +107,7 @@ func TestAzureProvider_ProcessImage(t *testing.T) {
 					Lines: []AzureLine{
 						{
 							Content: "Test line",
-							Polygon: []int{0, 0, 100, 0, 100, 20, 0, 20},
+							Polygon: []float64{0, 0, 100, 0, 100, 20, 0, 20},
 							Spans:   []AzureSpan{{Offset: 0, Length: 9}},
 						},
 					},
@@ -121,7 +121,7 @@ func TestAzureProvider_ProcessImage(t *testing.T) {
 					BoundingRegions: []AzureBoundingBox{
 						{
 							PageNumber: 1,
-							Polygon:    []int{0, 0, 100, 0, 100, 20, 0, 20},
+							Polygon:    []float64{0, 0, 100, 0, 100, 20, 0, 20},
 						},
 					},
 				},
