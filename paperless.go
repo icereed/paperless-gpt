@@ -420,8 +420,6 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		} else {
 			// We have suggested tags to change
 			originalFields["tags"] = originalTags
-			// remove autoTag to prevent infinite loop - this is required in case of undo
-			tags = removeTagFromList(tags, autoTag)
 
 			if document.KeepOriginalTags {
 				// Keep original tags

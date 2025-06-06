@@ -122,9 +122,17 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 			continue
 		}
 
+		// Ensure autoTag is removed after processing to prevent loops
+		for i := range suggestions {
+			suggestions[i].RemoveTags = append(suggestions[i].RemoveTags, autoTag)
+			// Ensure uniqueness if autoTag was already in RemoveTags for some reason
+			slices.Sort(suggestions[i].RemoveTags)
+			suggestions[i].RemoveTags = slices.Compact(suggestions[i].RemoveTags)
+		}
+
 		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 		if err != nil {
-			err = fmt.Errorf("error updating document %d: %w", document.ID, err)
+		err = fmt.Errorf("error updating document %d: %w", document.ID, err)
 			docLogger.Error(err.Error())
 			errs = append(errs, err)
 			continue
