@@ -25,7 +25,6 @@ require (
 	google.golang.org/genai v1.7.0
 	gorm.io/driver/sqlite v1.5.7
 	gorm.io/gorm v1.26.1
-	github.com/gabriel-vasile/mimetype v1.4.9
 )
 
 require (
