@@ -293,6 +293,7 @@ jobs:
           CI: true
           DEBUG: testcontainers:containers
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           PAPERLESS_GPT_IMAGE: ${{ env.PAPERLESS_GPT_IMAGE }}
       - name: Upload Playwright Report
         if: always()

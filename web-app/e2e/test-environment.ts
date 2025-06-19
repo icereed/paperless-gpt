@@ -20,7 +20,12 @@ export const PREDEFINED_TAGS = [
   'paperless-gpt-ocr-complete',
 ]
 
-export async function setupTestEnvironment(): Promise<TestEnvironment> {
+export interface TestEnvironmentConfig {
+  ocrProvider?: string;
+  processMode?: string;
+}
+
+export async function setupTestEnvironment(config?: TestEnvironmentConfig): Promise<TestEnvironment> {
   console.log('Setting up test environment...');
   const paperlessPort = PORTS.paperlessNgx;
   const gptPort = PORTS.paperlessGpt;
@@ -87,22 +92,42 @@ export async function setupTestEnvironment(): Promise<TestEnvironment> {
   console.log('Starting Paperless-gpt container...');
   const paperlessGptImage = process.env.PAPERLESS_GPT_IMAGE || 'icereed/paperless-gpt:e2e';
   console.log(`Using image: ${paperlessGptImage}`);
-  const paperlessGpt = await new GenericContainer(paperlessGptImage)
-    .withNetwork(network)
-    .withEnvironment({
-      PAPERLESS_BASE_URL: `http://paperless-ngx:${paperlessPort}`,
-      PAPERLESS_API_TOKEN: await getApiToken(baseUrl, credentials),
-      LLM_PROVIDER: "openai",
-      LLM_MODEL: "gpt-4o-mini",
-      LLM_LANGUAGE: "english",
-      OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
-      // Vision LLM settings for OCR
+
+  // Build environment configuration based on provided config
+  const baseEnvironment = {
+    PAPERLESS_BASE_URL: `http://paperless-ngx:${paperlessPort}`,
+    PAPERLESS_API_TOKEN: await getApiToken(baseUrl, credentials),
+    LLM_PROVIDER: "openai",
+    LLM_MODEL: "gpt-4o-mini",
+    LLM_LANGUAGE: "english",
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+    PDF_OCR_TAGGING: "true",
+    PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete",
+  };
+
+  // Configure OCR provider and processing mode based on config
+  if (config?.ocrProvider === 'mistral_ocr') {
+    Object.assign(baseEnvironment, {
+      OCR_PROVIDER: "mistral_ocr",
+      MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
+      MISTRAL_MODEL: "mistral-ocr-latest",
+      OCR_PROCESS_MODE: config.processMode || "whole_pdf",
+    });
+    console.log('Configured for Mistral OCR with process mode:', config.processMode || "whole_pdf");
+  } else {
+    // Default LLM OCR configuration
+    Object.assign(baseEnvironment, {
       OCR_PROVIDER: "llm",
       VISION_LLM_PROVIDER: "openai",
       VISION_LLM_MODEL: "gpt-4o-mini",
-      PDF_OCR_TAGGING: "true",
-      PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete",
-    })
+      OCR_PROCESS_MODE: config?.processMode || "image",
+    });
+    console.log('Configured for LLM OCR with process mode:', config?.processMode || "image");
+  }
+
+  const paperlessGpt = await new GenericContainer(paperlessGptImage)
+    .withNetwork(network)
+    .withEnvironment(baseEnvironment)
     .withExposedPorts(gptPort)
     .withWaitStrategy(Wait.forHttp('/', gptPort))
     .start();

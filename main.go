@@ -271,6 +271,13 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to initialize OCR provider: %v", err)
 		}
+
+		// Validate OCR provider and processing mode compatibility
+		log.Infof("Validating OCR provider '%s' with processing mode '%s'", providerType, ocrProcessMode)
+		if err := validateOCRProviderModeCompatibility(providerType, ocrProcessMode); err != nil {
+			log.Fatalf("❌ Invalid OCR configuration: %v", err)
+		}
+		log.Infof("✅ OCR provider and processing mode configuration is valid")
 	}
 
 	// Initialize App with dependencies
@@ -447,6 +454,33 @@ func initLogger() {
 
 func (app *App) isOcrEnabled() bool {
 	return app.ocrProvider != nil
+}
+
+// validateOCRProviderModeCompatibility validates that the OCR provider supports the specified processing mode
+func validateOCRProviderModeCompatibility(provider, mode string) error {
+	// Define which providers support which modes
+	supportedModes := map[string][]string{
+		"llm":          {"image"},                     // LLM-based OCR only supports image mode
+		"azure":        {"image"},                     // Azure Document Intelligence only supports image mode
+		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
+		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
+		"docling":      {"image"},                     // Docling only supports image mode
+	}
+
+	modes, exists := supportedModes[provider]
+	if !exists {
+		return fmt.Errorf("unknown OCR provider: %s", provider)
+	}
+
+	// Check if the mode is supported by this provider
+	for _, supportedMode := range modes {
+		if mode == supportedMode {
+			return nil // Mode is supported
+		}
+	}
+
+	return fmt.Errorf("OCR provider '%s' does not support processing mode '%s'. Supported modes: %v",
+		provider, mode, modes)
 }
 
 // validateOrDefaultEnvVars ensures all necessary environment variables are set

@@ -823,13 +823,20 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 
 	// Continue with splitting logic only if we're not skipping it
-	// Check if PDFs already exist
+	// Check if PDFs already exist (check for legacy formats for backward compatibility)
 	var pdfPaths []string
 	for n := 0; n < pagesToProcess; n++ {
-		pdfPath := filepath.Join(docDir, fmt.Sprintf("original_%d.pdf", n))
-		if _, err := os.Stat(pdfPath); err == nil {
-			// File exists
-			pdfPaths = append(pdfPaths, pdfPath)
+		// Standardized format (preferred): original_001.pdf
+		pdfPathStandard := filepath.Join(docDir, fmt.Sprintf("original_%03d.pdf", n+1))
+		// Legacy format: original_1.pdf (from older versions or pdfcpu default output)
+		pdfPathLegacy := filepath.Join(docDir, fmt.Sprintf("original_%d.pdf", n+1))
+
+		if _, err := os.Stat(pdfPathStandard); err == nil {
+			// Standardized format exists
+			pdfPaths = append(pdfPaths, pdfPathStandard)
+		} else if _, err := os.Stat(pdfPathLegacy); err == nil {
+			// Legacy format exists
+			pdfPaths = append(pdfPaths, pdfPathLegacy)
 		}
 	}
 
@@ -838,33 +845,65 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 		return pdfPaths, pdfData, totalPages, nil
 	}
 
-	// Clear existing PDFs to ensure consistency
-        // Use pdfcpu to split the PDF
-        err = api.SplitFile(originalPDFPath, docDir, 1, nil)
-        if err != nil {
+	// Clear existing PDFs to ensure consistency when regenerating
+	files, err := filepath.Glob(filepath.Join(docDir, "original_*.pdf"))
+	if err == nil {
+		for _, file := range files {
+			os.Remove(file)
+		}
+	}
+
+	// Use pdfcpu to split the PDF
+	err = api.SplitFile(originalPDFPath, docDir, 1, nil)
+	if err != nil {
 		return nil, nil, 0, fmt.Errorf("error splitting PDF: %w", err)
 	}
 
-	// pdfcpu creates files with names like "original_1.pdf", "original_2.pdf", etc.
+	// pdfcpu creates files with names like "original_1.pdf", "original_2.pdf", etc. (without leading zeros)
+	// Rename them to our standardized format (original_001.pdf, original_002.pdf, etc.)
 	pdfPaths = []string{}
 	for n := 0; n < pagesToProcess; n++ {
-		// The expected output from pdfcpu SplitFile
-		filePath := filepath.Join(docDir, fmt.Sprintf("original_%d.pdf", n+1))
+		// pdfcpu default output format
+		legacyFilePath := filepath.Join(docDir, fmt.Sprintf("original_%d.pdf", n+1))
+		// Our standardized format
+		standardFilePath := filepath.Join(docDir, fmt.Sprintf("original_%03d.pdf", n+1))
 
-		// Check if the file exists
-		if _, err := os.Stat(filePath); err == nil {
-			pdfPaths = append(pdfPaths, filePath)
+		// Check if the legacy file exists and rename it to standard format
+		if _, err := os.Stat(legacyFilePath); err == nil {
+			err = os.Rename(legacyFilePath, standardFilePath)
+			if err != nil {
+				return nil, nil, 0, fmt.Errorf("error renaming PDF to standard format: %w", err)
+			}
+			pdfPaths = append(pdfPaths, standardFilePath)
 		} else {
-			return nil, nil, 0, fmt.Errorf("expected split PDF not found: %s", filePath)
+			return nil, nil, 0, fmt.Errorf("expected split PDF not found: %s", legacyFilePath)
 		}
 	}
 
 	// Sort the PDF paths to ensure they are in order
 	sort.SliceStable(pdfPaths, func(i, j int) bool {
-		ni, _ := strconv.Atoi(strings.TrimSuffix(strings.Split(pdfPaths[i], "_")[1], ".pdf"))
-		nj, _ := strconv.Atoi(strings.TrimSuffix(strings.Split(pdfPaths[j], "_")[1], ".pdf"))
+		// Extract the number from the filename (e.g., "original_001.pdf" -> 1, "original_1.pdf" -> 1)
+		iBasename := filepath.Base(pdfPaths[i])
+		jBasename := filepath.Base(pdfPaths[j])
+
+		iParts := strings.Split(strings.TrimSuffix(iBasename, ".pdf"), "_")
+		jParts := strings.Split(strings.TrimSuffix(jBasename, ".pdf"), "_")
+
+		if len(iParts) < 2 || len(jParts) < 2 {
+			return pdfPaths[i] < pdfPaths[j] // fallback to string comparison
+		}
+
+		// Parse the page numbers (handles both "001" and "1" formats)
+		ni, errI := strconv.Atoi(iParts[1])
+		nj, errJ := strconv.Atoi(jParts[1])
+
+		if errI != nil || errJ != nil {
+			return pdfPaths[i] < pdfPaths[j] // fallback to string comparison
+		}
+
 		return ni < nj
 	})
+
 	return pdfPaths, pdfData, totalPages, nil
 }
 
