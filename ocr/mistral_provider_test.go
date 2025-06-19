@@ -237,7 +237,8 @@ func TestMistralOCRProvider_ProcessDocument(t *testing.T) {
 	req.Document.Type = "document_url"
 	req.Document.DocumentURL = "https://test-document-url"
 
-	text, err := provider.processDocument(req)
+	logger := log.WithField("test", "process_document")
+	text, err := provider.processDocument(req, logger)
 
 	assert.NoError(t, err)
 	assert.Equal(t, "Test OCR output", text)
@@ -293,7 +294,8 @@ func TestMistralOCRProvider_ErrorHandling(t *testing.T) {
 			req.Document.Type = "document_url"
 			req.Document.DocumentURL = "https://test-document-url"
 
-			text, err := provider.processDocument(req)
+			logger := log.WithField("test", "error_handling")
+			text, err := provider.processDocument(req, logger)
 
 			if tt.wantErr {
 				assert.Error(t, err)
