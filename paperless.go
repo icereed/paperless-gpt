@@ -757,7 +757,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 // If limitPages > 0, only the first N pages will be processed
 // Returns the PDF paths, original PDF data, and the total number of pages in the original document
 func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error) {
-	// Create a directory named after the document ID
+// Create a directory named after the document ID
 	docDir := filepath.Join(client.GetCacheFolder(), fmt.Sprintf("document-%d-pdf", documentID))
 	if _, err := os.Stat(docDir); os.IsNotExist(err) {
 		err = os.MkdirAll(docDir, 0755)
@@ -823,13 +823,19 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 
 	// Continue with splitting logic only if we're not skipping it
-	// Check if PDFs already exist
+	// Check if PDFs already exist (check both formats: with and without leading zeros)
 	var pdfPaths []string
 	for n := 0; n < pagesToProcess; n++ {
-		pdfPath := filepath.Join(docDir, fmt.Sprintf("page%03d.pdf", n))
-		if _, err := os.Stat(pdfPath); err == nil {
-			// File exists
-			pdfPaths = append(pdfPaths, pdfPath)
+		// Try both formats: original_001.pdf and original_1.pdf
+		pdfPathZeroPad := filepath.Join(docDir, fmt.Sprintf("original_%03d.pdf", n+1))
+		pdfPathNoZeroPad := filepath.Join(docDir, fmt.Sprintf("original_%d.pdf", n+1))
+		
+		if _, err := os.Stat(pdfPathZeroPad); err == nil {
+			// File with zero padding exists
+			pdfPaths = append(pdfPaths, pdfPathZeroPad)
+		} else if _, err := os.Stat(pdfPathNoZeroPad); err == nil {
+			// File without zero padding exists
+			pdfPaths = append(pdfPaths, pdfPathNoZeroPad)
 		}
 	}
 
@@ -839,18 +845,17 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 
 	// Clear existing PDFs to ensure consistency
-        // Use pdfcpu to split the PDF
-        err = api.SplitFile(originalPDFPath, docDir, 1, nil)
-        if err != nil {
+	// Use pdfcpu to split the PDF
+	err = api.SplitFile(originalPDFPath, docDir, 1, nil)
+	if err != nil {
 		return nil, nil, 0, fmt.Errorf("error splitting PDF: %w", err)
 	}
 
-	// pdfcpu creates files with names like "original_1.pdf", "original_2.pdf", etc.
+	// pdfcpu creates files with names like "original_1.pdf", "original_2.pdf", etc. (without leading zeros)
 	pdfPaths = []string{}
 	for n := 0; n < pagesToProcess; n++ {
-		// The expected output from pdfcpu SplitFile
-		// Zero-pad to 3 digits => original_001.pdf … original_999.pdf
-		filePath := filepath.Join(docDir, fmt.Sprintf("original_%03d.pdf", n+1))
+		// The actual output from pdfcpu SplitFile (without zero padding)
+		filePath := filepath.Join(docDir, fmt.Sprintf("original_%d.pdf", n+1))
 
 		// Check if the file exists
 		if _, err := os.Stat(filePath); err == nil {
@@ -862,10 +867,27 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 
 	// Sort the PDF paths to ensure they are in order
 	sort.SliceStable(pdfPaths, func(i, j int) bool {
-		ni, _ := strconv.Atoi(strings.TrimSuffix(strings.Split(pdfPaths[i], "_")[1], ".pdf"))
-		nj, _ := strconv.Atoi(strings.TrimSuffix(strings.Split(pdfPaths[j], "_")[1], ".pdf"))
+		// Extract the number from the filename (e.g., "original_1.pdf" -> 1)
+		iBasename := filepath.Base(pdfPaths[i])
+		jBasename := filepath.Base(pdfPaths[j])
+		
+		iParts := strings.Split(strings.TrimSuffix(iBasename, ".pdf"), "_")
+		jParts := strings.Split(strings.TrimSuffix(jBasename, ".pdf"), "_")
+		
+		if len(iParts) < 2 || len(jParts) < 2 {
+			return pdfPaths[i] < pdfPaths[j] // fallback to string comparison
+		}
+		
+		ni, errI := strconv.Atoi(iParts[1])
+		nj, errJ := strconv.Atoi(jParts[1])
+		
+		if errI != nil || errJ != nil {
+			return pdfPaths[i] < pdfPaths[j] // fallback to string comparison
+		}
+		
 		return ni < nj
 	})
+	
 	return pdfPaths, pdfData, totalPages, nil
 }
 
