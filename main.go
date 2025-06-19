@@ -15,6 +15,8 @@ import (
 	"text/template"
 	"time"
 
+	"math"
+
 	"github.com/Masterminds/sprig/v3"
 	"github.com/fatih/color"
 	"github.com/gin-gonic/gin"
@@ -24,7 +26,6 @@ import (
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
 	"gorm.io/gorm"
-	"math"
 )
 
 // Global Variables and Constants
@@ -85,10 +86,12 @@ var (
 	// Default templates
 	defaultTitleTemplate = `I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
 Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
+If the original title is already adding value and not just a technical filename you can use it as extra information to enhance your suggestion.
 Respond only with the title, without any additional information. The content is likely in {{.Language}}.
 
 The data will be provided using an XML-like format for clarity:
 
+<original_title>{{.Title}}</original_title>
 <content>
 {{.Content}}
 </content>
