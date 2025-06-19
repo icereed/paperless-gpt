@@ -757,7 +757,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 // If limitPages > 0, only the first N pages will be processed
 // Returns the PDF paths, original PDF data, and the total number of pages in the original document
 func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error) {
-// Create a directory named after the document ID
+	// Create a directory named after the document ID
 	docDir := filepath.Join(client.GetCacheFolder(), fmt.Sprintf("document-%d-pdf", documentID))
 	if _, err := os.Stat(docDir); os.IsNotExist(err) {
 		err = os.MkdirAll(docDir, 0755)
@@ -830,7 +830,7 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 		pdfPathStandard := filepath.Join(docDir, fmt.Sprintf("original_%03d.pdf", n+1))
 		// Legacy format: original_1.pdf (from older versions or pdfcpu default output)
 		pdfPathLegacy := filepath.Join(docDir, fmt.Sprintf("original_%d.pdf", n+1))
-		
+
 		if _, err := os.Stat(pdfPathStandard); err == nil {
 			// Standardized format exists
 			pdfPaths = append(pdfPaths, pdfPathStandard)
@@ -885,25 +885,25 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 		// Extract the number from the filename (e.g., "original_001.pdf" -> 1, "original_1.pdf" -> 1)
 		iBasename := filepath.Base(pdfPaths[i])
 		jBasename := filepath.Base(pdfPaths[j])
-		
+
 		iParts := strings.Split(strings.TrimSuffix(iBasename, ".pdf"), "_")
 		jParts := strings.Split(strings.TrimSuffix(jBasename, ".pdf"), "_")
-		
+
 		if len(iParts) < 2 || len(jParts) < 2 {
 			return pdfPaths[i] < pdfPaths[j] // fallback to string comparison
 		}
-		
+
 		// Parse the page numbers (handles both "001" and "1" formats)
 		ni, errI := strconv.Atoi(iParts[1])
 		nj, errJ := strconv.Atoi(jParts[1])
-		
+
 		if errI != nil || errJ != nil {
 			return pdfPaths[i] < pdfPaths[j] // fallback to string comparison
 		}
-		
+
 		return ni < nj
 	})
-	
+
 	return pdfPaths, pdfData, totalPages, nil
 }
 

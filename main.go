@@ -15,6 +15,8 @@ import (
 	"text/template"
 	"time"
 
+	"math"
+
 	"github.com/Masterminds/sprig/v3"
 	"github.com/fatih/color"
 	"github.com/gin-gonic/gin"
@@ -84,22 +86,32 @@ var (
 	// Default templates
 	defaultTitleTemplate = `I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
 Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
+If the original title is already adding value and not just a technical filename you can use it as extra information to enhance your suggestion.
 Respond only with the title, without any additional information. The content is likely in {{.Language}}.
 
-Content:
+The data will be provided using an XML-like format for clarity:
+
+<original_title>{{.Title}}</original_title>
+<content>
 {{.Content}}
+</content>
 `
 
 	defaultTagTemplate = `I will provide you with the content and the title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information. The content is likely in {{.Language}}.
 
-Available Tags:
+The data will be provided using an XML-like format for clarity:
+
+<available_tags>
 {{.AvailableTags | join ", "}}
+</available_tags>
 
-Title:
+<title>
 {{.Title}}
+</title>
 
-Content:
+<content>
 {{.Content}}
+</content>
 
 Please concisely select the {{.Language}} tags from the list above that best describe the document.
 Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
@@ -117,26 +129,35 @@ Try to avoid any legal or financial suffixes like "GmbH" or "AG" in the correspo
 
 If you can't find a suitable correspondent, you can respond with "Unknown".
 
-Example Correspondents:
+The data will be provided using an XML-like format for clarity:
+
+<example_correspondents>
 {{.AvailableCorrespondents | join ", "}}
+</example_correspondents>
 
-List of Correspondents with Blacklisted Names. Please avoid these correspondents or variations of their names:
+<blacklisted_correspondents>
 {{.BlackList | join ", "}}
+</blacklisted_correspondents>
 
-Title of the document:
+<title>
 {{.Title}}
+</title>
+
+<content>
+{{.Content}}
+</content>
 
 The content is likely in {{.Language}}.
-
-Document Content:
-{{.Content}}
 `
 	defaultCreatedDateTemplate = `I will provide you with the content of a document. Your task is to find the date when the document was created.
 Respond only with the date in YYYY-MM-DD format, without any additional information. If no day was found, use the first day of the month. If no month was found, use January. If no date was found at all, answer with today's date.
 The content is likely in {{.Language}}. Today's date is {{.Today}}.
 
-Content:
+The data will be provided using an XML-like format for clarity:
+
+<content>
 {{.Content}}
+</content>
 `
 	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
 )
@@ -464,8 +485,16 @@ func validateOrDefaultEnvVars() {
 		log.Fatal("Please set the LLM_PROVIDER environment variable.")
 	}
 
-	if visionLlmProvider != "" && visionLlmProvider != "openai" && visionLlmProvider != "ollama" && visionLlmProvider != "mistral" {
-		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'ollama', or 'mistral'.")
+	if visionLlmProvider != "" &&
+		visionLlmProvider != "openai" &&
+		visionLlmProvider != "ollama" &&
+		visionLlmProvider != "mistral" &&
+		visionLlmProvider != "googleai" {
+
+		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai' or 'mistral'.")
+	}
+	if llmProvider != "openai" && llmProvider != "ollama" && llmProvider != "googleai" && llmProvider != "mistral" {
+		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai' or 'mistral'.")
 	}
 
 	// Validate OCR provider if set
@@ -799,8 +828,25 @@ func createLLM() (llms.Model, error) {
 
 		// Apply rate limiting with isVision=false
 		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
+	case "googleai":
+		ctx := context.Background()
+		apiKey := os.Getenv("GOOGLEAI_API_KEY")
+		var thinkingBudget *int32
+		if val, ok := os.LookupEnv("GOOGLEAI_THINKING_BUDGET"); ok {
+			if v, err := strconv.ParseInt(val, 10, 32); err == nil {
+				if v >= math.MinInt32 && v <= math.MaxInt32 {
+					b := int32(v)
+					thinkingBudget = &b
+				}
+			}
+		}
+		provider, err := NewGoogleAIProvider(ctx, llmModel, apiKey, thinkingBudget)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GoogleAI provider: %w", err)
+		}
+		return provider, nil
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s", llmProvider)
+		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, ollama, mistral, googleai)", llmProvider)
 	}
 }
 
