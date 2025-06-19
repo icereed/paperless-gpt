@@ -77,6 +77,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Image Mode (Default)](#image-mode-default)
     - [PDF Mode](#pdf-mode)
     - [Whole PDF Mode](#whole-pdf-mode)
+    - [Provider Compatibility](#provider-compatibility)
     - [Existing OCR Detection](#existing-ocr-detection)
   - [Enhanced OCR Features](#enhanced-ocr-features)
     - [PDF Text Layer Generation](#pdf-text-layer-generation)
@@ -375,6 +376,20 @@ paperless-gpt offers different methods for processing documents, giving you flex
 - **Best for**: Providers that handle multi-page documents efficiently, reduced API calls
 - **Configuration**: `OCR_PROCESS_MODE: "whole_pdf"`
 - **Note**: Processing large PDFs may cause you to hit the API limit of your OCR provider. If you encounter problems with large documents, consider switching to `pdf` mode, which processes pages individually.
+
+### Provider Compatibility
+
+Different OCR providers support different processing modes:
+
+| Provider | Image Mode | PDF Mode | Whole PDF Mode |
+|----------|------------|----------|----------------|
+| **LLM-based OCR** (OpenAI/Ollama) | ✅ | ❌ | ❌ |
+| **Azure Document Intelligence** | ✅ | ❌ | ❌ |
+| **Google Document AI** | ✅ | ✅ | ✅ |
+| **Mistral OCR** | ✅ | ✅ | ✅ |
+| **Docling Server** | ✅ | ❌ | ❌ |
+
+> **Important**: paperless-gpt will validate your configuration at startup and prevent unsupported mode/provider combinations. If you specify an unsupported mode for your provider, the application will fail to start with a clear error message.
 
 ### Existing OCR Detection
 
