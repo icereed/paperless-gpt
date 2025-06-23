@@ -84,7 +84,7 @@ var (
 	templateMutex         sync.RWMutex
 
 	// Default templates
-	defaultTitleTemplate = `I will provide you with the tesseract OCR of a document.
+	defaultTitleTemplate = `I will provide you with the OCR of a document.
 Your must reply an appropriate document title for use in paperless-ngx.
 Respond ONLY with an appropriate document title and NO additional information, for use in Paperless-ngx.
 
