@@ -25,7 +25,7 @@ COPY web-app /app/
 RUN npm run build
 
 # Stage 2: Build the Go binary
-FROM docker.io/golang:1.24.4-alpine3.21 AS builder
+FROM docker.io/golang:1.24.5-alpine3.21 AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
