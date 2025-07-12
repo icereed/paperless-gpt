@@ -21,7 +21,7 @@ require (
 	github.com/tmc/langchaingo v0.1.13
 	golang.org/x/sync v0.16.0
 	golang.org/x/time v0.12.0
-	google.golang.org/api v0.240.0
+	google.golang.org/api v0.241.0
 	google.golang.org/genai v1.13.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.30.0
