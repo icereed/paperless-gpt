@@ -19,7 +19,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
 	github.com/tmc/langchaingo v0.1.13
-	golang.org/x/sync v0.15.0
+	golang.org/x/sync v0.16.0
 	golang.org/x/time v0.12.0
 	google.golang.org/api v0.240.0
 	google.golang.org/genai v1.13.0
