@@ -7,7 +7,7 @@ import History from './History';
 
 const App: React.FC = () => {
   return (
-    <Router>
+    <Router basename={window.location.pathname.replace(/(\/[^/]+)$/, "")}>
       <div className="flex h-screen flex-col">
         <div className="flex flex-1 overflow-hidden">
           <Sidebar onSelectPage={(page) => console.log(page)} />
