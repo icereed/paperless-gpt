@@ -6,8 +6,12 @@ import ExperimentalOCR from './ExperimentalOCR'; // New component
 import History from './History';
 
 const App: React.FC = () => {
+  // Keep the base path (path prefix from reverse-proxy) and remove the app path,
+  // convert "/" to "" so Router basename is empty at root.
+  const rawBasename = window.location.pathname.replace(/(\/[^/]+)$/, "/");
+  const basename = rawBasename === "/" ? "" : rawBasename;
   return (
-    <Router>
+    <Router basename={basename}>
       <div className="flex h-screen flex-col">
         <div className="flex flex-1 overflow-hidden">
           <Sidebar onSelectPage={(page) => console.log(page)} />

@@ -56,9 +56,9 @@ const DocumentProcessor: React.FC = () => {
   const fetchInitialData = useCallback(async () => {
     try {
       const [filterTagRes, documentsRes, tagsRes] = await Promise.all([
-        axios.get<{ tag: string }>("/api/filter-tag"),
-        axios.get<Document[]>("/api/documents"),
-        axios.get<Record<string, number>>("/api/tags"),
+        axios.get<{ tag: string }>("./api/filter-tag"),
+        axios.get<Document[]>("./api/documents"),
+        axios.get<Record<string, number>>("./api/tags"),
       ]);
 
       setFilterTag(filterTagRes.data.tag);
@@ -93,7 +93,7 @@ const DocumentProcessor: React.FC = () => {
       };
 
       const { data } = await axios.post<DocumentSuggestion[]>(
-        "/api/generate-suggestions",
+        "./api/generate-suggestions",
         requestPayload
       );
       setSuggestions(data);
@@ -109,7 +109,7 @@ const DocumentProcessor: React.FC = () => {
     setUpdating(true);
     setError(null);
     try {
-      await axios.patch("/api/update-documents", suggestions);
+      await axios.patch("./api/update-documents", suggestions);
       setIsSuccessModalOpen(true);
       setSuggestions([]);
     } catch (err) {
@@ -179,7 +179,7 @@ const DocumentProcessor: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await axios.get<Document[]>("/api/documents");
+      const { data } = await axios.get<Document[]>("./api/documents");
       setDocuments(data);
     } catch (err) {
       console.error("Error reloading documents:", err);
@@ -194,7 +194,7 @@ const DocumentProcessor: React.FC = () => {
       const interval = setInterval(async () => {
         setError(null);
         try {
-          const { data } = await axios.get<Document[]>("/api/documents");
+          const { data } = await axios.get<Document[]>("./api/documents");
           setDocuments(data);
         } catch (err) {
           console.error("Error reloading documents:", err);

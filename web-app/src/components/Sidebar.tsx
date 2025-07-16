@@ -27,7 +27,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
   const fetchOcrEnabled = useCallback(async () => {
     try {
       const res = await axios.get<{ enabled: boolean }>(
-        "/api/experimental/ocr"
+        "./api/experimental/ocr"
       );
       setOcrEnabled(res.data.enabled);
     } catch (err) {
@@ -40,15 +40,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
   }, [fetchOcrEnabled]);
 
   const menuItems = [
-    { name: "home", path: "/", icon: mdiHomeOutline, title: "Home" },
-    { name: "history", path: "/history", icon: mdiHistory, title: "History" },
+    { name: "home", path: "./", icon: mdiHomeOutline, title: "Home" },
+    { name: "history", path: "./history", icon: mdiHistory, title: "History" },
   ];
 
   // If OCR is enabled, add the OCR menu item
   if (ocrEnabled) {
     menuItems.push({
       name: "ocr",
-      path: "/experimental-ocr",
+      path: "./experimental-ocr",
       icon: mdiTextBoxSearchOutline,
       title: "OCR",
     });
@@ -72,7 +72,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
         {menuItems.map((item) => (
           <li
             key={item.name}
-            className={location.pathname === item.path ? "active" : ""}
+            className={location.pathname.split('/').at(-1) === item.path.split('/').at(-1) ? "active" : ""}
             onClick={() => handlePageClick(item.name)}
           >
             <Link

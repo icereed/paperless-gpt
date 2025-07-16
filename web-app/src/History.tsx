@@ -34,7 +34,7 @@ const History: React.FC = () => {
   useEffect(() => {
     const fetchUrl = async () => {
       try {
-        const response = await fetch('/api/paperless-url');
+        const response = await fetch('./api/paperless-url');
         if (!response.ok) {
           throw new Error('Failed to fetch public URL');
         }
@@ -56,7 +56,7 @@ const History: React.FC = () => {
   const fetchModifications = async (page: number) => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/modifications?page=${page}&pageSize=${pageSize}`);
+      const response = await fetch(`./api/modifications?page=${page}&pageSize=${pageSize}`);
       if (!response.ok) {
         throw new Error('Failed to fetch modifications');
       }
@@ -73,7 +73,7 @@ const History: React.FC = () => {
 
   const handleUndo = async (id: number) => {
     try {
-      const response = await fetch(`/api/undo-modification/${id}`, {
+      const response = await fetch(`./api/undo-modification/${id}`, {
         method: 'POST',
       });
       

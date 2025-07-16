@@ -18,7 +18,7 @@ const ExperimentalOCR: React.FC = () => {
     if (!documentId) return;
 
     try {
-      const response = await axios.get<Document>(`/api/documents/${documentId}`);
+      const response = await axios.get<Document>(`./api/documents/${documentId}`);
       setDocumentDetails(response.data);
     } catch (err) {
       console.error("Error fetching document details:", err);
@@ -38,7 +38,7 @@ const ExperimentalOCR: React.FC = () => {
       await fetchDocumentDetails(); // Fetch document details before submitting the job
 
       setStatus('Submitting OCR job...');
-      const response = await axios.post(`/api/documents/${documentId}/ocr`);
+      const response = await axios.post(`./api/documents/${documentId}/ocr`);
       setJobId(response.data.job_id);
       setStatus('Job submitted. Processing...');
     } catch (err) {
@@ -51,7 +51,7 @@ const ExperimentalOCR: React.FC = () => {
     if (!jobId) return;
 
     try {
-      const response = await axios.get(`/api/jobs/ocr/${jobId}`);
+      const response = await axios.get(`./api/jobs/ocr/${jobId}`);
       const jobStatus = response.data.status;
       setPagesDone(response.data.pages_done); // Update pages done
       if (jobStatus === 'completed') {
@@ -85,7 +85,7 @@ const ExperimentalOCR: React.FC = () => {
         suggested_content: ocrResult,
       };
 
-      await axios.patch("/api/update-documents", [requestPayload]);
+      await axios.patch("./api/update-documents", [requestPayload]);
       setStatus('Content saved successfully.');
     } catch (err) {
       console.error("Error saving content:", err);
