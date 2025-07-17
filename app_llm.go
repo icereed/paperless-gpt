@@ -413,10 +413,10 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			mu.Unlock()
 
 			elapsed := time.Since(startTime)
-			hours := int(elapsed.Hours())
-			minutes := int(elapsed.Minutes()) % 60
-			seconds := int(elapsed.Seconds()) % 60
-			docLogger.Printf("Document %d processed successfully. Runtime: %02d:%02d:%02d", documentID, hours, minutes, seconds)
+			// Format as HH:MM:SS using UTC zero-time base.
+			runtime := time.Unix(0, elapsed.Nanoseconds()).UTC()
+			docLogger.Printf("Document %d processed successfully. Runtime: %s",
+				documentID, runtime.Format("15:04:05"))
 		}(documents[i])
 	}
 
