@@ -24,7 +24,7 @@ require (
 	google.golang.org/api v0.243.0
 	google.golang.org/genai v1.17.0
 	gorm.io/driver/sqlite v1.6.0
-	gorm.io/gorm v1.30.0
+	gorm.io/gorm v1.30.1
 )
 
 require (
