@@ -84,52 +84,38 @@ var (
 	templateMutex         sync.RWMutex
 
 	// Default templates
-	defaultTitleTemplate = `I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
-Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
-If the original title is already adding value and not just a technical filename you can use it as extra information to enhance your suggestion.
-Respond only with the title, without any additional information. The content is likely in {{.Language}}.
+	defaultTitleTemplate = `I will provide you with the OCR of a document.
+Your must reply an appropriate document title for use in paperless-ngx.
+Respond ONLY with an appropriate document title and NO additional information, for use in Paperless-ngx.
 
-The data will be provided using an XML-like format for clarity:
-
-<original_title>{{.Title}}</original_title>
-<content>
-{{.Content}}
-</content>
+<doc>
+<likely_language>{{.Language}}</likely_language>
+<title>{{.Title}}</title>
+<ocr>{{.Content}}</ocr>
+</doc>
 `
 
-	defaultTagTemplate = `I will provide you with the content and the title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information. The content is likely in {{.Language}}.
+	defaultTagTemplate = `I will provide you with a document's content and title, and a tags list.
+You have to select appropriate tags for that document.
+Respond ONLY with the selected tags as a comma-separated list and NO additional information.
+Be VERY selective and only choose the most relevant tags since too many tags will make the document less discoverable in Paperless-ngx.
 
-The data will be provided using an XML-like format for clarity:
+<tags_list>
+{{.AvailableTags | join ","}}
+</tags_list>
 
-<available_tags>
-{{.AvailableTags | join ", "}}
-</available_tags>
-
-<title>
-{{.Title}}
-</title>
-
-<content>
-{{.Content}}
-</content>
-
-Please concisely select the {{.Language}} tags from the list above that best describe the document.
-Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
+<doc>
+<likely_language>{{.Language}}</likely_language>
+<title>{{.Title}}</title>
+<content>{{.Content}}</content>
+</doc>
 `
-	defaultCorrespondentTemplate = `I will provide you with the content of a document. Your task is to suggest a correspondent that is most relevant to the document.
-
-Correspondents are the senders of documents that reach you. In the other direction, correspondents are the recipients of documents that you send.
-In Paperless-ngx we can imagine correspondents as virtual drawers in which all documents of a person or company are stored. With just one click, we can find all the documents assigned to a specific correspondent.
+	defaultCorrespondentTemplate = `I will provide you with the content of a document from my Paperless-ngx instance.
+Your have to reply the most likely correspondent (i.e. sender or recipient) of that document.
 Try to suggest a correspondent, either from the example list or come up with a new correspondent.
-
-Respond only with a correspondent, without any additional information!
-
-Be sure to choose a correspondent that is most relevant to the document.
-Try to avoid any legal or financial suffixes like "GmbH" or "AG" in the correspondent name. For example use "Microsoft" instead of "Microsoft Ireland Operations Limited" or "Amazon" instead of "Amazon EU S.a.r.l.".
-
-If you can't find a suitable correspondent, you can respond with "Unknown".
-
-The data will be provided using an XML-like format for clarity:
+Respond ONLY with a correspondent and NO additional information.
+Omit suffixes like "GmbH" or "AG" (e.g. "Amazon" instead of "Amazon EU S.a.r.l.").
+Use "Unknown" if you can't find a suitable correspondent.
 
 <example_correspondents>
 {{.AvailableCorrespondents | join ", "}}
@@ -139,27 +125,31 @@ The data will be provided using an XML-like format for clarity:
 {{.BlackList | join ", "}}
 </blacklisted_correspondents>
 
-<title>
-{{.Title}}
-</title>
+<doc>
+<likely_language>{{.Language}}</likely_language>
+<title>{{.Title}}</title>
+<content>{{.Content}}</content>
+</doc>
 
+`
+	defaultCreatedDateTemplate = `I will provide you with the content of a document.
+You have to find the creation date of that document.
+Respond ONLY with the date in YYYY-MM-DD format and NO additional information.
+Use X if you are missing an information (e.g. 2025-03-XX, XXXX-XX-XX if impossible to guess).
+Today's date is {{.Today}}.
+
+<doc>
+<likely_language>{{.Language}}</likely_language>
 <content>
 {{.Content}}
 </content>
-
-The content is likely in {{.Language}}.
+<doc>
 `
-	defaultCreatedDateTemplate = `I will provide you with the content of a document. Your task is to find the date when the document was created.
-Respond only with the date in YYYY-MM-DD format, without any additional information. If no day was found, use the first day of the month. If no month was found, use January. If no date was found at all, answer with today's date.
-The content is likely in {{.Language}}. Today's date is {{.Today}}.
+	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. You forgot about some text yesterday so please focus today! Use markdown format.
 
-The data will be provided using an XML-like format for clarity:
+IMPORTANT: Never hallucinate or make up text that isn't clearly visible. If any text or part of the image is unclear, blurry, or unreadable, use "[UNREADABLE]" at that exact location instead of guessing what it might say. Only transcribe text that you can clearly and confidently read.
 
-<content>
-{{.Content}}
-</content>
-`
-	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
+Thanks a lot!`
 )
 
 // App struct to hold dependencies
