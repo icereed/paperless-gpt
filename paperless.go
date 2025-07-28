@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"regexp"
 
 	"github.com/disintegration/imaging"
 	"github.com/gen2brain/go-fitz"
@@ -490,8 +491,13 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// Suggested CreatedDate
 		suggestedCreatedDate := document.SuggestedCreatedDate
 		if suggestedCreatedDate != "" {
-			originalFields["created_date"] = document.OriginalDocument.CreatedDate
-			updatedFields["created_date"] = suggestedCreatedDate
+			// Validate format YYYY-MM-DD
+			if matched := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`).MatchString(suggestedCreatedDate); matched {
+				originalFields["created_date"] = document.OriginalDocument.CreatedDate
+				updatedFields["created_date"] = suggestedCreatedDate
+			} else {
+				log.Warnf("Invalid created_date format for document %d: %s. Expected YYYY-MM-DD, skipping.", documentID, suggestedCreatedDate)
+			}
 		}
 
 		log.Debugf("Document %d: Original fields: %v", documentID, originalFields)
