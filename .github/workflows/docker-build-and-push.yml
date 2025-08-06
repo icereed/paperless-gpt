@@ -187,12 +187,12 @@ jobs:
       GHCR_REPO: ghcr.io/${{ github.repository }}
     steps:
       - name: Download amd64 digest
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: digest-amd64
           path: ${{ runner.temp }}/digests
       - name: Download arm64 digest
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: digest-arm64
           path: ${{ runner.temp }}/digests
