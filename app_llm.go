@@ -317,6 +317,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			defer wg.Done()
 			documentID := doc.ID
 			docLogger := documentLogger(documentID)
+			startTime := time.Now()
 			docLogger.Printf("Processing Document ID %d...", documentID)
 
 			content := doc.Content
@@ -410,7 +411,12 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 
 			documentSuggestions = append(documentSuggestions, suggestion)
 			mu.Unlock()
-			docLogger.Printf("Document %d processed successfully.", documentID)
+
+			elapsed := time.Since(startTime)
+			// Format as HH:MM:SS using UTC zero-time base.
+			runtime := time.Unix(0, elapsed.Nanoseconds()).UTC()
+			docLogger.Printf("Document %d processed successfully. Runtime: %s",
+				documentID, runtime.Format("15:04:05"))
 		}(documents[i])
 	}
 
