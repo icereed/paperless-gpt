@@ -11,15 +11,24 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var (
+	jobCancellersMu sync.Mutex
+	jobCancellers   = make(map[string]context.CancelFunc)
+
+	reOcrCancellersMu sync.Mutex
+	reOcrCancellers   = make(map[string]context.CancelFunc)
+)
+
 // Job represents an OCR job
 type Job struct {
 	ID         string
 	DocumentID int
-	Status     string // "pending", "in_progress", "completed", "failed"
-	Result     string // OCR result or error message
+	Status     string // "pending", "in_progress", "completed", "failed", "cancelled"
+	Result     string // OCR result (combined text) or error message
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	PagesDone  int        // Number of pages processed
+	TotalPages int        // Total number of pages in the document
 	Options    OCROptions // OCR processing options
 }
 
@@ -122,7 +131,22 @@ func startWorkerPool(app *App, numWorkers int) {
 func processJob(app *App, job *Job) {
 	jobStore.updateJobStatus(job.ID, "in_progress", "")
 
-	ctx := context.Background()
+	jobCtx, cancel := context.WithCancel(context.Background())
+	jobCancellersMu.Lock()
+	jobCancellers[job.ID] = cancel
+	jobCancellersMu.Unlock()
+	defer func() {
+		cancel()
+		jobCancellersMu.Lock()
+		delete(jobCancellers, job.ID)
+		jobCancellersMu.Unlock()
+	}()
+
+	// Delete old OCR page results for this document before starting new OCR
+	if err := DeleteOcrPageResults(app.Database, job.DocumentID); err != nil {
+		logger.Errorf("Failed to delete old OCR page results for document %d: %v", job.DocumentID, err)
+		// Continue processing even if deletion fails
+	}
 
 	// Create OCR options from job options or app defaults
 	options := job.Options
@@ -136,10 +160,20 @@ func processJob(app *App, job *Job) {
 		}
 	}
 
-	processedDoc, err := app.ProcessDocumentOCR(ctx, job.DocumentID, options)
+	processedDoc, err := app.ProcessDocumentOCR(jobCtx, job.DocumentID, options, job.ID)
 	if err != nil {
-		logger.Errorf("Error processing document OCR for job %s: %v", job.ID, err)
-		jobStore.updateJobStatus(job.ID, "failed", err.Error())
+		if jobCtx.Err() == context.Canceled {
+			jobStore.updateJobStatus(job.ID, "cancelled", "Job cancelled by user")
+			logger.Infof("Job cancelled: %s", job.ID)
+		} else {
+			logger.Errorf("Error processing document OCR for job %s: %v", job.ID, err)
+			jobStore.updateJobStatus(job.ID, "failed", err.Error())
+		}
+		return
+	}
+	if processedDoc == nil {
+		logger.Infof("OCR processing skipped for job %s (document %d)", job.ID, job.DocumentID)
+		jobStore.updateJobStatus(job.ID, "completed", "Skipped (already processed or other reason)")
 		return
 	}
 

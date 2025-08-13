@@ -40,7 +40,7 @@ type mockDocumentProcessor struct {
 	mockText string
 }
 
-func (m *mockDocumentProcessor) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions) (*ProcessedDocument, error) {
+func (m *mockDocumentProcessor) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions, jobID string) (*ProcessedDocument, error) {
 	return &ProcessedDocument{
 		ID:   documentID,
 		Text: m.mockText,
