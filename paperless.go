@@ -38,6 +38,19 @@ type PaperlessClient struct {
 	CacheFolder string
 }
 
+// CustomField represents a custom field from the Paperless-ngx API
+type CustomField struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	DataType string `json:"data_type"`
+}
+
+// DocumentType represents a document type from the Paperless-ngx API
+type DocumentType struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
 func hasSameTags(original, suggested []string) bool {
 	if len(original) != len(suggested) {
 		return false
@@ -356,6 +369,19 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 		}
 	}
 
+	// Get all document types to find the name
+	allDocumentTypes, err := client.GetAllDocumentTypes(ctx)
+	if err != nil {
+		return Document{}, err
+	}
+	documentTypeName := ""
+	for _, docType := range allDocumentTypes {
+		if documentResponse.DocumentType == docType.ID {
+			documentTypeName = docType.Name
+			break
+		}
+	}
+
 	return Document{
 		ID:               documentResponse.ID,
 		Title:            documentResponse.Title,
@@ -364,6 +390,8 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 		Tags:             tagNames,
 		CreatedDate:      documentResponse.CreatedDate,
 		OriginalFileName: documentResponse.OriginalFileName,
+		CustomFields:     documentResponse.CustomFields,
+		DocumentTypeName: documentTypeName,
 	}, nil
 }
 
@@ -498,6 +526,33 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			} else {
 				log.Warnf("Invalid created_date format for document %d: %s. Expected YYYY-MM-DD, skipping.", documentID, suggestedCreatedDate)
 			}
+		}
+
+		// Handle Custom Fields
+		if len(document.SuggestedCustomFields) > 0 {
+			finalCustomFields := document.OriginalDocument.CustomFields
+			settingsMutex.RLock()
+			writeMode := settings.CustomFieldWriteMode
+			settingsMutex.RUnlock()
+
+			if writeMode == "" {
+				writeMode = customFieldWritingMode // Fallback to global env var
+			}
+
+			if writeMode == "replace" {
+				finalCustomFields = document.SuggestedCustomFields
+			} else { // Append mode
+				existingFields := make(map[int]bool)
+				for _, field := range finalCustomFields {
+					existingFields[field.Field] = true
+				}
+				for _, suggestedField := range document.SuggestedCustomFields {
+					if _, exists := existingFields[suggestedField.Field]; !exists {
+						finalCustomFields = append(finalCustomFields, suggestedField)
+					}
+				}
+			}
+			updatedFields["custom_fields"] = finalCustomFields
 		}
 
 		log.Debugf("Document %d: Original fields: %v", documentID, originalFields)
@@ -1016,6 +1071,79 @@ func (client *PaperlessClient) GetAllCorrespondents(ctx context.Context) (map[st
 	}
 
 	return correspondentIDMapping, nil
+}
+
+// GetAllDocumentTypes retrieves all document types from the Paperless-NGX API
+func (client *PaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
+	var allDocumentTypes []DocumentType
+	path := "api/document_types/?page_size=1000" // Assuming a reasonable limit
+
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error fetching document types: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var response struct {
+		Results []DocumentType `json:"results"`
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&response)
+	if err != nil {
+		return nil, err
+	}
+
+	allDocumentTypes = append(allDocumentTypes, response.Results...)
+
+	return allDocumentTypes, nil
+}
+
+// GetCustomFields retrieves all custom fields from the Paperless-NGX API
+func (client *PaperlessClient) GetCustomFields(ctx context.Context) ([]CustomField, error) {
+	var customFields []CustomField
+	path := "api/custom_fields/"
+
+	for path != "" {
+		resp, err := client.Do(ctx, "GET", path, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("error fetching custom fields: %d, %s", resp.StatusCode, string(bodyBytes))
+		}
+
+		var response struct {
+			Results []CustomField `json:"results"`
+			Next    string        `json:"next"`
+		}
+
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		if err != nil {
+			return nil, err
+		}
+
+		customFields = append(customFields, response.Results...)
+
+		if response.Next != "" {
+			nextURL, err := url.Parse(response.Next)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse next URL for custom fields: %w", err)
+			}
+			path = nextURL.Path + "?" + nextURL.RawQuery
+		} else {
+			path = ""
+		}
+	}
+
+	return customFields, nil
 }
 
 // DeleteDocument deletes a document by its ID

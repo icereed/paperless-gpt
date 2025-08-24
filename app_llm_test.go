@@ -12,28 +12,51 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/textsplitter"
+	"gorm.io/gorm"
 )
 
 // Mock LLM for testing
 type mockLLM struct {
 	lastPrompt string
+	Response   string
+	Error      error
 }
 
 func (m *mockLLM) CreateEmbedding(_ context.Context, texts []string) ([][]float32, error) {
-	return nil, nil
+	return nil, nil // Not used in these tests
 }
 
-func (m *mockLLM) Call(_ context.Context, prompt string, _ ...llms.CallOption) (string, error) {
+func (m *mockLLM) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
 	m.lastPrompt = prompt
-	return "test response", nil
+	resp, err := m.GenerateContent(ctx, []llms.MessageContent{
+		{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: prompt}}}},
+		options...)
+	if err != nil {
+		return "", err
+	}
+	return resp.Choices[0].Content, nil
 }
 
-func (m *mockLLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, opts ...llms.CallOption) (*llms.ContentResponse, error) {
-	m.lastPrompt = messages[0].Parts[0].(llms.TextContent).Text
+func (m *mockLLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
+	if len(messages) > 0 && len(messages[0].Parts) > 0 {
+		if textContent, ok := messages[0].Parts[0].(llms.TextContent); ok {
+			m.lastPrompt = textContent.Text
+		}
+	}
+
+	if m.Error != nil {
+		return nil, m.Error
+	}
+
+	content := "test response"
+	if m.Response != "" {
+		content = m.Response
+	}
+
 	return &llms.ContentResponse{
 		Choices: []*llms.ContentChoice{
 			{
-				Content: "test response",
+				Content: content,
 			},
 		},
 	}, nil
@@ -333,4 +356,131 @@ func TestStripReasoning(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+// mockPaperlessClient is a mock implementation of the ClientInterface for testing.
+type mockPaperlessClient struct {
+	CustomFields []CustomField
+	Error        error
+}
+
+func (m *mockPaperlessClient) GetCustomFields(ctx context.Context) ([]CustomField, error) {
+	if m.Error != nil {
+		return nil, m.Error
+	}
+	return m.CustomFields, nil
+}
+
+// Implement other methods of the interface with empty bodies as they are not needed for this test.
+func (m *mockPaperlessClient) GetDocumentsByTags(ctx context.Context, tags []string, pageSize int) ([]Document, error) {
+	return nil, nil
+}
+func (m *mockPaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
+	return nil
+}
+func (m *mockPaperlessClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
+	return Document{}, nil
+}
+func (m *mockPaperlessClient) GetAllTags(ctx context.Context) (map[string]int, error) {
+	return nil, nil
+}
+func (m *mockPaperlessClient) GetAllCorrespondents(ctx context.Context) (map[string]int, error) {
+	return nil, nil
+}
+func (m *mockPaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
+	return nil, nil
+}
+func (m *mockPaperlessClient) CreateTag(ctx context.Context, tagName string) (int, error) {
+	return 0, nil
+}
+func (m *mockPaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error) {
+	return nil, 0, nil
+}
+func (m *mockPaperlessClient) DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error) {
+	return nil, nil, 0, nil
+}
+func (m *mockPaperlessClient) UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error) {
+	return "", nil
+}
+func (m *mockPaperlessClient) GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error) {
+	return nil, nil
+}
+func (m *mockPaperlessClient) DeleteDocument(ctx context.Context, documentID int) error { return nil }
+
+func TestGetSuggestedCustomFields(t *testing.T) {
+	// 1. Setup
+	mockedLLMResponse := `
+	[
+	  {
+	    "field": "Invoice Number",
+	    "value": "INV-12345"
+	  },
+	  {
+	    "field": "Due Date",
+	    "value": "2025-12-31"
+	  },
+	  {
+		"field": "NonExistentField",
+		"value": "Some Value"
+	  }
+	]
+	`
+
+	mockClient := &mockPaperlessClient{
+		CustomFields: []CustomField{
+			{ID: 1, Name: "Invoice Number", DataType: "string"},
+			{ID: 2, Name: "Due Date", DataType: "date"},
+			{ID: 3, Name: "Amount", DataType: "float"},
+		},
+	}
+
+	app := &App{
+		LLM:    &mockLLM{Response: mockedLLMResponse},
+		Client: mockClient,
+	}
+
+	// Create a dummy template file as loadTemplates() will be called
+	err := os.MkdirAll("prompts", 0755)
+	require.NoError(t, err)
+	err = os.WriteFile("prompts/custom_field_prompt.tmpl", []byte("test"), 0644)
+	require.NoError(t, err)
+	defer os.RemoveAll("prompts")
+
+	err = loadTemplates()
+	require.NoError(t, err)
+
+	// 2. Define Inputs
+	doc := Document{
+		Content: "The invoice number is INV-12345 and the due date is 2025-12-31.",
+	}
+	selectedFieldIDs := []int{1, 2} // User has selected "Invoice Number" and "Due Date"
+
+	// 3. Execute
+	testLogger := logrus.WithField("test", "TestGetSuggestedCustomFields")
+	suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, selectedFieldIDs, testLogger)
+
+	// 4. Assert
+	require.NoError(t, err)
+	require.NotNil(t, suggestions)
+	assert.Len(t, suggestions, 2, "Should return 2 suggestions, ignoring the non-existent one")
+
+	// Check Invoice Number
+	invoiceField, ok := findFieldByID(suggestions, 1)
+	assert.True(t, ok, "Invoice Number (ID 1) should be in the suggestions")
+	assert.Equal(t, "INV-12345", invoiceField.Value)
+
+	// Check Due Date
+	dueDateField, ok := findFieldByID(suggestions, 2)
+	assert.True(t, ok, "Due Date (ID 2) should be in the suggestions")
+	assert.Equal(t, "2025-12-31", dueDateField.Value)
+}
+
+// Helper function to find a custom field by ID in a slice
+func findFieldByID(fields []CustomFieldResponse, id int) (CustomFieldResponse, bool) {
+	for _, field := range fields {
+		if field.Field == id {
+			return field, true
+		}
+	}
+	return CustomFieldResponse{}, false
 }

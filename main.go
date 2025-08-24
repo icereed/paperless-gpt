@@ -60,8 +60,10 @@ var (
 	autoGenerateTags              = os.Getenv("AUTO_GENERATE_TAGS")
 	autoGenerateCorrespondents    = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
 	autoGenerateCreatedDate       = os.Getenv("AUTO_GENERATE_CREATED_DATE")
-	limitOcrPages                 int // Will be read from OCR_LIMIT_PAGES
-	tokenLimit                    = 0 // Will be read from TOKEN_LIMIT
+	autoGenerateCustomField       = os.Getenv("AUTO_GENERATE_CUSTOM_FIELD")
+	customFieldWritingMode        = "append" // Default value
+	limitOcrPages                 int        // Will be read from OCR_LIMIT_PAGES
+	tokenLimit                    = 0        // Will be read from TOKEN_LIMIT
 	createLocalHOCR               = os.Getenv("CREATE_LOCAL_HOCR") == "true"
 	createLocalPDF                = os.Getenv("CREATE_LOCAL_PDF") == "true"
 	localHOCRPath                 = os.Getenv("LOCAL_HOCR_PATH")
@@ -80,8 +82,13 @@ var (
 	tagTemplate           *template.Template
 	correspondentTemplate *template.Template
 	createdDateTemplate   *template.Template
+	customFieldTemplate   *template.Template
 	ocrTemplate           *template.Template
 	templateMutex         sync.RWMutex
+
+	// Server-side settings
+	settings      Settings
+	settingsMutex sync.RWMutex
 )
 
 // App struct to hold dependencies
@@ -115,6 +122,9 @@ func main() {
 
 	// Initialize logrus logger
 	initLogger()
+
+	// Load settings from file
+	loadSettings()
 
 	// Print version
 	printVersion()
@@ -259,8 +269,11 @@ func main() {
 		})
 		// Get all tags
 		api.GET("/tags", app.getAllTagsHandler)
+		api.GET("/paperless/custom_fields", app.getCustomFieldsHandler)
 		api.GET("/prompts", getPromptsHandler)
 		api.POST("/prompts", updatePromptsHandler)
+		api.GET("/settings", app.getSettingsHandler)
+		api.POST("/settings", app.updateSettingsHandler)
 
 		// OCR endpoints
 		api.POST("/documents/:id/ocr", app.submitOCRJobHandler)
@@ -427,6 +440,17 @@ func validateOCRProviderModeCompatibility(provider, mode string) error {
 
 // validateOrDefaultEnvVars ensures all necessary environment variables are set
 func validateOrDefaultEnvVars() {
+	// Validate custom field writing mode
+	writingMode := strings.ToLower(os.Getenv("PAPERLESS_CUSTOM_FIELD_WRITING_MODE"))
+	if writingMode != "" {
+		if writingMode == "append" || writingMode == "replace" {
+			customFieldWritingMode = writingMode
+			log.Infof("Using '%s' as custom field writing mode", customFieldWritingMode)
+		} else {
+			log.Warnf("Invalid PAPERLESS_CUSTOM_FIELD_WRITING_MODE: '%s', defaulting to 'append'", writingMode)
+		}
+	}
+
 	if manualTag == "" {
 		manualTag = "paperless-gpt"
 	}
@@ -673,6 +697,10 @@ func loadTemplates() error {
 		return err
 	}
 	createdDateTemplate, err = loadTemplate("created_date_prompt.tmpl")
+	if err != nil {
+		return err
+	}
+	customFieldTemplate, err = loadTemplate("custom_field_prompt.tmpl")
 	if err != nil {
 		return err
 	}

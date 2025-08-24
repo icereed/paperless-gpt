@@ -104,6 +104,51 @@ func (app *App) getAllTagsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, tags)
 }
 
+// getCustomFieldsHandler handles the GET /api/paperless/custom_fields endpoint
+func (app *App) getCustomFieldsHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	customFields, err := app.Client.GetCustomFields(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching custom fields: %v", err)})
+		log.Errorf("Error fetching custom fields: %v", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, customFields)
+}
+
+// getSettingsHandler handles the GET /api/settings endpoint
+func (app *App) getSettingsHandler(c *gin.Context) {
+	settingsMutex.RLock()
+	defer settingsMutex.RUnlock()
+	c.JSON(http.StatusOK, settings)
+}
+
+// updateSettingsHandler handles the POST /api/settings endpoint
+func (app *App) updateSettingsHandler(c *gin.Context) {
+	settingsMutex.Lock()
+	defer settingsMutex.Unlock()
+
+	var newSettings Settings
+	if err := c.ShouldBindJSON(&newSettings); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	// Update the global settings variable
+	settings = newSettings
+
+	// Save the updated settings to file
+	if err := saveSettingsLocked(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
+		log.Errorf("Failed to save settings: %v", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Settings saved successfully"})
+}
+
 // documentsHandler handles the GET /api/documents endpoint
 func (app *App) documentsHandler(c *gin.Context) {
 	ctx := c.Request.Context()
