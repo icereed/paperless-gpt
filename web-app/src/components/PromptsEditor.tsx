@@ -139,18 +139,20 @@ const PromptsEditor: React.FC = () => {
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
               />
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                aria-busy={isSaving}
-                className={`mt-4 px-6 py-2 rounded-md font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 transition-transform transform ${
-                  isSaving
-                    ? 'bg-blue-400 text-white cursor-not-allowed'
-                    : 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-105 focus:ring-blue-500'
-                }`}
-              >
-                {isSaving ? 'Saving…' : 'Save Changes'}
-              </button>
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  aria-busy={isSaving}
+                  className={`px-6 py-2 rounded-md font-semibold focus:outline-none focus:ring-2 focus:ring-offset-2 transition-transform transform ${
+                    isSaving
+                      ? 'bg-blue-400 text-white cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700 hover:scale-105 focus:ring-blue-500'
+                  }`}
+                >
+                  {isSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
             </div>
           ) : (
             <div className="flex items-center justify-center h-full bg-white dark:bg-gray-800 rounded-lg shadow p-4 text-gray-500 dark:text-gray-400">
