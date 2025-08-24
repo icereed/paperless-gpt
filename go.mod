@@ -17,7 +17,7 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/pdfcpu/pdfcpu v0.11.0
 	github.com/sirupsen/logrus v1.9.3
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.0
 	github.com/tmc/langchaingo v0.1.13
 	golang.org/x/sync v0.16.0
 	golang.org/x/time v0.12.0
