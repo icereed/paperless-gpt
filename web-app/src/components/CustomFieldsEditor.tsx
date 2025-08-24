@@ -61,10 +61,20 @@ const CustomFieldsEditor: React.FC = () => {
     setIsSaving(true);
     setError(null);
     try {
+      // 1. Fetch current settings to avoid overwriting unrelated keys
+      const latestRes = await fetch('/api/settings');
+      const latest = latestRes.ok ? await latestRes.json() : {};
+      // 2. Merge only our custom‐fields keys
+      const payload = {
+        ...latest,
+        selected_custom_field_ids: settings.selected_custom_field_ids,
+        custom_field_write_mode: settings.custom_field_write_mode,
+        auto_generate_custom_field: settings.auto_generate_custom_field,
+      };
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) {
         const errData = await response.json();
