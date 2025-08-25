@@ -78,7 +78,7 @@ const DocumentProcessor: React.FC = () => {
         axios.get<{ tag: string }>("./api/filter-tag"),
         axios.get<Document[]>("./api/documents"),
         axios.get<Record<string, number>>("./api/tags"),
-        axios.get<CustomField[]>('./api/paperless/custom_fields'),
+        axios.get<CustomField[]>('./api/custom_fields'),
       ]);
 
       setFilterTag(filterTagRes.data.tag);

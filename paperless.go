@@ -531,24 +531,25 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// Handle Custom Fields
 		if len(document.SuggestedCustomFields) > 0 {
 			finalCustomFields := document.OriginalDocument.CustomFields
-			settingsMutex.RLock()
-			writeMode := settings.CustomFieldWriteMode
-			settingsMutex.RUnlock()
-
-			if writeMode == "" {
-				writeMode = customFieldWritingMode // Fallback to global env var
-			}
-
-			if writeMode == "replace" {
-				finalCustomFields = document.SuggestedCustomFields
+			if document.CustomFieldsWriteMode == "replace" {
+				finalCustomFields = []CustomFieldResponse{}
+				for _, suggestedField := range document.SuggestedCustomFields {
+					finalCustomFields = append(finalCustomFields, CustomFieldResponse{
+						Field: suggestedField.ID,
+						Value: suggestedField.Value,
+					})
+				}
 			} else { // Append mode
 				existingFields := make(map[int]bool)
 				for _, field := range finalCustomFields {
 					existingFields[field.Field] = true
 				}
 				for _, suggestedField := range document.SuggestedCustomFields {
-					if _, exists := existingFields[suggestedField.Field]; !exists {
-						finalCustomFields = append(finalCustomFields, suggestedField)
+					if _, exists := existingFields[suggestedField.ID]; !exists {
+						finalCustomFields = append(finalCustomFields, CustomFieldResponse{
+							Field: suggestedField.ID,
+							Value: suggestedField.Value,
+						})
 					}
 				}
 			}

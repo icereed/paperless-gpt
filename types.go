@@ -50,6 +50,13 @@ type CustomFieldResponse struct {
 	Value interface{} `json:"value"`
 }
 
+// CustomFieldSuggestion represents a suggested custom field with its value and name
+type CustomFieldSuggestion struct {
+	ID    int         `json:"id"`
+	Name  string      `json:"name"`
+	Value interface{} `json:"value"`
+}
+
 // GetDocumentApiResponse is the response payload for /documents/{id} endpoint.
 // But we are only interested in a subset of the fields.
 type GetDocumentApiResponse struct {
@@ -91,25 +98,25 @@ type GenerateSuggestionsRequest struct {
 
 // Settings defines the structure for server-side UI settings
 type Settings struct {
-	SelectedCustomFieldIDs  []int  `json:"selected_custom_field_ids"`
-	CustomFieldWriteMode    string `json:"custom_field_write_mode"` // "append" or "replace"
-	AutoGenerateCustomField bool   `json:"auto_generate_custom_field"`
+	CustomFieldsEnable      bool   `json:"custom_fields_enable"`
+	CustomFieldsSelectedIDs []int  `json:"custom_fields_selected_ids"`
+	CustomFieldsWriteMode   string `json:"custom_fields_write_mode"` // "append" or "replace"
 }
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
 type DocumentSuggestion struct {
-	ID                      int                   `json:"id"`
-	OriginalDocument        Document              `json:"original_document"`
-	SuggestedTitle          string                `json:"suggested_title,omitempty"`
-	SuggestedTags           []string              `json:"suggested_tags,omitempty"`
-	SuggestedContent        string                `json:"suggested_content,omitempty"`
-	SuggestedCorrespondent  string                `json:"suggested_correspondent,omitempty"`
-	SuggestedCreatedDate    string                `json:"suggested_created_date,omitempty"`
-	SuggestedCustomFields   []CustomFieldResponse `json:"suggested_custom_fields,omitempty"`
-	KeepOriginalTags        bool                  `json:"keep_original_tags,omitempty"`
-	RemoveTags              []string              `json:"remove_tags,omitempty"`
-	CustomFieldWriteMode    string                `json:"custom_field_write_mode,omitempty"`
-	AutoGenerateCustomField bool                  `json:"auto_generate_custom_field"`
+	ID                     int                     `json:"id"`
+	OriginalDocument       Document                `json:"original_document"`
+	SuggestedTitle         string                  `json:"suggested_title,omitempty"`
+	SuggestedTags          []string                `json:"suggested_tags,omitempty"`
+	SuggestedContent       string                  `json:"suggested_content,omitempty"`
+	SuggestedCorrespondent string                  `json:"suggested_correspondent,omitempty"`
+	SuggestedCreatedDate   string                  `json:"suggested_created_date,omitempty"`
+	SuggestedCustomFields  []CustomFieldSuggestion `json:"suggested_custom_fields,omitempty"`
+	KeepOriginalTags       bool                    `json:"keep_original_tags,omitempty"`
+	RemoveTags             []string                `json:"remove_tags,omitempty"`
+	CustomFieldsWriteMode  string                  `json:"custom_fields_write_mode,omitempty"`
+	CustomFieldsEnable     bool                    `json:"custom_fields_enable"`
 }
 
 type Correspondent struct {

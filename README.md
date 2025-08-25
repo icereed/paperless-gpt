@@ -40,7 +40,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
 
 6. **Automatic Custom Field Generation**  
-   Extract and populate custom fields from your documents. Configure which fields to target and how they should be filled (overwrite or append).
+   Extract and populate custom fields from your documents. Configure which fields to target and how they should be filled (overwrite or append). **Note:** This feature must be enabled in the settings, and you must select at least one custom field for it to function.
 
 7. **Searchable & Selectable PDFs**  
    Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance.
@@ -567,8 +567,6 @@ For best results with the enhanced OCR features:
 | `AUTO_GENERATE_TAGS`                | Generate tags automatically if `paperless-gpt-auto` is used.                                                                                                                                  | No       | true                       |
 | `AUTO_GENERATE_CORRESPONDENTS`      | Generate correspondents automatically if `paperless-gpt-auto` is used.                                                                                                                        | No       | true                       |
 | `AUTO_GENERATE_CREATED_DATE`        | Generate the created dates automatically if `paperless-gpt-auto` is used.                                                                                                                     | No       | true                       |
-| `AUTO_GENERATE_CUSTOM_FIELD`        | Generate custom fields automatically if `paperless-gpt-auto` is used.                                                                                                                         | No       | true                       |
-| `PAPERLESS_CUSTOM_FIELD_WRITING_MODE` | Determines how custom fields are written. `append` (default) only fills empty fields. `replace` overwrites existing values. This can be overridden in the UI.                                 | No       | append                     |
 | `TOKEN_LIMIT`                       | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                                                                                             | No       |                            |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
 
@@ -903,6 +901,10 @@ Common issues and solutions:
 - If PDFs aren't being generated, check that `OCR_LIMIT_PAGES` isn't set too low compared to your document page count
 - Ensure volumes are properly mounted if using `CREATE_LOCAL_PDF` or `CREATE_LOCAL_HOCR`
 - When using `PDF_REPLACE: "true"`, verify you have recent backups of your paperless-ngx data
+
+### Custom Field Generation Issues
+
+- **Feature Not Working**: If custom field suggestions are not being generated even though the feature is enabled, ensure you have selected at least one custom field in the settings. The feature requires at least one field to be selected to know what to process.
 
 ---
 

@@ -476,11 +476,11 @@ func TestGetSuggestedCustomFields(t *testing.T) {
 }
 
 // Helper function to find a custom field by ID in a slice
-func findFieldByID(fields []CustomFieldResponse, id int) (CustomFieldResponse, bool) {
+func findFieldByID(fields []CustomFieldSuggestion, id int) (CustomFieldSuggestion, bool) {
 	for _, field := range fields {
-		if field.Field == id {
+		if field.ID == id {
 			return field, true
 		}
 	}
-	return CustomFieldResponse{}, false
+	return CustomFieldSuggestion{}, false
 }

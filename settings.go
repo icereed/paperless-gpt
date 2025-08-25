@@ -49,9 +49,9 @@ func loadSettings() {
 			// File doesn't exist, create it with defaults
 			log.Infof("Settings file not found at %s, creating with default values.", settingsPath)
 			settings = Settings{
-				SelectedCustomFieldIDs:  []int{},
-				CustomFieldWriteMode:    "append",
-				AutoGenerateCustomField: false,
+				CustomFieldsEnable:      false,
+				CustomFieldsSelectedIDs: []int{},
+				CustomFieldsWriteMode:   "append",
 			}
 			if err := saveSettingsLocked(); err != nil {
 				log.Fatalf("Failed to create default settings file: %v", err)

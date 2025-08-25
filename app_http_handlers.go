@@ -104,25 +104,22 @@ func (app *App) getAllTagsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, tags)
 }
 
-// getCustomFieldsHandler handles the GET /api/paperless/custom_fields endpoint
-func (app *App) getCustomFieldsHandler(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	customFields, err := app.Client.GetCustomFields(ctx)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching custom fields: %v", err)})
-		log.Errorf("Error fetching custom fields: %v", err)
-		return
-	}
-
-	c.JSON(http.StatusOK, customFields)
-}
-
 // getSettingsHandler handles the GET /api/settings endpoint
 func (app *App) getSettingsHandler(c *gin.Context) {
+	// Refresh the cache when settings are requested
+	go refreshCustomFieldsCache(app.Client)
+
 	settingsMutex.RLock()
 	defer settingsMutex.RUnlock()
-	c.JSON(http.StatusOK, settings)
+	customFieldsCacheMu.RLock()
+	defer customFieldsCacheMu.RUnlock()
+
+	// Create a response that includes both settings and custom fields
+	response := gin.H{
+		"settings":      settings,
+		"custom_fields": customFieldsCache,
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // updateSettingsHandler handles the POST /api/settings endpoint
@@ -147,6 +144,20 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Settings saved successfully"})
+}
+
+// getCustomFieldsHandler handles the GET /api/custom_fields endpoint
+func (app *App) getCustomFieldsHandler(c *gin.Context) {
+	// Check for "force_pull" query parameter
+	if forcePull := c.Query("force_pull"); forcePull == "true" {
+		// Force a refresh of the custom fields cache
+		go refreshCustomFieldsCache(app.Client)
+	}
+
+	customFieldsCacheMu.RLock()
+	defer customFieldsCacheMu.RUnlock()
+
+	c.JSON(http.StatusOK, customFieldsCache)
 }
 
 // documentsHandler handles the GET /api/documents endpoint

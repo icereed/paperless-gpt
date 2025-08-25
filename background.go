@@ -80,7 +80,6 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 
 // processAutoTagDocuments handles the background auto-tagging of documents
 func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
-
 	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag}, 25)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoTag: %w", err)
@@ -90,6 +89,9 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 		log.Debugf("No documents with tag %s found", autoTag)
 		return 0, nil // No documents to process
 	}
+
+	// Refresh the custom fields cache before processing, as we have documents
+	refreshCustomFieldsCache(app.Client)
 
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
 
@@ -112,6 +114,7 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 			GenerateTags:           strings.ToLower(autoGenerateTags) != "false",
 			GenerateCorrespondents: strings.ToLower(autoGenerateCorrespondents) != "false",
 			GenerateCreatedDate:    strings.ToLower(autoGenerateCreatedDate) != "false",
+			GenerateCustomFields:   settings.CustomFieldsEnable,
 		}
 
 		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)

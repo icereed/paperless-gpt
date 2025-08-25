@@ -60,10 +60,8 @@ var (
 	autoGenerateTags              = os.Getenv("AUTO_GENERATE_TAGS")
 	autoGenerateCorrespondents    = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
 	autoGenerateCreatedDate       = os.Getenv("AUTO_GENERATE_CREATED_DATE")
-	autoGenerateCustomField       = os.Getenv("AUTO_GENERATE_CUSTOM_FIELD")
-	customFieldWritingMode        = "append" // Default value
-	limitOcrPages                 int        // Will be read from OCR_LIMIT_PAGES
-	tokenLimit                    = 0        // Will be read from TOKEN_LIMIT
+	limitOcrPages                 int // Will be read from OCR_LIMIT_PAGES
+	tokenLimit                    = 0 // Will be read from TOKEN_LIMIT
 	createLocalHOCR               = os.Getenv("CREATE_LOCAL_HOCR") == "true"
 	createLocalPDF                = os.Getenv("CREATE_LOCAL_PDF") == "true"
 	localHOCRPath                 = os.Getenv("LOCAL_HOCR_PATH")
@@ -87,9 +85,25 @@ var (
 	templateMutex         sync.RWMutex
 
 	// Server-side settings
-	settings      Settings
-	settingsMutex sync.RWMutex
+	settings            Settings
+	settingsMutex       sync.RWMutex
+	customFieldsCache   []CustomField
+	customFieldsCacheMu sync.RWMutex
 )
+
+// refreshCustomFieldsCache fetches custom fields from Paperless and updates the cache.
+func refreshCustomFieldsCache(client ClientInterface) {
+	log.Info("Refreshing custom fields cache...")
+	fields, err := client.GetCustomFields(context.Background())
+	if err != nil {
+		log.Errorf("Error refreshing custom fields cache: %v", err)
+		return
+	}
+	customFieldsCacheMu.Lock()
+	customFieldsCache = fields
+	customFieldsCacheMu.Unlock()
+	log.Infof("Successfully refreshed custom fields cache with %d fields.", len(fields))
+}
 
 // App struct to hold dependencies
 type App struct {
@@ -126,11 +140,32 @@ func main() {
 	// Load settings from file
 	loadSettings()
 
+	if settings.CustomFieldsEnable && len(settings.CustomFieldsSelectedIDs) == 0 {
+		log.Warn("Custom fields are enabled, but no custom fields are selected in the settings.")
+	}
+
 	// Print version
 	printVersion()
 
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
+
+	// Initial fetch of custom fields
+	refreshCustomFieldsCache(client)
+
+	// Start a goroutine to refresh the cache every hour
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				refreshCustomFieldsCache(client)
+			}
+		}
+	}()
 
 	// Initialize Database
 	database := InitializeDB()
@@ -269,7 +304,7 @@ func main() {
 		})
 		// Get all tags
 		api.GET("/tags", app.getAllTagsHandler)
-		api.GET("/paperless/custom_fields", app.getCustomFieldsHandler)
+		api.GET("/custom_fields", app.getCustomFieldsHandler)
 		api.GET("/prompts", getPromptsHandler)
 		api.POST("/prompts", updatePromptsHandler)
 		api.GET("/settings", app.getSettingsHandler)
@@ -440,17 +475,6 @@ func validateOCRProviderModeCompatibility(provider, mode string) error {
 
 // validateOrDefaultEnvVars ensures all necessary environment variables are set
 func validateOrDefaultEnvVars() {
-	// Validate custom field writing mode
-	writingMode := strings.ToLower(os.Getenv("PAPERLESS_CUSTOM_FIELD_WRITING_MODE"))
-	if writingMode != "" {
-		if writingMode == "append" || writingMode == "replace" {
-			customFieldWritingMode = writingMode
-			log.Infof("Using '%s' as custom field writing mode", customFieldWritingMode)
-		} else {
-			log.Warnf("Invalid PAPERLESS_CUSTOM_FIELD_WRITING_MODE: '%s', defaulting to 'append'", writingMode)
-		}
-	}
-
 	if manualTag == "" {
 		manualTag = "paperless-gpt"
 	}

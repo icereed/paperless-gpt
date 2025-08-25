@@ -277,7 +277,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 }
 
 // getSuggestedCustomFields generates suggested custom fields for a document using the LLM
-func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry) ([]CustomFieldResponse, error) {
+func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry) ([]CustomFieldSuggestion, error) {
 	// Fetch all available custom fields
 	allCustomFields, err := app.Client.GetCustomFields(ctx)
 	if err != nil {
@@ -364,13 +364,13 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	var llmSuggestedFields []LLMCustomFieldResponse
 	// Handle empty or non-JSON response gracefully
 	if strings.TrimSpace(response) == "" || !strings.HasPrefix(strings.TrimSpace(response), "[") {
-		return []CustomFieldResponse{}, nil
+		return []CustomFieldSuggestion{}, nil
 	}
 
 	err = json.Unmarshal([]byte(response), &llmSuggestedFields)
 	if err != nil {
 		logger.Errorf("Error unmarshalling custom fields JSON from LLM response: %v. Response: %s", err, response)
-		return []CustomFieldResponse{}, nil // Return empty slice on parsing error
+		return []CustomFieldSuggestion{}, nil // Return empty slice on parsing error
 	}
 
 	// Map field names back to IDs
@@ -379,11 +379,12 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 		fieldNameIdMap[field.Name] = field.ID
 	}
 
-	var finalSuggestedFields []CustomFieldResponse
+	var finalSuggestedFields []CustomFieldSuggestion
 	for _, llmField := range llmSuggestedFields {
 		if id, ok := fieldNameIdMap[llmField.Field]; ok {
-			finalSuggestedFields = append(finalSuggestedFields, CustomFieldResponse{
-				Field: id,
+			finalSuggestedFields = append(finalSuggestedFields, CustomFieldSuggestion{
+				ID:    id,
+				Name:  llmField.Field,
 				Value: llmField.Value,
 			})
 		} else {
@@ -444,7 +445,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			var suggestedTags []string
 			var suggestedCorrespondent string
 			var suggestedCreatedDate string
-			var suggestedCustomFields []CustomFieldResponse
+			var suggestedCustomFields []CustomFieldSuggestion
 
 			if suggestionRequest.GenerateTitles {
 				suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, docLogger)
@@ -492,16 +493,20 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 
 			if suggestionRequest.GenerateCustomFields {
 				settingsMutex.RLock()
-				selectedIDs := settings.SelectedCustomFieldIDs
+				selectedIDs := settings.CustomFieldsSelectedIDs
 				settingsMutex.RUnlock()
 
-				suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger)
-				if err != nil {
-					mu.Lock()
-					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
-					mu.Unlock()
-					log.Errorf("Error generating custom fields for document %d: %v", documentID, err)
-					return
+				if len(selectedIDs) == 0 {
+					log.Warnf("Custom field generation is enabled, but no custom fields are selected in the settings. Please select at least one custom field for this feature to work.")
+				} else {
+					suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger)
+					if err != nil {
+						mu.Lock()
+						errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
+						mu.Unlock()
+						log.Errorf("Error generating custom fields for document %d: %v", documentID, err)
+						return
+					}
 				}
 			}
 
@@ -511,7 +516,8 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 				OriginalDocument: doc,
 			}
 			settingsMutex.RLock()
-			suggestion.CustomFieldWriteMode = settings.CustomFieldWriteMode
+			suggestion.CustomFieldsWriteMode = settings.CustomFieldsWriteMode
+			suggestion.CustomFieldsEnable = settings.CustomFieldsEnable
 			settingsMutex.RUnlock()
 			// Titles
 			if suggestionRequest.GenerateTitles {
