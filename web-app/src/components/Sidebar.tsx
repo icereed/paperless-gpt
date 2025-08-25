@@ -1,4 +1,4 @@
-import { mdiHistory, mdiHomeOutline, mdiTextBoxSearchOutline } from "@mdi/js";
+import { mdiCogOutline, mdiHistory, mdiHomeOutline, mdiTextBoxSearchOutline, mdiFileChartOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import axios from "axios";
 import React, { useCallback, useEffect, useState } from "react";
@@ -41,7 +41,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
 
   const menuItems = [
     { name: "home", path: "./", icon: mdiHomeOutline, title: "Home" },
+    { name: "adhoc-analysis", path: "./adhoc-analysis", icon: mdiFileChartOutline, title: "Ad-hoc Analysis" },
     { name: "history", path: "./history", icon: mdiHistory, title: "History" },
+    { name: "settings", path: "./settings", icon: mdiCogOutline, title: "Settings" },
   ];
 
   // If OCR is enabled, add the OCR menu item
