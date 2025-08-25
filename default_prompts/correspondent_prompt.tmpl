@@ -1,0 +1,38 @@
+I will provide you with the content of a document. Your task is to suggest a correspondent that is most relevant to the document.
+
+Correspondents are the senders of documents that reach you. In the other direction, correspondents are the recipients of documents that you send.
+In Paperless-ngx we can imagine correspondents as virtual drawers in which all documents of a person or company are stored.
+With just one click, we can find all the documents assigned to a specific correspondent.
+Try to suggest a correspondent, either from the example list or come up with a new correspondent.
+
+Respond only with a correspondent, without any additional information!
+
+Be sure to choose a correspondent that is most relevant to the document.
+Try to avoid any legal or financial suffixes like "GmbH" or "AG" in the correspondent name.
+For example use "Microsoft" instead of "Microsoft Ireland Operations Limited" or "Amazon" instead of "Amazon EU S.a.r.l.".
+
+If you can't find a suitable correspondent, you can respond with "Unknown".
+
+The data will be provided using an XML-like format for clarity:
+
+Important constraints:
+- Prefer an exact or normalized match from <example_correspondents> where possible.
+- Never return a name that appears in <blacklisted_correspondents>.
+
+<example_correspondents>
+{{.AvailableCorrespondents | join ", "}}
+</example_correspondents>
+
+<blacklisted_correspondents>
+{{.BlackList | join ", "}}
+</blacklisted_correspondents>
+
+<title>
+{{.Title}}
+</title>
+
+<content>
+{{.Content}}
+</content>
+
+The content is likely in {{.Language}}.

@@ -39,12 +39,15 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 5. **Automatic Correspondent Generation**  
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
 
-6. **Searchable & Selectable PDFs**  
+6. **Automatic Custom Field Generation**  
+   Extract and populate custom fields from your documents. Configure which fields to target and how they should be filled (overwrite or append).
+
+7. **Searchable & Selectable PDFs**  
    Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance.
 
 7. **Extensive Customization**
 
-   - **Prompt Templates**: Tweak your AI prompts to reflect your domain, style, or preference.
+   - **Customizable Prompts via Web UI**: Tweak and manage all AI prompts for titles, tags, correspondents, and more directly within the web interface under the "Settings" menu. The application uses a safe `default_prompts` and `prompts` directory structure, ensuring your customizations are persistent.
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
    - **PDF Processing**: Configure how OCR-enhanced PDFs are handled, with options to save locally or upload to paperless-ngx.
 
@@ -55,6 +58,9 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
    - **Manual Review**: Approve or tweak AI's suggestions.
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
+
+9. **Ad-hoc Document Analysis**
+   Perform ad-hoc analysis on a selection of documents using a custom prompt. Gain quick insights, summaries, or extract specific information from multiple documents at once.
 
 ---
 
@@ -564,27 +570,28 @@ For best results with the enhanced OCR features:
 | `AUTO_GENERATE_TAGS`                | Generate tags automatically if `paperless-gpt-auto` is used.                                                                                                                                  | No       | true                       |
 | `AUTO_GENERATE_CORRESPONDENTS`      | Generate correspondents automatically if `paperless-gpt-auto` is used.                                                                                                                        | No       | true                       |
 | `AUTO_GENERATE_CREATED_DATE`        | Generate the created dates automatically if `paperless-gpt-auto` is used.                                                                                                                     | No       | true                       |
+| `AUTO_GENERATE_CUSTOM_FIELD`        | Generate custom fields automatically if `paperless-gpt-auto` is used.                                                                                                                         | No       | true                       |
+| `PAPERLESS_CUSTOM_FIELD_WRITING_MODE` | Determines how custom fields are written. `append` (default) only fills empty fields. `replace` overwrites existing values. This can be overridden in the UI.                                 | No       | append                     |
 | `TOKEN_LIMIT`                       | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                                                                                             | No       |                            |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
 
 ### Custom Prompt Templates
 
-paperless-gpt's flexible **prompt templates** let you shape how AI responds:
+paperless-gpt's flexible **prompt templates** let you shape how AI responds. While you can still manually manage files, the recommended way to customize prompts is through the **Settings** page in the web UI.
 
-1. **`title_prompt.tmpl`**: For document titles.
-2. **`tag_prompt.tmpl`**: For tagging logic.
-3. **`ocr_prompt.tmpl`**: For LLM OCR.
-4. **`correspondent_prompt.tmpl`**: For correspondent identification.
-5. **`created_date_prompt.tmpl`**: For setting of document's created date.
+The application uses two directories for management:
+- **`default_prompts/`**: Contains the built-in, default templates. These should not be modified.
+- **`prompts/`**: Your working directory. On first run, the default templates are copied here. All edits made in the UI are saved to the files in this directory.
 
-Mount them into your container via:
+To ensure your custom prompts persist across container restarts, you must mount the `prompts` directory as a volume in your `docker-compose.yml`:
 
 ```yaml
 volumes:
+  # This is crucial to save your custom prompts!
   - ./prompts:/app/prompts
 ```
 
-Then tweak at will—**paperless-gpt** reloads them automatically on startup!
+The application reloads the templates instantly after you save them in the UI and also on startup, so no restart is needed to apply changes.
 
 #### Template Variables
 
@@ -621,7 +628,15 @@ Each template has access to specific variables:
 - `{{.Language}}` - Target language
 - `{{.Content}}` - Document content text
 
-The templates use Go's text/template syntax. paperless-gpt automatically reloads template changes on startup.
+**custom_field_prompt.tmpl**:
+
+- `{{.DocumentType}}` - The name of the document's type in paperless-ngx.
+- `{{.CustomFieldsXML}}` - An XML string listing the custom fields selected in the settings for processing.
+- `{{.Title}}` - Document title
+- `{{.CreatedDate}}` - Document's created date
+- `{{.Content}}` - Document content text
+
+The templates use Go's text/template syntax. paperless-gpt automatically reloads template changes after UI saves and on startup.
 
 ---
 
