@@ -5,40 +5,47 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"text/template"
 	"time"
 
+	"github.com/Masterminds/sprig/v3"
 	"github.com/gin-gonic/gin"
 )
 
 // getPromptsHandler handles the GET /api/prompts endpoint
 func getPromptsHandler(c *gin.Context) {
-	templateMutex.RLock()
-	defer templateMutex.RUnlock()
-
-	// Read the templates from files or use default content
-	titleTemplateContent, err := os.ReadFile("prompts/title_prompt.tmpl")
+	promptsDir := "prompts"
+	files, err := os.ReadDir(promptsDir)
 	if err != nil {
-		titleTemplateContent = []byte(defaultTitleTemplate)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not read prompts directory"})
+		log.Errorf("Could not read prompts directory: %v", err)
+		return
 	}
 
-	tagTemplateContent, err := os.ReadFile("prompts/tag_prompt.tmpl")
-	if err != nil {
-		tagTemplateContent = []byte(defaultTagTemplate)
+	prompts := make(map[string]string)
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".tmpl") {
+			fullPath := filepath.Join(promptsDir, file.Name())
+			content, err := os.ReadFile(fullPath)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Could not read prompt file: %s", file.Name())})
+				log.Errorf("Could not read prompt file %s: %v", file.Name(), err)
+				return
+			}
+			prompts[file.Name()] = string(content)
+		}
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"title_template": string(titleTemplateContent),
-		"tag_template":   string(tagTemplateContent),
-	})
+	c.JSON(http.StatusOK, prompts)
 }
 
 // updatePromptsHandler handles the POST /api/prompts endpoint
 func updatePromptsHandler(c *gin.Context) {
 	var req struct {
-		TitleTemplate string `json:"title_template"`
-		TagTemplate   string `json:"tag_template"`
+		Filename string `json:"filename"`
+		Content  string `json:"content"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -46,38 +53,41 @@ func updatePromptsHandler(c *gin.Context) {
 		return
 	}
 
-	templateMutex.Lock()
-	defer templateMutex.Unlock()
-
-	// Update title template
-	if req.TitleTemplate != "" {
-		t, err := template.New("title").Parse(req.TitleTemplate)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid title template: %v", err)})
-			return
-		}
-		titleTemplate = t
-		err = os.WriteFile("prompts/title_prompt.tmpl", []byte(req.TitleTemplate), 0644)
-		if err != nil {
-			log.Errorf("Failed to write title_prompt.tmpl: %v", err)
-		}
+	// Basic input validation
+	if req.Filename == "" || !strings.HasSuffix(req.Filename, ".tmpl") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename or missing .tmpl extension"})
+		return
+	}
+	if containsDotDot(req.Filename) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename: path traversal is not allowed"})
+		return
 	}
 
-	// Update tag template
-	if req.TagTemplate != "" {
-		t, err := template.New("tag").Parse(req.TagTemplate)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid tag template: %v", err)})
-			return
-		}
-		tagTemplate = t
-		err = os.WriteFile("prompts/tag_prompt.tmpl", []byte(req.TagTemplate), 0644)
-		if err != nil {
-			log.Errorf("Failed to write tag_prompt.tmpl: %v", err)
-		}
+	promptPath := filepath.Join("prompts", req.Filename)
+
+	// Validate template content
+	_, err := template.New(req.Filename).Option("missingkey=error").Funcs(sprig.FuncMap()).Parse(req.Content)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid template content: %v", err)})
+		return
 	}
 
-	c.Status(http.StatusOK)
+	// Write the updated prompt file
+	err = os.WriteFile(promptPath, []byte(req.Content), 0644)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write prompt file"})
+		log.Errorf("Failed to write prompt file %s: %v", req.Filename, err)
+		return
+	}
+
+	// Reload templates to apply changes immediately
+	if err := loadTemplates(); err != nil {
+		log.Errorf("Failed to reload templates after update: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Prompt saved but failed to reload templates"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Prompt saved successfully"})
 }
 
 // getAllTagsHandler handles the GET /api/tags endpoint
@@ -92,6 +102,51 @@ func (app *App) getAllTagsHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, tags)
+}
+
+// getCustomFieldsHandler handles the GET /api/paperless/custom_fields endpoint
+func (app *App) getCustomFieldsHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	customFields, err := app.Client.GetCustomFields(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching custom fields: %v", err)})
+		log.Errorf("Error fetching custom fields: %v", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, customFields)
+}
+
+// getSettingsHandler handles the GET /api/settings endpoint
+func (app *App) getSettingsHandler(c *gin.Context) {
+	settingsMutex.RLock()
+	defer settingsMutex.RUnlock()
+	c.JSON(http.StatusOK, settings)
+}
+
+// updateSettingsHandler handles the POST /api/settings endpoint
+func (app *App) updateSettingsHandler(c *gin.Context) {
+	settingsMutex.Lock()
+	defer settingsMutex.Unlock()
+
+	var newSettings Settings
+	if err := c.ShouldBindJSON(&newSettings); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	// Update the global settings variable
+	settings = newSettings
+
+	// Save the updated settings to file
+	if err := saveSettingsLocked(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
+		log.Errorf("Failed to save settings: %v", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Settings saved successfully"})
 }
 
 // documentsHandler handles the GET /api/documents endpoint
@@ -349,4 +404,9 @@ func (app *App) undoModificationHandler(c *gin.Context) {
 
 	// Else all was ok
 	c.Status(http.StatusOK)
+}
+
+// containsDotDot checks if a string contains ".." to prevent path traversal.
+func containsDotDot(s string) bool {
+	return strings.Contains(s, "..")
 }

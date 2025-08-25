@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -275,6 +276,124 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
 
+// getSuggestedCustomFields generates suggested custom fields for a document using the LLM
+func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry) ([]CustomFieldResponse, error) {
+	// Fetch all available custom fields
+	allCustomFields, err := app.Client.GetCustomFields(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching all custom fields: %v", err)
+	}
+
+	// Filter to get only the selected custom fields
+	var selectedCustomFields []CustomField
+	for _, field := range allCustomFields {
+		for _, selectedID := range selectedFieldIDs {
+			if field.ID == selectedID {
+				selectedCustomFields = append(selectedCustomFields, field)
+				break
+			}
+		}
+	}
+
+	if len(selectedCustomFields) == 0 {
+		return nil, nil // No fields to process
+	}
+
+	// Generate XML for the prompt
+	var xmlBuilder strings.Builder
+	xmlBuilder.WriteString("<custom_fields>\n")
+	for _, field := range selectedCustomFields {
+		xmlBuilder.WriteString(fmt.Sprintf("  <field name=\"%s\" type=\"%s\"></field>\n", field.Name, field.DataType))
+	}
+	xmlBuilder.WriteString("</custom_fields>")
+	customFieldsXML := xmlBuilder.String()
+
+	templateMutex.RLock()
+	defer templateMutex.RUnlock()
+
+	templateData := map[string]interface{}{
+		"Language":        getLikelyLanguage(),
+		"Title":           doc.Title,
+		"CreatedDate":     doc.CreatedDate,
+		"DocumentType":    doc.DocumentTypeName,
+		"CustomFieldsXML": customFieldsXML,
+	}
+
+	availableTokens, err := getAvailableTokensForContent(customFieldTemplate, templateData)
+	if err != nil {
+		return nil, fmt.Errorf("error calculating available tokens for custom fields: %v", err)
+	}
+
+	truncatedContent, err := truncateContentByTokens(doc.Content, availableTokens)
+	if err != nil {
+		return nil, fmt.Errorf("error truncating content for custom fields: %v", err)
+	}
+
+	var promptBuffer bytes.Buffer
+	templateData["Content"] = truncatedContent
+	err = customFieldTemplate.Execute(&promptBuffer, templateData)
+	if err != nil {
+		return nil, fmt.Errorf("error executing custom field template: %v", err)
+	}
+
+	prompt := promptBuffer.String()
+	logger.Debugf("Custom field suggestion prompt: %s", prompt)
+
+	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+		{
+			Role: llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{
+				llms.TextContent{Text: prompt},
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error getting response from LLM for custom fields: %v", err)
+	}
+
+	response := stripReasoning(completion.Choices[0].Content)
+	response = stripMarkdown(response)
+	logger.Debugf("LLM response for custom fields: %s", response)
+
+	// Temporary struct to unmarshal LLM response with field name
+	type LLMCustomFieldResponse struct {
+		Field string      `json:"field"`
+		Value interface{} `json:"value"`
+	}
+
+	var llmSuggestedFields []LLMCustomFieldResponse
+	// Handle empty or non-JSON response gracefully
+	if strings.TrimSpace(response) == "" || !strings.HasPrefix(strings.TrimSpace(response), "[") {
+		return []CustomFieldResponse{}, nil
+	}
+
+	err = json.Unmarshal([]byte(response), &llmSuggestedFields)
+	if err != nil {
+		logger.Errorf("Error unmarshalling custom fields JSON from LLM response: %v. Response: %s", err, response)
+		return []CustomFieldResponse{}, nil // Return empty slice on parsing error
+	}
+
+	// Map field names back to IDs
+	fieldNameIdMap := make(map[string]int)
+	for _, field := range allCustomFields {
+		fieldNameIdMap[field.Name] = field.ID
+	}
+
+	var finalSuggestedFields []CustomFieldResponse
+	for _, llmField := range llmSuggestedFields {
+		if id, ok := fieldNameIdMap[llmField.Field]; ok {
+			finalSuggestedFields = append(finalSuggestedFields, CustomFieldResponse{
+				Field: id,
+				Value: llmField.Value,
+			})
+		} else {
+			logger.Warnf("LLM returned unknown custom field name '%s', skipping.", llmField.Field)
+		}
+	}
+
+	return finalSuggestedFields, nil
+}
+
 // generateDocumentSuggestions generates suggestions for a set of documents
 func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionRequest GenerateSuggestionsRequest, logger *logrus.Entry) ([]DocumentSuggestion, error) {
 	// Fetch all available tags from paperless-ngx
@@ -325,6 +444,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			var suggestedTags []string
 			var suggestedCorrespondent string
 			var suggestedCreatedDate string
+			var suggestedCustomFields []CustomFieldResponse
 
 			if suggestionRequest.GenerateTitles {
 				suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, docLogger)
@@ -370,11 +490,29 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 				}
 			}
 
+			if suggestionRequest.GenerateCustomFields {
+				settingsMutex.RLock()
+				selectedIDs := settings.SelectedCustomFieldIDs
+				settingsMutex.RUnlock()
+
+				suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger)
+				if err != nil {
+					mu.Lock()
+					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
+					mu.Unlock()
+					log.Errorf("Error generating custom fields for document %d: %v", documentID, err)
+					return
+				}
+			}
+
 			mu.Lock()
 			suggestion := DocumentSuggestion{
 				ID:               documentID,
 				OriginalDocument: doc,
 			}
+			settingsMutex.RLock()
+			suggestion.CustomFieldWriteMode = settings.CustomFieldWriteMode
+			settingsMutex.RUnlock()
 			// Titles
 			if suggestionRequest.GenerateTitles {
 				docLogger.Printf("Suggested title for document %d: %s", documentID, suggestedTitle)
@@ -406,6 +544,13 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			} else {
 				suggestion.SuggestedCreatedDate = ""
 			}
+
+			// Custom Fields
+			if suggestionRequest.GenerateCustomFields {
+				log.Printf("Suggested custom fields for document %d: %v", documentID, suggestedCustomFields)
+				suggestion.SuggestedCustomFields = suggestedCustomFields
+			}
+
 			// Remove manual tag from the list of suggested tags
 			suggestion.RemoveTags = []string{manualTag, autoTag}
 
@@ -448,4 +593,14 @@ func stripReasoning(content string) string {
 	// Trim whitespace
 	content = strings.TrimSpace(content)
 	return content
+}
+
+// stripMarkdown removes the markdown code block from the content.
+func stripMarkdown(content string) string {
+	// Remove markdown code block
+	if strings.HasPrefix(content, "```json") {
+		content = strings.TrimPrefix(content, "```json")
+		content = strings.TrimSuffix(content, "```")
+	}
+	return strings.TrimSpace(content)
 }
