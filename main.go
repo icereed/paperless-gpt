@@ -82,84 +82,6 @@ var (
 	createdDateTemplate   *template.Template
 	ocrTemplate           *template.Template
 	templateMutex         sync.RWMutex
-
-	// Default templates
-	defaultTitleTemplate = `I will provide you with the content of a document that has been partially read by OCR (so it may contain errors).
-Your task is to find a suitable document title that I can use as the title in the paperless-ngx program.
-If the original title is already adding value and not just a technical filename you can use it as extra information to enhance your suggestion.
-Respond only with the title, without any additional information. The content is likely in {{.Language}}.
-
-The data will be provided using an XML-like format for clarity:
-
-<original_title>{{.Title}}</original_title>
-<content>
-{{.Content}}
-</content>
-`
-
-	defaultTagTemplate = `I will provide you with the content and the title of a document. Your task is to select appropriate tags for the document from the list of available tags I will provide. Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information. The content is likely in {{.Language}}.
-
-The data will be provided using an XML-like format for clarity:
-
-<available_tags>
-{{.AvailableTags | join ", "}}
-</available_tags>
-
-<title>
-{{.Title}}
-</title>
-
-<content>
-{{.Content}}
-</content>
-
-Please concisely select the {{.Language}} tags from the list above that best describe the document.
-Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
-`
-	defaultCorrespondentTemplate = `I will provide you with the content of a document. Your task is to suggest a correspondent that is most relevant to the document.
-
-Correspondents are the senders of documents that reach you. In the other direction, correspondents are the recipients of documents that you send.
-In Paperless-ngx we can imagine correspondents as virtual drawers in which all documents of a person or company are stored. With just one click, we can find all the documents assigned to a specific correspondent.
-Try to suggest a correspondent, either from the example list or come up with a new correspondent.
-
-Respond only with a correspondent, without any additional information!
-
-Be sure to choose a correspondent that is most relevant to the document.
-Try to avoid any legal or financial suffixes like "GmbH" or "AG" in the correspondent name. For example use "Microsoft" instead of "Microsoft Ireland Operations Limited" or "Amazon" instead of "Amazon EU S.a.r.l.".
-
-If you can't find a suitable correspondent, you can respond with "Unknown".
-
-The data will be provided using an XML-like format for clarity:
-
-<example_correspondents>
-{{.AvailableCorrespondents | join ", "}}
-</example_correspondents>
-
-<blacklisted_correspondents>
-{{.BlackList | join ", "}}
-</blacklisted_correspondents>
-
-<title>
-{{.Title}}
-</title>
-
-<content>
-{{.Content}}
-</content>
-
-The content is likely in {{.Language}}.
-`
-	defaultCreatedDateTemplate = `I will provide you with the content of a document. Your task is to find the date when the document was created.
-Respond only with the date in YYYY-MM-DD format, without any additional information. If no day was found, use the first day of the month. If no month was found, use January. If no date was found at all, answer with today's date.
-The content is likely in {{.Language}}. Today's date is {{.Today}}.
-
-The data will be provided using an XML-like format for clarity:
-
-<content>
-{{.Content}}
-</content>
-`
-	defaultOcrPrompt = `Just transcribe the text in this image and preserve the formatting and layout (high quality OCR). Do that for ALL the text in the image. Be thorough and pay attention. This is very important. The image is from a text document so be sure to continue until the bottom of the page. Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.`
 )
 
 // App struct to hold dependencies
@@ -204,7 +126,9 @@ func main() {
 	database := InitializeDB()
 
 	// Load Templates
-	loadTemplates()
+	if err := loadTemplates(); err != nil {
+		log.Fatalf("Failed to load templates: %v", err)
+	}
 
 	// Initialize LLM
 	llm, err := createLLM()
@@ -364,35 +288,53 @@ func main() {
 		})
 	}
 
-	// Serve embedded web-app files
-	// router.GET("/*filepath", func(c *gin.Context) {
-	// 	filepath := c.Param("filepath")
-	// 	// Remove leading slash from filepath
-	// 	filepath = strings.TrimPrefix(filepath, "/")
-	// 	// Handle static assets under /assets/
-	// 	serveEmbeddedFile(c, "", filepath)
-	// })
-
-	// Instead of wildcard, serve specific files
-	router.GET("/favicon.ico", func(c *gin.Context) {
-		serveEmbeddedFile(c, "", "favicon.ico")
-	})
-	router.GET("/assets/*filepath", func(c *gin.Context) {
-		filepath := c.Param("filepath")
-		fmt.Printf("Serving asset: %s\n", filepath)
-		serveEmbeddedFile(c, "assets", filepath)
-	})
-	router.GET("/", func(c *gin.Context) {
-		serveEmbeddedFile(c, "", "index.html")
-	})
-	// history route
-	router.GET("/history", func(c *gin.Context) {
-		serveEmbeddedFile(c, "", "index.html")
-	})
-	// experimental-ocr route
-	router.GET("/experimental-ocr", func(c *gin.Context) {
-		serveEmbeddedFile(c, "", "index.html")
-	})
+	// Serve frontend files
+	// Check if the web-app/dist directory exists for local development
+	if _, err := os.Stat("web-app/dist"); err == nil {
+		log.Info("Serving frontend files from local 'web-app/dist' directory")
+		router.Static("/assets", "web-app/dist/assets")
+		router.GET("/", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
+		router.GET("/history", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
+		router.GET("/experimental-ocr", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
+		router.GET("/settings", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
+		router.GET("/favicon.ico", func(c *gin.Context) {
+			c.File("web-app/dist/favicon.ico")
+		})
+	} else {
+		log.Info("Serving frontend files from embedded assets")
+		// Instead of wildcard, serve specific files
+		router.GET("/favicon.ico", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "favicon.ico")
+		})
+		router.GET("/assets/*filepath", func(c *gin.Context) {
+			assetPath := c.Param("filepath")
+			log.Debugf("Serving asset: %s", assetPath)
+			serveEmbeddedFile(c, "assets", assetPath)
+		})
+		router.GET("/", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		// history route
+		router.GET("/history", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		// experimental-ocr route
+		router.GET("/experimental-ocr", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		// settings route
+		router.GET("/settings", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+	}
 
 	// Start OCR worker pool
 	numWorkers := 1 // Number of workers to start
@@ -668,92 +610,77 @@ func getLikelyLanguage() string {
 	return strings.Title(strings.ToLower(likelyLanguage))
 }
 
-// loadTemplates loads the title and tag templates from files or uses default templates
-func loadTemplates() {
+// loadTemplates loads templates from files, copying from defaults if they don't exist
+func loadTemplates() error {
 	templateMutex.Lock()
 	defer templateMutex.Unlock()
 
-	// Ensure prompts directory exists
 	promptsDir := "prompts"
+	defaultPromptsDir := "default_prompts"
+
+	// Ensure directories exist
 	if err := os.MkdirAll(promptsDir, os.ModePerm); err != nil {
-		log.Fatalf("Failed to create prompts directory: %v", err)
+		return fmt.Errorf("failed to create prompts directory: %w", err)
 	}
+	// The check for default_prompts is now part of the feedback, so we can remove the creation here.
+	// if err := os.MkdirAll(defaultPromptsDir, os.ModePerm); err != nil {
+	// 	return fmt.Errorf("failed to create default_prompts directory: %w", err)
+	// }
 
-	// Load title template
-	titleTemplatePath := filepath.Join(promptsDir, "title_prompt.tmpl")
-	titleTemplateContent, err := os.ReadFile(titleTemplatePath)
-	if err != nil {
-		log.Errorf("Could not read %s, using default template: %v", titleTemplatePath, err)
-		titleTemplateContent = []byte(defaultTitleTemplate)
-		if err := os.WriteFile(titleTemplatePath, titleTemplateContent, os.ModePerm); err != nil {
-			log.Fatalf("Failed to write default title template to disk: %v", err)
+	// Helper function to load a single template
+	loadTemplate := func(name string) (*template.Template, error) {
+		promptPath := filepath.Join(promptsDir, name)
+		defaultPromptPath := filepath.Join(defaultPromptsDir, name)
+
+		// If prompt doesn't exist in prompts dir, copy it from defaults
+		if _, err := os.Stat(promptPath); os.IsNotExist(err) {
+			log.Infof("Prompt '%s' not found, copying from default", name)
+			defaultContent, err := os.ReadFile(defaultPromptPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read default prompt '%s': %w", name, err)
+			}
+			if err := os.WriteFile(promptPath, defaultContent, 0644); err != nil {
+				return nil, fmt.Errorf("failed to write prompt '%s': %w", name, err)
+			}
 		}
-	}
-	titleTemplate, err = template.New("title").Funcs(sprig.FuncMap()).Parse(string(titleTemplateContent))
-	if err != nil {
-		log.Fatalf("Failed to parse title template: %v", err)
-	}
 
-	// Load tag template
-	tagTemplatePath := filepath.Join(promptsDir, "tag_prompt.tmpl")
-	tagTemplateContent, err := os.ReadFile(tagTemplatePath)
-	if err != nil {
-		log.Errorf("Could not read %s, using default template: %v", tagTemplatePath, err)
-		tagTemplateContent = []byte(defaultTagTemplate)
-		if err := os.WriteFile(tagTemplatePath, tagTemplateContent, os.ModePerm); err != nil {
-			log.Fatalf("Failed to write default tag template to disk: %v", err)
+		// Read the final prompt content
+		content, err := os.ReadFile(promptPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read prompt '%s': %w", name, err)
 		}
-	}
-	tagTemplate, err = template.New("tag").Funcs(sprig.FuncMap()).Parse(string(tagTemplateContent))
-	if err != nil {
-		log.Fatalf("Failed to parse tag template: %v", err)
-	}
 
-	// Load correspondent template
-	correspondentTemplatePath := filepath.Join(promptsDir, "correspondent_prompt.tmpl")
-	correspondentTemplateContent, err := os.ReadFile(correspondentTemplatePath)
-	if err != nil {
-		log.Errorf("Could not read %s, using default template: %v", correspondentTemplatePath, err)
-		correspondentTemplateContent = []byte(defaultCorrespondentTemplate)
-		if err := os.WriteFile(correspondentTemplatePath, correspondentTemplateContent, os.ModePerm); err != nil {
-			log.Fatalf("Failed to write default correspondent template to disk: %v", err)
+		// Parse and return the template
+		tmpl, err := template.New(name).Funcs(sprig.FuncMap()).Parse(string(content))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse template '%s': %w", name, err)
 		}
-	}
-	correspondentTemplate, err = template.New("correspondent").Funcs(sprig.FuncMap()).Parse(string(correspondentTemplateContent))
-	if err != nil {
-		log.Fatalf("Failed to parse correspondent template: %v", err)
+		return tmpl, nil
 	}
 
-	// Load createdDate template
-	createdDateTemplatePath := filepath.Join(promptsDir, "created_date_prompt.tmpl")
-	createdDateTemplateContent, err := os.ReadFile(createdDateTemplatePath)
+	var err error
+	// Load all templates
+	titleTemplate, err = loadTemplate("title_prompt.tmpl")
 	if err != nil {
-		log.Errorf("Could not read %s, using default template: %v", createdDateTemplatePath, err)
-		createdDateTemplateContent = []byte(defaultCreatedDateTemplate)
-		if err := os.WriteFile(createdDateTemplatePath, createdDateTemplateContent, os.ModePerm); err != nil {
-			log.Fatalf("Failed to write default date template to disk: %v", err)
-		}
+		return err
 	}
-
-	createdDateTemplate, err = template.New("created_date").Funcs(sprig.FuncMap()).Parse(string(createdDateTemplateContent))
+	tagTemplate, err = loadTemplate("tag_prompt.tmpl")
 	if err != nil {
-		log.Fatalf("Failed to parse createdDate template: %v", err)
+		return err
 	}
-
-	// Load OCR template
-	ocrTemplatePath := filepath.Join(promptsDir, "ocr_prompt.tmpl")
-	ocrTemplateContent, err := os.ReadFile(ocrTemplatePath)
+	correspondentTemplate, err = loadTemplate("correspondent_prompt.tmpl")
 	if err != nil {
-		log.Errorf("Could not read %s, using default template: %v", ocrTemplatePath, err)
-		ocrTemplateContent = []byte(defaultOcrPrompt)
-		if err := os.WriteFile(ocrTemplatePath, ocrTemplateContent, os.ModePerm); err != nil {
-			log.Fatalf("Failed to write default OCR template to disk: %v", err)
-		}
+		return err
 	}
-	ocrTemplate, err = template.New("ocr").Funcs(sprig.FuncMap()).Parse(string(ocrTemplateContent))
+	createdDateTemplate, err = loadTemplate("created_date_prompt.tmpl")
 	if err != nil {
-		log.Fatalf("Failed to parse OCR template: %v", err)
+		return err
 	}
+	ocrTemplate, err = loadTemplate("ocr_prompt.tmpl")
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // getRateLimitConfig gets rate limiting configuration from environment variables

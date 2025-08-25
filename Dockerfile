@@ -96,6 +96,9 @@ WORKDIR /app/
 # Copy the Go binary from the builder stage
 COPY --from=builder /app/paperless-gpt .
 
+# Copy the prompt templates
+COPY default_prompts/ /app/default_prompts/
+
 # Expose the port the app runs on
 EXPOSE 8080
 

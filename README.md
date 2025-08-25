@@ -44,7 +44,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
 7. **Extensive Customization**
 
-   - **Prompt Templates**: Tweak your AI prompts to reflect your domain, style, or preference.
+   - **Customizable Prompts via Web UI**: Tweak and manage all AI prompts for titles, tags, correspondents, and more directly within the web interface under the "Settings" menu. The application uses a safe `default_prompts` and `prompts` directory structure, ensuring your customizations are persistent.
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
    - **PDF Processing**: Configure how OCR-enhanced PDFs are handled, with options to save locally or upload to paperless-ngx.
 
@@ -569,22 +569,21 @@ For best results with the enhanced OCR features:
 
 ### Custom Prompt Templates
 
-paperless-gpt's flexible **prompt templates** let you shape how AI responds:
+paperless-gpt's flexible **prompt templates** let you shape how AI responds. While you can still manually manage files, the recommended way to customize prompts is through the **Settings** page in the web UI.
 
-1. **`title_prompt.tmpl`**: For document titles.
-2. **`tag_prompt.tmpl`**: For tagging logic.
-3. **`ocr_prompt.tmpl`**: For LLM OCR.
-4. **`correspondent_prompt.tmpl`**: For correspondent identification.
-5. **`created_date_prompt.tmpl`**: For setting of document's created date.
+The application uses two directories for management:
+- **`default_prompts/`**: Contains the built-in, default templates. These should not be modified.
+- **`prompts/`**: Your working directory. On first run, the default templates are copied here. All edits made in the UI are saved to the files in this directory.
 
-Mount them into your container via:
+To ensure your custom prompts persist across container restarts, you must mount the `prompts` directory as a volume in your `docker-compose.yml`:
 
 ```yaml
 volumes:
+  # This is crucial to save your custom prompts!
   - ./prompts:/app/prompts
 ```
 
-Then tweak at will—**paperless-gpt** reloads them automatically on startup!
+The application reloads the templates instantly after you save them in the UI and also on startup, so no restart is needed to apply changes.
 
 #### Template Variables
 
@@ -621,7 +620,7 @@ Each template has access to specific variables:
 - `{{.Language}}` - Target language
 - `{{.Content}}` - Document content text
 
-The templates use Go's text/template syntax. paperless-gpt automatically reloads template changes on startup.
+The templates use Go's text/template syntax. paperless-gpt automatically reloads template changes after UI saves and on startup.
 
 ---
 
