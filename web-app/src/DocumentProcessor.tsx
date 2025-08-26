@@ -20,6 +20,16 @@ export interface GenerateSuggestionsRequest {
   generate_tags?: boolean;
   generate_correspondents?: boolean;
   generate_created_date?: boolean;
+  generate_custom_fields?: boolean;
+  selected_custom_field_ids?: number[];
+  custom_field_write_mode?: string;
+}
+
+export interface CustomFieldSuggestion {
+  id: number;
+  value: any;
+  name: string;
+  isSelected: boolean;
 }
 
 export interface DocumentSuggestion {
@@ -30,6 +40,7 @@ export interface DocumentSuggestion {
   suggested_content?: string;
   suggested_correspondent?: string;
   suggested_created_date?: string;
+  suggested_custom_fields?: CustomFieldSuggestion[];
 }
 
 export interface TagOption {
@@ -37,10 +48,17 @@ export interface TagOption {
   name: string;
 }
 
+interface CustomField {
+  id: number;
+  name: string;
+  data_type: string;
+}
+
 const DocumentProcessor: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [suggestions, setSuggestions] = useState<DocumentSuggestion[]>([]);
   const [availableTags, setAvailableTags] = useState<TagOption[]>([]);
+  const [allCustomFields, setAllCustomFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -50,18 +68,21 @@ const DocumentProcessor: React.FC = () => {
   const [generateTags, setGenerateTags] = useState(true);
   const [generateCorrespondents, setGenerateCorrespondents] = useState(true);
   const [generateCreatedDate, setGenerateCreatedDate] = useState(true);
+  const [generateCustomFields, setGenerateCustomFields] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Custom hook to fetch initial data
   const fetchInitialData = useCallback(async () => {
     try {
-      const [filterTagRes, documentsRes, tagsRes] = await Promise.all([
+      const [filterTagRes, documentsRes, tagsRes, customFieldsRes] = await Promise.all([
         axios.get<{ tag: string }>("./api/filter-tag"),
         axios.get<Document[]>("./api/documents"),
         axios.get<Record<string, number>>("./api/tags"),
+        axios.get<CustomField[]>('./api/custom_fields'),
       ]);
 
       setFilterTag(filterTagRes.data.tag);
+      setAllCustomFields(customFieldsRes.data);
       setDocuments(documentsRes.data);
       const tags = Object.keys(tagsRes.data).map((tag) => ({
         id: tag,
@@ -90,13 +111,26 @@ const DocumentProcessor: React.FC = () => {
         generate_tags: generateTags,
         generate_correspondents: generateCorrespondents,
         generate_created_date: generateCreatedDate,
+        generate_custom_fields: generateCustomFields,
       };
 
       const { data } = await axios.post<DocumentSuggestion[]>(
         "./api/generate-suggestions",
         requestPayload
       );
-      setSuggestions(data);
+
+      // Post-process suggestions to add names and isSelected flag
+      const customFieldMap = new Map(allCustomFields.map(cf => [cf.id, cf.name]));
+      const processedSuggestions = data.map(suggestion => ({
+        ...suggestion,
+        suggested_custom_fields: suggestion.suggested_custom_fields?.map(cf => ({
+          ...cf,
+          name: customFieldMap.get(cf.id) || 'Unknown Field',
+          isSelected: true,
+        })),
+      }));
+
+      setSuggestions(processedSuggestions);
     } catch (err) {
       console.error("Error generating suggestions:", err);
       setError("Failed to generate suggestions.");
@@ -109,7 +143,16 @@ const DocumentProcessor: React.FC = () => {
     setUpdating(true);
     setError(null);
     try {
-      await axios.patch("./api/update-documents", suggestions);
+      // Filter out deselected custom fields before sending
+      const payload = suggestions.map(suggestion => {
+        const { suggested_custom_fields, ...rest } = suggestion;
+        return {
+          ...rest,
+          suggested_custom_fields: suggested_custom_fields?.filter(cf => cf.isSelected),
+        };
+      });
+
+      await axios.patch("./api/update-documents", payload);
       setIsSuccessModalOpen(true);
       setSuggestions([]);
     } catch (err) {
@@ -127,6 +170,21 @@ const DocumentProcessor: React.FC = () => {
           ? {
               ...doc,
               suggested_tags: [...(doc.suggested_tags || []), tag.name],
+            }
+          : doc
+      )
+    );
+  };
+
+  const handleCustomFieldSuggestionToggle = (docId: number, fieldId: number) => {
+    setSuggestions(prevSuggestions =>
+      prevSuggestions.map(doc =>
+        doc.id === docId
+          ? {
+              ...doc,
+              suggested_custom_fields: doc.suggested_custom_fields?.map(cf =>
+                cf.id === fieldId ? { ...cf, isSelected: !cf.isSelected } : cf
+              ),
             }
           : doc
       )
@@ -244,6 +302,8 @@ const DocumentProcessor: React.FC = () => {
           setGenerateCorrespondents={setGenerateCorrespondents}
           generateCreatedDate={generateCreatedDate}
           setGenerateCreatedDate={setGenerateCreatedDate}
+          generateCustomFields={generateCustomFields}
+          setGenerateCustomFields={setGenerateCustomFields}
           onProcess={handleProcessDocuments}
           processing={processing}
           onReload={reloadDocuments}
@@ -257,6 +317,7 @@ const DocumentProcessor: React.FC = () => {
           onTagDeletion={handleTagDeletion}
           onCorrespondentChange={handleCorrespondentChange}
           onCreatedDateChange={handleCreatedDateChange}
+          onCustomFieldSuggestionToggle={handleCustomFieldSuggestionToggle}
           onBack={resetSuggestions}
           onUpdate={handleUpdateDocuments}
           updating={updating}
