@@ -9,7 +9,7 @@ interface CustomField {
 interface SettingsData {
   custom_fields_enable: boolean;
   custom_fields_selected_ids: number[];
-  custom_fields_write_mode: 'append' | 'replace';
+  custom_fields_write_mode: 'append' | 'replace' | 'update';
 }
 
 const CustomFieldsEditor: React.FC = () => {
@@ -160,7 +160,21 @@ const CustomFieldsEditor: React.FC = () => {
                     className="w-4 h-4 mr-2"
                   />
                   <label htmlFor="writeModeAppend">
-                    Append (only fill empty fields)
+                    Append (add new custom-fields, keep existing (safest option))
+                  </label>
+                </div>
+                <div className="flex items-center mb-2">
+                  <input
+                    type="radio"
+                    id="writeModeUpdate"
+                    name="writeMode"
+                    value="update"
+                    checked={settings.custom_fields_write_mode === 'update'}
+                    onChange={() => handleSettingChange('custom_fields_write_mode', 'update')}
+                    className="w-4 h-4 mr-2"
+                  />
+                  <label htmlFor="writeModeUpdate">
+                    Update (add new custom-fields, update existing)
                   </label>
                 </div>
                 <div className="flex items-center">
@@ -174,7 +188,7 @@ const CustomFieldsEditor: React.FC = () => {
                     className="w-4 h-4 mr-2"
                   />
                   <label htmlFor="writeModeReplace">
-                    Replace (overwrite existing fields)
+                    Replace (replace all custom-fields with suggestions only)
                   </label>
                 </div>
               </div>

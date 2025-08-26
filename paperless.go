@@ -15,12 +15,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"regexp"
 
 	"github.com/disintegration/imaging"
 	"github.com/gen2brain/go-fitz"
@@ -397,126 +397,85 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 
 // UpdateDocuments updates the specified documents with suggested changes
 func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
-	// Fetch all available tags
 	availableTags, err := client.GetAllTags(ctx)
 	if err != nil {
-		log.Errorf("Error fetching available tags: %v", err)
-		return err
+		return fmt.Errorf("error fetching available tags: %w", err)
 	}
 
-	documentsContainSuggestedCorrespondent := false
-	for _, document := range documents {
-		if document.SuggestedCorrespondent != "" {
-			documentsContainSuggestedCorrespondent = true
-			break
-		}
-	}
-
-	availableCorrespondents := make(map[string]int)
-	if documentsContainSuggestedCorrespondent {
-		availableCorrespondents, err = client.GetAllCorrespondents(ctx)
-		if err != nil {
-			log.Errorf("Error fetching available correspondents: %v",
-				err)
-			return err
-		}
+	availableCorrespondents, err := client.GetAllCorrespondents(ctx)
+	if err != nil {
+		return fmt.Errorf("error fetching available correspondents: %w", err)
 	}
 
 	for _, document := range documents {
 		documentID := document.ID
-
-		//  Original fields will store any updated fields to store records for
-		originalFields := make(map[string]interface{})
+		originalDoc := document.OriginalDocument
 		updatedFields := make(map[string]interface{})
-		newTags := []int{}
+		originalFields := make(map[string]interface{})
 
-		tags := document.SuggestedTags
-		originalTags := document.OriginalDocument.Tags
-
-		originalTagsJSON, err := json.Marshal(originalTags)
-		if err != nil {
-			log.Errorf("Error marshalling JSON for document %d: %v", documentID, err)
-			return err
-		}
-
-		// remove autoTag to prevent infinite loop (even if it is in the original tags)
-		for _, tag := range document.RemoveTags {
-			originalTags = removeTagFromList(originalTags, tag)
-		}
-
-		if len(tags) == 0 {
-			tags = originalTags
-		} else {
-			// We have suggested tags to change
-			originalFields["tags"] = originalTags
-			// remove autoTag to prevent infinite loop - this is required in case of undo
-			tags = removeTagFromList(tags, autoTag)
-
+		// --- TAGS ---
+		finalTagNames := originalDoc.Tags
+		if len(document.SuggestedTags) > 0 {
 			if document.KeepOriginalTags {
-				// Keep original tags
-				tags = append(tags, originalTags...)
+				finalTagNames = append(finalTagNames, document.SuggestedTags...)
+			} else {
+				finalTagNames = document.SuggestedTags
 			}
-
-			// remove duplicates
-			slices.Sort(tags)
-			tags = slices.Compact(tags)
 		}
-
-		updatedTagsJSON, err := json.Marshal(tags)
-		if err != nil {
-			log.Errorf("Error marshalling JSON for document %d: %v", documentID, err)
-			return err
-		}
-
-		// Map suggested tag names to IDs
-		for _, tagName := range tags {
-			if tagID, exists := availableTags[tagName]; exists {
-				// Skip the tag that we are filtering
-				if !isUndo && tagName == manualTag {
-					continue
+		var cleanedTags []string
+		for _, tagName := range finalTagNames {
+			isRemoved := false
+			for _, tagToRemove := range document.RemoveTags {
+				if strings.EqualFold(tagName, tagToRemove) {
+					isRemoved = true
+					break
 				}
-				newTags = append(newTags, tagID)
-			} else {
-				log.Errorf("Suggested tag '%s' does not exist in paperless-ngx, skipping.", tagName)
+			}
+			if !isRemoved {
+				cleanedTags = append(cleanedTags, tagName)
 			}
 		}
-		updatedFields["tags"] = newTags
+		finalTagNames = cleanedTags
+		slices.Sort(finalTagNames)
+		finalTagNames = slices.Compact(finalTagNames)
 
-		// Map suggested correspondent names to IDs
-		if document.SuggestedCorrespondent != "" {
-			if correspondentID, exists := availableCorrespondents[document.SuggestedCorrespondent]; exists {
-				updatedFields["correspondent"] = correspondentID
+		if !hasSameTags(originalDoc.Tags, finalTagNames) {
+			originalFields["tags"] = originalDoc.Tags
+			var newTagIDs []int
+			for _, tagName := range finalTagNames {
+				if tagID, exists := availableTags[tagName]; exists {
+					newTagIDs = append(newTagIDs, tagID)
+				}
+			}
+			updatedFields["tags"] = newTagIDs
+		}
+
+		// --- CORRESPONDENT ---
+		if document.SuggestedCorrespondent != "" && document.SuggestedCorrespondent != originalDoc.Correspondent {
+			originalFields["correspondent"] = originalDoc.Correspondent
+			if corrID, exists := availableCorrespondents[document.SuggestedCorrespondent]; exists {
+				updatedFields["correspondent"] = corrID
 			} else {
-				newCorrespondent := instantiateCorrespondent(document.SuggestedCorrespondent)
-				newCorrespondentID, err := client.CreateOrGetCorrespondent(context.Background(), newCorrespondent)
+				newCorr := instantiateCorrespondent(document.SuggestedCorrespondent)
+				newCorrID, err := client.CreateOrGetCorrespondent(ctx, newCorr)
 				if err != nil {
-					log.Errorf("Error creating/getting correspondent with name %s: %v\n", document.SuggestedCorrespondent, err)
-					return err
+					return fmt.Errorf("error creating correspondent '%s': %w", document.SuggestedCorrespondent, err)
 				}
-				log.Infof("Using correspondent with name %s and ID %d\n", document.SuggestedCorrespondent, newCorrespondentID)
-				updatedFields["correspondent"] = newCorrespondentID
+				updatedFields["correspondent"] = newCorrID
 			}
 		}
 
+		// --- TITLE ---
 		suggestedTitle := document.SuggestedTitle
 		if len(suggestedTitle) > 128 {
 			suggestedTitle = suggestedTitle[:128]
 		}
-		if suggestedTitle != "" {
-			originalFields["title"] = document.OriginalDocument.Title
+		if suggestedTitle != "" && suggestedTitle != originalDoc.Title {
+			originalFields["title"] = originalDoc.Title
 			updatedFields["title"] = suggestedTitle
-		} else {
-			log.Warnf("No valid title found for document %d, skipping.", documentID)
 		}
 
-		// Suggested Content
-		suggestedContent := document.SuggestedContent
-		if suggestedContent != "" {
-			originalFields["content"] = document.OriginalDocument.Content
-			updatedFields["content"] = suggestedContent
-		}
-
-		// Suggested CreatedDate
+		// --- CREATED DATE ---
 		suggestedCreatedDate := document.SuggestedCreatedDate
 		if suggestedCreatedDate != "" {
 			// Validate format YYYY-MM-DD
@@ -528,99 +487,105 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			}
 		}
 
-		// Handle Custom Fields
+		// --- CONTENT ---
+		if document.SuggestedContent != "" && document.SuggestedContent != originalDoc.Content {
+			originalFields["content"] = originalDoc.Content
+			updatedFields["content"] = document.SuggestedContent
+		}
+
+		// --- CUSTOM FIELDS ---
 		if len(document.SuggestedCustomFields) > 0 {
-			finalCustomFields := document.OriginalDocument.CustomFields
-			if document.CustomFieldsWriteMode == "replace" {
+			log.Infof("Processing custom fields for document %d with mode: '%s'", documentID, document.CustomFieldsWriteMode)
+			finalCustomFields := slices.Clone(originalDoc.CustomFields)
+			originalCustomFieldsJSON, _ := json.Marshal(originalDoc.CustomFields)
+
+			switch document.CustomFieldsWriteMode {
+			case "replace":
 				finalCustomFields = []CustomFieldResponse{}
-				for _, suggestedField := range document.SuggestedCustomFields {
-					finalCustomFields = append(finalCustomFields, CustomFieldResponse{
-						Field: suggestedField.ID,
-						Value: suggestedField.Value,
-					})
+				for _, sf := range document.SuggestedCustomFields {
+					finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 				}
-			} else { // Append mode
-				existingFields := make(map[int]bool)
-				for _, field := range finalCustomFields {
-					existingFields[field.Field] = true
+			case "update":
+				existingFieldsMap := make(map[int]*CustomFieldResponse)
+				for i := range finalCustomFields {
+					existingFieldsMap[finalCustomFields[i].Field] = &finalCustomFields[i]
 				}
-				for _, suggestedField := range document.SuggestedCustomFields {
-					if _, exists := existingFields[suggestedField.ID]; !exists {
-						finalCustomFields = append(finalCustomFields, CustomFieldResponse{
-							Field: suggestedField.ID,
-							Value: suggestedField.Value,
-						})
+				for _, sf := range document.SuggestedCustomFields {
+					if ef, ok := existingFieldsMap[sf.ID]; ok {
+						ef.Value = sf.Value
+					} else {
+						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
+					}
+				}
+			case "append":
+				existingFieldsMap := make(map[int]bool)
+				for _, f := range finalCustomFields {
+					existingFieldsMap[f.Field] = true
+				}
+				for _, sf := range document.SuggestedCustomFields {
+					if _, exists := existingFieldsMap[sf.ID]; !exists {
+						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 					}
 				}
 			}
-			updatedFields["custom_fields"] = finalCustomFields
+
+			finalCustomFieldsJSON, _ := json.Marshal(finalCustomFields)
+			if string(originalCustomFieldsJSON) != string(finalCustomFieldsJSON) {
+				originalFields["custom_fields"] = string(originalCustomFieldsJSON)
+				updatedFields["custom_fields"] = finalCustomFields
+			}
 		}
 
-		log.Debugf("Document %d: Original fields: %v", documentID, originalFields)
-		log.Debugf("Document %d: Updated fields: %v Tags: %v", documentID, updatedFields, tags)
+		if len(updatedFields) == 0 {
+			log.Infof("No fields to update for document %d.", documentID)
+			// Still need to remove the auto-tag if it exists
+			if slices.Contains(originalDoc.Tags, autoTag) || slices.Contains(originalDoc.Tags, manualTag) {
+				var finalTagIDs []int
+				for _, tagName := range originalDoc.Tags {
+					if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) {
+						if tagID, exists := availableTags[tagName]; exists {
+							finalTagIDs = append(finalTagIDs, tagID)
+						}
+					}
+				}
+				updatedFields["tags"] = finalTagIDs
+			} else {
+				continue
+			}
+		}
 
-		// Marshal updated fields to JSON
+		log.Debugf("Document %d: Fields to update: %v", documentID, updatedFields)
 		jsonData, err := json.Marshal(updatedFields)
 		if err != nil {
-			log.Errorf("Error marshalling JSON for document %d: %v", documentID, err)
-			return err
+			return fmt.Errorf("error marshalling JSON for document %d: %w", documentID, err)
 		}
 
-		// Send the update request using the generic Do method
 		path := fmt.Sprintf("api/documents/%d/", documentID)
 		resp, err := client.Do(ctx, "PATCH", path, bytes.NewBuffer(jsonData))
 		if err != nil {
-			log.Errorf("Error updating document %d: %v", documentID, err)
-			return err
+			return fmt.Errorf("error updating document %d: %w", documentID, err)
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			bodyBytes, _ := io.ReadAll(resp.Body)
-			log.Errorf("Error updating document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
 			return fmt.Errorf("error updating document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
-		} else {
-			for field, value := range originalFields {
-				log.Printf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
-				// Insert the modification record into the database
-				var modificationRecord ModificationHistory
-				if field == "tags" {
-					// Make sure we only store changes where tags are changed - not the same before and after
-					// And we have to use tags, not updatedFields as they are IDs not fields
-					if !hasSameTags(document.OriginalDocument.Tags, tags) {
-						modificationRecord = ModificationHistory{
-							DocumentID:    uint(documentID),
-							ModField:      field,
-							PreviousValue: string(originalTagsJSON),
-							NewValue:      string(updatedTagsJSON),
-						}
-					}
-				} else {
-					// Only store mod if field actually changed
-					if originalFields[field] != updatedFields[field] {
-						modificationRecord = ModificationHistory{
-							DocumentID:    uint(documentID),
-							ModField:      field,
-							PreviousValue: fmt.Sprintf("%v", originalFields[field]),
-							NewValue:      fmt.Sprintf("%v", updatedFields[field]),
-						}
-					}
-				}
-
-				// Only store if we have a valid modification record
-				if (modificationRecord != ModificationHistory{}) {
-					err = InsertModification(db, &modificationRecord)
-				}
-				if err != nil {
-					log.Errorf("Error inserting modification record for document %d: %v", documentID, err)
-					return err
-				}
-			}
 		}
 
+		for field, value := range originalFields {
+			log.Printf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
+			mod := ModificationHistory{
+				DocumentID:    uint(documentID),
+				ModField:      field,
+				PreviousValue: fmt.Sprintf("%v", value),
+				NewValue:      fmt.Sprintf("%v", updatedFields[field]),
+			}
+			if err := InsertModification(db, &mod); err != nil {
+				return fmt.Errorf("error inserting modification record for document %d: %w", documentID, err)
+			}
+		}
 		log.Printf("Document %d updated successfully.", documentID)
 	}
-
 	return nil
 }
 

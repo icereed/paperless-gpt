@@ -98,7 +98,16 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 	var errs []error
 	processedCount := 0
 
-	for _, document := range documents {
+	for _, docSummary := range documents {
+		// Get the full document details, including custom fields
+		document, err := app.Client.GetDocument(ctx, docSummary.ID)
+		if err != nil {
+			err = fmt.Errorf("error fetching full details for document %d: %w", docSummary.ID, err)
+			documentLogger(docSummary.ID).Error(err.Error())
+			errs = append(errs, err)
+			continue
+		}
+
 		// Skip documents that have the autoOcrTag
 		if slices.Contains(document.Tags, autoOcrTag) {
 			log.Debugf("Skipping document %d as it has the OCR tag %s", document.ID, autoOcrTag)

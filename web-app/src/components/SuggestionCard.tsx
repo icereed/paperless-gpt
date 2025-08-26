@@ -142,15 +142,15 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
             </label>
             <div className="mt-2 space-y-2">
               {suggestion.suggested_custom_fields.map((field) => (
-                <div key={field.field} className="flex items-center">
+                <div key={field.id} className="flex items-center">
                   <input
                     type="checkbox"
-                    id={`custom-field-${suggestion.id}-${field.field}`}
+                    id={`custom-field-${suggestion.id}-${field.id}`}
                     checked={field.isSelected}
-                    onChange={() => onCustomFieldSuggestionToggle(suggestion.id, field.field)}
+                    onChange={() => onCustomFieldSuggestionToggle(suggestion.id, field.id)}
                     className="w-4 h-4 mr-2"
                   />
-                  <label htmlFor={`custom-field-${suggestion.id}-${field.field}`} className="text-sm">
+                  <label htmlFor={`custom-field-${suggestion.id}-${field.id}`} className="text-sm">
                     <span className="font-semibold">{field.name}:</span> {String(field.value)}
                   </label>
                 </div>

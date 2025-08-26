@@ -36,7 +36,7 @@ func saveSettingsLocked() error {
 	return os.WriteFile(filepath.Join(configDir, settingsFile), data, 0644)
 }
 
-// loadSettings loads the settings from settings.json, creating it with defaults if it doesn't exist.
+// loadSettings loads the settings from settings.json, creating it with defaults if it doesn't exist or is corrupt.
 func loadSettings() {
 	settingsMutex.Lock()
 	defer settingsMutex.Unlock()
@@ -44,27 +44,36 @@ func loadSettings() {
 	settingsPath := filepath.Join(configDir, settingsFile)
 	data, err := os.ReadFile(settingsPath)
 
+	// Define default settings
+	loadDefaultSettings := func() {
+		settings = Settings{
+			CustomFieldsEnable:      false,
+			CustomFieldsSelectedIDs: []int{},
+			CustomFieldsWriteMode:   "append",
+		}
+	}
+
 	if err != nil {
 		if os.IsNotExist(err) {
 			// File doesn't exist, create it with defaults
 			log.Infof("Settings file not found at %s, creating with default values.", settingsPath)
-			settings = Settings{
-				CustomFieldsEnable:      false,
-				CustomFieldsSelectedIDs: []int{},
-				CustomFieldsWriteMode:   "append",
-			}
+			loadDefaultSettings()
 			if err := saveSettingsLocked(); err != nil {
 				log.Fatalf("Failed to create default settings file: %v", err)
 			}
-			return
+		} else {
+			// Another error occurred while reading
+			log.Warnf("Failed to read settings file: %v. Loading default settings.", err)
+			loadDefaultSettings()
 		}
-		// Another error occurred
-		log.Fatalf("Failed to read settings file: %v", err)
+		return
 	}
 
 	// File exists, so unmarshal it
 	if err := json.Unmarshal(data, &settings); err != nil {
-		log.Fatalf("Failed to parse settings file, please check its format: %v", err)
+		log.Warnf("Failed to parse settings file, please check its format. Loading default settings. Error: %v", err)
+		loadDefaultSettings()
+		return
 	}
 
 	log.Info("Successfully loaded settings from settings.json")
