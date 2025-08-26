@@ -26,10 +26,10 @@ export interface GenerateSuggestionsRequest {
 }
 
 export interface CustomFieldSuggestion {
-  field: number;
+  id: number;
   value: any;
-  name: string; // Added for UI display
-  isSelected: boolean; // Added for UI selection
+  name: string;
+  isSelected: boolean;
 }
 
 export interface DocumentSuggestion {
@@ -125,7 +125,7 @@ const DocumentProcessor: React.FC = () => {
         ...suggestion,
         suggested_custom_fields: suggestion.suggested_custom_fields?.map(cf => ({
           ...cf,
-          name: customFieldMap.get(cf.field) || 'Unknown Field',
+          name: customFieldMap.get(cf.id) || 'Unknown Field',
           isSelected: true,
         })),
       }));
@@ -183,7 +183,7 @@ const DocumentProcessor: React.FC = () => {
           ? {
               ...doc,
               suggested_custom_fields: doc.suggested_custom_fields?.map(cf =>
-                cf.field === fieldId ? { ...cf, isSelected: !cf.isSelected } : cf
+                cf.id === fieldId ? { ...cf, isSelected: !cf.isSelected } : cf
               ),
             }
           : doc

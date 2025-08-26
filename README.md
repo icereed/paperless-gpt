@@ -40,7 +40,10 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
 
 6. **Automatic Custom Field Generation**  
-   Extract and populate custom fields from your documents. Configure which fields to target and how they should be filled (overwrite or append). **Note:** This feature must be enabled in the settings, and you must select at least one custom field for it to function.
+   Extract and populate custom fields from your documents. Configure which fields to target and how they should be filled. This feature must be enabled in the settings, and you must select at least one custom field for it to function. Three write modes are available:
+   - **Append**: This is the safest option: It only adds new fields that do not already exist on the document. It will never overwrite an existing field, even if it's empty.
+   - **Update**: Adds new fields and overwrites existing fields with new suggestions. Fields on the document that don't have a new suggestion are left untouched.
+   - **Replace**: Deletes all existing custom fields on the document and replaces them entirely with the suggested fields.
 
 7. **Searchable & Selectable PDFs**  
    Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance.
