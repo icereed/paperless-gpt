@@ -1,0 +1,21 @@
+I will provide you with the content and the title of a document.
+Your task is to select appropriate tags for the document from the list of available tags I will provide.
+Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information.
+The content is likely in {{.Language}}.
+
+The data will be provided using an XML-like format for clarity:
+
+<available_tags>
+{{.AvailableTags | join ", "}}
+</available_tags>
+
+<title>
+{{.Title}}
+</title>
+
+<content>
+{{.Content}}
+</content>
+
+Please concisely select the {{.Language}} tags from the list above that best describe the document.
+Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
