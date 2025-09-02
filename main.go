@@ -74,6 +74,8 @@ var (
 	pdfSkipExistingOCR            = os.Getenv("PDF_SKIP_EXISTING_OCR") == "true"
 	doclingURL                    = os.Getenv("DOCLING_URL")
 	doclingImageExportMode        = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
+	doclingOCRPipeline            = os.Getenv("DOCLING_OCR_PIPELINE")
+	doclingOCREngine              = os.Getenv("DOCLING_OCR_ENGINE")
 
 	// Templates
 	titleTemplate         *template.Template
@@ -491,6 +493,14 @@ func validateOrDefaultEnvVars() {
 		if doclingImageExportMode == "" {
 			doclingImageExportMode = "embedded" // Default to PNG
 			log.Infof("DOCLING_IMAGE_EXPORT_MODE not set, defaulting to %s", doclingImageExportMode)
+		}
+		if doclingOCRPipeline == "" {
+			doclingOCRPipeline = "vlm"
+			log.Infof("DOCLING_OCR_PIPELINE not set, defaulting to %s", doclingOCRPipeline)
+		}
+		if doclingOCRPipeline == "standard" && doclingOCREngine == "" {
+			doclingOCREngine = "easyocr"
+			log.Infof("DOCLING_OCR_ENGINE not set, defaulting to %s", doclingOCREngine)
 		}
 	}
 

@@ -45,7 +45,7 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 		{
 			name: "Success Case",
 			mockHandler: func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "/v1alpha/convert/file", r.URL.Path)
+				assert.Equal(t, "/v1/convert/file", r.URL.Path)
 				assert.Equal(t, "POST", r.Method)
 				assert.Contains(t, r.Header.Get("Content-Type"), "multipart/form-data")
 				assert.Equal(t, "application/json", r.Header.Get("Accept"))
