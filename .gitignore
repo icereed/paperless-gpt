@@ -1,6 +1,7 @@
 .env
 .DS_Store
 prompts/
+config/
 tests/tmp
 tmp/
 db/
@@ -9,3 +10,4 @@ web-app/test-results/.last-run.json
 web-app/test-results
 dist/
 *.tsbuildinfo
+paperless-gpt

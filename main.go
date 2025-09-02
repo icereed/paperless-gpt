@@ -82,9 +82,30 @@ var (
 	tagTemplate           *template.Template
 	correspondentTemplate *template.Template
 	createdDateTemplate   *template.Template
+	customFieldTemplate   *template.Template
 	ocrTemplate           *template.Template
 	templateMutex         sync.RWMutex
+
+	// Server-side settings
+	settings            Settings
+	settingsMutex       sync.RWMutex
+	customFieldsCache   []CustomField
+	customFieldsCacheMu sync.RWMutex
 )
+
+// refreshCustomFieldsCache fetches custom fields from Paperless and updates the cache.
+func refreshCustomFieldsCache(client ClientInterface) {
+	log.Info("Refreshing custom fields cache...")
+	fields, err := client.GetCustomFields(context.Background())
+	if err != nil {
+		log.Errorf("Error refreshing custom fields cache: %v", err)
+		return
+	}
+	customFieldsCacheMu.Lock()
+	customFieldsCache = fields
+	customFieldsCacheMu.Unlock()
+	log.Infof("Successfully refreshed custom fields cache with %d fields.", len(fields))
+}
 
 // App struct to hold dependencies
 type App struct {
@@ -118,11 +139,35 @@ func main() {
 	// Initialize logrus logger
 	initLogger()
 
+	// Load settings from file
+	loadSettings()
+
+	if settings.CustomFieldsEnable && len(settings.CustomFieldsSelectedIDs) == 0 {
+		log.Warn("Custom fields are enabled, but no custom fields are selected in the settings.")
+	}
+
 	// Print version
 	printVersion()
 
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
+
+	// Initial fetch of custom fields
+	refreshCustomFieldsCache(client)
+
+	// Start a goroutine to refresh the cache every hour
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				refreshCustomFieldsCache(client)
+			}
+		}
+	}()
 
 	// Initialize Database
 	database := InitializeDB()
@@ -261,8 +306,11 @@ func main() {
 		})
 		// Get all tags
 		api.GET("/tags", app.getAllTagsHandler)
+		api.GET("/custom_fields", app.getCustomFieldsHandler)
 		api.GET("/prompts", getPromptsHandler)
 		api.POST("/prompts", updatePromptsHandler)
+		api.GET("/settings", app.getSettingsHandler)
+		api.POST("/settings", app.updateSettingsHandler)
 
 		// OCR endpoints
 		api.POST("/documents/:id/ocr", app.submitOCRJobHandler)
@@ -683,6 +731,10 @@ func loadTemplates() error {
 		return err
 	}
 	createdDateTemplate, err = loadTemplate("created_date_prompt.tmpl")
+	if err != nil {
+		return err
+	}
+	customFieldTemplate, err = loadTemplate("custom_field_prompt.tmpl")
 	if err != nil {
 		return err
 	}
