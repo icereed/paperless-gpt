@@ -48,16 +48,16 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 7. **Searchable & Selectable PDFs**  
    Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance.
 
-7. **Extensive Customization**
+8. **Extensive Customization**
 
    - **Customizable Prompts via Web UI**: Tweak and manage all AI prompts for titles, tags, correspondents, and more directly within the web interface under the "Settings" menu. The application uses a safe `default_prompts` and `prompts` directory structure, ensuring your customizations are persistent.
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
    - **PDF Processing**: Configure how OCR-enhanced PDFs are handled, with options to save locally or upload to paperless-ngx.
 
-8. **Simple Docker Deployment**  
+9. **Simple Docker Deployment**  
    A few environment variables, and you're off! Compose it alongside paperless-ngx with minimal fuss.
 
-9. **Unified Web UI**
+10. **Unified Web UI**
 
    - **Manual Review**: Approve or tweak AI's suggestions.
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.

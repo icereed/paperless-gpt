@@ -518,12 +518,18 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					}
 				}
 			case "append":
-				existingFieldsMap := make(map[int]bool)
-				for _, f := range finalCustomFields {
-					existingFieldsMap[f.Field] = true
+				// Build index of existing fields to allow filling empty values
+				idxByField := make(map[int]int, len(finalCustomFields))
+				for i, f := range finalCustomFields {
+					idxByField[f.Field] = i
 				}
 				for _, sf := range document.SuggestedCustomFields {
-					if _, exists := existingFieldsMap[sf.ID]; !exists {
+					if i, ok := idxByField[sf.ID]; ok {
+						// Only fill if existing value is empty
+						if isEmptyCustomFieldValue(finalCustomFields[i].Value) {
+							finalCustomFields[i].Value = sf.Value
+						}
+					} else {
 						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 					}
 				}
@@ -1110,6 +1116,24 @@ func (client *PaperlessClient) GetCustomFields(ctx context.Context) ([]CustomFie
 	}
 
 	return customFields, nil
+}
+
+// isEmptyCustomFieldValue reports whether a value should be considered "empty" for append semantics.
+func isEmptyCustomFieldValue(v interface{}) bool {
+	if v == nil {
+		return true
+	}
+	switch t := v.(type) {
+	case string:
+		return strings.TrimSpace(t) == ""
+	case []interface{}:
+		return len(t) == 0
+	case map[string]interface{}:
+		return len(t) == 0
+	default:
+		// Numbers/booleans: treat as non-empty because 0/false can be intentional
+		return false
+	}
 }
 
 // DeleteDocument deletes a document by its ID

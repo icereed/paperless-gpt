@@ -54,16 +54,25 @@ func updatePromptsHandler(c *gin.Context) {
 	}
 
 	// Basic input validation
-	if req.Filename == "" || !strings.HasSuffix(req.Filename, ".tmpl") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename or missing .tmpl extension"})
+	const maxPromptBytes = 64 * 1024
+	if !isValidPromptFilename(req.Filename) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename: must be a base name with .tmpl extension"})
 		return
 	}
-	if containsDotDot(req.Filename) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename: path traversal is not allowed"})
+	if len(req.Content) > maxPromptBytes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Template too large"})
 		return
 	}
 
-	promptPath := filepath.Join("prompts", req.Filename)
+	safeName := filepath.Base(req.Filename)
+	promptPath := filepath.Join("prompts", safeName)
+	// Ensure final path remains under prompts/
+	cleanPromptPath := filepath.Clean(promptPath)
+	promptsRoot := filepath.Clean("prompts") + string(os.PathSeparator)
+	if !strings.HasPrefix(cleanPromptPath, promptsRoot) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename: must reside under prompts/ directory"})
+		return
+	}
 
 	// Validate template content
 	_, err := template.New(req.Filename).Option("missingkey=error").Funcs(sprig.FuncMap()).Parse(req.Content)
@@ -131,6 +140,28 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&newSettings); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
+	}
+
+	// Normalize and validate
+	if newSettings.CustomFieldsWriteMode == "" {
+		newSettings.CustomFieldsWriteMode = "append"
+	}
+	if newSettings.CustomFieldsWriteMode != "append" && newSettings.CustomFieldsWriteMode != "replace" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "custom_field_write_mode must be 'append' or 'replace'"})
+		return
+	}
+	// Deduplicate selected IDs
+	if len(newSettings.CustomFieldsSelectedIDs) > 1 {
+		seen := make(map[int]struct{}, len(newSettings.CustomFieldsSelectedIDs))
+		dedup := make([]int, 0, len(newSettings.CustomFieldsSelectedIDs))
+		for _, id := range newSettings.CustomFieldsSelectedIDs {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			dedup = append(dedup, id)
+		}
+		newSettings.CustomFieldsSelectedIDs = dedup
 	}
 
 	// Update the global settings variable
@@ -417,7 +448,18 @@ func (app *App) undoModificationHandler(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-// containsDotDot checks if a string contains ".." to prevent path traversal.
-func containsDotDot(s string) bool {
-	return strings.Contains(s, "..")
+// isValidPromptFilename validates prompt filenames are base names under prompts/ with .tmpl suffix.
+func isValidPromptFilename(name string) bool {
+	if name == "" || !strings.HasSuffix(name, ".tmpl") {
+		return false
+	}
+	// Disallow path separators
+	if strings.ContainsAny(name, `/\`) {
+		return false
+	}
+	// Ensure it's a base name (prevents absolute paths and nested directories)
+	if filepath.Base(name) != name {
+		return false
+	}
+	return true
 }
