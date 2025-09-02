@@ -62,6 +62,9 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
    - **Manual Review**: Approve or tweak AI's suggestions.
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
 
+9. **Ad-hoc Document Analysis**
+   Perform ad-hoc analysis on a selection of documents using a custom prompt. Gain quick insights, summaries, or extract specific information from multiple documents at once.
+
 ---
 
 ## Table of Contents
@@ -570,6 +573,8 @@ For best results with the enhanced OCR features:
 | `AUTO_GENERATE_TAGS`                | Generate tags automatically if `paperless-gpt-auto` is used.                                                                                                                                  | No       | true                       |
 | `AUTO_GENERATE_CORRESPONDENTS`      | Generate correspondents automatically if `paperless-gpt-auto` is used.                                                                                                                        | No       | true                       |
 | `AUTO_GENERATE_CREATED_DATE`        | Generate the created dates automatically if `paperless-gpt-auto` is used.                                                                                                                     | No       | true                       |
+| `AUTO_GENERATE_CUSTOM_FIELD`        | Generate custom fields automatically if `paperless-gpt-auto` is used.                                                                                                                         | No       | true                       |
+| `PAPERLESS_CUSTOM_FIELD_WRITING_MODE` | Determines how custom fields are written. `append` (default) only fills empty fields. `replace` overwrites existing values. This can be overridden in the UI.                                 | No       | append                     |
 | `TOKEN_LIMIT`                       | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                                                                                             | No       |                            |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
 
@@ -959,3 +964,31 @@ This project is **not** officially affiliated with [paperless-ngx][paperless-ngx
 
 [paperless-ngx]: https://github.com/paperless-ngx/paperless-ngx
 [docker-install]: https://docs.docker.com/get-docker/
+
+</final_file_content>
+
+IMPORTANT: For any future changes to this file, use the final_file_content shown above as your reference. This content reflects the current state of the file, including any auto-formatting (e.g., if you used single quotes but the formatter converted them to double quotes). Always base your SEARCH/REPLACE operations on this final version to ensure accuracy.
+
+<environment_details>
+# VSCode Visible Files
+README.md
+
+# VSCode Open Tabs
+web-app/README.md
+paperless.go
+app_http_handlers_test.go
+main.go
+web-app/src/components/PromptsEditor.tsx
+README.md
+web-app/src/components/Settings.tsx
+app_http_handlers.go
+
+# Current Time
+9/2/2025, 9:54:31 AM (Europe/Berlin, UTC+2:00)
+
+# Context Window Usage
+252,943 / 1,048.576K tokens used (24%)
+
+# Current Mode
+ACT MODE
+</environment_details>

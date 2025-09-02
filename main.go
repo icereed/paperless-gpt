@@ -82,6 +82,7 @@ var (
 	createdDateTemplate   *template.Template
 	customFieldTemplate   *template.Template
 	ocrTemplate           *template.Template
+	adhocAnalysisTemplate *template.Template
 	templateMutex         sync.RWMutex
 
 	// Server-side settings
@@ -324,6 +325,7 @@ func main() {
 		// Local db actions
 		api.GET("/modifications", app.getModificationHistoryHandler)
 		api.POST("/undo-modification/:id", app.undoModificationHandler)
+		api.POST("/analyze-documents", app.analyzeDocumentsHandler)
 
 		// Get public Paperless environment (as set in environment variables)
 		api.GET("/paperless-url", func(c *gin.Context) {
@@ -353,6 +355,9 @@ func main() {
 		router.GET("/settings", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
+		router.GET("/adhoc-analysis", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
 		router.GET("/favicon.ico", func(c *gin.Context) {
 			c.File("web-app/dist/favicon.ico")
 		})
@@ -380,6 +385,10 @@ func main() {
 		})
 		// settings route
 		router.GET("/settings", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		// adhoc-analysis route
+		router.GET("/adhoc-analysis", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
 	}
@@ -475,6 +484,7 @@ func validateOCRProviderModeCompatibility(provider, mode string) error {
 
 // validateOrDefaultEnvVars ensures all necessary environment variables are set
 func validateOrDefaultEnvVars() {
+
 	if manualTag == "" {
 		manualTag = "paperless-gpt"
 	}
@@ -729,6 +739,10 @@ func loadTemplates() error {
 		return err
 	}
 	ocrTemplate, err = loadTemplate("ocr_prompt.tmpl")
+	if err != nil {
+		return err
+	}
+	adhocAnalysisTemplate, err = loadTemplate("adhoc-analysis_prompt.tmpl")
 	if err != nil {
 		return err
 	}
