@@ -9,4 +9,5 @@ web-app/playwright-report/
 web-app/test-results/.last-run.json
 web-app/test-results
 dist/
-*.tsbuildinfopaperless-gpt
+*.tsbuildinfo
+paperless-gpt
