@@ -81,8 +81,20 @@ test('should process document and show changes in history', async () => {
   // Click the process button
   await page.click('button:has-text("Generate Suggestions")');
   
+  // Take a screenshot after clicking the button
+  await page.screenshot({ path: 'test-results/after-generate-click.png' });
+  
+  // Check for any error messages first
+  const errorMessage = await page.locator('.bg-red-100, .text-red-800, .error-message').first();
+  if (await errorMessage.isVisible()) {
+    const errorText = await errorMessage.textContent();
+    console.log(`Error message detected: ${errorText}`);
+    await page.screenshot({ path: 'test-results/error-detected.png' });
+    throw new Error(`Backend error detected: ${errorText}`);
+  }
+  
   // Wait for processing to complete
-  await page.waitForSelector('.suggestions-review', { timeout: 30000 });
+  await page.waitForSelector('.suggestions-review', { timeout: 60000 });
   await page.screenshot({ path: 'test-results/suggestions-loaded.png' });
 
   // Apply the suggestions
