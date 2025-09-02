@@ -18,6 +18,8 @@ import (
 type DoclingProvider struct {
 	baseURL         string
 	imageExportMode string
+	pipeline        string
+	ocrEngine       string
 	httpClient      *retryablehttp.Client
 }
 
@@ -37,6 +39,8 @@ func newDoclingProvider(config Config) (*DoclingProvider, error) {
 	provider := &DoclingProvider{
 		baseURL:         config.DoclingURL,
 		imageExportMode: config.DoclingImageExportMode,
+		pipeline:        config.DoclingOCRPipeline,
+		ocrEngine:       config.DoclingOCREngine,
 		httpClient:      client,
 	}
 
@@ -77,8 +81,13 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 	if err := writer.WriteField("do_ocr", "true"); err != nil {
 		return nil, fmt.Errorf("set do_ocr: %w", err)
 	}
-	if err := writer.WriteField("pipeline", "vlm"); err != nil {
+	if err := writer.WriteField("pipeline", p.pipeline); err != nil {
 		return nil, fmt.Errorf("set pipeline: %w", err)
+	}
+	if p.pipeline == "standard" {
+		if err := writer.WriteField("ocr_engine", p.ocrEngine); err != nil {
+			return nil, fmt.Errorf("set ocr_engine: %w", err)
+		}
 	}
 	if err := writer.WriteField("image_export_mode", p.imageExportMode); err != nil {
 		return nil, fmt.Errorf("set image_export_mode: %w", err)
@@ -91,7 +100,7 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 	}
 
 	// Create HTTP request
-	requestURL := p.baseURL + "/v1alpha/convert/file"
+	requestURL := p.baseURL + "/v1/convert/file"
 	req, err := retryablehttp.NewRequestWithContext(ctx, "POST", requestURL, &requestBody)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create HTTP request")
@@ -105,7 +114,8 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 	logger.WithFields(logrus.Fields{
 		"to_formats":        "md",
 		"do_ocr":            "true",
-		"pipeline":          "vlm",
+		"pipeline":          p.pipeline,
+		"ocr_engine":        p.ocrEngine,
 		"image_export_mode": p.imageExportMode,
 	}).Debug("Docling request parameters")
 

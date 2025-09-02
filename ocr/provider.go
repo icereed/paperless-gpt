@@ -56,6 +56,8 @@ type Config struct {
 	// Docling settings
 	DoclingURL             string
 	DoclingImageExportMode string
+	DoclingOCRPipeline     string
+	DoclingOCREngine       string
 
 	// OCR output options
 	EnableHOCR     bool   // Whether to generate hOCR data if supported by the provider
