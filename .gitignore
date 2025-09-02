@@ -10,3 +10,4 @@ web-app/test-results/.last-run.json
 web-app/test-results
 dist/
 *.tsbuildinfo
+paperless-gpt
