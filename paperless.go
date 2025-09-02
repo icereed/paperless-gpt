@@ -36,6 +36,10 @@ type PaperlessClient struct {
 	APIToken    string
 	HTTPClient  *http.Client
 	CacheFolder string
+	// Document type caching
+	docTypesOnce sync.Once
+	docTypesByID map[int]string
+	docTypesMu   sync.RWMutex
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -169,10 +173,14 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
+		// Read and close the body immediately to avoid holding open too many connections
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
 
 		if resp.StatusCode != http.StatusOK {
-			bodyBytes, _ := io.ReadAll(resp.Body)
 			return nil, fmt.Errorf("error fetching tags: %d, %s", resp.StatusCode, string(bodyBytes))
 		}
 
@@ -183,9 +191,7 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 			} `json:"results"`
 			Next string `json:"next"`
 		}
-
-		err = json.NewDecoder(resp.Body).Decode(&tagsResponse)
-		if err != nil {
+		if err := json.Unmarshal(bodyBytes, &tagsResponse); err != nil {
 			return nil, err
 		}
 
@@ -370,17 +376,7 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	}
 
 	// Get all document types to find the name
-	allDocumentTypes, err := client.GetAllDocumentTypes(ctx)
-	if err != nil {
-		return Document{}, err
-	}
-	documentTypeName := ""
-	for _, docType := range allDocumentTypes {
-		if documentResponse.DocumentType == docType.ID {
-			documentTypeName = docType.Name
-			break
-		}
-	}
+	documentTypeName := client.lookupDocumentTypeName(ctx, documentResponse.DocumentType)
 
 	return Document{
 		ID:               documentResponse.ID,
@@ -518,12 +514,18 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					}
 				}
 			case "append":
-				existingFieldsMap := make(map[int]bool)
-				for _, f := range finalCustomFields {
-					existingFieldsMap[f.Field] = true
+				// Build index of existing fields to allow filling empty values
+				idxByField := make(map[int]int, len(finalCustomFields))
+				for i, f := range finalCustomFields {
+					idxByField[f.Field] = i
 				}
 				for _, sf := range document.SuggestedCustomFields {
-					if _, exists := existingFieldsMap[sf.ID]; !exists {
+					if i, ok := idxByField[sf.ID]; ok {
+						// Only fill if existing value is empty
+						if isEmptyCustomFieldValue(finalCustomFields[i].Value) {
+							finalCustomFields[i].Value = sf.Value
+						}
+					} else {
 						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 					}
 				}
@@ -1079,10 +1081,14 @@ func (client *PaperlessClient) GetCustomFields(ctx context.Context) ([]CustomFie
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
+		// Read and close the body immediately to avoid holding open too many connections
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
 
 		if resp.StatusCode != http.StatusOK {
-			bodyBytes, _ := io.ReadAll(resp.Body)
 			return nil, fmt.Errorf("error fetching custom fields: %d, %s", resp.StatusCode, string(bodyBytes))
 		}
 
@@ -1090,9 +1096,7 @@ func (client *PaperlessClient) GetCustomFields(ctx context.Context) ([]CustomFie
 			Results []CustomField `json:"results"`
 			Next    string        `json:"next"`
 		}
-
-		err = json.NewDecoder(resp.Body).Decode(&response)
-		if err != nil {
+		if err := json.Unmarshal(bodyBytes, &response); err != nil {
 			return nil, err
 		}
 
@@ -1110,6 +1114,50 @@ func (client *PaperlessClient) GetCustomFields(ctx context.Context) ([]CustomFie
 	}
 
 	return customFields, nil
+}
+
+// isEmptyCustomFieldValue reports whether a value should be considered "empty" for append semantics.
+func isEmptyCustomFieldValue(v interface{}) bool {
+	if v == nil {
+		return true
+	}
+	switch t := v.(type) {
+	case string:
+		return strings.TrimSpace(t) == ""
+	case []interface{}:
+		return len(t) == 0
+	case map[string]interface{}:
+		return len(t) == 0
+	default:
+		// Numbers/booleans: treat as non-empty because 0/false can be intentional
+		return false
+	}
+}
+
+// initDocTypesCache initializes the document types cache using sync.Once
+func (client *PaperlessClient) initDocTypesCache(ctx context.Context) {
+	client.docTypesOnce.Do(func() {
+		if types, err := client.GetAllDocumentTypes(ctx); err == nil {
+			m := make(map[int]string, len(types))
+			for _, t := range types {
+				m[t.ID] = t.Name
+			}
+			client.docTypesMu.Lock()
+			client.docTypesByID = m
+			client.docTypesMu.Unlock()
+		} else {
+			log.Warnf("Failed to warm document-types cache: %v", err)
+		}
+	})
+}
+
+// lookupDocumentTypeName returns the document type name for the given ID using cached data
+func (client *PaperlessClient) lookupDocumentTypeName(ctx context.Context, id int) string {
+	client.initDocTypesCache(ctx)
+	client.docTypesMu.RLock()
+	name := client.docTypesByID[id]
+	client.docTypesMu.RUnlock()
+	return name
 }
 
 // DeleteDocument deletes a document by its ID

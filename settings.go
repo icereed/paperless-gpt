@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -58,6 +59,8 @@ func loadSettings() {
 			// File doesn't exist, create it with defaults
 			log.Infof("Settings file not found at %s, creating with default values.", settingsPath)
 			loadDefaultSettings()
+			// Apply environment overrides before first save
+			applyEnvOverridesLocked()
 			if err := saveSettingsLocked(); err != nil {
 				log.Fatalf("Failed to create default settings file: %v", err)
 			}
@@ -76,5 +79,22 @@ func loadSettings() {
 		return
 	}
 
+	// Apply environment overrides without persisting them
+	applyEnvOverridesLocked()
 	log.Info("Successfully loaded settings from settings.json")
+}
+
+// applyEnvOverridesLocked assumes settingsMutex is already held.
+func applyEnvOverridesLocked() {
+	if v, ok := os.LookupEnv("AUTO_GENERATE_CUSTOM_FIELD"); ok {
+		settings.CustomFieldsEnable = strings.ToLower(v) != "false" && v != "0" && v != ""
+	}
+	if v, ok := os.LookupEnv("PAPERLESS_CUSTOM_FIELD_WRITING_MODE"); ok {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "append", "replace":
+			settings.CustomFieldsWriteMode = v
+		default:
+			log.Infof("Ignoring invalid PAPERLESS_CUSTOM_FIELD_WRITING_MODE=%q (expected 'append' or 'replace')", v)
+		}
+	}
 }

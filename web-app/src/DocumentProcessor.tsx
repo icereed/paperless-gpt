@@ -119,6 +119,20 @@ const DocumentProcessor: React.FC = () => {
         requestPayload
       );
 
+      // Validate that data is an array
+      if (!Array.isArray(data)) {
+        console.error('API response is not an array:', data);
+        setError("Invalid response format from server.");
+        return;
+      }
+
+      // Check if the response is empty
+      if (data.length === 0) {
+        console.warn('API returned empty suggestions array');
+        setError("No suggestions were generated. This may be due to LLM API connectivity issues in the test environment.");
+        return;
+      }
+
       // Post-process suggestions to add names and isSelected flag
       const customFieldMap = new Map(allCustomFields.map(cf => [cf.id, cf.name]));
       const processedSuggestions = data.map(suggestion => ({
@@ -127,13 +141,24 @@ const DocumentProcessor: React.FC = () => {
           ...cf,
           name: customFieldMap.get(cf.id) || 'Unknown Field',
           isSelected: true,
-        })),
+        })) || [],
       }));
 
       setSuggestions(processedSuggestions);
     } catch (err) {
       console.error("Error generating suggestions:", err);
-      setError("Failed to generate suggestions.");
+      // Provide more detailed error information
+      if (axios.isAxiosError(err)) {
+        if (err.response) {
+          setError(`Server error: ${err.response.status} - ${err.response.statusText}`);
+        } else if (err.request) {
+          setError("Network error: Unable to reach server.");
+        } else {
+          setError(`Request error: ${err.message}`);
+        }
+      } else {
+        setError("Failed to generate suggestions.");
+      }
     } finally {
       setProcessing(false);
     }

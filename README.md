@@ -41,23 +41,23 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
 6. **Automatic Custom Field Generation**  
    Extract and populate custom fields from your documents. Configure which fields to target and how they should be filled. This feature must be enabled in the settings, and you must select at least one custom field for it to function. Three write modes are available:
-   - **Append**: This is the safest option: It only adds new fields that do not already exist on the document. It will never overwrite an existing field, even if it's empty.
+   - **Append**: Safest option. Adds missing fields and fills only empty existing values. It never overwrites non-empty values.
    - **Update**: Adds new fields and overwrites existing fields with new suggestions. Fields on the document that don't have a new suggestion are left untouched.
    - **Replace**: Deletes all existing custom fields on the document and replaces them entirely with the suggested fields.
 
 7. **Searchable & Selectable PDFs**  
    Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance.
 
-7. **Extensive Customization**
+8. **Extensive Customization**
 
    - **Customizable Prompts via Web UI**: Tweak and manage all AI prompts for titles, tags, correspondents, and more directly within the web interface under the "Settings" menu. The application uses a safe `default_prompts` and `prompts` directory structure, ensuring your customizations are persistent.
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
    - **PDF Processing**: Configure how OCR-enhanced PDFs are handled, with options to save locally or upload to paperless-ngx.
 
-8. **Simple Docker Deployment**  
+9. **Simple Docker Deployment**  
    A few environment variables, and you're off! Compose it alongside paperless-ngx with minimal fuss.
 
-9. **Unified Web UI**
+10. **Unified Web UI**
 
    - **Manual Review**: Approve or tweak AI's suggestions.
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
@@ -570,6 +570,8 @@ For best results with the enhanced OCR features:
 | `AUTO_GENERATE_TAGS`                | Generate tags automatically if `paperless-gpt-auto` is used.                                                                                                                                  | No       | true                       |
 | `AUTO_GENERATE_CORRESPONDENTS`      | Generate correspondents automatically if `paperless-gpt-auto` is used.                                                                                                                        | No       | true                       |
 | `AUTO_GENERATE_CREATED_DATE`        | Generate the created dates automatically if `paperless-gpt-auto` is used.                                                                                                                     | No       | true                       |
+| `AUTO_GENERATE_CUSTOM_FIELD`        | Generate custom fields automatically if `paperless-gpt-auto` is used.                                                                                                                         | No       | false                      |
+| `PAPERLESS_CUSTOM_FIELD_WRITING_MODE` | Custom field write mode for updates: `append` (fill empties only) or `replace` (overwrite).                                                                                                   | No       | append                     |
 | `TOKEN_LIMIT`                       | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                                                                                             | No       |                            |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
 

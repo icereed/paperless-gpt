@@ -94,22 +94,29 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
   console.log(`Using image: ${paperlessGptImage}`);
 
   // Build environment configuration based on provided config
+  // Use test API key if real one not available to prevent startup failure
+  const openaiApiKey = process.env.OPENAI_API_KEY || 'test-key-for-e2e-tests';
   const baseEnvironment = {
     PAPERLESS_BASE_URL: `http://paperless-ngx:${paperlessPort}`,
     PAPERLESS_API_TOKEN: await getApiToken(baseUrl, credentials),
     LLM_PROVIDER: "openai",
     LLM_MODEL: "gpt-4o-mini",
     LLM_LANGUAGE: "english",
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+    OPENAI_API_KEY: openaiApiKey,
     PDF_OCR_TAGGING: "true",
     PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete",
+    // Custom fields configuration for testing
+    AUTO_GENERATE_CUSTOM_FIELD: "false", // Disable by default for tests
+    PAPERLESS_CUSTOM_FIELD_WRITING_MODE: "append",
   };
+  
+  console.log(`OpenAI API key is ${openaiApiKey ? "set" : "not set"}${openaiApiKey === "test-key-for-e2e-tests" ? " (using test key)" : ""}.`);
 
   // Configure OCR provider and processing mode based on config
   if (config?.ocrProvider === 'mistral_ocr') {
     Object.assign(baseEnvironment, {
       OCR_PROVIDER: "mistral_ocr",
-      MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
+      MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || 'test-key-for-e2e-tests',
       MISTRAL_MODEL: "mistral-ocr-latest",
       OCR_PROCESS_MODE: config.processMode || "whole_pdf",
     });

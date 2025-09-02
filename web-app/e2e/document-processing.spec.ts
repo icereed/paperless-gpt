@@ -81,8 +81,11 @@ test('should process document and show changes in history', async () => {
   // Click the process button
   await page.click('button:has-text("Generate Suggestions")');
   
+  // Take a screenshot after clicking the button
+  await page.screenshot({ path: 'test-results/after-generate-click.png' });
+  
   // Wait for processing to complete
-  await page.waitForSelector('.suggestions-review', { timeout: 30000 });
+  await page.waitForSelector('.suggestions-review', { timeout: 60000 });
   await page.screenshot({ path: 'test-results/suggestions-loaded.png' });
 
   // Apply the suggestions

@@ -123,7 +123,16 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 			GenerateTags:           strings.ToLower(autoGenerateTags) != "false",
 			GenerateCorrespondents: strings.ToLower(autoGenerateCorrespondents) != "false",
 			GenerateCreatedDate:    strings.ToLower(autoGenerateCreatedDate) != "false",
-			GenerateCustomFields:   settings.CustomFieldsEnable,
+			// Read custom fields settings under lock to avoid races
+			GenerateCustomFields:   func() bool {
+				settingsMutex.RLock()
+				defer settingsMutex.RUnlock()
+				// For background processing, use environment variable override if available, otherwise use settings
+				if autoGenerateCustomField != "" {
+					return strings.ToLower(autoGenerateCustomField) != "false"
+				}
+				return settings.CustomFieldsEnable
+			}(),
 		}
 
 		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)

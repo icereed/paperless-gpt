@@ -33,9 +33,14 @@ const CustomFieldsEditor: React.FC = () => {
 
       const customFieldsUrl = forcePull ? '/api/custom_fields?force_pull=true' : '/api/custom_fields';
       const customFieldsRes = await fetch(customFieldsUrl);
-      if (!customFieldsRes.ok) throw new Error('Failed to fetch custom fields');
-      const customFieldsData = await customFieldsRes.json();
-      setCustomFields(customFieldsData || []);
+      if (customFieldsRes.ok) {
+        const customFieldsData = await customFieldsRes.json();
+        setCustomFields(customFieldsData || []);
+      } else {
+        // Don't throw error for custom fields fetch failure - just log it and use empty array
+        console.warn('Failed to fetch custom fields, using empty array:', customFieldsRes.status, customFieldsRes.statusText);
+        setCustomFields([]);
+      }
 
     } catch (err) {
       console.error('Error fetching initial data:', err);
@@ -61,10 +66,24 @@ const CustomFieldsEditor: React.FC = () => {
     setIsSaving(true);
     setError(null);
     try {
+      // 1. Fetch current settings to avoid overwriting unrelated keys
+      const latestRes = await fetch('/api/settings');
+      const latest = latestRes.ok ? await latestRes.json() : {};
+      // Extract just the settings data, ignoring any custom_fields that might be returned
+      const latestSettings = latest.settings || latest;
+      
+      // 2. Merge only our custom‐fields keys
+      const payload = {
+        ...latestSettings,
+        custom_fields_selected_ids: settings.custom_fields_selected_ids,
+        custom_fields_write_mode: settings.custom_fields_write_mode,
+        custom_fields_enable: settings.custom_fields_enable,
+      };
+      
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) {
         const errData = await response.json();
