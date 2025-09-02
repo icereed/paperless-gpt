@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Document } from './DocumentProcessor';
 import DocumentsToProcess from './components/DocumentsToProcess';
+import NoDocuments from './components/NoDocuments';
 
 const AdhocAnalysis: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [filterTag, setFilterTag] = useState<string | null>(null);
   const [selectedDocuments, setSelectedDocuments] = useState<number[]>([]);
   const [prompt, setPrompt] = useState('');
   const [originalPrompt, setOriginalPrompt] = useState('');
@@ -16,8 +18,12 @@ const AdhocAnalysis: React.FC = () => {
   const fetchDocuments = async () => {
     try {
       setLoading(true);
-      const res = await axios.get<Document[]>('./api/documents');
-      setDocuments(res.data || []);
+      const [documentsRes, filterTagRes] = await Promise.all([
+        axios.get<Document[]>('./api/documents'),
+        axios.get<{ tag: string }>('./api/filter-tag'),
+      ]);
+      setDocuments(documentsRes.data || []);
+      setFilterTag(filterTagRes.data.tag);
     } catch (err) {
       console.error(err);
     } finally {
@@ -88,6 +94,12 @@ const AdhocAnalysis: React.FC = () => {
         </div>
         {loading ? (
           <p>Loading documents...</p>
+        ) : documents.length === 0 ? (
+          <NoDocuments
+            filterTag={filterTag}
+            onReload={fetchDocuments}
+            processing={processing}
+          />
         ) : (
           <DocumentsToProcess
             documents={documents}
