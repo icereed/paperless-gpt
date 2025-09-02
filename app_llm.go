@@ -303,7 +303,10 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	var xmlBuilder strings.Builder
 	xmlBuilder.WriteString("<custom_fields>\n")
 	for _, field := range selectedCustomFields {
-		xmlBuilder.WriteString(fmt.Sprintf("  <field name=\"%s\" type=\"%s\"></field>\n", field.Name, field.DataType))
+		// Escape XML attributes to prevent breaking the XML snippet
+		name := escapeXMLAttr(field.Name)
+		dtype := escapeXMLAttr(field.DataType)
+		xmlBuilder.WriteString(fmt.Sprintf("  <field name=%q type=%q></field>\n", name, dtype))
 	}
 	xmlBuilder.WriteString("</custom_fields>")
 	customFieldsXML := xmlBuilder.String()
@@ -373,9 +376,9 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 		return []CustomFieldSuggestion{}, nil // Return empty slice on parsing error
 	}
 
-	// Map field names back to IDs
-	fieldNameIdMap := make(map[string]int)
-	for _, field := range allCustomFields {
+	// Map field names back to IDs (only for selected fields)
+	fieldNameIdMap := make(map[string]int, len(selectedCustomFields))
+	for _, field := range selectedCustomFields {
 		fieldNameIdMap[field.Name] = field.ID
 	}
 
@@ -609,4 +612,14 @@ func stripMarkdown(content string) string {
 		content = strings.TrimSuffix(content, "```")
 	}
 	return strings.TrimSpace(content)
+}
+
+// escapeXMLAttr escapes special characters in XML attribute values
+func escapeXMLAttr(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, `"`, "&quot;")
+	s = strings.ReplaceAll(s, `'`, "&apos;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	return s
 }

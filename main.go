@@ -60,6 +60,8 @@ var (
 	autoGenerateTags              = os.Getenv("AUTO_GENERATE_TAGS")
 	autoGenerateCorrespondents    = os.Getenv("AUTO_GENERATE_CORRESPONDENTS")
 	autoGenerateCreatedDate       = os.Getenv("AUTO_GENERATE_CREATED_DATE")
+	autoGenerateCustomField       = os.Getenv("AUTO_GENERATE_CUSTOM_FIELD")
+	customFieldWritingMode        = os.Getenv("PAPERLESS_CUSTOM_FIELD_WRITING_MODE")
 	limitOcrPages                 int // Will be read from OCR_LIMIT_PAGES
 	tokenLimit                    = 0 // Will be read from TOKEN_LIMIT
 	createLocalHOCR               = os.Getenv("CREATE_LOCAL_HOCR") == "true"
@@ -582,6 +584,14 @@ func validateOrDefaultEnvVars() {
 			tokenLimit = parsed
 			log.Infof("Using token limit: %d", tokenLimit)
 		}
+	}
+
+	// Validate custom field writing mode
+	if customFieldWritingMode == "" {
+		customFieldWritingMode = "append" // default
+	} else if customFieldWritingMode != "append" && customFieldWritingMode != "replace" {
+		log.Warnf("Invalid PAPERLESS_CUSTOM_FIELD_WRITING_MODE value: %s, defaulting to append", customFieldWritingMode)
+		customFieldWritingMode = "append"
 	}
 
 	// Set default for hOCR output path

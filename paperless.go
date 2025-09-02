@@ -169,10 +169,14 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
+		// Read and close the body immediately to avoid holding open too many connections
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
 
 		if resp.StatusCode != http.StatusOK {
-			bodyBytes, _ := io.ReadAll(resp.Body)
 			return nil, fmt.Errorf("error fetching tags: %d, %s", resp.StatusCode, string(bodyBytes))
 		}
 
@@ -183,9 +187,7 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 			} `json:"results"`
 			Next string `json:"next"`
 		}
-
-		err = json.NewDecoder(resp.Body).Decode(&tagsResponse)
-		if err != nil {
+		if err := json.Unmarshal(bodyBytes, &tagsResponse); err != nil {
 			return nil, err
 		}
 
@@ -1085,10 +1087,14 @@ func (client *PaperlessClient) GetCustomFields(ctx context.Context) ([]CustomFie
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
+		// Read and close the body immediately to avoid holding open too many connections
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
 
 		if resp.StatusCode != http.StatusOK {
-			bodyBytes, _ := io.ReadAll(resp.Body)
 			return nil, fmt.Errorf("error fetching custom fields: %d, %s", resp.StatusCode, string(bodyBytes))
 		}
 
@@ -1096,9 +1102,7 @@ func (client *PaperlessClient) GetCustomFields(ctx context.Context) ([]CustomFie
 			Results []CustomField `json:"results"`
 			Next    string        `json:"next"`
 		}
-
-		err = json.NewDecoder(resp.Body).Decode(&response)
-		if err != nil {
+		if err := json.Unmarshal(bodyBytes, &response); err != nil {
 			return nil, err
 		}
 
