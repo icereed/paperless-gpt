@@ -11,3 +11,4 @@ web-app/test-results
 dist/
 *.tsbuildinfo
 test-build
+paperless-gpt
