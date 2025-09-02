@@ -70,9 +70,9 @@ const CustomFieldsEditor: React.FC = () => {
       // 2. Merge only our custom‐fields keys
       const payload = {
         ...latestSettings,
-        selected_custom_field_ids: settings.selected_custom_field_ids,
-        custom_field_write_mode: settings.custom_field_write_mode,
-        auto_generate_custom_field: settings.auto_generate_custom_field,
+        custom_fields_selected_ids: settings.custom_fields_selected_ids,
+        custom_fields_write_mode: settings.custom_fields_write_mode,
+        custom_fields_enable: settings.custom_fields_enable,
       };
       
       const response = await fetch('/api/settings', {
