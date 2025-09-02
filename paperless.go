@@ -321,6 +321,8 @@ func (client *PaperlessClient) DownloadPDF(ctx context.Context, document Documen
 }
 
 func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
+	// TODO: This function can be optimized by caching the results of GetAllTags, GetAllCorrespondents, and GetCustomFields.
+	// A simple time-based cache could be implemented in the PaperlessClient to avoid fetching this data on every call.
 	path := fmt.Sprintf("api/documents/%d/", documentID)
 	resp, err := client.Do(ctx, "GET", path, nil)
 	if err != nil {
@@ -347,6 +349,21 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	allCorrespondents, err := client.GetAllCorrespondents(ctx)
 	if err != nil {
 		return Document{}, err
+	}
+
+	allCustomFields, err := client.GetCustomFields(ctx)
+	if err != nil {
+		return Document{}, err
+	}
+	customFieldMap := make(map[int]string)
+	for _, field := range allCustomFields {
+		customFieldMap[field.ID] = field.Name
+	}
+
+	for i, cf := range documentResponse.CustomFields {
+		if name, ok := customFieldMap[cf.Field]; ok {
+			documentResponse.CustomFields[i].Name = name
+		}
 	}
 
 	// Match tag IDs to tag names

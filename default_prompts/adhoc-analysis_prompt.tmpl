@@ -1,0 +1,22 @@
+Summarize the following documents. For each document, extract the correspondent, invoice date, invoice number, and total amount.
+Display the results in a table sorted by date.
+Finally, calculate and display the total amount of all invoices.
+Skip documents that are not invoices.
+
+<documents>
+{{ range .Documents }}
+<document>
+    <title>{{ .Title }}</title>
+    <content>{{ .Content }}</content>
+    <correspondent>{{ .Correspondent }}</correspondent>
+    <document_type>{{ .DocumentTypeName }}</document_type>
+    <created_date>{{ .CreatedDate }}</created_date>
+    {{ range .CustomFields }}
+    <custom_field>
+        <name>{{ .Name }}</name>
+        <value>{{ .Value }}</value>
+    </custom_field>
+    {{ end }}
+</document>
+{{ end }}
+</documents>
