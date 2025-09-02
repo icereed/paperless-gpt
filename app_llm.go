@@ -450,47 +450,51 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			var suggestedCreatedDate string
 			var suggestedCustomFields []CustomFieldSuggestion
 
+			// Track individual errors but don't fail the entire suggestion
+			hasAnySuccess := false
+
 			if suggestionRequest.GenerateTitles {
-				suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, docLogger)
+				title, err := app.getSuggestedTitle(ctx, content, suggestedTitle, docLogger)
 				if err != nil {
-					mu.Lock()
-					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
-					mu.Unlock()
-					docLogger.Errorf("Error processing document %d: %v", documentID, err)
-					return
+					docLogger.Warnf("Error generating title for document %d: %v (using original)", documentID, err)
+					// Keep original title, don't fail the entire suggestion
+				} else {
+					suggestedTitle = title
+					hasAnySuccess = true
 				}
 			}
 
 			if suggestionRequest.GenerateTags {
-				suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, availableTagNames, doc.Tags, docLogger)
+				tags, err := app.getSuggestedTags(ctx, content, suggestedTitle, availableTagNames, doc.Tags, docLogger)
 				if err != nil {
-					mu.Lock()
-					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
-					mu.Unlock()
-					logger.Errorf("Error generating tags for document %d: %v", documentID, err)
-					return
+					docLogger.Warnf("Error generating tags for document %d: %v (using original)", documentID, err)
+					// Keep original tags, don't fail the entire suggestion
+					suggestedTags = doc.Tags
+				} else {
+					suggestedTags = tags
+					hasAnySuccess = true
 				}
 			}
 
 			if suggestionRequest.GenerateCorrespondents {
-				suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, availableCorrespondentNames, correspondentBlackList)
+				correspondent, err := app.getSuggestedCorrespondent(ctx, content, suggestedTitle, availableCorrespondentNames, correspondentBlackList)
 				if err != nil {
-					mu.Lock()
-					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
-					mu.Unlock()
-					log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
-					return
+					docLogger.Warnf("Error generating correspondent for document %d: %v (using empty)", documentID, err)
+					// Leave correspondent empty, don't fail the entire suggestion
+				} else {
+					suggestedCorrespondent = correspondent
+					hasAnySuccess = true
 				}
 			}
 
 			if suggestionRequest.GenerateCreatedDate {
-				suggestedCreatedDate, err = app.getSuggestedCreatedDate(ctx, content, docLogger)
+				createdDate, err := app.getSuggestedCreatedDate(ctx, content, docLogger)
 				if err != nil {
-					mu.Lock()
-					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
-					mu.Unlock()
-					log.Errorf("Error generating createdDate for document %d: %v", documentID, err)
-					return
+					docLogger.Warnf("Error generating created date for document %d: %v (using empty)", documentID, err)
+					// Leave created date empty, don't fail the entire suggestion
+				} else {
+					suggestedCreatedDate = createdDate
+					hasAnySuccess = true
 				}
 			}
 
@@ -502,15 +506,23 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 				if len(selectedIDs) == 0 {
 					log.Warnf("Custom field generation is enabled, but no custom fields are selected in the settings. Please select at least one custom field for this feature to work.")
 				} else {
-					suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger)
+					customFields, err := app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger)
 					if err != nil {
-						mu.Lock()
-						errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
-						mu.Unlock()
-						log.Errorf("Error generating custom fields for document %d: %v", documentID, err)
-						return
+						docLogger.Warnf("Error generating custom fields for document %d: %v (using empty)", documentID, err)
+						// Leave custom fields empty, don't fail the entire suggestion
+					} else {
+						suggestedCustomFields = customFields
+						hasAnySuccess = true
 					}
 				}
+			}
+
+			// Only log an error if ALL suggestions failed, but still create the suggestion entry
+			if !hasAnySuccess && (suggestionRequest.GenerateTitles || suggestionRequest.GenerateTags || suggestionRequest.GenerateCorrespondents || suggestionRequest.GenerateCreatedDate || suggestionRequest.GenerateCustomFields) {
+				mu.Lock()
+				errorsList = append(errorsList, fmt.Errorf("Document %d: All LLM operations failed, likely due to API connectivity issues", documentID))
+				mu.Unlock()
+				docLogger.Warnf("All LLM operations failed for document %d, returning original values", documentID)
 			}
 
 			mu.Lock()
@@ -576,10 +588,20 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 
 	wg.Wait()
 
+	// Log errors as warnings but don't fail the entire request
+	// Only fail if we have no suggestions at all AND there were errors
 	if len(errorsList) > 0 {
-		return nil, errorsList[0] // Return the first error encountered
+		for _, err := range errorsList {
+			logger.Warnf("LLM processing warning: %v", err)
+		}
+		
+		// Only return error if we have no suggestions AND errors occurred
+		if len(documentSuggestions) == 0 {
+			return nil, fmt.Errorf("failed to generate any suggestions due to LLM errors: %v", errorsList[0])
+		}
 	}
 
+	// Always return suggestions, even if some failed
 	return documentSuggestions, nil
 }
 
