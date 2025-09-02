@@ -104,6 +104,62 @@ func (app *App) getAllTagsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, tags)
 }
 
+// getSettingsHandler handles the GET /api/settings endpoint
+func (app *App) getSettingsHandler(c *gin.Context) {
+	// Refresh the cache when settings are requested
+	go refreshCustomFieldsCache(app.Client)
+
+	settingsMutex.RLock()
+	defer settingsMutex.RUnlock()
+	customFieldsCacheMu.RLock()
+	defer customFieldsCacheMu.RUnlock()
+
+	// Create a response that includes both settings and custom fields
+	response := gin.H{
+		"settings":      settings,
+		"custom_fields": customFieldsCache,
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// updateSettingsHandler handles the POST /api/settings endpoint
+func (app *App) updateSettingsHandler(c *gin.Context) {
+	settingsMutex.Lock()
+	defer settingsMutex.Unlock()
+
+	var newSettings Settings
+	if err := c.ShouldBindJSON(&newSettings); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	// Update the global settings variable
+	settings = newSettings
+
+	// Save the updated settings to file
+	if err := saveSettingsLocked(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
+		log.Errorf("Failed to save settings: %v", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Settings saved successfully"})
+}
+
+// getCustomFieldsHandler handles the GET /api/custom_fields endpoint
+func (app *App) getCustomFieldsHandler(c *gin.Context) {
+	// Check for "force_pull" query parameter
+	if forcePull := c.Query("force_pull"); forcePull == "true" {
+		// Force a refresh of the custom fields cache
+		go refreshCustomFieldsCache(app.Client)
+	}
+
+	customFieldsCacheMu.RLock()
+	defer customFieldsCacheMu.RUnlock()
+
+	c.JSON(http.StatusOK, customFieldsCache)
+}
+
 // documentsHandler handles the GET /api/documents endpoint
 func (app *App) documentsHandler(c *gin.Context) {
 	ctx := c.Request.Context()

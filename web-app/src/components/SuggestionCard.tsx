@@ -10,6 +10,7 @@ interface SuggestionCardProps {
   onTagDeletion: (docId: number, index: number) => void;
   onCorrespondentChange: (docId: number, correspondent: string) => void;
   onCreatedDateChange: (docId: number, createdDate: string) => void;
+  onCustomFieldSuggestionToggle: (docId: number, fieldId: number) => void;
 }
 
 const SuggestionCard: React.FC<SuggestionCardProps> = ({
@@ -20,6 +21,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onTagDeletion,
   onCorrespondentChange,
   onCreatedDateChange,
+  onCustomFieldSuggestionToggle,
 }) => {
   const sortedAvailableTags = availableTags.sort((a, b) => a.name.localeCompare(b.name));
   const document = suggestion.original_document;
@@ -133,6 +135,29 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
             placeholder="Created Date"
           />
         </div>
+        {suggestion.suggested_custom_fields && suggestion.suggested_custom_fields.length > 0 && (
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Suggested Custom Fields
+            </label>
+            <div className="mt-2 space-y-2">
+              {suggestion.suggested_custom_fields.map((field) => (
+                <div key={field.id} className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id={`custom-field-${suggestion.id}-${field.id}`}
+                    checked={field.isSelected}
+                    onChange={() => onCustomFieldSuggestionToggle(suggestion.id, field.id)}
+                    className="w-4 h-4 mr-2"
+                  />
+                  <label htmlFor={`custom-field-${suggestion.id}-${field.id}`} className="text-sm">
+                    <span className="font-semibold">{field.name}:</span> {String(field.value)}
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

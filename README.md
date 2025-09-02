@@ -39,7 +39,13 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 5. **Automatic Correspondent Generation**  
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
 
-6. **Searchable & Selectable PDFs**  
+6. **Automatic Custom Field Generation**  
+   Extract and populate custom fields from your documents. Configure which fields to target and how they should be filled. This feature must be enabled in the settings, and you must select at least one custom field for it to function. Three write modes are available:
+   - **Append**: This is the safest option: It only adds new fields that do not already exist on the document. It will never overwrite an existing field, even if it's empty.
+   - **Update**: Adds new fields and overwrites existing fields with new suggestions. Fields on the document that don't have a new suggestion are left untouched.
+   - **Replace**: Deletes all existing custom fields on the document and replaces them entirely with the suggested fields.
+
+7. **Searchable & Selectable PDFs**  
    Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance.
 
 7. **Extensive Customization**
@@ -620,6 +626,14 @@ Each template has access to specific variables:
 - `{{.Language}}` - Target language
 - `{{.Content}}` - Document content text
 
+**custom_field_prompt.tmpl**:
+
+- `{{.DocumentType}}` - The name of the document's type in paperless-ngx.
+- `{{.CustomFieldsXML}}` - An XML string listing the custom fields selected in the settings for processing.
+- `{{.Title}}` - Document title
+- `{{.CreatedDate}}` - Document's created date
+- `{{.Content}}` - Document content text
+
 The templates use Go's text/template syntax. paperless-gpt automatically reloads template changes after UI saves and on startup.
 
 ---
@@ -890,6 +904,10 @@ Common issues and solutions:
 - If PDFs aren't being generated, check that `OCR_LIMIT_PAGES` isn't set too low compared to your document page count
 - Ensure volumes are properly mounted if using `CREATE_LOCAL_PDF` or `CREATE_LOCAL_HOCR`
 - When using `PDF_REPLACE: "true"`, verify you have recent backups of your paperless-ngx data
+
+### Custom Field Generation Issues
+
+- **Feature Not Working**: If custom field suggestions are not being generated even though the feature is enabled, ensure you have selected at least one custom field in the settings. The feature requires at least one field to be selected to know what to process.
 
 ---
 
