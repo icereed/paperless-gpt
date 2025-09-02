@@ -36,6 +36,10 @@ type PaperlessClient struct {
 	APIToken    string
 	HTTPClient  *http.Client
 	CacheFolder string
+	// Document type caching
+	docTypesOnce sync.Once
+	docTypesByID map[int]string
+	docTypesMu   sync.RWMutex
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -372,17 +376,7 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	}
 
 	// Get all document types to find the name
-	allDocumentTypes, err := client.GetAllDocumentTypes(ctx)
-	if err != nil {
-		return Document{}, err
-	}
-	documentTypeName := ""
-	for _, docType := range allDocumentTypes {
-		if documentResponse.DocumentType == docType.ID {
-			documentTypeName = docType.Name
-			break
-		}
-	}
+	documentTypeName := client.lookupDocumentTypeName(ctx, documentResponse.DocumentType)
 
 	return Document{
 		ID:               documentResponse.ID,
@@ -1138,6 +1132,32 @@ func isEmptyCustomFieldValue(v interface{}) bool {
 		// Numbers/booleans: treat as non-empty because 0/false can be intentional
 		return false
 	}
+}
+
+// initDocTypesCache initializes the document types cache using sync.Once
+func (client *PaperlessClient) initDocTypesCache(ctx context.Context) {
+	client.docTypesOnce.Do(func() {
+		if types, err := client.GetAllDocumentTypes(ctx); err == nil {
+			m := make(map[int]string, len(types))
+			for _, t := range types {
+				m[t.ID] = t.Name
+			}
+			client.docTypesMu.Lock()
+			client.docTypesByID = m
+			client.docTypesMu.Unlock()
+		} else {
+			log.Warnf("Failed to warm document-types cache: %v", err)
+		}
+	})
+}
+
+// lookupDocumentTypeName returns the document type name for the given ID using cached data
+func (client *PaperlessClient) lookupDocumentTypeName(ctx context.Context, id int) string {
+	client.initDocTypesCache(ctx)
+	client.docTypesMu.RLock()
+	name := client.docTypesByID[id]
+	client.docTypesMu.RUnlock()
+	return name
 }
 
 // DeleteDocument deletes a document by its ID
