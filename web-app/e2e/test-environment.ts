@@ -103,6 +103,9 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
     OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
     PDF_OCR_TAGGING: "true",
     PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete",
+    // Custom fields configuration for testing
+    AUTO_GENERATE_CUSTOM_FIELD: "false", // Disable by default for tests
+    PAPERLESS_CUSTOM_FIELD_WRITING_MODE: "append",
   };
 
   // Configure OCR provider and processing mode based on config

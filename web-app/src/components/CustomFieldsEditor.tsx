@@ -33,9 +33,14 @@ const CustomFieldsEditor: React.FC = () => {
 
       const customFieldsUrl = forcePull ? '/api/custom_fields?force_pull=true' : '/api/custom_fields';
       const customFieldsRes = await fetch(customFieldsUrl);
-      if (!customFieldsRes.ok) throw new Error('Failed to fetch custom fields');
-      const customFieldsData = await customFieldsRes.json();
-      setCustomFields(customFieldsData || []);
+      if (customFieldsRes.ok) {
+        const customFieldsData = await customFieldsRes.json();
+        setCustomFields(customFieldsData || []);
+      } else {
+        // Don't throw error for custom fields fetch failure - just log it and use empty array
+        console.warn('Failed to fetch custom fields, using empty array:', customFieldsRes.status, customFieldsRes.statusText);
+        setCustomFields([]);
+      }
 
     } catch (err) {
       console.error('Error fetching initial data:', err);

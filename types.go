@@ -100,7 +100,7 @@ type GenerateSuggestionsRequest struct {
 type Settings struct {
 	CustomFieldsEnable      bool   `json:"custom_fields_enable"`
 	CustomFieldsSelectedIDs []int  `json:"custom_fields_selected_ids"`
-	CustomFieldsWriteMode   string `json:"custom_fields_write_mode"` // "append" or "replace"
+	CustomFieldsWriteMode   string `json:"custom_fields_write_mode"` // "append", "replace", or "update"
 }
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)

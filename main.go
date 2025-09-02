@@ -91,10 +91,22 @@ var (
 	settingsMutex       sync.RWMutex
 	customFieldsCache   []CustomField
 	customFieldsCacheMu sync.RWMutex
+	lastCacheRefresh    time.Time
+	cacheRefreshMutex   sync.Mutex
 )
 
 // refreshCustomFieldsCache fetches custom fields from Paperless and updates the cache.
 func refreshCustomFieldsCache(client ClientInterface) {
+	// Throttle cache refreshes to prevent too many concurrent requests
+	cacheRefreshMutex.Lock()
+	if time.Since(lastCacheRefresh) < 30*time.Second {
+		cacheRefreshMutex.Unlock()
+		log.Debug("Skipping cache refresh - too recent")
+		return
+	}
+	lastCacheRefresh = time.Now()
+	cacheRefreshMutex.Unlock()
+
 	log.Info("Refreshing custom fields cache...")
 	fields, err := client.GetCustomFields(context.Background())
 	if err != nil {
@@ -589,7 +601,7 @@ func validateOrDefaultEnvVars() {
 	// Validate custom field writing mode
 	if customFieldWritingMode == "" {
 		customFieldWritingMode = "append" // default
-	} else if customFieldWritingMode != "append" && customFieldWritingMode != "replace" {
+	} else if customFieldWritingMode != "append" && customFieldWritingMode != "replace" && customFieldWritingMode != "update" {
 		log.Warnf("Invalid PAPERLESS_CUSTOM_FIELD_WRITING_MODE value: %s, defaulting to append", customFieldWritingMode)
 		customFieldWritingMode = "append"
 	}

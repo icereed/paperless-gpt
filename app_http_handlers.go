@@ -146,8 +146,8 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 	if newSettings.CustomFieldsWriteMode == "" {
 		newSettings.CustomFieldsWriteMode = "append"
 	}
-	if newSettings.CustomFieldsWriteMode != "append" && newSettings.CustomFieldsWriteMode != "replace" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "custom_field_write_mode must be 'append' or 'replace'"})
+	if newSettings.CustomFieldsWriteMode != "append" && newSettings.CustomFieldsWriteMode != "replace" && newSettings.CustomFieldsWriteMode != "update" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "custom_fields_write_mode must be 'append', 'replace', or 'update'"})
 		return
 	}
 	// Deduplicate selected IDs
