@@ -951,7 +951,7 @@ func urlEncode(s string) string {
 func instantiateCorrespondent(name string) Correspondent {
 	return Correspondent{
 		Name:              name,
-		MatchingAlgorithm: 0,
+		MatchingAlgorithm: 1,
 		Match:             "",
 		IsInsensitive:     true,
 		Owner:             nil,
