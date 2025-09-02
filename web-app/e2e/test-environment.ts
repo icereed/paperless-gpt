@@ -110,7 +110,7 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
     PAPERLESS_CUSTOM_FIELD_WRITING_MODE: "append",
   };
   
-  console.log(`Using OpenAI API key: ${openaiApiKey.substring(0, 10)}...`);
+  console.log(`OpenAI API key is ${openaiApiKey ? "set" : "not set"}${openaiApiKey === "test-key-for-e2e-tests" ? " (using test key)" : ""}.`);
 
   // Configure OCR provider and processing mode based on config
   if (config?.ocrProvider === 'mistral_ocr') {
