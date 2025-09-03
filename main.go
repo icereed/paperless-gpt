@@ -82,6 +82,7 @@ var (
 	createdDateTemplate   *template.Template
 	customFieldTemplate   *template.Template
 	ocrTemplate           *template.Template
+	summaryTemplate       *template.Template
 	templateMutex         sync.RWMutex
 
 	// Server-side settings
@@ -729,6 +730,10 @@ func loadTemplates() error {
 		return err
 	}
 	ocrTemplate, err = loadTemplate("ocr_prompt.tmpl")
+	if err != nil {
+		return err
+	}
+	summaryTemplate, err = loadTemplate("summary_prompt.tmpl")
 	if err != nil {
 		return err
 	}

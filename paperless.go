@@ -392,6 +392,7 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 		OriginalFileName: documentResponse.OriginalFileName,
 		CustomFields:     documentResponse.CustomFields,
 		DocumentTypeName: documentTypeName,
+		Notes:            documentResponse.Notes,
 	}, nil
 }
 
@@ -491,6 +492,19 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		if document.SuggestedContent != "" && document.SuggestedContent != originalDoc.Content {
 			originalFields["content"] = originalDoc.Content
 			updatedFields["content"] = document.SuggestedContent
+		}
+
+		// --- SUMMARY (NOTES) ---
+		if document.SuggestedSummary != "" {
+			// Append the summary to existing notes
+			finalNotes := slices.Clone(originalDoc.Notes)
+			finalNotes = append(finalNotes, document.SuggestedSummary)
+			originalNotesJSON, _ := json.Marshal(originalDoc.Notes)
+			finalNotesJSON, _ := json.Marshal(finalNotes)
+			if string(originalNotesJSON) != string(finalNotesJSON) {
+				originalFields["notes"] = string(originalNotesJSON)
+				updatedFields["notes"] = finalNotes
+			}
 		}
 
 		// --- CUSTOM FIELDS ---
