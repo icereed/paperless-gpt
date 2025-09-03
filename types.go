@@ -84,6 +84,7 @@ type Document struct {
 	OriginalFileName string                `json:"original_file_name"`
 	DocumentTypeName string                `json:"document_type_name"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
+	Notes            []interface{}         `json:"notes"`
 }
 
 // GenerateSuggestionsRequest is the request payload for generating suggestions for /generate-suggestions endpoint
@@ -94,6 +95,7 @@ type GenerateSuggestionsRequest struct {
 	GenerateCorrespondents bool       `json:"generate_correspondents,omitempty"`
 	GenerateCreatedDate    bool       `json:"generate_created_date,omitempty"`
 	GenerateCustomFields   bool       `json:"generate_custom_fields,omitempty"`
+	GenerateSummary        bool       `json:"generate_summary,omitempty"`
 }
 
 // Settings defines the structure for server-side UI settings
@@ -113,6 +115,7 @@ type DocumentSuggestion struct {
 	SuggestedCorrespondent string                  `json:"suggested_correspondent,omitempty"`
 	SuggestedCreatedDate   string                  `json:"suggested_created_date,omitempty"`
 	SuggestedCustomFields  []CustomFieldSuggestion `json:"suggested_custom_fields,omitempty"`
+	SuggestedSummary       string                  `json:"suggested_summary,omitempty"`
 	KeepOriginalTags       bool                    `json:"keep_original_tags,omitempty"`
 	RemoveTags             []string                `json:"remove_tags,omitempty"`
 	CustomFieldsWriteMode  string                  `json:"custom_fields_write_mode,omitempty"`
