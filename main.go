@@ -222,6 +222,8 @@ func main() {
 		MistralModel:             os.Getenv("MISTRAL_MODEL"),
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
+		DoclingOCRPipeline:       doclingOCRPipeline,
+		DoclingOCREngine:         doclingOCREngine,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 	}
 
