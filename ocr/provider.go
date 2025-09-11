@@ -3,6 +3,7 @@ package ocr
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gardar/ocrchestra/pkg/hocr"
 	"github.com/sirupsen/logrus"
@@ -100,6 +101,8 @@ func NewProvider(config Config) (Provider, error) {
 			return nil, fmt.Errorf("missing required Docling configuration (DOCLING_URL)")
 		}
 
+		config.DoclingOCRPipeline = strings.TrimSpace(config.DoclingOCRPipeline)
+		config.DoclingOCREngine = strings.TrimSpace(config.DoclingOCREngine)
 		if config.DoclingOCRPipeline == "" {
 			config.DoclingOCRPipeline = "vlm"
 		}
