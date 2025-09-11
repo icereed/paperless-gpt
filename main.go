@@ -541,11 +541,11 @@ func validateOrDefaultEnvVars() {
 			log.Fatal("Please set the DOCLING_URL environment variable for Docling provider")
 		}
 		if doclingImageExportMode == "" {
-			doclingImageExportMode = "embedded" // Default to PNG
+			doclingImageExportMode = "embedded" // Defaults to "embedded"
 			log.Infof("DOCLING_IMAGE_EXPORT_MODE not set, defaulting to %s", doclingImageExportMode)
 		}
 		if doclingOCRPipeline == "" {
-			doclingOCRPipeline = "vlm"
+			doclingOCRPipeline = "vlm" // Defaults to "vlm"
 			log.Infof("DOCLING_OCR_PIPELINE not set, defaulting to %s", doclingOCRPipeline)
 		}
 		if doclingOCRPipeline == "standard" && doclingOCREngine == "" {
