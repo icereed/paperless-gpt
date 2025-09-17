@@ -83,7 +83,7 @@ const DocumentProcessor: React.FC = () => {
       ]);
 
       setFilterTag(filterTagRes.data.tag);
-      setAllCustomFields(customFieldsRes.data);
+      setAllCustomFields(customFieldsRes.data || []);
       setDocuments(documentsRes.data);
       const tags = Object.keys(tagsRes.data).map((tag) => ({
         id: tag,
@@ -121,7 +121,7 @@ const DocumentProcessor: React.FC = () => {
       );
 
       // Post-process suggestions to add names and isSelected flag
-      const customFieldMap = new Map(allCustomFields.map(cf => [cf.id, cf.name]));
+      const customFieldMap = new Map((allCustomFields || []).map(cf => [cf.id, cf.name]));
       const processedSuggestions = data.map(suggestion => ({
         ...suggestion,
         suggested_custom_fields: suggestion.suggested_custom_fields?.map(cf => ({
