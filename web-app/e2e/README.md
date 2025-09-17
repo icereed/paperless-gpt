@@ -18,6 +18,19 @@ The E2E tests validate the complete integration between the paperless-gpt fronte
 - Node.js 18+ with npm
 - Playwright browsers (automatically installed)
 
+### Build the Test Image
+
+**CRITICAL**: Before running E2E tests, you must build the paperless-gpt Docker image that the tests will use:
+
+```bash
+# From the project root directory
+docker build . -t icereed/paperless-gpt:e2e
+```
+
+This builds the complete application (frontend + backend) into a Docker image. The E2E tests will use this image to create the paperless-gpt container.
+
+**Note**: You must rebuild this image whenever you make changes to the application code that you want to test.
+
 ### Required Environment Variables
 
 For **OpenAI LLM OCR tests**:
@@ -38,6 +51,8 @@ export PAPERLESS_GPT_IMAGE="your_custom_image:tag"
 # Base URL for paperless-gpt (defaults to http://localhost:8080)
 export PAPERLESS_GPT_URL="http://localhost:8080"
 ```
+
+**Important**: The `PAPERLESS_GPT_IMAGE` environment variable allows you to specify which Docker image the tests should use. If not set, it defaults to `icereed/paperless-gpt:e2e`, which you must build with the `docker build` command shown above.
 
 ## Test Architecture
 
@@ -60,6 +75,26 @@ Each test spins up a complete environment using TestContainers:
 - Predefined tags: `paperless-gpt`, `paperless-gpt-ocr-auto`, `paperless-gpt-ocr-complete`
 
 ## Running Tests
+
+### Quick Start
+
+1. **Build the Docker image** (required before first run or after code changes):
+   ```bash
+   # From project root
+   docker build . -t icereed/paperless-gpt:e2e
+   ```
+
+2. **Set environment variables**:
+   ```bash
+   export OPENAI_API_KEY="your_openai_api_key_here"
+   # Optional: export MISTRAL_API_KEY="your_mistral_api_key_here"
+   ```
+
+3. **Run the tests**:
+   ```bash
+   # From web-app directory
+   npm run test:e2e
+   ```
 
 ### Run All Tests
 ```bash
@@ -214,6 +249,24 @@ docker logs <container_id>
 ## Troubleshooting
 
 ### Common Issues
+
+#### "TestContainers timeout" Error
+- Ensure Docker is running
+- Check available disk space (containers need ~2GB)
+- Verify network connectivity for image downloads
+
+#### "Image not found" or "Failed to pull image" Error
+**This usually means you forgot to build the test image.**
+
+```bash
+# Solution: Build the required Docker image
+docker build . -t icereed/paperless-gpt:e2e
+```
+
+The E2E tests expect this specific image tag. If you're using a different image, set the `PAPERLESS_GPT_IMAGE` environment variable:
+```bash
+export PAPERLESS_GPT_IMAGE="your_custom_image:tag"
+```
 
 #### "Browser not installed" Error
 ```bash

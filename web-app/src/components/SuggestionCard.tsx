@@ -141,7 +141,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               Suggested Custom Fields
             </label>
             <div className="mt-2 space-y-2">
-              {suggestion.suggested_custom_fields.map((field) => (
+              {suggestion.suggested_custom_fields?.map((field) => (
                 <div key={field.id} className="flex items-center">
                   <input
                     type="checkbox"
@@ -154,7 +154,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                     <span className="font-semibold">{field.name}:</span> {String(field.value)}
                   </label>
                 </div>
-              ))}
+              )) || []}
             </div>
           </div>
         )}
