@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -415,6 +416,60 @@ func (app *App) undoModificationHandler(c *gin.Context) {
 
 	// Else all was ok
 	c.Status(http.StatusOK)
+}
+
+// analyzeDocumentsHandler handles the POST /api/analyze-documents endpoint
+func (app *App) analyzeDocumentsHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	var req AnalyzeDocumentsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request payload: %v", err)})
+		log.Errorf("Invalid request payload: %v", err)
+		return
+	}
+
+	var documents []Document
+	for _, docID := range req.DocumentIDs {
+		doc, err := app.Client.GetDocument(ctx, docID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching document %d: %v", docID, err)})
+			log.Errorf("Error fetching document %d: %v", docID, err)
+			return
+		}
+		documents = append(documents, doc)
+	}
+
+	// Create a new template from the prompt string in the request
+	tmpl, err := template.New("adhoc-analysis").Funcs(sprig.FuncMap()).Parse(req.Prompt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid prompt template"})
+		log.Errorf("Invalid prompt template: %v", err)
+		return
+	}
+
+	var promptBuffer bytes.Buffer
+	err = tmpl.Execute(&promptBuffer, map[string]interface{}{
+		"Documents": documents,
+		"Language":  getLikelyLanguage(),
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error executing adhoc analysis template"})
+		log.Errorf("Error executing adhoc analysis template: %v", err)
+		return
+	}
+
+	finalPrompt := promptBuffer.String()
+
+	// Call LLM with the custom prompt and document contexts
+	llmResponse, err := app.LLM.Call(ctx, finalPrompt)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error calling LLM"})
+		log.Errorf("Error calling LLM: %v", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"result": llmResponse})
 }
 
 // containsDotDot checks if a string contains ".." to prevent path traversal.
