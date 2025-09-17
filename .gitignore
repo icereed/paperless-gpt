@@ -11,3 +11,4 @@ web-app/test-results
 dist/
 *.tsbuildinfo
 paperless-gpt
+web-app/e2e/test-results
