@@ -9,6 +9,9 @@
 
 ![Screenshot](./paperless-gpt-screenshot.png)
 
+<sub>💡 Maintained by [Icereed](https://github.com/icereed). Proudly supported by [BubbleTax.de](https://bubbletax.de/?utm_source=github&utm_medium=readme&utm_campaign=paperless) – automated, BMF-compliant tax reports for Interactive Brokers traders in Germany.</sub>
+
+---
 **paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**-ensuring high accuracy, even with tricky scans. If you're craving next-level text extraction and effortless document organization, this is your solution.
 
 https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
@@ -934,6 +937,15 @@ If paperless-gpt is saving you time and making your document management easier, 
 - **Contribute** code, documentation, or bug reports
 
 Your support helps ensure paperless-gpt remains actively maintained and continues to improve!
+
+---
+
+## Maintainer Note
+
+This project is fully open-source and will remain free to use.  
+It's maintained by [Icereed](https://github.com/icereed), with partial support from my other project:  
+👉 [BubbleTax.de](https://bubbletax.de/?utm_source=github&utm_medium=footer&utm_campaign=paperless) — automated tax reports for IBKR traders in Germany.  
+If you're a developer who also trades, check it out. If not – no worries 😊
 
 ---
 
