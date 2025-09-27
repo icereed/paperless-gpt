@@ -21,6 +21,7 @@ export interface GenerateSuggestionsRequest {
   generate_correspondents?: boolean;
   generate_created_date?: boolean;
   generate_custom_fields?: boolean;
+  generate_summary?: boolean;
   selected_custom_field_ids?: number[];
   custom_field_write_mode?: string;
 }
@@ -41,6 +42,7 @@ export interface DocumentSuggestion {
   suggested_correspondent?: string;
   suggested_created_date?: string;
   suggested_custom_fields?: CustomFieldSuggestion[];
+  suggested_summary?: string;
 }
 
 export interface TagOption {
@@ -69,6 +71,7 @@ const DocumentProcessor: React.FC = () => {
   const [generateCorrespondents, setGenerateCorrespondents] = useState(true);
   const [generateCreatedDate, setGenerateCreatedDate] = useState(true);
   const [generateCustomFields, setGenerateCustomFields] = useState(true);
+  const [generateSummary, setGenerateSummary] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Custom hook to fetch initial data
@@ -112,6 +115,7 @@ const DocumentProcessor: React.FC = () => {
         generate_correspondents: generateCorrespondents,
         generate_created_date: generateCreatedDate,
         generate_custom_fields: generateCustomFields,
+        generate_summary: generateSummary,
       };
 
       const { data } = await axios.post<DocumentSuggestion[]>(
@@ -229,6 +233,14 @@ const DocumentProcessor: React.FC = () => {
     );
   }
 
+  const handleSummaryChange = (docId: number, summary: string) => {
+    setSuggestions((prevSuggestions) =>
+      prevSuggestions.map((doc) =>
+        doc.id === docId ? { ...doc, suggested_summary: summary } : doc
+      )
+    );
+  }
+
   const resetSuggestions = () => {
     setSuggestions([]);
   };
@@ -304,6 +316,8 @@ const DocumentProcessor: React.FC = () => {
           setGenerateCreatedDate={setGenerateCreatedDate}
           generateCustomFields={generateCustomFields}
           setGenerateCustomFields={setGenerateCustomFields}
+          generateSummary={generateSummary}
+          setGenerateSummary={setGenerateSummary}
           onProcess={handleProcessDocuments}
           processing={processing}
           onReload={reloadDocuments}
@@ -317,6 +331,7 @@ const DocumentProcessor: React.FC = () => {
           onTagDeletion={handleTagDeletion}
           onCorrespondentChange={handleCorrespondentChange}
           onCreatedDateChange={handleCreatedDateChange}
+          onSummaryChange={handleSummaryChange}
           onCustomFieldSuggestionToggle={handleCustomFieldSuggestionToggle}
           onBack={resetSuggestions}
           onUpdate={handleUpdateDocuments}
