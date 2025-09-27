@@ -540,7 +540,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 
 		if !hasSameTags(originalDoc.Tags, finalTagNames) {
 			originalFields["tags"] = originalDoc.Tags
-			var newTagIDs []int
+			var newTagIDs []int = []int{}
 			for _, tagName := range finalTagNames {
 				if tagID, exists := availableTags[tagName]; exists {
 					newTagIDs = append(newTagIDs, tagID)
