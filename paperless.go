@@ -395,6 +395,105 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	}, nil
 }
 
+// GetSimilarDocuments retrieves documents that are similar to the specified document
+func (client *PaperlessClient) GetSimilarDocuments(ctx context.Context, documentID int, maxResults int) ([]Document, error) {
+	// Get all tags to find the IDs of paperless-gpt tags to exclude
+	allTags, err := client.GetAllTags(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tags for exclusion: %w", err)
+	}
+
+	// Find the tag IDs for paperless-gpt tags that should be excluded
+	var excludeTagIDs []string
+	for tagName, tagID := range allTags {
+		if tagName == manualTag || tagName == autoTag {
+			excludeTagIDs = append(excludeTagIDs, fmt.Sprintf("%d", tagID))
+		}
+	}
+
+	// Build the query path with tag exclusions
+	path := fmt.Sprintf("api/documents/?ordering=-score&truncate_content=true&more_like_id=%d&page_size=%d", documentID, maxResults)
+	if len(excludeTagIDs) > 0 {
+		path += "&tags__id__none=" + strings.Join(excludeTagIDs, ",")
+	}
+
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed in GetSimilarDocuments: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read the response body
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.WithFields(logrus.Fields{
+			"status_code": resp.StatusCode,
+			"path":        path,
+			"response":    string(bodyBytes),
+			"headers":     resp.Header,
+		}).Error("Error response from server in GetSimilarDocuments")
+		return nil, fmt.Errorf("error searching similar documents: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var documentsResponse GetDocumentsApiResponse
+	err = json.Unmarshal(bodyBytes, &documentsResponse)
+	if err != nil {
+		log.WithFields(logrus.Fields{
+			"response_body": string(bodyBytes),
+			"error":         err,
+		}).Error("Failed to parse JSON response in GetSimilarDocuments")
+		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
+	}
+
+	allCorrespondents, err := client.GetAllCorrespondents(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	documents := make([]Document, 0, len(documentsResponse.Results))
+	for _, result := range documentsResponse.Results {
+		// Skip the document itself if it appears in the results
+		if result.ID == documentID {
+			continue
+		}
+
+		tagNames := make([]string, len(result.Tags))
+		for i, resultTagID := range result.Tags {
+			for tagName, tagID := range allTags {
+				if resultTagID == tagID {
+					tagNames[i] = tagName
+					break
+				}
+			}
+		}
+
+		correspondentName := ""
+		if result.Correspondent != 0 {
+			for name, id := range allCorrespondents {
+				if result.Correspondent == id {
+					correspondentName = name
+					break
+				}
+			}
+		}
+
+		documents = append(documents, Document{
+			ID:            result.ID,
+			Title:         result.Title,
+			Content:       result.Content,
+			Correspondent: correspondentName,
+			Tags:          tagNames,
+			CreatedDate:   result.CreatedDate,
+		})
+	}
+
+	return documents, nil
+}
+
 // UpdateDocuments updates the specified documents with suggested changes
 func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
 	availableTags, err := client.GetAllTags(ctx)

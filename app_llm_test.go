@@ -104,8 +104,10 @@ func TestPromptTokenLimits(t *testing.T) {
 
 	// Create a test app with mock LLM
 	mockLLM := &mockLLM{}
+	mockClient := &mockPaperlessClient{}
 	app := &App{
-		LLM: mockLLM,
+		LLM:    mockLLM,
+		Client: mockClient,
 	}
 
 	// Set up test template
@@ -157,7 +159,7 @@ Content: {{.Content}}
 
 			// Test with the app's LLM
 			ctx := context.Background()
-			_, err = app.getSuggestedTitle(ctx, truncatedContent, "Test Title", testLogger)
+			_, err = app.getSuggestedTitle(ctx, 1, truncatedContent, "Test Title", testLogger)
 			require.NoError(t, err)
 
 			// Verify truncation
@@ -269,8 +271,10 @@ func TestTokenLimitInTitleGeneration(t *testing.T) {
 
 	// Create a test app with mock LLM
 	mockLLM := &mockLLM{}
+	mockClient := &mockPaperlessClient{}
 	app := &App{
-		LLM: mockLLM,
+		LLM:    mockLLM,
+		Client: mockClient,
 	}
 
 	// Test content that would exceed reasonable token limits
@@ -284,7 +288,7 @@ func TestTokenLimitInTitleGeneration(t *testing.T) {
 	// Call getSuggestedTitle
 	ctx := context.Background()
 
-	_, err := app.getSuggestedTitle(ctx, longContent, "Original Title", testLogger)
+	_, err := app.getSuggestedTitle(ctx, 1, longContent, "Original Title", testLogger)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
@@ -360,8 +364,9 @@ func TestStripReasoning(t *testing.T) {
 
 // mockPaperlessClient is a mock implementation of the ClientInterface for testing.
 type mockPaperlessClient struct {
-	CustomFields []CustomField
-	Error        error
+	CustomFields     []CustomField
+	SimilarDocuments []Document
+	Error            error
 }
 
 func (m *mockPaperlessClient) GetCustomFields(ctx context.Context) ([]CustomField, error) {
@@ -406,6 +411,12 @@ func (m *mockPaperlessClient) GetTaskStatus(ctx context.Context, taskID string) 
 	return nil, nil
 }
 func (m *mockPaperlessClient) DeleteDocument(ctx context.Context, documentID int) error { return nil }
+func (m *mockPaperlessClient) GetSimilarDocuments(ctx context.Context, documentID int, count int) ([]Document, error) {
+	if m.Error != nil {
+		return nil, m.Error
+	}
+	return m.SimilarDocuments, nil
+}
 
 func TestGetSuggestedCustomFields(t *testing.T) {
 	// 1. Setup
@@ -483,4 +494,136 @@ func findFieldByID(fields []CustomFieldSuggestion, id int) (CustomFieldSuggestio
 		}
 	}
 	return CustomFieldSuggestion{}, false
+}
+
+func TestGetSuggestedTitle_WithSimilarDocuments(t *testing.T) {
+	testLogger := logrus.WithField("test", "test")
+
+	// Set higher token limit for this test
+	originalLimit := os.Getenv("TOKEN_LIMIT")
+	os.Setenv("TOKEN_LIMIT", "200")
+	resetTokenLimit()
+	defer func() {
+		os.Setenv("TOKEN_LIMIT", originalLimit)
+		resetTokenLimit()
+	}()
+
+	// Create a mock client that returns similar documents
+	mockClient := &mockPaperlessClient{
+		SimilarDocuments: []Document{
+			{ID: 2, Title: "Invoice January 2023 - Company ABC"},
+			{ID: 3, Title: "Invoice February 2023 - Company ABC"},
+			{ID: 4, Title: "Receipt March 2023 - Company XYZ"},
+		},
+	}
+
+	mockLLM := &mockLLM{Response: "Invoice March 2023 - Company ABC"}
+	app := &App{
+		LLM:    mockLLM,
+		Client: mockClient,
+	}
+
+	// Set up title template
+	var err error
+	titleTemplate, err = template.New("title").Parse(`I will provide you with the content of a document.
+Your task is to find a suitable document title.
+{{if .SimilarDocumentTitles}}I have found some similar documents with the following titles:
+{{range .SimilarDocumentTitles}}- {{.}}
+{{end}}Please try to be consistent with the naming pattern.{{end}}
+
+<original_title>{{.Title}}</original_title>
+<content>{{.Content}}</content>`)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	content := "This is an invoice from Company ABC for March 2023 services."
+	originalTitle := "document.pdf"
+
+	title, err := app.getSuggestedTitle(ctx, 1, content, originalTitle, testLogger)
+	require.NoError(t, err)
+	assert.Equal(t, "Invoice March 2023 - Company ABC", title)
+
+	// Verify that the prompt included similar document titles
+	assert.Contains(t, mockLLM.lastPrompt, "Invoice January 2023 - Company ABC")
+	assert.Contains(t, mockLLM.lastPrompt, "Invoice February 2023 - Company ABC")
+	assert.Contains(t, mockLLM.lastPrompt, "Receipt March 2023 - Company XYZ")
+	assert.Contains(t, mockLLM.lastPrompt, "Please try to be consistent with the naming pattern")
+}
+
+func TestGetSuggestedTitle_NoSimilarDocuments(t *testing.T) {
+	testLogger := logrus.WithField("test", "test")
+
+	// Create a mock client that returns no similar documents
+	mockClient := &mockPaperlessClient{
+		SimilarDocuments: []Document{},
+	}
+
+	mockLLM := &mockLLM{Response: "Contract Agreement 2023"}
+	app := &App{
+		LLM:    mockLLM,
+		Client: mockClient,
+	}
+
+	// Set up title template
+	var err error
+	titleTemplate, err = template.New("title").Parse(`I will provide you with the content of a document.
+Your task is to find a suitable document title.
+{{if .SimilarDocumentTitles}}I have found some similar documents with the following titles:
+{{range .SimilarDocumentTitles}}- {{.}}
+{{end}}Please try to be consistent with the naming pattern.{{end}}
+
+<original_title>{{.Title}}</original_title>
+<content>{{.Content}}</content>`)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	content := "This is a contract agreement document."
+	originalTitle := "document.pdf"
+
+	title, err := app.getSuggestedTitle(ctx, 1, content, originalTitle, testLogger)
+	require.NoError(t, err)
+	assert.Equal(t, "Contract Agreement 2023", title)
+
+	// Verify that the prompt did not include the similar documents section
+	assert.NotContains(t, mockLLM.lastPrompt, "I have found some similar documents")
+	assert.NotContains(t, mockLLM.lastPrompt, "Please try to be consistent with the naming pattern")
+}
+
+func TestGetSuggestedTitle_SimilarDocumentsError(t *testing.T) {
+	testLogger := logrus.WithField("test", "test")
+
+	// Create a mock client that returns an error for similar documents
+	mockClient := &mockPaperlessClient{
+		Error: fmt.Errorf("API error"),
+	}
+
+	mockLLM := &mockLLM{Response: "Generated Title"}
+	app := &App{
+		LLM:    mockLLM,
+		Client: mockClient,
+	}
+
+	// Set up title template
+	var err error
+	titleTemplate, err = template.New("title").Parse(`I will provide you with the content of a document.
+Your task is to find a suitable document title.
+{{if .SimilarDocumentTitles}}I have found some similar documents with the following titles:
+{{range .SimilarDocumentTitles}}- {{.}}
+{{end}}Please try to be consistent with the naming pattern.{{end}}
+
+<original_title>{{.Title}}</original_title>
+<content>{{.Content}}</content>`)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	content := "This is a document."
+	originalTitle := "document.pdf"
+
+	// Should still work even if similar documents lookup fails
+	title, err := app.getSuggestedTitle(ctx, 1, content, originalTitle, testLogger)
+	require.NoError(t, err)
+	assert.Equal(t, "Generated Title", title)
+
+	// Verify that the prompt did not include the similar documents section
+	assert.NotContains(t, mockLLM.lastPrompt, "I have found some similar documents")
 }
