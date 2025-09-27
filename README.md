@@ -217,6 +217,10 @@ services:
       # Option 4: Docling Server
       # OCR_PROVIDER: 'docling'              # Use a Docling server
       # DOCLING_URL: 'http://your-docling-server:port' # URL of your Docling instance
+      # DOCLING_IMAGE_EXPORT_MODE: "placeholder" # Optional, defaults to "embedded"
+      # DOCLING_OCR_PIPELINE: "standard" # Optional, defaults to "vlm"
+      # DOCLING_OCR_ENGINE: "easyocr" # Optional, defaults to "easyocr" if DOCLING_OCR_PIPELINE is set to "vlm"
+
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
@@ -361,6 +365,9 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   ```yaml
   OCR_PROVIDER: "docling"
   DOCLING_URL: "http://your-docling-server:port"
+  DOCLING_IMAGE_EXPORT_MODE: "placeholder" # Optional, defaults to "embedded"
+  DOCLING_OCR_PIPELINE: "standard" # Optional, defaults to "vlm"
+  DOCLING_OCR_ENGINE: "macocr" # Optional, defaults to "easyocr" if DOCLING_OCR_PIPELINE is set to "vlm"
   ```
 
 ## OCR Processing Modes
@@ -555,6 +562,8 @@ For best results with the enhanced OCR features:
 | `GOOGLE_APPLICATION_CREDENTIALS`    | Path to the mounted Google service account key. Required if OCR_PROVIDER is `google_docai`.                                                                                                   | Cond.    |                            |
 | `DOCLING_URL`                       | URL of the Docling server instance. Required if OCR_PROVIDER is `docling`.                                                                                                                    | Cond.    |                            |
 | `DOCLING_IMAGE_EXPORT_MODE`         | Mode for image export. Optional; defaults to `embedded` if unset.                                                                                                                             | No       | embedded                   |
+| `DOCLING_OCR_PIPELINE`              | Sets the pipeline type. Optional; defaults to `vlm` if unset.                                                                                                                                 | No       | vlm                        |
+| `DOCLING_OCR_ENGINE`                | Sets the ocr engine, if `DOCLING_OCR_PIPELINE` is set to `standard`. Optional; defaults to `easyocr`                                                                                          | No       | easyocr                    |
 | `CREATE_LOCAL_HOCR`                 | Whether to save hOCR files locally.                                                                                                                                                           | No       | false                      |
 | `LOCAL_HOCR_PATH`                   | Path where hOCR files will be saved when hOCR generation is enabled.                                                                                                                          | No       | /app/hocr                  |
 | `CREATE_LOCAL_PDF`                  | Whether to save enhanced PDFs locally.                                                                                                                                                        | No       | false                      |
