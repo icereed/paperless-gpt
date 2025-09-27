@@ -10,6 +10,7 @@ interface SuggestionCardProps {
   onTagDeletion: (docId: number, index: number) => void;
   onCorrespondentChange: (docId: number, correspondent: string) => void;
   onCreatedDateChange: (docId: number, createdDate: string) => void;
+  onSummaryChange: (docId: number, summary: string) => void;
   onCustomFieldSuggestionToggle: (docId: number, fieldId: number) => void;
 }
 
@@ -21,6 +22,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onTagDeletion,
   onCorrespondentChange,
   onCreatedDateChange,
+  onSummaryChange,
   onCustomFieldSuggestionToggle,
 }) => {
   const sortedAvailableTags = availableTags.sort((a, b) => a.name.localeCompare(b.name));
@@ -135,6 +137,20 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
             placeholder="Created Date"
           />
         </div>
+        {suggestion.suggested_summary && (
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Suggested Summary
+            </label>
+            <textarea
+              value={suggestion.suggested_summary || ""}
+              onChange={(e) => onSummaryChange(suggestion.id, e.target.value)}
+              className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
+              placeholder="Document Summary"
+              rows={3}
+            />
+          </div>
+        )}
         {suggestion.suggested_custom_fields && suggestion.suggested_custom_fields.length > 0 && (
           <div className="mt-4">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">

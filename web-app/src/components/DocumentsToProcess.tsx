@@ -15,6 +15,8 @@ interface DocumentsToProcessProps {
   setGenerateCreatedDate: React.Dispatch<React.SetStateAction<boolean>>;
   generateCustomFields: boolean;
   setGenerateCustomFields: React.Dispatch<React.SetStateAction<boolean>>;
+  generateSummary: boolean;
+  setGenerateSummary: React.Dispatch<React.SetStateAction<boolean>>;
   onProcess: () => void;
   processing: boolean;
   onReload: () => void;
@@ -32,6 +34,8 @@ const DocumentsToProcess: React.FC<DocumentsToProcessProps> = ({
   setGenerateCreatedDate,
   generateCustomFields,
   setGenerateCustomFields,
+  generateSummary,
+  setGenerateSummary,
   onProcess,
   processing,
   onReload,
@@ -102,6 +106,15 @@ const DocumentsToProcess: React.FC<DocumentsToProcessProps> = ({
           className="dark:bg-gray-700 dark:border-gray-600"
         />
         <span className="text-gray-700 dark:text-gray-200">Generate Custom Fields</span>
+      </label>
+      <label className="flex items-center space-x-2">
+        <input
+          type="checkbox"
+          checked={generateSummary}
+          onChange={(e) => setGenerateSummary(e.target.checked)}
+          className="dark:bg-gray-700 dark:border-gray-600"
+        />
+        <span className="text-gray-700 dark:text-gray-200">Generate Summary</span>
       </label>
     </div>
 
