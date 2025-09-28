@@ -66,6 +66,12 @@ func newTestEnv(t *testing.T) *testEnv {
 		w.Write([]byte(`{"results": []}`))
 	})
 
+	// Add mock response for /api/custom_fields/
+	env.setMockResponse("/api/custom_fields/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"results": []}`))
+	})
+
 	return env
 }
 
