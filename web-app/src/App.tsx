@@ -5,6 +5,7 @@ import DocumentProcessor from './DocumentProcessor';
 import ExperimentalOCR from './ExperimentalOCR'; // New component
 import History from './History';
 import Settings from './components/Settings';
+import AdhocAnalysis from './AdhocAnalysis';
 
 const App: React.FC = () => {
   // Keep the base path (path prefix from reverse-proxy) and remove the app path,
@@ -20,6 +21,7 @@ const App: React.FC = () => {
             <div className="flex-1">
               <Routes>
                 <Route path="/" element={<DocumentProcessor />} />
+                <Route path="/adhoc-analysis" element={<AdhocAnalysis />} />
                 <Route path="/experimental-ocr" element={<ExperimentalOCR />} />
                 <Route path="/history" element={<History />} />
                 <Route path="/settings" element={<Settings />} />
