@@ -3,10 +3,24 @@ import { Document } from "../DocumentProcessor";
 
 interface DocumentCardProps {
   document: Document;
+  isSelected?: boolean;
+  onSelect?: (documentId: number) => void;
 }
 
-const DocumentCard: React.FC<DocumentCardProps> = ({ document }) => (
-  <div className="document-card bg-white dark:bg-gray-800 shadow-lg shadow-blue-500/50 rounded-md p-4 relative group overflow-hidden">
+const DocumentCard: React.FC<DocumentCardProps> = ({ document, isSelected, onSelect }) => (
+  <div 
+    className={`document-card bg-white dark:bg-gray-800 shadow-lg shadow-blue-500/50 rounded-md p-4 relative group overflow-hidden cursor-pointer ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
+    onClick={() => onSelect && onSelect(document.id)}
+  >
+    {onSelect && (
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={() => onSelect(document.id)}
+        onClick={(e) => e.stopPropagation()}
+        className="absolute top-2 right-2 h-6 w-6 z-10"
+      />
+    )}
     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">{document.title}</h3>
     <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 truncate">
       {document.content.length > 100

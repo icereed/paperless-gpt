@@ -65,6 +65,9 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
    - **Manual Review**: Approve or tweak AI's suggestions.
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
 
+9. **Ad-hoc Document Analysis**
+   Perform ad-hoc analysis on a selection of documents using a custom prompt. Gain quick insights, summaries, or extract specific information from multiple documents at once.
+
 ---
 
 ## Table of Contents
