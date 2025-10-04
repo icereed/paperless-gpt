@@ -47,7 +47,7 @@
     "node-fetch": "^3.3.0",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.12",
-    "testcontainers": "^10.17.1",
+    "testcontainers": "^11.0.0",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.0.1",
     "vite": "^7.0.0"
