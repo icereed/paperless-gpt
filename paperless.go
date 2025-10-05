@@ -456,14 +456,59 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		slices.Sort(finalTagNames)
 		finalTagNames = slices.Compact(finalTagNames)
 
+		// Convert tag names to IDs, with optional auto-creation
 		if !hasSameTags(originalDoc.Tags, finalTagNames) {
 			originalFields["tags"] = originalDoc.Tags
+
+			// Read setting once for this batch
+			settingsMutex.RLock()
+			autoCreateEnabled := settings.TagsAutoCreate
+			settingsMutex.RUnlock()
+
 			var newTagIDs []int
 			for _, tagName := range finalTagNames {
 				if tagID, exists := availableTags[tagName]; exists {
 					newTagIDs = append(newTagIDs, tagID)
+				} else {
+					// Check if this is a system tag (always auto-create)
+					isSystemTag := tagName == manualTag || tagName == autoTag ||
+						tagName == autoOcrTag || tagName == pdfOCRCompleteTag
+
+					if isSystemTag || autoCreateEnabled {
+						log.Infof("Creating tag '%s' for document %d", tagName, documentID)
+						tagID, err := client.CreateTag(ctx, tagName)
+						if err != nil {
+							if isSystemTag {
+								// System tags are critical - fatal error
+								return fmt.Errorf("failed to create system tag '%s': %w", tagName, err)
+							} else {
+								// User tag creation failed - fatal error (per requirements)
+								return fmt.Errorf("failed to create tag '%s': %w", tagName, err)
+							}
+						}
+						newTagIDs = append(newTagIDs, tagID)
+						availableTags[tagName] = tagID // Cache for subsequent documents in batch
+						log.Infof("Created tag '%s' with ID %d", tagName, tagID)
+					}
+					// else: Tag doesn't exist and auto-create disabled - silently skip
 				}
 			}
+
+			// Validation: Prevent empty tag arrays
+			if len(newTagIDs) == 0 {
+				log.Warnf("Document %d: All tags invalid or removed, using fallback tag '%s'",
+					documentID, pdfOCRCompleteTag)
+
+				// Use pdfOCRCompleteTag as fallback
+				if fallbackID, exists := availableTags[pdfOCRCompleteTag]; exists {
+					newTagIDs = []int{fallbackID}
+				} else {
+					// Fallback tag should exist from Phase 1, but handle defensively
+					return fmt.Errorf("document %d: cannot update with empty tags and fallback tag '%s' does not exist",
+						documentID, pdfOCRCompleteTag)
+				}
+			}
+
 			updatedFields["tags"] = newTagIDs
 		}
 
@@ -565,6 +610,22 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 						}
 					}
 				}
+
+				// Validation: Prevent empty tag arrays after system tag removal
+				if len(finalTagIDs) == 0 {
+					log.Infof("Document %d: Only had system tags, using fallback tag '%s'",
+						documentID, pdfOCRCompleteTag)
+
+					if fallbackID, exists := availableTags[pdfOCRCompleteTag]; exists {
+						finalTagIDs = []int{fallbackID}
+					} else {
+						// Should not happen after Phase 1, but handle defensively
+						log.Warnf("Document %d: Fallback tag '%s' does not exist, skipping tag update",
+							documentID, pdfOCRCompleteTag)
+						continue
+					}
+				}
+
 				updatedFields["tags"] = finalTagIDs
 			} else {
 				continue
@@ -1168,7 +1229,12 @@ func (client *PaperlessClient) GetTaskStatus(ctx context.Context, taskID string)
 	return result, nil
 }
 
-// CreateTag creates a new tag and returns its ID
+// CreateTag creates a new tag in paperless-ngx with the given name.
+// Returns the created tag's ID.
+// Used for:
+// - System tag bootstrap at startup (see ensureSystemTagsExist in main.go)
+// - OCR complete tag creation (see ocr.go)
+// - Optional user tag auto-creation when settings.TagsAutoCreate is enabled
 func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (int, error) {
 	type tagRequest struct {
 		Name string `json:"name"`

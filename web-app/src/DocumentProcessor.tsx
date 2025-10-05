@@ -143,7 +143,21 @@ const DocumentProcessor: React.FC = () => {
   const handleUpdateDocuments = async () => {
     setUpdating(true);
     setError(null);
+
     try {
+      // Validate all documents have at least one tag
+      const invalidDocs = suggestions.filter(
+        (doc) => !doc.suggested_tags || doc.suggested_tags.length === 0
+      );
+
+      if (invalidDocs.length > 0) {
+        setError(
+          `${invalidDocs.length} document(s) have no tags. All documents must have at least one tag.`
+        );
+        setUpdating(false);
+        return;
+      }
+
       // Filter out deselected custom fields before sending
       const payload = suggestions.map(suggestion => {
         const { suggested_custom_fields, ...rest } = suggestion;
@@ -194,14 +208,22 @@ const DocumentProcessor: React.FC = () => {
 
   const handleTagDeletion = (docId: number, index: number) => {
     setSuggestions((prevSuggestions) =>
-      prevSuggestions.map((doc) =>
-        doc.id === docId
-          ? {
-              ...doc,
-              suggested_tags: doc.suggested_tags?.filter((_, i) => i !== index),
-            }
-          : doc
-      )
+      prevSuggestions.map((doc) => {
+        if (doc.id !== docId) return doc;
+
+        const currentTags = doc.suggested_tags || [];
+
+        // Prevent deletion of last tag
+        if (currentTags.length <= 1) {
+          setError('Cannot remove all tags. Documents must have at least one tag.');
+          return doc; // Return unchanged
+        }
+
+        return {
+          ...doc,
+          suggested_tags: currentTags.filter((_, i) => i !== index),
+        };
+      })
     );
   };
 

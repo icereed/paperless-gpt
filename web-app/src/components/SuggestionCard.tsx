@@ -100,7 +100,9 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               label: "react-tags__label",
               tagList: "react-tags__list",
               tagListItem: "react-tags__list-item",
-              tag: "react-tags__tag dark:bg-blue-900 dark:text-blue-200",
+              tag: (suggestion.suggested_tags?.length || 0) === 1
+                ? "react-tags__tag react-tags__tag--last dark:bg-blue-900 dark:text-blue-200"
+                : "react-tags__tag dark:bg-blue-900 dark:text-blue-200",
               tagName: "react-tags__tag-name",
               comboBox: "react-tags__combobox dark:bg-gray-700 dark:text-gray-200",
               input: "react-tags__combobox-input dark:bg-gray-700 dark:text-gray-200",

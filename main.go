@@ -106,6 +106,39 @@ func refreshCustomFieldsCache(client ClientInterface) {
 	log.Infof("Successfully refreshed custom fields cache with %d fields.", len(fields))
 }
 
+// ensureSystemTagsExist creates all system tags in paperless-ngx if they don't already exist.
+// This is critical for paperless-gpt to function - without these tags, document queries
+// return empty results and the system appears to work but processes nothing.
+// Returns fatal error if any system tag cannot be created.
+func ensureSystemTagsExist(client *PaperlessClient) error {
+	ctx := context.Background()
+	systemTags := []string{manualTag, autoTag, autoOcrTag, pdfOCRCompleteTag}
+
+	log.Info("Checking system tags exist in paperless-ngx...")
+
+	availableTags, err := client.GetAllTags(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to fetch tags during system tag bootstrap: %w", err)
+	}
+
+	for _, tagName := range systemTags {
+		if _, exists := availableTags[tagName]; !exists {
+			log.Infof("System tag '%s' does not exist, creating...", tagName)
+			tagID, err := client.CreateTag(ctx, tagName)
+			if err != nil {
+				return fmt.Errorf("failed to create system tag '%s': %w", tagName, err)
+			}
+			log.Infof("Created system tag '%s' with ID %d", tagName, tagID)
+			availableTags[tagName] = tagID // Update cache for subsequent checks
+		} else {
+			log.Debugf("System tag '%s' already exists", tagName)
+		}
+	}
+
+	log.Info("All system tags verified/created successfully")
+	return nil
+}
+
 // App struct to hold dependencies
 type App struct {
 	Client             ClientInterface
@@ -153,6 +186,11 @@ func main() {
 
 	// Initial fetch of custom fields
 	refreshCustomFieldsCache(client)
+
+	// Ensure all system tags exist before starting background tasks
+	if err := ensureSystemTagsExist(client); err != nil {
+		log.Fatalf("Failed to ensure system tags exist: %v", err)
+	}
 
 	// Start a goroutine to refresh the cache every hour
 	go func() {
