@@ -62,10 +62,15 @@ const CustomFieldsEditor: React.FC = () => {
     setIsSaving(true);
     setError(null);
     try {
+      // Only send fields this component manages (partial update)
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({
+          custom_fields_enable: settings.custom_fields_enable,
+          custom_fields_selected_ids: settings.custom_fields_selected_ids,
+          custom_fields_write_mode: settings.custom_fields_write_mode,
+        }),
       });
       if (!response.ok) {
         const errData = await response.json();

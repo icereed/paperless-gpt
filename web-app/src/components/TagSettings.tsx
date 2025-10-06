@@ -48,7 +48,10 @@ export default function TagSettings() {
     setError('');
 
     try {
-      await axios.post('./api/settings', settings);
+      // Only send the field this component manages (partial update)
+      await axios.post('./api/settings', {
+        tags_auto_create: settings.tags_auto_create
+      });
       setMessage('Settings saved successfully');
       setInitialSettings(settings);
 

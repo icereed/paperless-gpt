@@ -128,14 +128,40 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 	settingsMutex.Lock()
 	defer settingsMutex.Unlock()
 
-	var newSettings Settings
-	if err := c.ShouldBindJSON(&newSettings); err != nil {
+	// Parse the incoming JSON into a map to support partial updates
+	var updates map[string]interface{}
+	if err := c.ShouldBindJSON(&updates); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
 	}
 
-	// Update the global settings variable
-	settings = newSettings
+	// Apply updates to existing settings (merge approach)
+	if val, exists := updates["custom_fields_enable"]; exists {
+		if boolVal, ok := val.(bool); ok {
+			settings.CustomFieldsEnable = boolVal
+		}
+	}
+	if val, exists := updates["custom_fields_selected_ids"]; exists {
+		if arrayVal, ok := val.([]interface{}); ok {
+			ids := make([]int, 0, len(arrayVal))
+			for _, v := range arrayVal {
+				if floatVal, ok := v.(float64); ok {
+					ids = append(ids, int(floatVal))
+				}
+			}
+			settings.CustomFieldsSelectedIDs = ids
+		}
+	}
+	if val, exists := updates["custom_fields_write_mode"]; exists {
+		if strVal, ok := val.(string); ok {
+			settings.CustomFieldsWriteMode = strVal
+		}
+	}
+	if val, exists := updates["tags_auto_create"]; exists {
+		if boolVal, ok := val.(bool); ok {
+			settings.TagsAutoCreate = boolVal
+		}
+	}
 
 	// Save the updated settings to file
 	if err := saveSettingsLocked(); err != nil {
