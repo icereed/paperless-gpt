@@ -25,9 +25,10 @@ export default function TagSettings() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const response = await axios.get<SettingsData>('./api/settings');
-        setSettings(response.data);
-        setInitialSettings(response.data);
+        const response = await axios.get('./api/settings');
+        const settingsData = response.data.settings as SettingsData;
+        setSettings(settingsData);
+        setInitialSettings(settingsData);
         setLoading(false);
       } catch (err) {
         console.error('Error fetching settings:', err);
@@ -49,11 +50,14 @@ export default function TagSettings() {
 
     try {
       // Only send the field this component manages (partial update)
-      await axios.post('./api/settings', {
+      const response = await axios.post('./api/settings', {
         tags_auto_create: settings.tags_auto_create
       });
       setMessage('Settings saved successfully');
-      setInitialSettings(settings);
+      // Update both settings and initialSettings with the server response
+      const settingsData = response.data.settings as SettingsData;
+      setSettings(settingsData);
+      setInitialSettings(settingsData);
 
       // Clear message after 3 seconds
       setTimeout(() => setMessage(''), 3000);
@@ -78,8 +82,10 @@ export default function TagSettings() {
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-semibold text-gray-200">Tag Settings</h2>
+    <div className="p-6 bg-gray-100 dark:bg-gray-900">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200">Tag Settings</h1>
+      </div>
 
       <div className="bg-gray-800 p-4 rounded-lg space-y-4">
         {/* Tag Auto-Creation Toggle */}

@@ -1,7 +1,7 @@
 import React from 'react';
 import PromptsEditor from './PromptsEditor';
 import CustomFieldsEditor from './CustomFieldsEditor';
-import TagSettings from './TagSettings'; // NEW IMPORT
+import TagSettings from './TagSettings';
 
 const Settings: React.FC = () => {
   return (
@@ -10,7 +10,6 @@ const Settings: React.FC = () => {
         <PromptsEditor />
       </div>
 
-      {/* Tag Settings Section - NEW */}
       <div className="p-6 bg-gray-100 dark:bg-gray-900">
         <TagSettings />
       </div>

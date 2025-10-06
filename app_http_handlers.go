@@ -170,7 +170,15 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Settings saved successfully"})
+	// Return the complete updated settings (same format as GET)
+	customFieldsCacheMu.RLock()
+	defer customFieldsCacheMu.RUnlock()
+
+	response := gin.H{
+		"settings":      settings,
+		"custom_fields": customFieldsCache,
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // getCustomFieldsHandler handles the GET /api/custom_fields endpoint
