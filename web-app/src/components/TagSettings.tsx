@@ -4,7 +4,7 @@ import axios from 'axios';
 interface SettingsData {
   custom_fields_enable: boolean;
   custom_fields_selected_ids: number[];
-  custom_fields_write_mode: 'append' | 'replace';
+  custom_fields_write_mode: 'append' | 'replace' | 'update';
   tags_auto_create: boolean;
 }
 
