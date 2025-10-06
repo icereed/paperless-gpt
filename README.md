@@ -105,6 +105,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Working with Local LLMs](#working-with-local-llms)
       - [Token Management](#token-management)
     - [PDF Processing Issues](#pdf-processing-issues)
+    - [Custom Field Generation Issues](#custom-field-generation-issues)
   - [Contributing](#contributing)
   - [Support the Project](#support-the-project)
   - [License](#license)
@@ -364,7 +365,7 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   DOCLING_URL: "http://your-docling-server:port"
   DOCLING_IMAGE_EXPORT_MODE: "placeholder" # Optional, defaults to "embedded"
   DOCLING_OCR_PIPELINE: "standard" # Optional, defaults to "vlm"
-  DOCLING_OCR_ENGINE: "macocr" # Optional, defaults to "easyocr" if DOCLING_OCR_PIPELINE is set to "vlm"
+  DOCLING_OCR_ENGINE: "macocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE=standard`)
   ```
 
 ## OCR Processing Modes
