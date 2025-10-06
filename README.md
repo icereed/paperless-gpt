@@ -217,7 +217,7 @@ services:
       # DOCLING_URL: 'http://your-docling-server:port' # URL of your Docling instance
       # DOCLING_IMAGE_EXPORT_MODE: "placeholder" # Optional, defaults to "embedded"
       # DOCLING_OCR_PIPELINE: "standard" # Optional, defaults to "vlm"
-      # DOCLING_OCR_ENGINE: "easyocr" # Optional, defaults to "easyocr" if DOCLING_OCR_PIPELINE is set to "vlm"
+      # DOCLING_OCR_ENGINE: "easyocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE is set to 'standard')
 
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
@@ -365,7 +365,7 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   DOCLING_URL: "http://your-docling-server:port"
   DOCLING_IMAGE_EXPORT_MODE: "placeholder" # Optional, defaults to "embedded"
   DOCLING_OCR_PIPELINE: "standard" # Optional, defaults to "vlm"
-  DOCLING_OCR_ENGINE: "macocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE=standard`)
+  DOCLING_OCR_ENGINE: "macocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE is set to 'standard')
   ```
 
 ## OCR Processing Modes
