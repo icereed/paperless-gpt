@@ -48,6 +48,7 @@ type GetDocumentApiResponseResult struct {
 type CustomFieldResponse struct {
 	Field int         `json:"field"`
 	Value interface{} `json:"value"`
+	Name  string      `json:"name,omitempty"`
 }
 
 // CustomFieldSuggestion represents a suggested custom field with its value and name
@@ -94,6 +95,12 @@ type GenerateSuggestionsRequest struct {
 	GenerateCorrespondents bool       `json:"generate_correspondents,omitempty"`
 	GenerateCreatedDate    bool       `json:"generate_created_date,omitempty"`
 	GenerateCustomFields   bool       `json:"generate_custom_fields,omitempty"`
+}
+
+// AnalyzeDocumentsRequest is the request payload for the ad-hoc analysis
+type AnalyzeDocumentsRequest struct {
+	DocumentIDs []int  `json:"document_ids"`
+	Prompt      string `json:"prompt"`
 }
 
 // Settings defines the structure for server-side UI settings
