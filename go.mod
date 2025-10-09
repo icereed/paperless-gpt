@@ -5,7 +5,7 @@ go 1.24.1
 toolchain go1.25.2
 
 require (
-	cloud.google.com/go/documentai v1.38.1
+	cloud.google.com/go/documentai v1.39.0
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/disintegration/imaging v1.6.2
 	github.com/fatih/color v1.18.0

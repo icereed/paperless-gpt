@@ -26,6 +26,8 @@ cloud.google.com/go/documentai v1.38.0 h1:ZH29wtHNoZciLnFQiMdVSSUbgnQuuV3C1sp7GF
 cloud.google.com/go/documentai v1.38.0/go.mod h1:zNhZmHJ4/VbvhA0h2U5JRbOHm2BTMq4FxJ276mYAohk=
 cloud.google.com/go/documentai v1.38.1 h1:6uWDoi/wAT8D9belR9Q1n2fFtY6YJ+/3aj6rR9mAlbY=
 cloud.google.com/go/documentai v1.38.1/go.mod h1:KmlLO93F7GRU8dENXRxvt+7V8o7eCG6Y6WDitKbcYJs=
+cloud.google.com/go/documentai v1.39.0 h1:ngPNmVUb3xxj6/j7ruK4vmOMm+XTJO0Vi7Jkm0R3AdU=
+cloud.google.com/go/documentai v1.39.0/go.mod h1:KmlLO93F7GRU8dENXRxvt+7V8o7eCG6Y6WDitKbcYJs=
 cloud.google.com/go/longrunning v0.6.7 h1:IGtfDWHhQCgCjwQjV9iiLnUta9LBCo8R9QmAFsS/PrE=
 cloud.google.com/go/longrunning v0.6.7/go.mod h1:EAFV3IZAKmM56TyiE6VAP3VoTzhZzySwI/YI1s/nRsY=
 codeberg.org/go-pdf/fpdf v0.11.0 h1:n3I8WISQ1cr0S2rvx9DOlE/GypbcimMWqLpel3slHmY=
