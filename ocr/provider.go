@@ -20,6 +20,12 @@ type OCRResult struct {
 
 	// Additional provider-specific metadata
 	Metadata map[string]string
+
+	// Indicates if the OCR output hit the max token limit
+	OcrLimitHit bool
+
+	// LLM GenerationInfo (arbitrary metadata, per page)
+	GenerationInfo map[string]interface{}
 }
 
 // Provider defines the interface for OCR processing
@@ -35,6 +41,14 @@ type Config struct {
 	// Mistral OCR settings
 	MistralAPIKey string
 	MistralModel  string // Optional, defaults to "mistral-ocr-latest"
+
+	// Generic Vision LLM settings
+	VisionLLMMaxTokens   int
+	VisionLLMTemperature *float64
+
+	// Ollama OCR-specific settings
+	OllamaOcrTopK       *int
+	OllamaContextLength int
 
 	// Google Document AI settings
 	GoogleProjectID   string

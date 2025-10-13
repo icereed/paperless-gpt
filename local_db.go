@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -21,6 +22,17 @@ type ModificationHistory struct {
 	UndoneDate    string `gorm:"default:null"`           // Date and time of undoing the modification
 }
 
+type OCRPageResult struct {
+	ID             uint   `gorm:"primaryKey"`
+	DocumentID     int    `gorm:"index;not null"`
+	PageIndex      int    `gorm:"not null"`
+	Text           string `gorm:"size:1048576"`
+	OcrLimitHit    bool
+	GenerationInfo string `gorm:"type:TEXT"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 // InitializeDB initializes the SQLite database and migrates the schema
 func InitializeDB() *gorm.DB {
 	// Ensure db directory exists
@@ -37,8 +49,8 @@ func InitializeDB() *gorm.DB {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	// Migrate the schema (create the table if it doesn't exist)
-	err = db.AutoMigrate(&ModificationHistory{})
+	// Migrate the schema (create the tables if they don't exist)
+	err = db.AutoMigrate(&ModificationHistory{}, &OCRPageResult{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database schema: %v", err)
 	}
@@ -98,4 +110,46 @@ func SetModificationUndone(db *gorm.DB, record *ModificationHistory) error {
 	record.UndoneDate = time.Now().Format(time.RFC3339)
 	result := db.Save(&record) // GORM's Save method
 	return result.Error
+}
+
+// SaveSingleOcrPageResult saves or updates the OCR result for a single page, including GenerationInfo as JSON
+func SaveSingleOcrPageResult(db *gorm.DB, docID int, pageIdx int, text string, ocrLimitHit bool, generationInfoJSON string) error {
+	var result OCRPageResult
+	tx := db.Where("document_id = ? AND page_index = ?", docID, pageIdx).First(&result)
+	if tx.Error == nil {
+		result.Text = text
+		result.OcrLimitHit = ocrLimitHit
+		result.GenerationInfo = generationInfoJSON
+		return db.Save(&result).Error
+	} else if tx.Error != nil {
+		log.Debugf("SaveSingleOcrPageResult: db.First error: %v (is gorm.ErrRecordNotFound: %v)", tx.Error, errors.Is(tx.Error, gorm.ErrRecordNotFound))
+		if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
+			result = OCRPageResult{
+				DocumentID:     docID,
+				PageIndex:      pageIdx,
+				Text:           text,
+				OcrLimitHit:    ocrLimitHit,
+				GenerationInfo: generationInfoJSON,
+			}
+			return db.Create(&result).Error
+		} else {
+			log.Errorf("Unexpected DB error in SaveSingleOcrPageResult: %v", tx.Error)
+			return tx.Error
+		}
+	}
+	return nil
+}
+
+func GetOcrPageResults(db *gorm.DB, docID int) ([]OCRPageResult, error) {
+	var results []OCRPageResult
+	tx := db.Where("document_id = ?", docID).Order("page_index ASC").Find(&results)
+	return results, tx.Error
+}
+
+func UpdateOcrPageResult(db *gorm.DB, docID int, pageIdx int, text string, ocrLimitHit bool, generationInfoJSON string) error {
+	return SaveSingleOcrPageResult(db, docID, pageIdx, text, ocrLimitHit, generationInfoJSON)
+}
+
+func DeleteOcrPageResults(db *gorm.DB, docID int) error {
+	return db.Where("document_id = ?", docID).Delete(&OCRPageResult{}).Error
 }

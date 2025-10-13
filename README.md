@@ -174,6 +174,7 @@ services:
       # LLM_PROVIDER: "ollama"
       # LLM_MODEL: "qwen3:8b"
       # OLLAMA_HOST: "http://host.docker.internal:11434"
+      # OLLAMA_CONTEXT_LENGTH: "8192" # Sets Ollama NumCtx (context window)
       # TOKEN_LIMIT: 1000 # Recommended for smaller models
 
       # Optional LLM Settings
@@ -547,6 +548,10 @@ For best results with the enhanced OCR features:
 | `VISION_LLM_REQUESTS_PER_MINUTE`    | Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load.                                                                                              | No       | 120                        |
 | `VISION_LLM_MAX_RETRIES`            | Maximum retry attempts for failed Vision LLM requests.                                                                                                                                        | No       | 3                          |
 | `VISION_LLM_BACKOFF_MAX_WAIT`       | Maximum wait time between retries for the Vision LLM (e.g., `30s`).                                                                                                                           | No       | 30s                        |
+| `VISION_LLM_MAX_TOKENS`             | Maximum tokens for Vision LLM OCR output.                                                                                                                                                     | No       |                            |
+| `VISION_LLM_TEMPERATURE`            | Sampling temperature for Vision OCR generation. Lower is more deterministic. Important: For OpenAI GPT-5 it must be explicitly set to `1.0`.                                                  | No       |                            |
+| `OLLAMA_CONTEXT_LENGTH`             | (Ollama only) Integer. Sets NumCtx (context window) for the Ollama runner. If unset or 0, the model default is used.                                                                          | No       |                            |
+| `OLLAMA_OCR_TOP_K`                  | (Ollama only) Top-k token sampling for Vision OCR. Lower favors more likely tokens; higher increases diversity.                                                                               | No       |                            |
 | `AZURE_DOCAI_ENDPOINT`              | Azure Document Intelligence endpoint. Required if OCR_PROVIDER is `azure`.                                                                                                                    | Cond.    |                            |
 | `AZURE_DOCAI_KEY`                   | Azure Document Intelligence API key. Required if OCR_PROVIDER is `azure`.                                                                                                                     | Cond.    |                            |
 | `AZURE_DOCAI_MODEL_ID`              | Azure Document Intelligence model ID. Optional if using `azure` provider.                                                                                                                     | No       | prebuilt-read              |
@@ -886,6 +891,7 @@ When using local LLMs (like those through Ollama), you might need to adjust cert
 #### Token Management
 
 - Use `TOKEN_LIMIT` environment variable to control the maximum number of tokens sent to the LLM
+- For Ollama, set `OLLAMA_CONTEXT_LENGTH` to control the model's context window (NumCtx). This is independent of `TOKEN_LIMIT` and configures the server-side KV cache size. If unset or 0, the model default is used. Choose a value within the model's supported window (e.g., 8192).
 - Smaller models might truncate content unexpectedly if given too much text
 - Start with a conservative limit (e.g., 1000 tokens) and adjust based on your model's capabilities
 - Set to `0` to disable the limit (use with caution)
@@ -895,6 +901,7 @@ Example configuration for smaller models:
 ```yaml
 environment:
   TOKEN_LIMIT: "2000" # Adjust based on your model's context window
+  OLLAMA_CONTEXT_LENGTH: "4096" # Controls Ollama NumCtx (context window); if unset, model default is used
   LLM_PROVIDER: "ollama"
   LLM_MODEL: "qwen3:8b" # Or other local model
 ```
@@ -902,6 +909,7 @@ environment:
 Common issues and solutions:
 
 - If you see truncated or incomplete responses, try lowering the `TOKEN_LIMIT`
+- On Ollama, if you hit "context length exceeded" or memory issues, reduce `OLLAMA_CONTEXT_LENGTH` or choose a smaller model/context size.
 - If processing is too limited, gradually increase the limit while monitoring performance
 - For models with larger context windows, you can increase the limit or disable it entirely
 

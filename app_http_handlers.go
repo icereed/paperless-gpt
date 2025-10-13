@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -252,11 +254,12 @@ func (app *App) getJobStatusHandler(c *gin.Context) {
 	}
 
 	response := gin.H{
-		"job_id":     job.ID,
-		"status":     job.Status,
-		"created_at": job.CreatedAt,
-		"updated_at": job.UpdatedAt,
-		"pages_done": job.PagesDone,
+		"job_id":      job.ID,
+		"status":      job.Status,
+		"created_at":  job.CreatedAt,
+		"updated_at":  job.UpdatedAt,
+		"pages_done":  job.PagesDone,
+		"total_pages": job.TotalPages,
 	}
 
 	if job.Status == "completed" {
@@ -293,6 +296,20 @@ func (app *App) getAllJobsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, jobList)
 }
 
+// POST /api/ocr/jobs/:job_id/stop
+func (app *App) stopOCRJobHandler(c *gin.Context) {
+	jobID := c.Param("job_id")
+	jobCancellersMu.Lock()
+	cancel, exists := jobCancellers[jobID]
+	jobCancellersMu.Unlock()
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No running job with this ID"})
+		return
+	}
+	cancel()
+	c.Status(http.StatusNoContent)
+}
+
 // getDocumentHandler handles the retrieval of a document by its ID
 func (app *App) getDocumentHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -309,6 +326,158 @@ func (app *App) getDocumentHandler() gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, document)
+	}
+}
+
+// getOCRPagesHandler returns per-page OCR results for a document
+func (app *App) getOCRPagesHandler(c *gin.Context) {
+	id := c.Param("id")
+	parsedID, err := strconv.Atoi(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid document ID"})
+		return
+	}
+
+	dbResults, err := GetOcrPageResults(app.Database, parsedID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch OCR page results"})
+		return
+	}
+
+	type OCRPageResult struct {
+		Text           string                 `json:"text"`
+		OcrLimitHit    bool                   `json:"ocrLimitHit"`
+		GenerationInfo map[string]interface{} `json:"generationInfo,omitempty"`
+	}
+
+	var pages []OCRPageResult
+	for _, res := range dbResults {
+		var genInfo map[string]interface{}
+		if res.GenerationInfo != "" {
+			_ = json.Unmarshal([]byte(res.GenerationInfo), &genInfo)
+		}
+		pages = append(pages, OCRPageResult{
+			Text:           res.Text,
+			OcrLimitHit:    res.OcrLimitHit,
+			GenerationInfo: genInfo,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"pages": pages,
+	})
+}
+
+func (app *App) reOCRPageHandler(c *gin.Context) {
+	id := c.Param("id")
+	pageIdxStr := c.Param("pageIndex")
+	parsedID, err := strconv.Atoi(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid document ID"})
+		return
+	}
+	pageIdx, err := strconv.Atoi(pageIdxStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page index"})
+		return
+	}
+
+	// Download all images for the document, but only process the requested page
+	imagePaths, _, err := app.Client.DownloadDocumentAsImages(c.Request.Context(), parsedID, limitOcrPages)
+	if err != nil || pageIdx < 0 || pageIdx >= len(imagePaths) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page index or failed to download images"})
+		return
+	}
+	imageContent, err := os.ReadFile(imagePaths[pageIdx])
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read image file"})
+		return
+	}
+
+	cancelKey := fmt.Sprintf("%d-%d", parsedID, pageIdx)
+	reOcrCtx, cancelReOcr := context.WithCancel(c.Request.Context())
+	defer cancelReOcr()
+
+	reOcrCancellersMu.Lock()
+	if existingCancel, ok := reOcrCancellers[cancelKey]; ok {
+		existingCancel()
+	}
+	reOcrCancellers[cancelKey] = cancelReOcr
+	reOcrCancellersMu.Unlock()
+
+	defer func() {
+		reOcrCancellersMu.Lock()
+		delete(reOcrCancellers, cancelKey)
+		reOcrCancellersMu.Unlock()
+	}()
+
+	result, err := app.ocrProvider.ProcessImage(reOcrCtx, imageContent, pageIdx+1)
+
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			log.Infof("Re-OCR for doc %d page %d cancelled.", parsedID, pageIdx)
+			c.Status(499)
+		} else {
+			log.Errorf("Failed to re-OCR doc %d page %d: %v", parsedID, pageIdx, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to re-OCR page"})
+		}
+		return
+	}
+	if result == nil {
+		log.Errorf("Re-OCR for doc %d page %d returned nil result.", parsedID, pageIdx)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Re-OCR returned no result"})
+		return
+	}
+
+	var genInfoJSON string
+	if result.GenerationInfo != nil {
+		if b, err := json.Marshal(result.GenerationInfo); err == nil {
+			genInfoJSON = string(b)
+		}
+	}
+	saveErr := SaveSingleOcrPageResult(app.Database, parsedID, pageIdx, result.Text, result.OcrLimitHit, genInfoJSON)
+	if saveErr != nil {
+		log.Errorf("Failed to save re-OCR result for doc %d page %d: %v", parsedID, pageIdx, saveErr)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"text":           result.Text,
+		"ocrLimitHit":    result.OcrLimitHit,
+		"generationInfo": result.GenerationInfo,
+	})
+}
+
+// cancelReOCRPageHandler handles the DELETE request to cancel an ongoing re-OCR for a specific page.
+func (app *App) cancelReOCRPageHandler(c *gin.Context) {
+	id := c.Param("id")
+	pageIdxStr := c.Param("pageIndex")
+	parsedID, err := strconv.Atoi(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid document ID"})
+		return
+	}
+	pageIdx, err := strconv.Atoi(pageIdxStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page index"})
+		return
+	}
+
+	cancelKey := fmt.Sprintf("%d-%d", parsedID, pageIdx)
+
+	reOcrCancellersMu.Lock()
+	cancel, exists := reOcrCancellers[cancelKey]
+	if exists {
+		delete(reOcrCancellers, cancelKey)
+	}
+	reOcrCancellersMu.Unlock()
+
+	if exists {
+		cancel()
+		log.Infof("Cancellation requested for re-OCR doc %d page %d", parsedID, pageIdx)
+		c.Status(http.StatusNoContent)
+	} else {
+		log.Warnf("No active re-OCR found to cancel for doc %d page %d", parsedID, pageIdx)
+		c.JSON(http.StatusNotFound, gin.H{"error": "No active re-OCR operation found for this page"})
 	}
 }
 

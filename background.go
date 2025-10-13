@@ -222,14 +222,19 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		var err error
 		if app.docProcessor != nil {
 			// Use injected processor if available
-			processedDoc, err = app.docProcessor.ProcessDocumentOCR(ctx, document.ID, options)
+			processedDoc, err = app.docProcessor.ProcessDocumentOCR(ctx, document.ID, options, "")
 		} else {
 			// Use the app's own implementation if no processor is injected
-			processedDoc, err = app.ProcessDocumentOCR(ctx, document.ID, options)
+			processedDoc, err = app.ProcessDocumentOCR(ctx, document.ID, options, "")
 		}
+
 		if err != nil {
 			docLogger.Errorf("OCR processing failed: %v", err)
 			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
+			continue
+		}
+		if processedDoc == nil {
+			docLogger.Info("OCR processing skipped for document")
 			continue
 		}
 		docLogger.Debug("OCR processing completed")
@@ -239,6 +244,13 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			OriginalDocument: document,
 			SuggestedContent: processedDoc.Text,
 			RemoveTags:       []string{autoOcrTag},
+			// Add OCR complete tag if tagging is enabled and PDF wasn't uploaded (upload handles tagging)
+			AddTags: func() []string {
+				if app.pdfOCRTagging && !options.UploadPDF {
+					return []string{app.pdfOCRCompleteTag}
+				}
+				return nil
+			}(),
 		}
 
 		if (app.pdfOCRTagging) && app.pdfOCRCompleteTag != "" {

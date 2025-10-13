@@ -205,6 +205,42 @@ func main() {
 
 	ocrPrompt := promptBuffer.String()
 
+	var visionLlmMaxTokens int
+	if maxTokensStr := os.Getenv("VISION_LLM_MAX_TOKENS"); maxTokensStr != "" {
+		if parsed, err := strconv.Atoi(maxTokensStr); err == nil {
+			visionLlmMaxTokens = parsed
+		} else {
+			log.Warnf("Invalid VISION_LLM_MAX_TOKENS value: %v, using default (0)", err)
+		}
+	}
+
+	var visionLlmTemperature *float64
+	if tempStr := os.Getenv("VISION_LLM_TEMPERATURE"); tempStr != "" {
+		if parsed, err := strconv.ParseFloat(tempStr, 64); err == nil {
+			visionLlmTemperature = &parsed
+		} else {
+			log.Warnf("Invalid VISION_LLM_TEMPERATURE value: %v, ignoring", err)
+		}
+	}
+
+	var ollamaOcrTopK *int
+	if topKStr := os.Getenv("OLLAMA_OCR_TOP_K"); topKStr != "" {
+		if parsed, err := strconv.Atoi(topKStr); err == nil {
+			ollamaOcrTopK = &parsed
+		} else {
+			log.Warnf("Invalid OLLAMA_OCR_TOP_K value: %v, ignoring", err)
+		}
+	}
+
+	var ollamaContextLength int
+	if ctxLenStr := os.Getenv("OLLAMA_CONTEXT_LENGTH"); ctxLenStr != "" {
+		if parsed, err := strconv.Atoi(ctxLenStr); err == nil {
+			ollamaContextLength = parsed
+		} else {
+			log.Warnf("Invalid OLLAMA_CONTEXT_LENGTH value: %v, ignoring", err)
+		}
+	}
+
 	ocrConfig := ocr.Config{
 		Provider:                 providerType,
 		GoogleProjectID:          os.Getenv("GOOGLE_PROJECT_ID"),
@@ -222,6 +258,10 @@ func main() {
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
+		VisionLLMMaxTokens:       visionLlmMaxTokens,
+		VisionLLMTemperature:     visionLlmTemperature,
+		OllamaOcrTopK:            ollamaOcrTopK,
+		OllamaContextLength:      ollamaContextLength,
 	}
 
 	// Parse Azure timeout if set
@@ -313,8 +353,12 @@ func main() {
 
 		// OCR endpoints
 		api.POST("/documents/:id/ocr", app.submitOCRJobHandler)
+		api.GET("/documents/:id/ocr_pages", app.getOCRPagesHandler)
+		api.POST("/documents/:id/ocr_pages/:pageIndex/reocr", app.reOCRPageHandler)
+		api.DELETE("/documents/:id/ocr_pages/:pageIndex/reocr", app.cancelReOCRPageHandler)
 		api.GET("/jobs/ocr/:job_id", app.getJobStatusHandler)
 		api.GET("/jobs/ocr", app.getAllJobsHandler)
+		api.POST("/ocr/jobs/:job_id/stop", app.stopOCRJobHandler)
 
 		// Endpoint to see if user enabled OCR
 		api.GET("/experimental/ocr", func(c *gin.Context) {
@@ -845,10 +889,18 @@ func createLLM() (llms.Model, error) {
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
-		llm, err := ollama.New(
+		opts := []ollama.Option{
 			ollama.WithModel(llmModel),
 			ollama.WithServerURL(host),
-		)
+		}
+		if ctxLenStr := os.Getenv("OLLAMA_CONTEXT_LENGTH"); ctxLenStr != "" {
+			if parsed, err := strconv.Atoi(ctxLenStr); err == nil && parsed > 0 {
+				opts = append(opts, ollama.WithRunnerNumCtx(parsed))
+			} else if err != nil {
+				log.Warnf("Invalid OLLAMA_CONTEXT_LENGTH value: %v, ignoring", err)
+			}
+		}
+		llm, err := ollama.New(opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -930,10 +982,18 @@ func createVisionLLM() (llms.Model, error) {
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
-		llm, err := ollama.New(
+		opts := []ollama.Option{
 			ollama.WithModel(visionLlmModel),
 			ollama.WithServerURL(host),
-		)
+		}
+		if ctxLenStr := os.Getenv("OLLAMA_CONTEXT_LENGTH"); ctxLenStr != "" {
+			if parsed, err := strconv.Atoi(ctxLenStr); err == nil && parsed > 0 {
+				opts = append(opts, ollama.WithRunnerNumCtx(parsed))
+			} else if err != nil {
+				log.Warnf("Invalid OLLAMA_CONTEXT_LENGTH value: %v, ignoring", err)
+			}
+		}
+		llm, err := ollama.New(opts...)
 		if err != nil {
 			return nil, err
 		}
