@@ -1,6 +1,7 @@
 .env
 .DS_Store
 prompts/
+config/
 tests/tmp
 tmp/
 db/
@@ -8,3 +9,6 @@ web-app/playwright-report/
 web-app/test-results/.last-run.json
 web-app/test-results
 dist/
+*.tsbuildinfo
+paperless-gpt
+web-app/e2e/test-results

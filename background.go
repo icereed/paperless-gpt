@@ -80,7 +80,6 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 
 // processAutoTagDocuments handles the background auto-tagging of documents
 func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
-
 	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag}, 25)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoTag: %w", err)
@@ -91,12 +90,24 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 		return 0, nil // No documents to process
 	}
 
+	// Refresh the custom fields cache before processing, as we have documents
+	refreshCustomFieldsCache(app.Client)
+
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
 
 	var errs []error
 	processedCount := 0
 
-	for _, document := range documents {
+	for _, docSummary := range documents {
+		// Get the full document details, including custom fields
+		document, err := app.Client.GetDocument(ctx, docSummary.ID)
+		if err != nil {
+			err = fmt.Errorf("error fetching full details for document %d: %w", docSummary.ID, err)
+			documentLogger(docSummary.ID).Error(err.Error())
+			errs = append(errs, err)
+			continue
+		}
+
 		// Skip documents that have the autoOcrTag
 		if slices.Contains(document.Tags, autoOcrTag) {
 			log.Debugf("Skipping document %d as it has the OCR tag %s", document.ID, autoOcrTag)
@@ -112,6 +123,7 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 			GenerateTags:           strings.ToLower(autoGenerateTags) != "false",
 			GenerateCorrespondents: strings.ToLower(autoGenerateCorrespondents) != "false",
 			GenerateCreatedDate:    strings.ToLower(autoGenerateCreatedDate) != "false",
+			GenerateCustomFields:   settings.CustomFieldsEnable,
 		}
 
 		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)

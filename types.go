@@ -44,38 +44,47 @@ type GetDocumentApiResponseResult struct {
 	// } `json:"__search_hit__"`
 }
 
+// CustomFieldResponse represents a custom field with its value for a document
+type CustomFieldResponse struct {
+	Field int         `json:"field"`
+	Value interface{} `json:"value"`
+	Name  string      `json:"name,omitempty"`
+}
+
+// CustomFieldSuggestion represents a suggested custom field with its value and name
+type CustomFieldSuggestion struct {
+	ID    int         `json:"id"`
+	Name  string      `json:"name"`
+	Value interface{} `json:"value"`
+}
+
 // GetDocumentApiResponse is the response payload for /documents/{id} endpoint.
 // But we are only interested in a subset of the fields.
 type GetDocumentApiResponse struct {
-	ID            int `json:"id"`
-	Correspondent int `json:"correspondent"`
-	// DocumentType        interface{}   `json:"document_type"`
-	// StoragePath         interface{}   `json:"storage_path"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	Tags    []int  `json:"tags"`
-	// Created             time.Time     `json:"created"`
-	CreatedDate string `json:"created_date"`
-	// Modified            time.Time     `json:"modified"`
-	// Added               time.Time     `json:"added"`
-	// ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
-	OriginalFileName string `json:"original_file_name"`
-	// ArchivedFileName    string        `json:"archived_file_name"`
-	// Owner         int           `json:"owner"`
-	// UserCanChange bool          `json:"user_can_change"`
-	Notes []interface{} `json:"notes"`
+	ID               int                   `json:"id"`
+	Correspondent    int                   `json:"correspondent"`
+	DocumentType     int                   `json:"document_type"`
+	Title            string                `json:"title"`
+	Content          string                `json:"content"`
+	Tags             []int                 `json:"tags"`
+	CreatedDate      string                `json:"created_date"`
+	OriginalFileName string                `json:"original_file_name"`
+	Notes            []interface{}         `json:"notes"`
+	CustomFields     []CustomFieldResponse `json:"custom_fields"`
 }
 
 // Document is a stripped down version of the document object from paperless-ngx.
 // Response payload for /documents endpoint and part of request payload for /generate-suggestions endpoint
 type Document struct {
-	ID               int      `json:"id"`
-	Title            string   `json:"title"`
-	Content          string   `json:"content"`
-	Tags             []string `json:"tags"`
-	Correspondent    string   `json:"correspondent"`
-	CreatedDate      string   `json:"created_date"`
-	OriginalFileName string   `json:"original_file_name"`
+	ID               int                   `json:"id"`
+	Title            string                `json:"title"`
+	Content          string                `json:"content"`
+	Tags             []string              `json:"tags"`
+	Correspondent    string                `json:"correspondent"`
+	CreatedDate      string                `json:"created_date"`
+	OriginalFileName string                `json:"original_file_name"`
+	DocumentTypeName string                `json:"document_type_name"`
+	CustomFields     []CustomFieldResponse `json:"custom_fields"`
 }
 
 // GenerateSuggestionsRequest is the request payload for generating suggestions for /generate-suggestions endpoint
@@ -85,20 +94,37 @@ type GenerateSuggestionsRequest struct {
 	GenerateTags           bool       `json:"generate_tags,omitempty"`
 	GenerateCorrespondents bool       `json:"generate_correspondents,omitempty"`
 	GenerateCreatedDate    bool       `json:"generate_created_date,omitempty"`
+	GenerateCustomFields   bool       `json:"generate_custom_fields,omitempty"`
+}
+
+// AnalyzeDocumentsRequest is the request payload for the ad-hoc analysis
+type AnalyzeDocumentsRequest struct {
+	DocumentIDs []int  `json:"document_ids"`
+	Prompt      string `json:"prompt"`
+}
+
+// Settings defines the structure for server-side UI settings
+type Settings struct {
+	CustomFieldsEnable      bool   `json:"custom_fields_enable"`
+	CustomFieldsSelectedIDs []int  `json:"custom_fields_selected_ids"`
+	CustomFieldsWriteMode   string `json:"custom_fields_write_mode"` // "append" or "replace"
 }
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
 type DocumentSuggestion struct {
-	ID                     int      `json:"id"`
-	OriginalDocument       Document `json:"original_document"`
-	SuggestedTitle         string   `json:"suggested_title,omitempty"`
-	SuggestedTags          []string `json:"suggested_tags,omitempty"`
-	SuggestedContent       string   `json:"suggested_content,omitempty"`
-	SuggestedCorrespondent string   `json:"suggested_correspondent,omitempty"`
-	SuggestedCreatedDate   string   `json:"suggested_created_date,omitempty"`
-	KeepOriginalTags       bool     `json:"keep_original_tags,omitempty"`
-	RemoveTags             []string `json:"remove_tags,omitempty"`
-	AddTags                []string `json:"add_tags,omitempty"`
+	ID                     int                     `json:"id"`
+	OriginalDocument       Document                `json:"original_document"`
+	SuggestedTitle         string                  `json:"suggested_title,omitempty"`
+	SuggestedTags          []string                `json:"suggested_tags,omitempty"`
+	SuggestedContent       string                  `json:"suggested_content,omitempty"`
+	SuggestedCorrespondent string                  `json:"suggested_correspondent,omitempty"`
+	SuggestedCreatedDate   string                  `json:"suggested_created_date,omitempty"`
+	SuggestedCustomFields  []CustomFieldSuggestion `json:"suggested_custom_fields,omitempty"`
+	KeepOriginalTags       bool                    `json:"keep_original_tags,omitempty"`
+	RemoveTags             []string                `json:"remove_tags,omitempty"`
+  AddTags                []string                `json:"add_tags,omitempty"`
+	CustomFieldsWriteMode  string                  `json:"custom_fields_write_mode,omitempty"`
+	CustomFieldsEnable     bool                    `json:"custom_fields_enable"`
 }
 
 type Correspondent struct {
@@ -135,6 +161,8 @@ type ClientInterface interface {
 	GetDocument(ctx context.Context, documentID int) (Document, error)
 	GetAllTags(ctx context.Context) (map[string]int, error)
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
+	GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error)
+	GetCustomFields(ctx context.Context) ([]CustomField, error)
 	CreateTag(ctx context.Context, tagName string) (int, error)
 	DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error)
 	DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error)

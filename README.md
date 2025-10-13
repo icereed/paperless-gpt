@@ -9,6 +9,9 @@
 
 ![Screenshot](./paperless-gpt-screenshot.png)
 
+<sub>💡 Maintained by [Icereed](https://github.com/icereed). Proudly supported by [BubbleTax.de](https://bubbletax.de/?utm_source=github&utm_medium=readme&utm_campaign=paperless) – automated, BMF-compliant tax reports for Interactive Brokers traders in Germany.</sub>
+
+---
 **paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**-ensuring high accuracy, even with tricky scans. If you're craving next-level text extraction and effortless document organization, this is your solution.
 
 https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
@@ -39,12 +42,18 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 5. **Automatic Correspondent Generation**  
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
 
-6. **Searchable & Selectable PDFs**  
+6. **Automatic Custom Field Generation**  
+   Extract and populate custom fields from your documents. Configure which fields to target and how they should be filled. This feature must be enabled in the settings, and you must select at least one custom field for it to function. Three write modes are available:
+   - **Append**: This is the safest option: It only adds new fields that do not already exist on the document. It will never overwrite an existing field, even if it's empty.
+   - **Update**: Adds new fields and overwrites existing fields with new suggestions. Fields on the document that don't have a new suggestion are left untouched.
+   - **Replace**: Deletes all existing custom fields on the document and replaces them entirely with the suggested fields.
+
+7. **Searchable & Selectable PDFs**  
    Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance.
 
 7. **Extensive Customization**
 
-   - **Prompt Templates**: Tweak your AI prompts to reflect your domain, style, or preference.
+   - **Customizable Prompts via Web UI**: Tweak and manage all AI prompts for titles, tags, correspondents, and more directly within the web interface under the "Settings" menu. The application uses a safe `default_prompts` and `prompts` directory structure, ensuring your customizations are persistent.
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
    - **PDF Processing**: Configure how OCR-enhanced PDFs are handled, with options to save locally or upload to paperless-ngx.
 
@@ -55,6 +64,9 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
    - **Manual Review**: Approve or tweak AI's suggestions.
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
+
+9. **Ad-hoc Document Analysis**
+   Perform ad-hoc analysis on a selection of documents using a custom prompt. Gain quick insights, summaries, or extract specific information from multiple documents at once.
 
 ---
 
@@ -574,22 +586,21 @@ For best results with the enhanced OCR features:
 
 ### Custom Prompt Templates
 
-paperless-gpt's flexible **prompt templates** let you shape how AI responds:
+paperless-gpt's flexible **prompt templates** let you shape how AI responds. While you can still manually manage files, the recommended way to customize prompts is through the **Settings** page in the web UI.
 
-1. **`title_prompt.tmpl`**: For document titles.
-2. **`tag_prompt.tmpl`**: For tagging logic.
-3. **`ocr_prompt.tmpl`**: For LLM OCR.
-4. **`correspondent_prompt.tmpl`**: For correspondent identification.
-5. **`created_date_prompt.tmpl`**: For setting of document's created date.
+The application uses two directories for management:
+- **`default_prompts/`**: Contains the built-in, default templates. These should not be modified.
+- **`prompts/`**: Your working directory. On first run, the default templates are copied here. All edits made in the UI are saved to the files in this directory.
 
-Mount them into your container via:
+To ensure your custom prompts persist across container restarts, you must mount the `prompts` directory as a volume in your `docker-compose.yml`:
 
 ```yaml
 volumes:
+  # This is crucial to save your custom prompts!
   - ./prompts:/app/prompts
 ```
 
-Then tweak at will—**paperless-gpt** reloads them automatically on startup!
+The application reloads the templates instantly after you save them in the UI and also on startup, so no restart is needed to apply changes.
 
 #### Template Variables
 
@@ -626,7 +637,15 @@ Each template has access to specific variables:
 - `{{.Language}}` - Target language
 - `{{.Content}}` - Document content text
 
-The templates use Go's text/template syntax. paperless-gpt automatically reloads template changes on startup.
+**custom_field_prompt.tmpl**:
+
+- `{{.DocumentType}}` - The name of the document's type in paperless-ngx.
+- `{{.CustomFieldsXML}}` - An XML string listing the custom fields selected in the settings for processing.
+- `{{.Title}}` - Document title
+- `{{.CreatedDate}}` - Document's created date
+- `{{.Content}}` - Document content text
+
+The templates use Go's text/template syntax. paperless-gpt automatically reloads template changes after UI saves and on startup.
 
 ---
 
@@ -900,6 +919,10 @@ Common issues and solutions:
 - Ensure volumes are properly mounted if using `CREATE_LOCAL_PDF` or `CREATE_LOCAL_HOCR`
 - When using `PDF_REPLACE: "true"`, verify you have recent backups of your paperless-ngx data
 
+### Custom Field Generation Issues
+
+- **Feature Not Working**: If custom field suggestions are not being generated even though the feature is enabled, ensure you have selected at least one custom field in the settings. The feature requires at least one field to be selected to know what to process.
+
 ---
 
 ## Contributing
@@ -925,6 +948,15 @@ If paperless-gpt is saving you time and making your document management easier, 
 - **Contribute** code, documentation, or bug reports
 
 Your support helps ensure paperless-gpt remains actively maintained and continues to improve!
+
+---
+
+## Maintainer Note
+
+This project is fully open-source and will remain free to use.  
+It's maintained by [Icereed](https://github.com/icereed), with partial support from my other project:  
+👉 [BubbleTax.de](https://bubbletax.de/?utm_source=github&utm_medium=footer&utm_campaign=paperless) — automated tax reports for IBKR traders in Germany.  
+If you're a developer who also trades, check it out. If not – no worries 😊
 
 ---
 

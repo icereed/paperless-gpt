@@ -25,7 +25,7 @@ COPY web-app /app/
 RUN npm run build
 
 # Stage 2: Build the Go binary
-FROM docker.io/golang:1.24.6-alpine3.21 AS builder
+FROM docker.io/golang:1.25.2-alpine3.21 AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -82,7 +82,7 @@ RUN sed -i \
 RUN CGO_ENABLED=1 GOMAXPROCS=$(nproc) go build -tags musl -o paperless-gpt .
 
 # Stage 3: Create a lightweight image with just the binary
-FROM docker.io/alpine:3.22.1
+FROM docker.io/alpine:3.22.2
 
 ENV GIN_MODE=release
 
@@ -95,6 +95,9 @@ WORKDIR /app/
 
 # Copy the Go binary from the builder stage
 COPY --from=builder /app/paperless-gpt .
+
+# Copy the prompt templates
+COPY default_prompts/ /app/default_prompts/
 
 # Expose the port the app runs on
 EXPOSE 8080
