@@ -74,6 +74,7 @@ var (
 	pdfSkipExistingOCR            = os.Getenv("PDF_SKIP_EXISTING_OCR") == "true"
 	doclingURL                    = os.Getenv("DOCLING_URL")
 	doclingImageExportMode        = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
+	iosOCRServerURL               = os.Getenv("IOS_OCR_SERVER_URL")
 
 	// Templates
 	titleTemplate         *template.Template
@@ -257,6 +258,7 @@ func main() {
 		MistralModel:             os.Getenv("MISTRAL_MODEL"),
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
+		IOSOCRServerURL:          iosOCRServerURL,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 		VisionLLMMaxTokens:       visionLlmMaxTokens,
 		VisionLLMTemperature:     visionLlmTemperature,
@@ -508,6 +510,7 @@ func validateOCRProviderModeCompatibility(provider, mode string) error {
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
 		"docling":      {"image"},                     // Docling only supports image mode
+		"ios_ocr":      {"image"},                     // iOS-OCR-Server only supports image mode
 	}
 
 	modes, exists := supportedModes[provider]
@@ -593,6 +596,12 @@ func validateOrDefaultEnvVars() {
 		if doclingImageExportMode == "" {
 			doclingImageExportMode = "embedded" // Default to PNG
 			log.Infof("DOCLING_IMAGE_EXPORT_MODE not set, defaulting to %s", doclingImageExportMode)
+		}
+	}
+
+	if ocrProvider == "ios_ocr" {
+		if iosOCRServerURL == "" {
+			log.Fatal("Please set the IOS_OCR_SERVER_URL environment variable for iOS-OCR-Server provider")
 		}
 	}
 

@@ -71,6 +71,9 @@ type Config struct {
 	DoclingURL             string
 	DoclingImageExportMode string
 
+	// iOS-OCR-Server settings
+	IOSOCRServerURL string
+
 	// OCR output options
 	EnableHOCR     bool   // Whether to generate hOCR data if supported by the provider
 	HOCROutputPath string // Where to save hOCR output files
@@ -122,6 +125,13 @@ func NewProvider(config Config) (Provider, error) {
 			"model": config.MistralModel,
 		}).Info("Using Mistral OCR provider")
 		return newMistralOCRProvider(config)
+
+	case "ios_ocr":
+		if config.IOSOCRServerURL == "" {
+			return nil, fmt.Errorf("missing required iOS-OCR-Server configuration (IOS_OCR_SERVER_URL)")
+		}
+		log.WithField("url", config.IOSOCRServerURL).Info("Using iOS-OCR-Server provider")
+		return newIOSOCRProvider(config)
 
 	default:
 		return nil, fmt.Errorf("unsupported OCR provider: %s", config.Provider)
