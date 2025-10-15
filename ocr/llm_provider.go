@@ -134,7 +134,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		return nil, fmt.Errorf("error getting response from LLM: %w", err)
 	}
 
-	text := completion.Choices[0].Content
+	text := stripReasoning(completion.Choices[0].Content)
 	limitHit := false
 	tokenCount := -1
 
