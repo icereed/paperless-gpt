@@ -3,6 +3,7 @@ package ocr
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gardar/ocrchestra/pkg/hocr"
 	"github.com/sirupsen/logrus"
@@ -70,6 +71,8 @@ type Config struct {
 	// Docling settings
 	DoclingURL             string
 	DoclingImageExportMode string
+	DoclingOCRPipeline     string // Optional, defaults to "vlm"
+	DoclingOCREngine       string // Optional, defaults to "easyocr", if DoclingOCRPipeline == "standard"
 
 	// OCR output options
 	EnableHOCR     bool   // Whether to generate hOCR data if supported by the provider
@@ -110,6 +113,18 @@ func NewProvider(config Config) (Provider, error) {
 	case "docling":
 		if config.DoclingURL == "" {
 			return nil, fmt.Errorf("missing required Docling configuration (DOCLING_URL)")
+		}
+
+		config.DoclingOCRPipeline = strings.TrimSpace(config.DoclingOCRPipeline)
+		config.DoclingOCREngine = strings.TrimSpace(config.DoclingOCREngine)
+		if config.DoclingOCRPipeline == "" {
+			config.DoclingOCRPipeline = "vlm"
+		}
+		if config.DoclingOCRPipeline == "standard" && config.DoclingOCREngine == "" {
+			config.DoclingOCREngine = "easyocr"
+		}
+		if config.DoclingOCRPipeline != "vlm" && config.DoclingOCRPipeline != "standard" {
+			return nil, fmt.Errorf("unsupported docling pipeline: %q (supported: vlm, standard)", config.DoclingOCRPipeline)
 		}
 		log.WithField("url", config.DoclingURL).Info("Using Docling provider")
 		return newDoclingProvider(config)

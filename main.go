@@ -74,6 +74,8 @@ var (
 	pdfSkipExistingOCR            = os.Getenv("PDF_SKIP_EXISTING_OCR") == "true"
 	doclingURL                    = os.Getenv("DOCLING_URL")
 	doclingImageExportMode        = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
+	doclingOCRPipeline            = os.Getenv("DOCLING_OCR_PIPELINE")
+	doclingOCREngine              = os.Getenv("DOCLING_OCR_ENGINE")
 
 	// Templates
 	titleTemplate         *template.Template
@@ -257,6 +259,8 @@ func main() {
 		MistralModel:             os.Getenv("MISTRAL_MODEL"),
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
+		DoclingOCRPipeline:       doclingOCRPipeline,
+		DoclingOCREngine:         doclingOCREngine,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 		VisionLLMMaxTokens:       visionLlmMaxTokens,
 		VisionLLMTemperature:     visionLlmTemperature,
@@ -591,8 +595,16 @@ func validateOrDefaultEnvVars() {
 			log.Fatal("Please set the DOCLING_URL environment variable for Docling provider")
 		}
 		if doclingImageExportMode == "" {
-			doclingImageExportMode = "embedded" // Default to PNG
+			doclingImageExportMode = "embedded" // Defaults to "embedded"
 			log.Infof("DOCLING_IMAGE_EXPORT_MODE not set, defaulting to %s", doclingImageExportMode)
+		}
+		if doclingOCRPipeline == "" {
+			doclingOCRPipeline = "vlm" // Defaults to "vlm"
+			log.Infof("DOCLING_OCR_PIPELINE not set, defaulting to %s", doclingOCRPipeline)
+		}
+		if doclingOCRPipeline == "standard" && doclingOCREngine == "" {
+			doclingOCREngine = "easyocr"
+			log.Infof("DOCLING_OCR_ENGINE not set, defaulting to %s", doclingOCREngine)
 		}
 	}
 
