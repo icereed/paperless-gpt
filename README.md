@@ -531,6 +531,8 @@ For best results with the enhanced OCR features:
 
 | Variable                            | Description                                                                                                                                                                                   | Required | Default                    |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------- |
+| `PUID`                              | User ID to run the container as. See [Running as a Non-Root User](#running-as-a-non-root-user).                                                                                               | No       | 1000                       |
+| `PGID`                              | Group ID to run the container as. See [Running as a Non-Root User](#running-as-a-non-root-user).                                                                                              | No       | 1000                       |
 | `PAPERLESS_BASE_URL`                | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                                                                                                        | Yes      |                            |
 | `PAPERLESS_API_TOKEN`               | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                                                                                             | Yes      |                            |
 | `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                            | No       |                            |
@@ -934,6 +936,23 @@ Common issues and solutions:
 - **Feature Not Working**: If custom field suggestions are not being generated even though the feature is enabled, ensure you have selected at least one custom field in the settings. The feature requires at least one field to be selected to know what to process.
 
 ---
+
+### Running as a Non-Root User
+
+By default, the Docker container runs as a non-root user for enhanced security. You can control the user and group IDs using the `PUID` and `PGID` environment variables. This is highly recommended to avoid permission issues when mounting volumes from your host machine.
+
+To find your current user's ID, run `id -u`. To find your group's ID, run `id -g`.
+
+Example `docker-compose.yml` snippet:
+```yaml
+services:
+  paperless-gpt:
+    image: icereed/paperless-gpt:latest
+    environment:
+      - PUID=1001
+      - PGID=1001
+      # ... other variables
+```
 
 ## Contributing
 
