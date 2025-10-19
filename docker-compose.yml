@@ -9,7 +9,7 @@ services:
       # Set the user and group IDs for the container user.
       # This helps avoid permission issues with mounted volumes.
       # Find your user's ID with `id -u` and group ID with `id -g`.
-      - PUID=1000
-      - PGID=1000
+      - PUID=10001
+      - PGID=10001
     env_file:
       - .env

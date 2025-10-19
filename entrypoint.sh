@@ -1,9 +1,15 @@
 #!/bin/sh
 set -e
 
-# Use environment variables PUID/PGID, otherwise default to 1000
-PUID=${PUID:-1000}
-PGID=${PGID:-1000}
+# Use environment variables PUID/PGID, otherwise default to 10001
+PUID=${PUID:-10001}
+PGID=${PGID:-10001}
+
+# Validate PUID/PGID
+if [ "${PUID}" -lt 1 ] || [ "${PGID}" -lt 1 ]; then
+    echo "ERROR: PUID and PGID must non-root (0) and positive integers (got PUID=${PUID}, PGID=${PGID})"
+    exit 1
+fi
 
 # Create group and user
 if ! getent group paperless-gpt >/dev/null; then

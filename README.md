@@ -531,8 +531,8 @@ For best results with the enhanced OCR features:
 
 | Variable                            | Description                                                                                                                                                                                   | Required | Default                    |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------- |
-| `PUID`                              | User ID to run the container as. See [Running as a Non-Root User](#running-as-a-non-root-user).                                                                                               | No       | 1000                       |
-| `PGID`                              | Group ID to run the container as. See [Running as a Non-Root User](#running-as-a-non-root-user).                                                                                              | No       | 1000                       |
+| `PUID`                              | User ID to run the container as. See [Running as a Non-Root User](#running-as-a-non-root-user).                                                                                               | No       | 10001                      |
+| `PGID`                              | Group ID to run the container as. See [Running as a Non-Root User](#running-as-a-non-root-user).                                                                                              | No       | 10001                      |
 | `PAPERLESS_BASE_URL`                | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                                                                                                        | Yes      |                            |
 | `PAPERLESS_API_TOKEN`               | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                                                                                             | Yes      |                            |
 | `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                            | No       |                            |
@@ -949,8 +949,8 @@ services:
   paperless-gpt:
     image: icereed/paperless-gpt:latest
     environment:
-      - PUID=1001
-      - PGID=1001
+      - PUID=10001
+      - PGID=10001
       # ... other variables
 ```
 
