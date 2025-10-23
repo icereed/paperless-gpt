@@ -50,6 +50,7 @@ func loadSettings() {
 			CustomFieldsEnable:      false,
 			CustomFieldsSelectedIDs: []int{},
 			CustomFieldsWriteMode:   "append",
+			TagsAutoCreate:          false, // Disabled by default for backward compatibility
 		}
 	}
 
