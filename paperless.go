@@ -584,14 +584,16 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 						}
 					}
 				}
-				// Only update tags if there are remaining tags after removing auto/manual tags
-				// Sending an empty tags array causes Paperless-NGX to return an error
+				// Mark that we need to remove tags
+				// We'll send the tag update directly (even if empty) since there are no other field changes
+				originalFields["tags"] = originalDoc.Tags
 				if len(finalTagIDs) > 0 {
 					updatedFields["tags"] = finalTagIDs
 				} else {
-					// Document only had auto/manual tags with no other changes, skip update
-					log.Infof("Document %d only had auto/manual tags with no other changes, skipping update.", documentID)
-					continue
+					// Document only had auto/manual tags with no other changes
+					// We need to send an empty tags array to remove the manual tag
+					log.Infof("Document %d: Removing manual/auto tag (only tag present, no other changes)", documentID)
+					updatedFields["tags"] = []int{}
 				}
 			} else {
 				continue
@@ -631,10 +633,12 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 				} else {
 					// Remove auto/manual tags from current tags
 					var remainingTagIDs []int
+					var remainingTagNames []string
 					for _, tagName := range currentDoc.Tags {
 						if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) {
 							if tagID, exists := availableTags[tagName]; exists {
 								remainingTagIDs = append(remainingTagIDs, tagID)
+								remainingTagNames = append(remainingTagNames, tagName)
 							}
 						}
 					}
@@ -656,12 +660,12 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 							defer tagResp.Body.Close()
 							if tagResp.StatusCode == http.StatusOK {
 								log.Infof("Document %d: Successfully removed auto/manual tag", documentID)
-								// Record this tag change
+								// Record this tag change with tag names for both PreviousValue and NewValue
 								mod := ModificationHistory{
 									DocumentID:    uint(documentID),
 									ModField:      "tags",
 									PreviousValue: fmt.Sprintf("%v", originalDoc.Tags),
-									NewValue:      fmt.Sprintf("%v", remainingTagIDs),
+									NewValue:      fmt.Sprintf("%v", remainingTagNames),
 								}
 								if err := InsertModification(db, &mod); err != nil {
 									log.Warnf("Error inserting tag modification record: %v", err)

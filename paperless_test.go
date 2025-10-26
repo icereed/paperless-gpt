@@ -366,196 +366,141 @@ func TestUpdateDocuments(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestUpdateDocuments_OnlyManualTagPresent tests that when a document only has the manual tag,
-// removing it should NOT send an empty tags array (which Paperless-NGX rejects)
-func TestUpdateDocuments_OnlyManualTagPresent(t *testing.T) {
-	env := newTestEnv(t)
-	defer env.teardown()
+// TestUpdateDocuments_RemovingLastTag tests the behavior when removing the last remaining tag
+// from a document, which Paperless-NGX REST API does not allow (empty tags array is rejected).
+// The test covers two scenarios:
+//  1. Document has only the manual tag with other field changes (title) - should update title first,
+//     then remove the manual tag in a separate call
+//  2. Document has only the manual tag with NO other changes - should skip the update entirely
+func TestUpdateDocuments_RemovingLastTag(t *testing.T) {
+	// Set the manual tag for this test
+	manualTag = "paperless-gpt"
 
-	documents := []DocumentSuggestion{
+	tests := []struct {
+		name              string
+		document          DocumentSuggestion
+		expectUpdateCalls int
+		validateCalls     func(t *testing.T, calls []map[string]interface{})
+	}{
 		{
-			ID: 1,
-			OriginalDocument: Document{
-				ID:          1,
-				Title:       "Old Title",
-				Tags:        []string{"paperless-gpt"}, // Only has the auto-tag
-				CreatedDate: "1999-09-01",
+			name: "with_other_field_changes",
+			document: DocumentSuggestion{
+				ID: 1,
+				OriginalDocument: Document{
+					ID:          1,
+					Title:       "Old Title",
+					Tags:        []string{"paperless-gpt"},
+					CreatedDate: "1999-09-01",
+				},
+				SuggestedTitle: "New Title",
+				SuggestedTags:  []string{},
+				RemoveTags:     []string{},
 			},
-			SuggestedTitle: "New Title",
-			SuggestedTags:  []string{},
-			RemoveTags:     []string{},
+			expectUpdateCalls: 2,
+			validateCalls: func(t *testing.T, calls []map[string]interface{}) {
+				// First call: should update title but NOT tags
+				assert.Equal(t, map[string]interface{}{"title": "New Title"}, calls[0],
+					"First call should only update title, not tags")
+
+				// Second call: should remove the manual tag with empty array
+				tagsValue, tagsPresent := calls[1]["tags"]
+				require.True(t, tagsPresent, "Second call must include tags field")
+				tagSlice, ok := tagsValue.([]interface{})
+				require.True(t, ok, "tags should be an array")
+				assert.Empty(t, tagSlice, "tags array should be empty to remove manual tag")
+			},
 		},
-	}
-
-	// Mock data for tags
-	tagsResponse := map[string]interface{}{
-		"results": []map[string]interface{}{
-			{"id": 1, "name": "paperless-gpt"},
-		},
-		"next": nil,
-	}
-
-	// Set mock responses
-	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(tagsResponse)
-	})
-
-	updatePath := fmt.Sprintf("/api/documents/%d/", documents[0].ID)
-	updateCallCount := 0
-	env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "GET" {
-			// Return the document with only the paperless-gpt tag
-			response := map[string]interface{}{
-				"id":                 1,
-				"title":              "New Title",
-				"tags":               []int{1}, // paperless-gpt tag ID
-				"created_date":       "1999-09-01",
-				"content":            "",
-				"correspondent":      nil,
-				"custom_fields":      []interface{}{},
-				"original_file_name": "test.pdf",
-				"document_type":      nil,
-			}
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(response)
-			return
-		}
-
-		// Handle PATCH requests
-		updateCallCount++
-		assert.Equal(t, "PATCH", r.Method)
-
-		// Read and parse the request body
-		bodyBytes, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		defer r.Body.Close()
-
-		var updatedFields map[string]interface{}
-		err = json.Unmarshal(bodyBytes, &updatedFields)
-		require.NoError(t, err)
-
-		// Debug: print what was actually sent
-		t.Logf("Update call #%d - Received update request with fields: %+v", updateCallCount, updatedFields)
-
-		switch updateCallCount {
-		case 1:
-			// First call: should update title but NOT tags
-			// (to avoid sending empty tags array which Paperless rejects)
-			expectedFields := map[string]interface{}{
-				"title": "New Title",
-			}
-
-			tagsValue, tagsPresent := updatedFields["tags"]
-			if tagsPresent {
-				t.Logf("Tags field IS present with value: %+v (type: %T)", tagsValue, tagsValue)
-			}
-			assert.False(t, tagsPresent, "First call: tags field should NOT be present when removing auto-tag would result in empty array")
-
-			assert.Equal(t, expectedFields, updatedFields)
-		case 2:
-			// Second call: should update tags to an empty array to remove the auto-tag
-			tagsValue, tagsPresent := updatedFields["tags"]
-			require.True(t, tagsPresent, "Second call: tags field MUST be present to remove auto-tag")
-
-			// Verify it's an empty array
-			tagSlice, ok := tagsValue.([]interface{})
-			require.True(t, ok, "tags should be an array")
-			assert.Len(t, tagSlice, 0, "tags array should be empty to remove the auto-tag")
-		}
-
-		w.WriteHeader(http.StatusOK)
-	})
-
-	ctx := context.Background()
-	err := env.client.UpdateDocuments(ctx, documents, env.db, false)
-	require.NoError(t, err)
-}
-
-// TestUpdateDocuments_OnlyAutoTagPresentNoOtherChanges tests:
-// - Document only has the paperless-gpt tag
-// - No other fields are being updated (no title change, etc.)
-// - The code tries to remove the tag, resulting in an empty tags array
-// - This causes Paperless-NGX to return: {"tags":["This field may not be null."]}
-func TestUpdateDocuments_OnlyAutoTagPresentNoOtherChanges(t *testing.T) {
-	env := newTestEnv(t)
-	defer env.teardown()
-
-	// Mock data for documents - document only has the paperless-gpt tag
-	// AND no other fields are being changed (this is the key difference)
-	documents := []DocumentSuggestion{
 		{
-			ID: 1,
-			OriginalDocument: Document{
-				ID:          1,
-				Title:       "Same Title",              // Title is NOT changing
-				Tags:        []string{"paperless-gpt"}, // Only has process tag
-				CreatedDate: "1999-09-01",
+			name: "no_other_changes",
+			document: DocumentSuggestion{
+				ID: 2,
+				OriginalDocument: Document{
+					ID:          2,
+					Title:       "Same Title",
+					Tags:        []string{"paperless-gpt"},
+					CreatedDate: "1999-09-01",
+				},
+				SuggestedTitle: "",
+				SuggestedTags:  []string{},
+				RemoveTags:     []string{},
 			},
-			SuggestedTitle: "",         // NO title change
-			SuggestedTags:  []string{}, // NO tags suggested
-			RemoveTags:     []string{}, // NO tags to remove
+			expectUpdateCalls: 1,
+			validateCalls: func(t *testing.T, calls []map[string]interface{}) {
+				// Should make one call to remove the manual tag with empty array
+				// Even though there are no other field changes, the manual tag MUST be removed
+				tagsValue, tagsPresent := calls[0]["tags"]
+				require.True(t, tagsPresent, "Must include tags field to remove manual tag")
+				tagSlice, ok := tagsValue.([]interface{})
+				require.True(t, ok, "tags should be an array")
+				assert.Empty(t, tagSlice, "tags array should be empty to remove manual tag")
+			},
 		},
 	}
 
-	// Mock data for tags
-	tagsResponse := map[string]interface{}{
-		"results": []map[string]interface{}{
-			{"id": 1, "name": "paperless-gpt"},
-		},
-		"next": nil,
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			defer env.teardown()
 
-	// Set mock responses
-	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(tagsResponse)
-	})
+			// Mock tags response
+			env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"results": []map[string]interface{}{
+						{"id": 1, "name": "paperless-gpt"},
+					},
+					"next": nil,
+				})
+			})
 
-	updatePath := fmt.Sprintf("/api/documents/%d/", documents[0].ID)
-	updateCalled := false
-	env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
-		updateCalled = true
+			// Track update calls (PATCH only, not GET)
+			var updateCalls []map[string]interface{}
+			updatePath := fmt.Sprintf("/api/documents/%d/", tt.document.ID)
 
-		// Verify the request method
-		assert.Equal(t, "PATCH", r.Method)
+			env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "GET" {
+					// Return document state after first update (still has paperless-gpt tag)
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"id":                 tt.document.ID,
+						"title":              "New Title", // Title was updated
+						"tags":               []int{1},    // Still has paperless-gpt tag
+						"created_date":       tt.document.OriginalDocument.CreatedDate,
+						"content":            "",
+						"correspondent":      nil,
+						"custom_fields":      []interface{}{},
+						"original_file_name": "test.pdf",
+						"document_type":      nil,
+					})
+					return
+				}
 
-		// Read and parse the request body
-		bodyBytes, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		defer r.Body.Close()
+				// Track PATCH calls
+				assert.Equal(t, "PATCH", r.Method)
+				bodyBytes, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				defer r.Body.Close()
 
-		var updatedFields map[string]interface{}
-		err = json.Unmarshal(bodyBytes, &updatedFields)
-		require.NoError(t, err)
+				var updatedFields map[string]interface{}
+				err = json.Unmarshal(bodyBytes, &updatedFields)
+				require.NoError(t, err)
 
-		// Debug: print what was actually sent
-		t.Logf("BUG SCENARIO - Received update request with fields: %+v", updatedFields)
+				updateCalls = append(updateCalls, updatedFields)
+				w.WriteHeader(http.StatusOK)
+			})
 
-		// This is the bug! When no other fields change and we only have the auto-tag,
-		// the code sends tags: [] which Paperless-NGX rejects
-		tagsValue, tagsPresent := updatedFields["tags"]
-		if tagsPresent {
-			t.Logf("BUG: Tags field IS present with value: %+v (type: %T)", tagsValue, tagsValue)
-			// Check if it's an empty array
-			if tagSlice, ok := tagsValue.([]interface{}); ok && len(tagSlice) == 0 {
-				t.Logf("BUG CONFIRMED: Empty tags array [] is being sent!")
-				// Simulate Paperless-NGX error response
-				w.WriteHeader(http.StatusBadRequest)
-				w.Write([]byte(`{"tags":["This field may not be null."]}`))
-				return
+			ctx := context.Background()
+			err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{tt.document}, env.db, false)
+			require.NoError(t, err)
+
+			assert.Len(t, updateCalls, tt.expectUpdateCalls,
+				"Expected %d update calls, got %d", tt.expectUpdateCalls, len(updateCalls))
+
+			if tt.expectUpdateCalls > 0 {
+				tt.validateCalls(t, updateCalls)
 			}
-		}
-
-		w.WriteHeader(http.StatusOK)
-	})
-
-	ctx := context.Background()
-	err := env.client.UpdateDocuments(ctx, documents, env.db, false)
-
-	// The update should NOT be called since the document only has process tag and no other changes
-	assert.False(t, updateCalled, "Update should NOT be called when document only has process tag with no other changes")
-	require.NoError(t, err)
+		})
+	}
 }
 
 // TestUrlEncode tests the urlEncode function
