@@ -1,12 +1,17 @@
 import React from 'react';
 import PromptsEditor from './PromptsEditor';
 import CustomFieldsEditor from './CustomFieldsEditor';
+import TagSettings from './TagSettings';
 
 const Settings: React.FC = () => {
   return (
     <main className="p-4">
       <div className="p-6 bg-gray-100 dark:bg-gray-900">
         <PromptsEditor />
+      </div>
+
+      <div className="p-6 bg-gray-100 dark:bg-gray-900">
+        <TagSettings />
       </div>
 
       <div className="p-6 bg-gray-100 dark:bg-gray-900">
