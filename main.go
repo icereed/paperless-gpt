@@ -511,7 +511,7 @@ func validateOCRProviderModeCompatibility(provider, mode string) error {
 		"azure":        {"image"},                     // Azure Document Intelligence only supports image mode
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
-		"docling":      {"image"},                     // Docling only supports image mode
+		"docling":      {"image", "pdf", "whole_pdf"}, // Docling supports image and PDF modes
 	}
 
 	modes, exists := supportedModes[provider]
