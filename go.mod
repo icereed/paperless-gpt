@@ -2,7 +2,7 @@ module paperless-gpt
 
 go 1.24.4
 
-toolchain go1.25.3
+toolchain go1.25.4
 
 require (
 	cloud.google.com/go/documentai v1.39.0
