@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"paperless-gpt/internal/constants"
 	"paperless-gpt/ocr"
 	"path/filepath"
 	"runtime"
@@ -29,13 +30,6 @@ import (
 )
 
 // Global Variables and Constants
-const (
-	// dummyAPIKey is used as a placeholder when connecting to OpenAI-compatible services
-	// that don't require authentication. Many services expect a token in the request
-	// header but don't validate it.
-	dummyAPIKey = "not-needed"
-)
-
 var (
 
 	// Logger
@@ -883,7 +877,7 @@ func createLLM() (llms.Model, error) {
 		// Use a dummy API key if not set (for OpenAI-compatible services that don't require it)
 		apiKey := openaiAPIKey
 		if apiKey == "" {
-			apiKey = dummyAPIKey
+			apiKey = constants.DummyAPIKey
 		}
 
 		options := []openai.Option{
@@ -981,7 +975,7 @@ func createVisionLLM() (llms.Model, error) {
 		// Use a dummy API key if not set (for OpenAI-compatible services that don't require it)
 		apiKey := openaiAPIKey
 		if apiKey == "" {
-			apiKey = dummyAPIKey
+			apiKey = constants.DummyAPIKey
 		}
 
 		options := []openai.Option{

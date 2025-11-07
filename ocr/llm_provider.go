@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"paperless-gpt/internal/constants"
 	"strings"
 
 	_ "image/jpeg"
@@ -16,13 +17,6 @@ import (
 	"github.com/tmc/langchaingo/llms/mistral"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
-)
-
-const (
-	// dummyAPIKey is used as a placeholder when connecting to OpenAI-compatible services
-	// that don't require authentication. Many services expect a token in the request
-	// header but don't validate it.
-	dummyAPIKey = "not-needed"
 )
 
 // LLMProvider implements OCR using LLM vision models
@@ -182,7 +176,7 @@ func createOpenAIClient(config Config) (llms.Model, error) {
 	
 	// Use a dummy API key if not set and a base URL is provided (for OpenAI-compatible services)
 	if apiKey == "" && baseURL != "" {
-		apiKey = dummyAPIKey
+		apiKey = constants.DummyAPIKey
 	}
 	
 	if apiKey == "" {
