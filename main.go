@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"paperless-gpt/internal/constants"
 	"paperless-gpt/ocr"
 	"path/filepath"
 	"runtime"
@@ -617,15 +618,21 @@ func validateOrDefaultEnvVars() {
 			log.Fatal("Please set the MISTRAL_API_KEY environment variable for Mistral provider.")
 		}
 	} else if llmProvider == "openai" || visionLlmProvider == "openai" {
-		if openaiAPIKey == "" {
-			log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
-		}
-
+		baseURL := os.Getenv("OPENAI_BASE_URL")
+		
 		// Check Azure specific configuration
 		if strings.ToLower(os.Getenv("OPENAI_API_TYPE")) == "azure" {
-			if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL == "" {
+			if baseURL == "" {
 				log.Fatal("Please set the OPENAI_BASE_URL environment variable for Azure OpenAI.")
 			}
+			if openaiAPIKey == "" {
+				log.Fatal("Please set the OPENAI_API_KEY environment variable for Azure OpenAI.")
+			}
+		} else if openaiAPIKey == "" && baseURL == "" {
+			// For standard OpenAI or OpenAI-compatible services:
+			// - If no base URL is set, require an API key (standard OpenAI)
+			// - If base URL is set, allow empty API key (OpenAI-compatible services like LM Studio)
+			log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider, or set OPENAI_BASE_URL for OpenAI-compatible services.")
 		}
 	}
 
@@ -867,18 +874,21 @@ func createLLM() (llms.Model, error) {
 		// Apply rate limiting with isVision=false
 		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
 	case "openai":
-		if openaiAPIKey == "" {
-			return nil, fmt.Errorf("OpenAI API key is not set")
+		baseURL := os.Getenv("OPENAI_BASE_URL")
+		apiKey := openaiAPIKey
+		
+		// Use a dummy API key if not set and a base URL is provided (for OpenAI-compatible services)
+		if apiKey == "" && baseURL != "" {
+			apiKey = constants.DummyAPIKey
 		}
 
 		options := []openai.Option{
 			openai.WithModel(llmModel),
-			openai.WithToken(openaiAPIKey),
+			openai.WithToken(apiKey),
 			openai.WithHTTPClient(createCustomHTTPClient()),
 		}
 
 		if strings.ToLower(os.Getenv("OPENAI_API_TYPE")) == "azure" {
-			baseURL := os.Getenv("OPENAI_BASE_URL")
 			if baseURL == "" {
 				return nil, fmt.Errorf("OPENAI_BASE_URL is required for Azure OpenAI")
 			}
@@ -887,6 +897,9 @@ func createLLM() (llms.Model, error) {
 				openai.WithBaseURL(baseURL),
 				openai.WithEmbeddingModel("this-is-not-used"), // This is mandatory for Azure by langchain-go
 			)
+		} else if baseURL != "" {
+			// Support for non-Azure OpenAI-compatible services (e.g., LM Studio)
+			options = append(options, openai.WithBaseURL(baseURL))
 		}
 
 		llm, err := openai.New(options...)
@@ -960,18 +973,21 @@ func createVisionLLM() (llms.Model, error) {
 		// Apply rate limiting with isVision=true
 		return NewRateLimitedLLM(llm, getRateLimitConfig(true)), nil
 	case "openai":
-		if openaiAPIKey == "" {
-			return nil, fmt.Errorf("OpenAI API key is not set")
+		baseURL := os.Getenv("OPENAI_BASE_URL")
+		apiKey := openaiAPIKey
+		
+		// Use a dummy API key if not set and a base URL is provided (for OpenAI-compatible services)
+		if apiKey == "" && baseURL != "" {
+			apiKey = constants.DummyAPIKey
 		}
 
 		options := []openai.Option{
 			openai.WithModel(visionLlmModel),
-			openai.WithToken(openaiAPIKey),
+			openai.WithToken(apiKey),
 			openai.WithHTTPClient(createCustomHTTPClient()),
 		}
 
 		if strings.ToLower(os.Getenv("OPENAI_API_TYPE")) == "azure" {
-			baseURL := os.Getenv("OPENAI_BASE_URL")
 			if baseURL == "" {
 				return nil, fmt.Errorf("OPENAI_BASE_URL is required for Azure OpenAI")
 			}
@@ -980,6 +996,9 @@ func createVisionLLM() (llms.Model, error) {
 				openai.WithBaseURL(baseURL),
 				openai.WithEmbeddingModel("this-is-not-used"), // This is mandatory for Azure by langchain-go
 			)
+		} else if baseURL != "" {
+			// Support for non-Azure OpenAI-compatible services (e.g., LM Studio)
+			options = append(options, openai.WithBaseURL(baseURL))
 		}
 
 		llm, err := openai.New(options...)

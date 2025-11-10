@@ -47,3 +47,131 @@ func TestCreateCustomHTTPClient(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "Expected 200 OK response")
 }
+
+// TestCreateLLMWithOpenAICompatible tests that OpenAI-compatible services work without API keys
+func TestCreateLLMWithOpenAICompatible(t *testing.T) {
+	// Save original env vars and restore after test
+	origProvider := llmProvider
+	origModel := llmModel
+	origAPIKey := openaiAPIKey
+	defer func() {
+		llmProvider = origProvider
+		llmModel = origModel
+		openaiAPIKey = origAPIKey
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("OPENAI_BASE_URL", "")
+	}()
+
+	tests := []struct {
+		name        string
+		apiKey      string
+		baseURL     string
+		shouldError bool
+	}{
+		{
+			name:        "OpenAI-compatible with base URL and no API key",
+			apiKey:      "",
+			baseURL:     "http://localhost:1234/v1",
+			shouldError: false,
+		},
+		{
+			name:        "OpenAI-compatible with base URL and API key",
+			apiKey:      "test-key",
+			baseURL:     "http://localhost:1234/v1",
+			shouldError: false,
+		},
+		{
+			name:        "Standard OpenAI with API key and no base URL",
+			apiKey:      "sk-test-key",
+			baseURL:     "",
+			shouldError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variables
+			t.Setenv("OPENAI_API_KEY", tt.apiKey)
+			t.Setenv("OPENAI_BASE_URL", tt.baseURL)
+			
+			// Update global vars
+			llmProvider = "openai"
+			llmModel = "test-model"
+			openaiAPIKey = tt.apiKey
+
+			// Create LLM client
+			llm, err := createLLM()
+
+			if tt.shouldError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, llm)
+			}
+		})
+	}
+}
+
+// TestCreateVisionLLMWithOpenAICompatible tests that OpenAI-compatible services work without API keys for vision models
+func TestCreateVisionLLMWithOpenAICompatible(t *testing.T) {
+	// Save original env vars and restore after test
+	origProvider := visionLlmProvider
+	origModel := visionLlmModel
+	origAPIKey := openaiAPIKey
+	defer func() {
+		visionLlmProvider = origProvider
+		visionLlmModel = origModel
+		openaiAPIKey = origAPIKey
+		t.Setenv("OPENAI_API_KEY", "")
+		t.Setenv("OPENAI_BASE_URL", "")
+	}()
+
+	tests := []struct {
+		name        string
+		apiKey      string
+		baseURL     string
+		shouldError bool
+	}{
+		{
+			name:        "OpenAI-compatible vision with base URL and no API key",
+			apiKey:      "",
+			baseURL:     "http://localhost:1234/v1",
+			shouldError: false,
+		},
+		{
+			name:        "OpenAI-compatible vision with base URL and API key",
+			apiKey:      "test-key",
+			baseURL:     "http://localhost:1234/v1",
+			shouldError: false,
+		},
+		{
+			name:        "Standard OpenAI vision with API key and no base URL",
+			apiKey:      "sk-test-key",
+			baseURL:     "",
+			shouldError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variables
+			t.Setenv("OPENAI_API_KEY", tt.apiKey)
+			t.Setenv("OPENAI_BASE_URL", tt.baseURL)
+			
+			// Update global vars
+			visionLlmProvider = "openai"
+			visionLlmModel = "test-vision-model"
+			openaiAPIKey = tt.apiKey
+
+			// Create Vision LLM client
+			llm, err := createVisionLLM()
+
+			if tt.shouldError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, llm)
+			}
+		})
+	}
+}
