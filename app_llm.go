@@ -592,7 +592,7 @@ func stripReasoning(content string) string {
 	if reasoningStart != -1 {
 		reasoningEnd := strings.Index(content, "</think>")
 		if reasoningEnd != -1 {
-			content = content[:reasoningStart] + content[reasoningEnd+len("</think>"):]
+			content = content[reasoningEnd+len("</think>"):]
 		}
 	}
 
