@@ -150,7 +150,15 @@ func (app *App) getSuggestedTags(
 	slices.Sort(suggestedTags)
 	suggestedTags = slices.Compact(suggestedTags)
 
-	// Filter out tags that are not in the available tags list
+	// Check if tag auto-creation is enabled
+	settingsMutex.RLock()
+	autoCreateEnabled := settings.TagsAutoCreate
+	settingsMutex.RUnlock()
+
+	// Filter out tags that are not in the available tags list (unless auto-create is enabled)
+	if autoCreateEnabled {
+		return suggestedTags, nil
+	}
 	filteredTags := []string{}
 	for _, tag := range suggestedTags {
 		for _, availableTag := range availableTags {

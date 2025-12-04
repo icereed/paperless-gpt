@@ -1,3 +1,27 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Last tag styling - indicate cannot be deleted */
+.react-tags__tag--last {
+  border-color: #3b82f6; /* Blue border to indicate special state */
+  position: relative;
+}
+
+/* Tooltip for last tag */
+.react-tags__tag--last::after {
+  content: 'At least one tag required';
+  position: absolute;
+  bottom: -25px;
+  left: 0;
+  font-size: 0.75rem;
+  color: #6b7280;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+
+.react-tags__tag--last:hover::after {
+  opacity: 1;
+}
