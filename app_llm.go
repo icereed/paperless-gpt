@@ -165,17 +165,34 @@ func (app *App) getSuggestedTags(
 }
 
 // getSuggestedTitle generates a suggested title for a document using the LLM
-func (app *App) getSuggestedTitle(ctx context.Context, content string, originalTitle string, logger *logrus.Entry) (string, error) {
+func (app *App) getSuggestedTitle(ctx context.Context, documentID int, content string, originalTitle string, logger *logrus.Entry) (string, error) {
 	likelyLanguage := getLikelyLanguage()
+
+	// Fetch similar documents to help with title consistency
+	var similarDocumentTitles []string
+	similarDocs, err := app.Client.GetSimilarDocuments(ctx, documentID, 5) // Get up to 5 similar documents
+	if err != nil {
+		// Log the error but don't fail the title generation
+		logger.Debugf("Failed to fetch similar documents for title consistency: %v", err)
+	} else {
+		// Extract titles from similar documents
+		for _, doc := range similarDocs {
+			if doc.Title != "" && doc.Title != originalTitle {
+				similarDocumentTitles = append(similarDocumentTitles, doc.Title)
+			}
+		}
+		logger.Debugf("Found %d similar documents for title consistency", len(similarDocumentTitles))
+	}
 
 	templateMutex.RLock()
 	defer templateMutex.RUnlock()
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
-		"Language": likelyLanguage,
-		"Content":  content,
-		"Title":    originalTitle,
+		"Language":               likelyLanguage,
+		"Content":                content,
+		"Title":                  originalTitle,
+		"SimilarDocumentTitles":  similarDocumentTitles,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(titleTemplate, templateData)
@@ -448,7 +465,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			var suggestedCustomFields []CustomFieldSuggestion
 
 			if suggestionRequest.GenerateTitles {
-				suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, docLogger)
+				suggestedTitle, err = app.getSuggestedTitle(ctx, documentID, content, suggestedTitle, docLogger)
 				if err != nil {
 					mu.Lock()
 					errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))

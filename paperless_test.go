@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -481,4 +482,270 @@ func TestDownloadDocumentAsPDF(t *testing.T) {
 	assert.Equal(t, 1, totalPages)
 
 	// Testing with splitting=true would be more complex so we'll skip that for simplicity
+}
+
+func TestGetSimilarDocuments(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	// Mock response for similar documents API
+	similarDocs := []GetDocumentApiResponseResult{
+		{
+			ID:    2,
+			Title: "Invoice January 2023 - Company ABC",
+		},
+		{
+			ID:    3,
+			Title: "Invoice February 2023 - Company ABC",
+		},
+		{
+			ID:    4,
+			Title: "Receipt March 2023 - Company XYZ",
+		},
+	}
+
+	response := GetDocumentsApiResponse{
+		Count:   3,
+		Results: similarDocs,
+	}
+
+	env.mockResponses["/api/documents/"] = func(w http.ResponseWriter, r *http.Request) {
+		// Verify query parameters
+		assert.Equal(t, "GET", r.Method)
+		assert.Equal(t, "-score", r.URL.Query().Get("ordering"))
+		assert.Equal(t, "true", r.URL.Query().Get("truncate_content"))
+		assert.Equal(t, "1", r.URL.Query().Get("more_like_id"))
+		assert.Equal(t, "5", r.URL.Query().Get("page_size"))
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+	}
+
+	// Add required mocks for tags and correspondents that GetSimilarDocuments calls
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{"id": 1, "name": "tag1"},
+			},
+			"next": nil,
+		})
+	})
+
+	// Test successful case
+	ctx := context.Background()
+	documents, err := env.client.GetSimilarDocuments(ctx, 1, 5)
+	require.NoError(t, err)
+	assert.Len(t, documents, 3)
+	assert.Equal(t, "Invoice January 2023 - Company ABC", documents[0].Title)
+	assert.Equal(t, "Invoice February 2023 - Company ABC", documents[1].Title)
+	assert.Equal(t, "Receipt March 2023 - Company XYZ", documents[2].Title)
+}
+
+func TestGetSimilarDocuments_NoResults(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	// Mock response with no results
+	response := GetDocumentsApiResponse{
+		Count:   0,
+		Results: []GetDocumentApiResponseResult{},
+	}
+
+	env.mockResponses["/api/documents/"] = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+	}
+
+	// Add required mocks for tags and correspondents
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{},
+			"next":    nil,
+		})
+	})
+
+	ctx := context.Background()
+	documents, err := env.client.GetSimilarDocuments(ctx, 1, 5)
+	require.NoError(t, err)
+	assert.Len(t, documents, 0)
+}
+
+func TestGetSimilarDocuments_Error(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	// Add required mocks for tags (since GetSimilarDocuments calls GetAllTags first)
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{},
+			"next":    nil,
+		})
+	})
+
+	env.mockResponses["/api/documents/"] = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Internal Server Error"))
+	}
+
+	ctx := context.Background()
+	documents, err := env.client.GetSimilarDocuments(ctx, 1, 5)
+	assert.Error(t, err)
+	assert.Nil(t, documents)
+	assert.Contains(t, err.Error(), "error searching similar documents")
+}
+
+func TestGetSimilarDocuments_TagsError(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	// Mock tags endpoint to return an error
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Tags API Error"))
+	})
+
+	ctx := context.Background()
+	documents, err := env.client.GetSimilarDocuments(ctx, 1, 5)
+	assert.Error(t, err)
+	assert.Nil(t, documents)
+	assert.Contains(t, err.Error(), "failed to get tags for exclusion")
+}
+
+func TestGetSimilarDocuments_ExcludesPaperlessGPTTags(t *testing.T) {
+	// Set environment variables for the test
+	originalManualTag := os.Getenv("MANUAL_TAG")
+	originalAutoTag := os.Getenv("AUTO_TAG")
+	defer func() {
+		os.Setenv("MANUAL_TAG", originalManualTag)
+		os.Setenv("AUTO_TAG", originalAutoTag)
+	}()
+	
+	// Set the tag values and reinitialize the global variables
+	os.Setenv("MANUAL_TAG", "paperless-gpt")
+	os.Setenv("AUTO_TAG", "paperless-gpt-auto")
+	manualTag = "paperless-gpt"
+	autoTag = "paperless-gpt-auto"
+
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	// Mock similar documents
+	similarDocs := []GetDocumentApiResponseResult{
+		{
+			ID:    2,
+			Title: "Test Document 1",
+		},
+	}
+
+	response := GetDocumentsApiResponse{
+		Count:   1,
+		Results: similarDocs,
+	}
+
+	// Track the received query parameters
+	var receivedQuery string
+	env.mockResponses["/api/documents/"] = func(w http.ResponseWriter, r *http.Request) {
+		receivedQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+	}
+
+	// Add required mocks for tags (include paperless-gpt tags)
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{"id": 1, "name": "regular-tag"},
+				{"id": 2, "name": "paperless-gpt"},       // manualTag
+				{"id": 3, "name": "paperless-gpt-auto"},  // autoTag
+			},
+			"next": nil,
+		})
+	})
+
+	ctx := context.Background()
+	documents, err := env.client.GetSimilarDocuments(ctx, 1, 5)
+	require.NoError(t, err)
+	assert.Len(t, documents, 1)
+
+	// Verify that the query excludes the paperless-gpt tags
+	assert.Contains(t, receivedQuery, "ordering=-score")
+	assert.Contains(t, receivedQuery, "truncate_content=true")
+	assert.Contains(t, receivedQuery, "more_like_id=1")
+	assert.Contains(t, receivedQuery, "page_size=5")
+	// Check that tag exclusion is present (order may vary)
+	assert.True(t, 
+		strings.Contains(receivedQuery, "tags__id__none=2,3") || strings.Contains(receivedQuery, "tags__id__none=3,2"),
+		"Should exclude paperless-gpt tags with IDs 2 and 3 (in any order), got: %s", receivedQuery)
+}
+
+func TestGetSimilarDocuments_NoPaperlessGPTTagsToExclude(t *testing.T) {
+	// Set environment variables for the test
+	originalManualTag := os.Getenv("MANUAL_TAG")
+	originalAutoTag := os.Getenv("AUTO_TAG")
+	defer func() {
+		os.Setenv("MANUAL_TAG", originalManualTag)
+		os.Setenv("AUTO_TAG", originalAutoTag)
+	}()
+	
+	// Set the tag values and reinitialize the global variables
+	os.Setenv("MANUAL_TAG", "paperless-gpt")
+	os.Setenv("AUTO_TAG", "paperless-gpt-auto")
+	manualTag = "paperless-gpt"
+	autoTag = "paperless-gpt-auto"
+
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	// Mock similar documents
+	similarDocs := []GetDocumentApiResponseResult{
+		{
+			ID:    2,
+			Title: "Test Document 1",
+		},
+	}
+
+	response := GetDocumentsApiResponse{
+		Count:   1,
+		Results: similarDocs,
+	}
+
+	// Track the received query parameters
+	var receivedQuery string
+	env.mockResponses["/api/documents/"] = func(w http.ResponseWriter, r *http.Request) {
+		receivedQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+	}
+
+	// Add required mocks for tags (no paperless-gpt tags this time)
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{"id": 1, "name": "regular-tag"},
+				{"id": 2, "name": "other-tag"},
+			},
+			"next": nil,
+		})
+	})
+
+	ctx := context.Background()
+	documents, err := env.client.GetSimilarDocuments(ctx, 1, 5)
+	require.NoError(t, err)
+	assert.Len(t, documents, 1)
+
+	// Verify that the query does not include tag exclusions when no paperless-gpt tags exist
+	assert.Contains(t, receivedQuery, "ordering=-score")
+	assert.Contains(t, receivedQuery, "truncate_content=true")
+	assert.Contains(t, receivedQuery, "more_like_id=1")
+	assert.Contains(t, receivedQuery, "page_size=5")
+	assert.NotContains(t, receivedQuery, "tags__id__none", "Should not include tag exclusions when no paperless-gpt tags exist")
 }
