@@ -453,18 +453,37 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			}
 		}
 		finalTagNames = cleanedTags
+
+		// Always remove auto/manual tags from the final tag list
+		var tagsWithoutAutoManual []string
+		for _, tagName := range finalTagNames {
+			if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) {
+				tagsWithoutAutoManual = append(tagsWithoutAutoManual, tagName)
+			}
+		}
+		finalTagNames = tagsWithoutAutoManual
+
 		slices.Sort(finalTagNames)
 		finalTagNames = slices.Compact(finalTagNames)
 
 		if !hasSameTags(originalDoc.Tags, finalTagNames) {
-			originalFields["tags"] = originalDoc.Tags
 			var newTagIDs []int
 			for _, tagName := range finalTagNames {
 				if tagID, exists := availableTags[tagName]; exists {
 					newTagIDs = append(newTagIDs, tagID)
 				}
 			}
-			updatedFields["tags"] = newTagIDs
+			// Only update tags if there are remaining tags after changes
+			// Sending an empty tags array causes Paperless-NGX to return an error
+			// However, we need to track this for a potential second update
+			if len(newTagIDs) > 0 {
+				originalFields["tags"] = originalDoc.Tags
+				updatedFields["tags"] = newTagIDs
+			} else {
+				// Mark that we need to remove tags but can't do it in this update
+				// We'll handle this after the main update completes
+				originalFields["tags"] = originalDoc.Tags
+			}
 		}
 
 		// --- CORRESPONDENT ---
@@ -565,7 +584,17 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 						}
 					}
 				}
-				updatedFields["tags"] = finalTagIDs
+				// Mark that we need to remove tags
+				// We'll send the tag update directly (even if empty) since there are no other field changes
+				originalFields["tags"] = originalDoc.Tags
+				if len(finalTagIDs) > 0 {
+					updatedFields["tags"] = finalTagIDs
+				} else {
+					// Document only had auto/manual tags with no other changes
+					// We need to send an empty tags array to remove the manual tag
+					log.Infof("Document %d: Removing manual/auto tag (only tag present, no other changes)", documentID)
+					updatedFields["tags"] = []int{}
+				}
 			} else {
 				continue
 			}
@@ -589,7 +618,75 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			return fmt.Errorf("error updating document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
 		}
 
+		// Check if we need to remove auto/manual tags in a separate update
+		// This happens when tags changed but resulted in an empty array (which we can't send)
+		if _, hadTagChange := originalFields["tags"]; hadTagChange {
+			if _, tagsSent := updatedFields["tags"]; !tagsSent {
+				// We detected a tag change but didn't send it because it would be empty
+				// Now we need to remove the auto/manual tag using the bulk edit API
+				log.Infof("Document %d: Removing auto/manual tag in separate update", documentID)
+
+				// Get the current document state to see what tags it has now
+				currentDoc, err := client.GetDocument(ctx, documentID)
+				if err != nil {
+					log.Warnf("Failed to get current document state for tag removal: %v", err)
+				} else {
+					// Remove auto/manual tags from current tags
+					var remainingTagIDs []int
+					var remainingTagNames []string
+					for _, tagName := range currentDoc.Tags {
+						if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) {
+							if tagID, exists := availableTags[tagName]; exists {
+								remainingTagIDs = append(remainingTagIDs, tagID)
+								remainingTagNames = append(remainingTagNames, tagName)
+							}
+						}
+					}
+
+					// Always send the tag update to remove auto/manual tags, even if it results in an empty array
+					// This is required - the auto/manual tag MUST be removed
+					// Ensure we send an empty array [] instead of null
+					if remainingTagIDs == nil {
+						remainingTagIDs = []int{}
+					}
+					tagUpdateFields := map[string]interface{}{
+						"tags": remainingTagIDs,
+					}
+					tagJsonData, err := json.Marshal(tagUpdateFields)
+					if err == nil {
+						tagPath := fmt.Sprintf("api/documents/%d/", documentID)
+						tagResp, err := client.Do(ctx, "PATCH", tagPath, bytes.NewBuffer(tagJsonData))
+						if err == nil {
+							defer tagResp.Body.Close()
+							if tagResp.StatusCode == http.StatusOK {
+								log.Infof("Document %d: Successfully removed auto/manual tag", documentID)
+								// Record this tag change with tag names for both PreviousValue and NewValue
+								mod := ModificationHistory{
+									DocumentID:    uint(documentID),
+									ModField:      "tags",
+									PreviousValue: fmt.Sprintf("%v", originalDoc.Tags),
+									NewValue:      fmt.Sprintf("%v", remainingTagNames),
+								}
+								if err := InsertModification(db, &mod); err != nil {
+									log.Warnf("Error inserting tag modification record: %v", err)
+								}
+							} else {
+								bodyBytes, _ := io.ReadAll(tagResp.Body)
+								log.Warnf("Failed to remove auto/manual tag: %d, %s", tagResp.StatusCode, string(bodyBytes))
+							}
+						}
+					}
+				}
+			}
+		}
+
 		for field, value := range originalFields {
+			// Skip tags if we handled it separately above
+			if field == "tags" {
+				if _, tagsSent := updatedFields["tags"]; !tagsSent {
+					continue // Already handled in separate update above
+				}
+			}
 			log.Printf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
 			mod := ModificationHistory{
 				DocumentID:    uint(documentID),

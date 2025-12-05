@@ -366,6 +366,143 @@ func TestUpdateDocuments(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestUpdateDocuments_RemovingLastTag tests the behavior when removing the last remaining tag
+// from a document, which Paperless-NGX REST API does not allow (empty tags array is rejected).
+// The test covers two scenarios:
+//  1. Document has only the manual tag with other field changes (title) - should update title first,
+//     then remove the manual tag in a separate call
+//  2. Document has only the manual tag with NO other changes - should skip the update entirely
+func TestUpdateDocuments_RemovingLastTag(t *testing.T) {
+	// Set the manual tag for this test
+	manualTag = "paperless-gpt"
+
+	tests := []struct {
+		name              string
+		document          DocumentSuggestion
+		expectUpdateCalls int
+		validateCalls     func(t *testing.T, calls []map[string]interface{})
+	}{
+		{
+			name: "with_other_field_changes",
+			document: DocumentSuggestion{
+				ID: 1,
+				OriginalDocument: Document{
+					ID:          1,
+					Title:       "Old Title",
+					Tags:        []string{"paperless-gpt"},
+					CreatedDate: "1999-09-01",
+				},
+				SuggestedTitle: "New Title",
+				SuggestedTags:  []string{},
+				RemoveTags:     []string{},
+			},
+			expectUpdateCalls: 2,
+			validateCalls: func(t *testing.T, calls []map[string]interface{}) {
+				// First call: should update title but NOT tags
+				assert.Equal(t, map[string]interface{}{"title": "New Title"}, calls[0],
+					"First call should only update title, not tags")
+
+				// Second call: should remove the manual tag with empty array
+				tagsValue, tagsPresent := calls[1]["tags"]
+				require.True(t, tagsPresent, "Second call must include tags field")
+				tagSlice, ok := tagsValue.([]interface{})
+				require.True(t, ok, "tags should be an array")
+				assert.Empty(t, tagSlice, "tags array should be empty to remove manual tag")
+			},
+		},
+		{
+			name: "no_other_changes",
+			document: DocumentSuggestion{
+				ID: 2,
+				OriginalDocument: Document{
+					ID:          2,
+					Title:       "Same Title",
+					Tags:        []string{"paperless-gpt"},
+					CreatedDate: "1999-09-01",
+				},
+				SuggestedTitle: "",
+				SuggestedTags:  []string{},
+				RemoveTags:     []string{},
+			},
+			expectUpdateCalls: 1,
+			validateCalls: func(t *testing.T, calls []map[string]interface{}) {
+				// Should make one call to remove the manual tag with empty array
+				// Even though there are no other field changes, the manual tag MUST be removed
+				tagsValue, tagsPresent := calls[0]["tags"]
+				require.True(t, tagsPresent, "Must include tags field to remove manual tag")
+				tagSlice, ok := tagsValue.([]interface{})
+				require.True(t, ok, "tags should be an array")
+				assert.Empty(t, tagSlice, "tags array should be empty to remove manual tag")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			defer env.teardown()
+
+			// Mock tags response
+			env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"results": []map[string]interface{}{
+						{"id": 1, "name": "paperless-gpt"},
+					},
+					"next": nil,
+				})
+			})
+
+			// Track update calls (PATCH only, not GET)
+			var updateCalls []map[string]interface{}
+			updatePath := fmt.Sprintf("/api/documents/%d/", tt.document.ID)
+
+			env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "GET" {
+					// Return document state after first update (still has paperless-gpt tag)
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"id":                 tt.document.ID,
+						"title":              "New Title", // Title was updated
+						"tags":               []int{1},    // Still has paperless-gpt tag
+						"created_date":       tt.document.OriginalDocument.CreatedDate,
+						"content":            "",
+						"correspondent":      nil,
+						"custom_fields":      []interface{}{},
+						"original_file_name": "test.pdf",
+						"document_type":      nil,
+					})
+					return
+				}
+
+				// Track PATCH calls
+				assert.Equal(t, "PATCH", r.Method)
+				bodyBytes, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				defer r.Body.Close()
+
+				var updatedFields map[string]interface{}
+				err = json.Unmarshal(bodyBytes, &updatedFields)
+				require.NoError(t, err)
+
+				updateCalls = append(updateCalls, updatedFields)
+				w.WriteHeader(http.StatusOK)
+			})
+
+			ctx := context.Background()
+			err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{tt.document}, env.db, false)
+			require.NoError(t, err)
+
+			assert.Len(t, updateCalls, tt.expectUpdateCalls,
+				"Expected %d update calls, got %d", tt.expectUpdateCalls, len(updateCalls))
+
+			if tt.expectUpdateCalls > 0 {
+				tt.validateCalls(t, updateCalls)
+			}
+		})
+	}
+}
+
 // TestUrlEncode tests the urlEncode function
 func TestUrlEncode(t *testing.T) {
 	input := "tag:tag1 tag:tag2"
