@@ -22,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/anthropic"
 	"github.com/tmc/langchaingo/llms/mistral"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
@@ -571,12 +572,13 @@ func validateOrDefaultEnvVars() {
 		visionLlmProvider != "openai" &&
 		visionLlmProvider != "ollama" &&
 		visionLlmProvider != "mistral" &&
-		visionLlmProvider != "googleai" {
+		visionLlmProvider != "googleai" &&
+		visionLlmProvider != "anthropic" {
 
-		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai' or 'mistral'.")
+		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai', 'mistral' or 'anthropic'.")
 	}
-	if llmProvider != "openai" && llmProvider != "ollama" && llmProvider != "googleai" && llmProvider != "mistral" {
-		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai' or 'mistral'.")
+	if llmProvider != "openai" && llmProvider != "ollama" && llmProvider != "googleai" && llmProvider != "mistral" && llmProvider != "anthropic" {
+		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai', 'mistral' or 'anthropic'.")
 	}
 
 	// Validate OCR provider if set
@@ -615,6 +617,10 @@ func validateOrDefaultEnvVars() {
 	if llmProvider == "mistral" {
 		if os.Getenv("MISTRAL_API_KEY") == "" {
 			log.Fatal("Please set the MISTRAL_API_KEY environment variable for Mistral provider.")
+		}
+	} else if llmProvider == "anthropic" || visionLlmProvider == "anthropic" {
+		if os.Getenv("ANTHROPIC_API_KEY") == "" {
+			log.Fatal("Please set the ANTHROPIC_API_KEY environment variable for Anthropic provider.")
 		}
 	} else if llmProvider == "openai" || visionLlmProvider == "openai" {
 		if openaiAPIKey == "" {
@@ -936,8 +942,23 @@ func createLLM() (llms.Model, error) {
 			return nil, fmt.Errorf("failed to create GoogleAI provider: %w", err)
 		}
 		return provider, nil
+	case "anthropic":
+		apiKey := os.Getenv("ANTHROPIC_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set")
+		}
+		llm, err := anthropic.New(
+			anthropic.WithModel(llmModel),
+			anthropic.WithToken(apiKey),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Apply rate limiting with isVision=false
+		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, ollama, mistral, googleai)", llmProvider)
+		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, ollama, mistral, googleai, anthropic)", llmProvider)
 	}
 }
 
@@ -1006,6 +1027,21 @@ func createVisionLLM() (llms.Model, error) {
 			}
 		}
 		llm, err := ollama.New(opts...)
+		if err != nil {
+			return nil, err
+		}
+
+		// Apply rate limiting with isVision=true
+		return NewRateLimitedLLM(llm, getRateLimitConfig(true)), nil
+	case "anthropic":
+		apiKey := os.Getenv("ANTHROPIC_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set")
+		}
+		llm, err := anthropic.New(
+			anthropic.WithModel(visionLlmModel),
+			anthropic.WithToken(apiKey),
+		)
 		if err != nil {
 			return nil, err
 		}
