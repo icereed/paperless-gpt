@@ -114,7 +114,7 @@ jobs:
           mkdir -p ${{ runner.temp }}/digests
           echo "${{ steps.build_amd64.outputs.digest }}" | sed 's/^sha256://g' > ${{ runner.temp }}/digests/digest-amd64.txt
       - name: Upload amd64 digest
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: digest-amd64
           path: ${{ runner.temp }}/digests/digest-amd64.txt
@@ -174,7 +174,7 @@ jobs:
           mkdir -p ${{ runner.temp }}/digests
           echo "${{ steps.build_arm64.outputs.digest }}" | sed 's/^sha256://g' > ${{ runner.temp }}/digests/digest-arm64.txt
       - name: Upload arm64 digest
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: digest-arm64
           path: ${{ runner.temp }}/digests/digest-arm64.txt
@@ -188,12 +188,12 @@ jobs:
       GHCR_REPO: ghcr.io/${{ github.repository }}
     steps:
       - name: Download amd64 digest
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: digest-amd64
           path: ${{ runner.temp }}/digests
       - name: Download arm64 digest
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: digest-arm64
           path: ${{ runner.temp }}/digests
@@ -299,14 +299,14 @@ jobs:
           PAPERLESS_GPT_IMAGE: ${{ env.PAPERLESS_GPT_IMAGE }}
       - name: Upload Playwright Report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: playwright-report
           path: web-app/playwright-report/
           retention-days: 30
       - name: Upload test screenshots
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: test-results
           path: web-app/test-results/
