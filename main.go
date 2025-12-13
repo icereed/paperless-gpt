@@ -53,6 +53,7 @@ var (
 	llmProvider                   = os.Getenv("LLM_PROVIDER")
 	llmModel                      = os.Getenv("LLM_MODEL")
 	visionLlmProvider             = os.Getenv("VISION_LLM_PROVIDER")
+	enableBackgroundTasks         = os.Getenv("ENABLE_BACKGROUND_TASKS")
 	visionLlmModel                = os.Getenv("VISION_LLM_MODEL")
 	logLevel                      = strings.ToLower(os.Getenv("LOG_LEVEL"))
 	listenInterface               = os.Getenv("LISTEN_INTERFACE")
@@ -331,7 +332,12 @@ func main() {
 	}
 
 	// Start Background-Tasks for Auto-Tagging and Auto-OCR (if enabled)
-	StartBackgroundTasks(ctx, app)
+	// Controlled by ENABLE_BACKGROUND_TASKS env var (default: enabled)
+	if strings.ToLower(enableBackgroundTasks) != "false" {
+		StartBackgroundTasks(ctx, app)
+	} else {
+		log.Infoln("Background tasks disabled via ENABLE_BACKGROUND_TASKS=false")
+	}
 
 	// Create a Gin router with default middleware (logger and recovery)
 	router := gin.Default()
@@ -571,12 +577,14 @@ func validateOrDefaultEnvVars() {
 		visionLlmProvider != "openai" &&
 		visionLlmProvider != "ollama" &&
 		visionLlmProvider != "mistral" &&
-		visionLlmProvider != "googleai" {
+		visionLlmProvider != "googleai" &&
+		visionLlmProvider != "tongyi" &&
+		visionLlmProvider != "chatanywhere" {
 
-		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai' or 'mistral'.")
+		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai', 'mistral', 'tongyi' or 'chatanywhere'.")
 	}
-	if llmProvider != "openai" && llmProvider != "ollama" && llmProvider != "googleai" && llmProvider != "mistral" {
-		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai' or 'mistral'.")
+	if llmProvider != "openai" && llmProvider != "ollama" && llmProvider != "googleai" && llmProvider != "mistral" && llmProvider != "tongyi" && llmProvider != "chatanywhere" {
+		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai', 'mistral', 'tongyi' or 'chatanywhere'.")
 	}
 
 	// Validate OCR provider if set
@@ -936,8 +944,44 @@ func createLLM() (llms.Model, error) {
 			return nil, fmt.Errorf("failed to create GoogleAI provider: %w", err)
 		}
 		return provider, nil
+	case "tongyi":
+		// Tongyi (通义千问) provider
+		tongyiApiKey := os.Getenv("TONGYI_API_KEY")
+		tongyiEndpoint := os.Getenv("TONGYI_ENDPOINT")
+		// Allow override model via TONGYI_MODEL or fall back to LLM_MODEL
+		tongyiModel := llmModel
+		if v := os.Getenv("TONGYI_MODEL"); v != "" {
+			tongyiModel = v
+		}
+		provider, err := NewTongyiProvider(tongyiApiKey, tongyiEndpoint, tongyiModel)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Tongyi provider: %w", err)
+		}
+		return NewRateLimitedLLM(provider, getRateLimitConfig(false)), nil
+	case "chatanywhere":
+		// Chatanywhere - OpenAI API forwarding service
+		chatanywhereApiKey := os.Getenv("CHATANYWHERE_API_KEY")
+		if chatanywhereApiKey == "" {
+			return nil, fmt.Errorf("Chatanywhere API key is not set")
+		}
+		// Default to domestic endpoint, can be overridden
+		chatanywhereBaseURL := os.Getenv("CHATANYWHERE_BASE_URL")
+		if chatanywhereBaseURL == "" {
+			chatanywhereBaseURL = "https://api.chatanywhere.tech/v1" // 国内首选
+		}
+		options := []openai.Option{
+			openai.WithModel(llmModel),
+			openai.WithToken(chatanywhereApiKey),
+			openai.WithBaseURL(chatanywhereBaseURL),
+			openai.WithHTTPClient(createCustomHTTPClient()),
+		}
+		llm, err := openai.New(options...)
+		if err != nil {
+			return nil, err
+		}
+		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, ollama, mistral, googleai)", llmProvider)
+		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, ollama, mistral, googleai, tongyi, chatanywhere)", llmProvider)
 	}
 }
 
@@ -1012,6 +1056,21 @@ func createVisionLLM() (llms.Model, error) {
 
 		// Apply rate limiting with isVision=true
 		return NewRateLimitedLLM(llm, getRateLimitConfig(true)), nil
+	case "tongyi":
+		// Use the Tongyi provider for vision tasks (text-only responses expected)
+		tongyiApiKey := os.Getenv("TONGYI_API_KEY")
+		tongyiEndpoint := os.Getenv("TONGYI_ENDPOINT")
+		visionModel := visionLlmModel
+		if v := os.Getenv("TONGYI_MODEL"); v != "" {
+			visionModel = v
+		}
+		provider, err := NewTongyiProvider(tongyiApiKey, tongyiEndpoint, visionModel)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Tongyi vision provider: %w", err)
+		}
+
+		// Apply rate limiting with isVision=true
+		return NewRateLimitedLLM(provider, getRateLimitConfig(true)), nil
 	default:
 		log.Infoln("Vision LLM not enabled")
 		return nil, nil
