@@ -114,6 +114,21 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
       OCR_PROCESS_MODE: config.processMode || "whole_pdf",
     });
     console.log('Configured for Mistral OCR with process mode:', config.processMode || "whole_pdf");
+  } else if (config?.ocrProvider === 'anthropic') {
+    // Anthropic configuration for both OCR and classification
+    Object.assign(baseEnvironment, {
+      // LLM provider for document classification
+      LLM_PROVIDER: "anthropic",
+      LLM_MODEL: "claude-sonnet-4-5",
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+
+      // Vision LLM provider for OCR
+      OCR_PROVIDER: "llm",
+      VISION_LLM_PROVIDER: "anthropic",
+      VISION_LLM_MODEL: "claude-sonnet-4-5",
+      OCR_PROCESS_MODE: config.processMode || "image",
+    });
+    console.log('Configured for Anthropic OCR with process mode:', config.processMode || "image");
   } else {
     // Default LLM OCR configuration
     Object.assign(baseEnvironment, {
