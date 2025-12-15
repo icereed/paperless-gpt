@@ -49,6 +49,12 @@ func newLLMProvider(config Config) (*LLMProvider, error) {
 	case "mistral":
 		logger.Debug("Initializing Mistral vision model")
 		model, err = createMistralClient(config)
+	case "tongyi":
+		logger.Debug("Initializing Tongyi vision model")
+		model, err = createTongyiClient(config)
+	case "chatanywhere":
+		logger.Debug("Initializing Chatanywhere vision model")
+		model, err = createChatanywhereClient(config)
 	default:
 		return nil, fmt.Errorf("unsupported vision LLM provider: %s", config.VisionLLMProvider)
 	}
@@ -97,7 +103,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	var imagePart llms.ContentPart
 	providerName := strings.ToLower(p.provider)
 
-	if providerName == "openai" || providerName == "mistral" {
+	if providerName == "openai" || providerName == "mistral" || providerName == "tongyi" || providerName == "chatanywhere" {
 		logger.Info("Using OpenAI image format")
 		imagePart = llms.ImageURLPart("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageContent))
 	} else {
@@ -205,5 +211,43 @@ func createMistralClient(config Config) (llms.Model, error) {
 	return mistral.New(
 		mistral.WithModel(config.VisionLLMModel),
 		mistral.WithAPIKey(apiKey),
+	)
+}
+
+// createTongyiClient creates a new Tongyi vision model client
+// Note: This uses the TongyiProvider from the parent package.
+// We need to import it or define a bridge function in main.go
+func createTongyiClient(config Config) (llms.Model, error) {
+	apiKey := os.Getenv("TONGYI_API_KEY")
+	endpoint := os.Getenv("TONGYI_ENDPOINT")
+	if apiKey == "" {
+		return nil, fmt.Errorf("Tongyi API key is not set")
+	}
+	if endpoint == "" {
+		endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	}
+	// We can't directly import main.NewTongyiProvider from ocr package due to circular dependency
+	// So we use openai.New with Tongyi's compatible endpoint
+	return openai.New(
+		openai.WithModel(config.VisionLLMModel),
+		openai.WithToken(apiKey),
+		openai.WithBaseURL(endpoint),
+	)
+}
+
+// createChatanywhereClient creates a new Chatanywhere vision model client
+func createChatanywhereClient(config Config) (llms.Model, error) {
+	apiKey := os.Getenv("CHATANYWHERE_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("Chatanywhere API key is not set")
+	}
+	baseURL := os.Getenv("CHATANYWHERE_BASE_URL")
+	if baseURL == "" {
+		baseURL = "https://api.chatanywhere.tech/v1"
+	}
+	return openai.New(
+		openai.WithModel(config.VisionLLMModel),
+		openai.WithToken(apiKey),
+		openai.WithBaseURL(baseURL),
 	)
 }
