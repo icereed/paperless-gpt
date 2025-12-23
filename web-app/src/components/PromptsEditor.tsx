@@ -11,7 +11,7 @@ const PromptsEditor: React.FC = () => {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/api/prompts', { signal: controller.signal })
+    fetch('./api/prompts', { signal: controller.signal })
       .then((res) => {
         if (!res.ok) {
           throw new Error('Network response was not ok');
@@ -55,7 +55,7 @@ const PromptsEditor: React.FC = () => {
     if (!selectedPrompt) return;
 
     setIsSaving(true);
-    fetch('/api/prompts', {
+    fetch('./api/prompts', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

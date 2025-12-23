@@ -25,13 +25,13 @@ const CustomFieldsEditor: React.FC = () => {
   const fetchInitialData = useCallback(async (forcePull = false) => {
     setIsLoading(true);
     try {
-      const settingsRes = await fetch('/api/settings');
+      const settingsRes = await fetch('./api/settings');
       if (!settingsRes.ok) throw new Error('Failed to fetch settings');
       const settingsData = await settingsRes.json();
       setSettings(settingsData.settings);
       setInitialSettings(settingsData.settings);
 
-      const customFieldsUrl = forcePull ? '/api/custom_fields?force_pull=true' : '/api/custom_fields';
+      const customFieldsUrl = forcePull ? './api/custom_fields?force_pull=true' : './api/custom_fields';
       const customFieldsRes = await fetch(customFieldsUrl);
       if (!customFieldsRes.ok) throw new Error('Failed to fetch custom fields');
       const customFieldsData = await customFieldsRes.json();
@@ -61,7 +61,7 @@ const CustomFieldsEditor: React.FC = () => {
     setIsSaving(true);
     setError(null);
     try {
-      const response = await fetch('/api/settings', {
+      const response = await fetch('./api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
