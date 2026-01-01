@@ -37,6 +37,7 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 		"title_prompt.tmpl",
 		"tag_prompt.tmpl",
 		"correspondent_prompt.tmpl",
+		"document_type_prompt.tmpl",
 		"created_date_prompt.tmpl",
 		"custom_field_prompt.tmpl",
 		"ocr_prompt.tmpl",
