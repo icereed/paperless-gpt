@@ -454,15 +454,6 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 		finalTagNames = cleanedTags
 
-		// Always remove auto/manual tags from the final tag list
-		var tagsWithoutAutoManual []string
-		for _, tagName := range finalTagNames {
-			if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) {
-				tagsWithoutAutoManual = append(tagsWithoutAutoManual, tagName)
-			}
-		}
-		finalTagNames = tagsWithoutAutoManual
-
 		slices.Sort(finalTagNames)
 		finalTagNames = slices.Compact(finalTagNames)
 
