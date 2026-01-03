@@ -569,10 +569,10 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		if len(updatedFields) == 0 {
 			log.Infof("No fields to update for document %d.", documentID)
 			// Still need to remove the auto-tag if it exists
-			if slices.Contains(originalDoc.Tags, autoTag) || slices.Contains(originalDoc.Tags, manualTag) {
+			if slices.Contains(originalDoc.Tags, autoTag) || slices.Contains(originalDoc.Tags, manualTag) || slices.Contains(originalDoc.Tags, autoOcrTag) {
 				var finalTagIDs []int
 				for _, tagName := range originalDoc.Tags {
-					if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) {
+					if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) && !strings.EqualFold(tagName, autoOcrTag) {
 						if tagID, exists := availableTags[tagName]; exists {
 							finalTagIDs = append(finalTagIDs, tagID)
 						}
@@ -629,7 +629,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					var remainingTagIDs []int
 					var remainingTagNames []string
 					for _, tagName := range currentDoc.Tags {
-						if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) {
+						if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) && !strings.EqualFold(tagName, autoOcrTag) {
 							if tagID, exists := availableTags[tagName]; exists {
 								remainingTagIDs = append(remainingTagIDs, tagID)
 								remainingTagNames = append(remainingTagNames, tagName)
