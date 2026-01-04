@@ -13,6 +13,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/anthropic"
 	"github.com/tmc/langchaingo/llms/mistral"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
@@ -49,6 +50,9 @@ func newLLMProvider(config Config) (*LLMProvider, error) {
 	case "mistral":
 		logger.Debug("Initializing Mistral vision model")
 		model, err = createMistralClient(config)
+	case "anthropic":
+		logger.Debug("Initializing Anthropic vision model")
+		model, err = createAnthropicClient(config)
 	default:
 		return nil, fmt.Errorf("unsupported vision LLM provider: %s", config.VisionLLMProvider)
 	}
@@ -205,5 +209,17 @@ func createMistralClient(config Config) (llms.Model, error) {
 	return mistral.New(
 		mistral.WithModel(config.VisionLLMModel),
 		mistral.WithAPIKey(apiKey),
+	)
+}
+
+// createAnthropicClient creates a new Anthropic vision model client
+func createAnthropicClient(config Config) (llms.Model, error) {
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("Anthropic API key is not set")
+	}
+	return anthropic.New(
+		anthropic.WithModel(config.VisionLLMModel),
+		anthropic.WithToken(apiKey),
 	)
 }
