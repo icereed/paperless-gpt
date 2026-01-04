@@ -375,6 +375,7 @@ func TestUpdateDocuments(t *testing.T) {
 func TestUpdateDocuments_RemovingLastTag(t *testing.T) {
 	// Set the manual tag for this test
 	manualTag = "paperless-gpt"
+	autoTag = "paperless-gpt-auto"
 
 	tests := []struct {
 		name              string
@@ -389,12 +390,12 @@ func TestUpdateDocuments_RemovingLastTag(t *testing.T) {
 				OriginalDocument: Document{
 					ID:          1,
 					Title:       "Old Title",
-					Tags:        []string{"paperless-gpt"},
+					Tags:        []string{manualTag},
 					CreatedDate: "1999-09-01",
 				},
 				SuggestedTitle: "New Title",
 				SuggestedTags:  []string{},
-				RemoveTags:     []string{},
+				RemoveTags:     []string{manualTag, autoTag},
 			},
 			expectUpdateCalls: 2,
 			validateCalls: func(t *testing.T, calls []map[string]interface{}) {
@@ -417,12 +418,12 @@ func TestUpdateDocuments_RemovingLastTag(t *testing.T) {
 				OriginalDocument: Document{
 					ID:          2,
 					Title:       "Same Title",
-					Tags:        []string{"paperless-gpt"},
+					Tags:        []string{manualTag},
 					CreatedDate: "1999-09-01",
 				},
 				SuggestedTitle: "",
 				SuggestedTags:  []string{},
-				RemoveTags:     []string{},
+				RemoveTags:     []string{manualTag, autoTag},
 			},
 			expectUpdateCalls: 1,
 			validateCalls: func(t *testing.T, calls []map[string]interface{}) {
