@@ -105,10 +105,6 @@ test.beforeEach(async ({ page: testPage }) => {
   await page.screenshot({ path: 'test-results/anthropic-ocr-initial-state.png' });
 });
 
-test.afterEach(async () => {
-  await page.close();
-});
-
 test('should process image with Anthropic OCR', async () => {
   // Skip test if ANTHROPIC_API_KEY is not provided
   if (!process.env.ANTHROPIC_API_KEY) {

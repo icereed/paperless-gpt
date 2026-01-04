@@ -105,10 +105,6 @@ test.beforeEach(async ({ page: testPage }) => {
   await page.screenshot({ path: 'test-results/mistral-ocr-initial-state.png' });
 });
 
-test.afterEach(async () => {
-  await page.close();
-});
-
 test('should process multi-page PDF with Mistral OCR using whole_pdf mode', async () => {
   // Skip test if MISTRAL_API_KEY is not provided
   if (!process.env.MISTRAL_API_KEY) {
