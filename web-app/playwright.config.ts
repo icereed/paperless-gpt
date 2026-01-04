@@ -6,7 +6,7 @@ dotenv.config({ path: '.env.test' });
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 120000, // Increased timeout for container startup
+  timeout: 300000, // 5 minutes - increased for OCR processing with multiple providers
   expect: {
     timeout: 10000,
   },
