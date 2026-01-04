@@ -373,7 +373,10 @@ func TestUpdateDocuments(t *testing.T) {
 //     then remove the manual tag in a separate call
 //  2. Document has only the manual tag with NO other changes - should skip the update entirely
 func TestUpdateDocuments_RemovingLastTag(t *testing.T) {
-	// Set the manual tag for this test
+	// in this scenario, the manualTag is set, but the
+	// document processing sends both the auto and manual
+	// versions of the tag to be removed. this is why you'll
+	// see the autoTag included in the RemoveTags but not in the original document.
 	manualTag = "paperless-gpt"
 	autoTag = "paperless-gpt-auto"
 
