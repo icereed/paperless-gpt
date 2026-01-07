@@ -202,8 +202,11 @@ test('should process multi-page PDF with Mistral OCR using whole_pdf mode', asyn
   // For a 5-page PDF, we should get substantial text content
   expect(documentContent?.length).toBeGreaterThan(100);
 
-  // Should contain "Musée royal d'Histoire naturelle de. Belgique"
-  expect(documentContent).toContain("Musée royal d'Histoire naturelle de. Belgique");
+  // Should contain "Musée royal d'Histoire naturelle de Belgique" (with or without period)
+  // OCR may extract with minor variations in punctuation
+  const hasExpectedText = documentContent?.includes("Musée royal d'Histoire naturelle de Belgique") || 
+                          documentContent?.includes("Musée royal d'Histoire naturelle de. Belgique");
+  expect(hasExpectedText).toBeTruthy();
   
   console.log(`OCR processing successful! Extracted ${documentContent?.length} characters of text.`);
 
