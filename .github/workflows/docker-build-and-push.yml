@@ -84,13 +84,25 @@ jobs:
           DOCKERHUB_REPO="icereed/paperless-gpt"
           GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
           
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            echo "TAGS=${DOCKERHUB_REPO}:pr-${GITHUB_SHA}-amd64,${GHCR_REPO}:pr-${GITHUB_SHA}-amd64" >> $GITHUB_ENV
-          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}
-            echo "TAGS=${DOCKERHUB_REPO}:${VERSION}-amd64,${GHCR_REPO}:${VERSION}-amd64" >> $GITHUB_ENV
+          # For forks, only use GHCR
+          if [[ "${GITHUB_REPOSITORY}" != "icereed/paperless-gpt" ]]; then
+            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+              echo "TAGS=${GHCR_REPO}:pr-${GITHUB_SHA}-amd64" >> $GITHUB_ENV
+            elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+              VERSION=${GITHUB_REF#refs/tags/}
+              echo "TAGS=${GHCR_REPO}:${VERSION}-amd64" >> $GITHUB_ENV
+            else
+              echo "TAGS=${GHCR_REPO}:latest-amd64,${GHCR_REPO}:${GITHUB_SHA}-amd64" >> $GITHUB_ENV
+            fi
           else
-            echo "TAGS=${DOCKERHUB_REPO}:unreleased-amd64,${GHCR_REPO}:unreleased-amd64" >> $GITHUB_ENV
+            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+              echo "TAGS=${DOCKERHUB_REPO}:pr-${GITHUB_SHA}-amd64,${GHCR_REPO}:pr-${GITHUB_SHA}-amd64" >> $GITHUB_ENV
+            elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+              VERSION=${GITHUB_REF#refs/tags/}
+              echo "TAGS=${DOCKERHUB_REPO}:${VERSION}-amd64,${GHCR_REPO}:${VERSION}-amd64" >> $GITHUB_ENV
+            else
+              echo "TAGS=${DOCKERHUB_REPO}:unreleased-amd64,${GHCR_REPO}:unreleased-amd64" >> $GITHUB_ENV
+            fi
           fi
       - name: Build and push AMD64 image
         id: build_amd64
@@ -98,7 +110,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          push: ${{ github.repository == 'icereed/paperless-gpt' }}
+          push: ${{ github.event_name != 'pull_request' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: ${{ env.TAGS }}
@@ -149,11 +161,21 @@ jobs:
           DOCKERHUB_REPO="icereed/paperless-gpt"
           GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
           
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}
-            echo "TAGS=${DOCKERHUB_REPO}:${VERSION}-arm64,${GHCR_REPO}:${VERSION}-arm64" >> $GITHUB_ENV
+          # For forks, only use GHCR
+          if [[ "${GITHUB_REPOSITORY}" != "icereed/paperless-gpt" ]]; then
+            if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+              VERSION=${GITHUB_REF#refs/tags/}
+              echo "TAGS=${GHCR_REPO}:${VERSION}-arm64" >> $GITHUB_ENV
+            else
+              echo "TAGS=${GHCR_REPO}:latest-arm64,${GHCR_REPO}:${GITHUB_SHA}-arm64" >> $GITHUB_ENV
+            fi
           else
-            echo "TAGS=${DOCKERHUB_REPO}:unreleased-arm64,${GHCR_REPO}:unreleased-arm64" >> $GITHUB_ENV
+            if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+              VERSION=${GITHUB_REF#refs/tags/}
+              echo "TAGS=${DOCKERHUB_REPO}:${VERSION}-arm64,${GHCR_REPO}:${VERSION}-arm64" >> $GITHUB_ENV
+            else
+              echo "TAGS=${DOCKERHUB_REPO}:unreleased-arm64,${GHCR_REPO}:unreleased-arm64" >> $GITHUB_ENV
+            fi
           fi
       - name: Build and push ARM64 image
         id: build_arm64
@@ -161,7 +183,7 @@ jobs:
         with:
           context: .
           platforms: linux/arm64
-          push: ${{ github.event_name != 'pull_request' && github.repository == 'icereed/paperless-gpt' }}
+          push: ${{ github.event_name != 'pull_request' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: ${{ env.TAGS }}
@@ -217,6 +239,8 @@ jobs:
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
             echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          elif [[ "${GITHUB_REPOSITORY}" != "icereed/paperless-gpt" ]]; then
+            echo "VERSION=latest" >> $GITHUB_ENV
           else
             echo "VERSION=unreleased" >> $GITHUB_ENV
           fi
@@ -225,38 +249,54 @@ jobs:
           AMD64_DIGEST=$(cat ${{ runner.temp }}/digests/digest-amd64.txt)
           ARM64_DIGEST=$(cat ${{ runner.temp }}/digests/digest-arm64.txt)
           
-          # Create manifests for Docker Hub
-          docker buildx imagetools create -t ${DOCKERHUB_REPO}:${VERSION} \
-            ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
+          # For forks, only create GHCR manifests
+          if [[ "${GITHUB_REPOSITORY}" != "icereed/paperless-gpt" ]]; then
+            # Create manifests for GHCR only (using GHCR digests)
+            docker buildx imagetools create -t ${GHCR_REPO}:${VERSION} \
+              ${GHCR_REPO}@sha256:${AMD64_DIGEST} ${GHCR_REPO}@sha256:${ARM64_DIGEST}
             
-          # Create manifests for GHCR
-          docker buildx imagetools create -t ${GHCR_REPO}:${VERSION} \
-            ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
-            
-          # Also push "latest" tag when on a tag
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            # Docker Hub latest
-            docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest \
+            # Also push commit SHA tag for traceability
+            docker buildx imagetools create -t ${GHCR_REPO}:${GITHUB_SHA} \
+              ${GHCR_REPO}@sha256:${AMD64_DIGEST} ${GHCR_REPO}@sha256:${ARM64_DIGEST}
+          else
+            # Create manifests for Docker Hub
+            docker buildx imagetools create -t ${DOCKERHUB_REPO}:${VERSION} \
               ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
               
-            # GHCR latest
-            docker buildx imagetools create -t ${GHCR_REPO}:latest \
+            # Create manifests for GHCR
+            docker buildx imagetools create -t ${GHCR_REPO}:${VERSION} \
               ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
+            
+            # Also push "latest" tag when on a tag
+            if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+              # Docker Hub latest
+              docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest \
+                ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
+                
+              # GHCR latest
+              docker buildx imagetools create -t ${GHCR_REPO}:latest \
+                ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
+            fi
           fi
       - name: Inspect manifest
         run: |
-          echo "Inspecting Docker Hub manifest:"
-          docker buildx imagetools inspect ${DOCKERHUB_REPO}:${VERSION}
-          
-          echo "Inspecting GHCR manifest:"
-          docker buildx imagetools inspect ${GHCR_REPO}:${VERSION}
-          
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            echo "Inspecting Docker Hub latest manifest:"
-            docker buildx imagetools inspect ${DOCKERHUB_REPO}:latest
+          if [[ "${GITHUB_REPOSITORY}" != "icereed/paperless-gpt" ]]; then
+            echo "Inspecting GHCR manifest:"
+            docker buildx imagetools inspect ${GHCR_REPO}:${VERSION}
+          else
+            echo "Inspecting Docker Hub manifest:"
+            docker buildx imagetools inspect ${DOCKERHUB_REPO}:${VERSION}
             
-            echo "Inspecting GHCR latest manifest:"
-            docker buildx imagetools inspect ${GHCR_REPO}:latest
+            echo "Inspecting GHCR manifest:"
+            docker buildx imagetools inspect ${GHCR_REPO}:${VERSION}
+            
+            if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+              echo "Inspecting Docker Hub latest manifest:"
+              docker buildx imagetools inspect ${DOCKERHUB_REPO}:latest
+              
+              echo "Inspecting GHCR latest manifest:"
+              docker buildx imagetools inspect ${GHCR_REPO}:latest
+            fi
           fi
 
   e2e-tests:

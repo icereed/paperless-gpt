@@ -424,6 +424,16 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		return fmt.Errorf("error fetching available correspondents: %w", err)
 	}
 
+	// Build document type name -> ID map
+	documentTypes, err := client.GetAllDocumentTypes(ctx)
+	if err != nil {
+		return fmt.Errorf("error fetching available document types: %w", err)
+	}
+	availableDocumentTypes := make(map[string]int)
+	for _, dt := range documentTypes {
+		availableDocumentTypes[dt.Name] = dt.ID
+	}
+
 	for _, document := range documents {
 		documentID := document.ID
 		originalDoc := document.OriginalDocument
@@ -454,31 +464,25 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 		finalTagNames = cleanedTags
 
-		// Always remove auto/manual tags from the final tag list
-		var tagsWithoutAutoManual []string
-		for _, tagName := range finalTagNames {
-			if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) {
-				tagsWithoutAutoManual = append(tagsWithoutAutoManual, tagName)
-			}
-		}
-		finalTagNames = tagsWithoutAutoManual
-
 		slices.Sort(finalTagNames)
 		finalTagNames = slices.Compact(finalTagNames)
 
+		log.Debugf("Document %d: Final tag names after compacting: %v", documentID, finalTagNames)
+
+		// NOTE: this will dump the OCR complete tag if it doesn't exist in paperless-ngx
 		if !hasSameTags(originalDoc.Tags, finalTagNames) {
-			var newTagIDs []int
+			var finalTagIDs []int
 			for _, tagName := range finalTagNames {
 				if tagID, exists := availableTags[tagName]; exists {
-					newTagIDs = append(newTagIDs, tagID)
+					finalTagIDs = append(finalTagIDs, tagID)
 				}
 			}
 			// Only update tags if there are remaining tags after changes
 			// Sending an empty tags array causes Paperless-NGX to return an error
 			// However, we need to track this for a potential second update
-			if len(newTagIDs) > 0 {
+			if len(finalTagIDs) > 0 {
 				originalFields["tags"] = originalDoc.Tags
-				updatedFields["tags"] = newTagIDs
+				updatedFields["tags"] = finalTagIDs
 			} else {
 				// Mark that we need to remove tags but can't do it in this update
 				// We'll handle this after the main update completes
@@ -498,6 +502,17 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					return fmt.Errorf("error creating correspondent '%s': %w", document.SuggestedCorrespondent, err)
 				}
 				updatedFields["correspondent"] = newCorrID
+			}
+		}
+
+		// --- DOCUMENT TYPE ---
+		if document.SuggestedDocumentType != "" && document.SuggestedDocumentType != originalDoc.DocumentTypeName {
+			originalFields["document_type"] = originalDoc.DocumentTypeName
+			if docTypeID, exists := availableDocumentTypes[document.SuggestedDocumentType]; exists {
+				updatedFields["document_type"] = docTypeID
+			} else {
+				// Unlike correspondents, we don't create new document types - only use existing ones
+				log.Warnf("Document type '%s' not found in available types, skipping for document %d", document.SuggestedDocumentType, documentID)
 			}
 		}
 
@@ -575,10 +590,10 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		if len(updatedFields) == 0 {
 			log.Infof("No fields to update for document %d.", documentID)
 			// Still need to remove the auto-tag if it exists
-			if slices.Contains(originalDoc.Tags, autoTag) || slices.Contains(originalDoc.Tags, manualTag) {
+			if slices.Contains(originalDoc.Tags, autoTag) || slices.Contains(originalDoc.Tags, manualTag) || slices.Contains(originalDoc.Tags, autoOcrTag) {
 				var finalTagIDs []int
 				for _, tagName := range originalDoc.Tags {
-					if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) {
+					if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) && !strings.EqualFold(tagName, autoOcrTag) {
 						if tagID, exists := availableTags[tagName]; exists {
 							finalTagIDs = append(finalTagIDs, tagID)
 						}
@@ -635,7 +650,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					var remainingTagIDs []int
 					var remainingTagNames []string
 					for _, tagName := range currentDoc.Tags {
-						if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) {
+						if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) && !strings.EqualFold(tagName, autoOcrTag) {
 							if tagID, exists := availableTags[tagName]; exists {
 								remainingTagIDs = append(remainingTagIDs, tagID)
 								remainingTagNames = append(remainingTagNames, tagName)
