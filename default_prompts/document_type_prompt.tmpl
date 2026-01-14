@@ -1,0 +1,22 @@
+I will provide you with the content and the title of a document.
+Your task is to select the most appropriate document type for the document from the list of available document types I will provide.
+Only select a document type from the provided list. Respond only with the selected document type name, without any additional information.
+If none of the available document types fit the document, respond with an empty string.
+The content is likely in {{.Language}}.
+
+The data will be provided using an XML-like format for clarity:
+
+<available_document_types>
+{{.AvailableDocumentTypes | join ", "}}
+</available_document_types>
+
+<title>
+{{.Title}}
+</title>
+
+<content>
+{{.Content}}
+</content>
+
+Please select the single most appropriate {{.Language}} document type from the list above that best categorizes this document.
+Be selective and only choose a document type if it clearly matches the document's nature (e.g., Invoice, Contract, Receipt, Letter, etc.).

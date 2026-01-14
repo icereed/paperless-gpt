@@ -424,6 +424,16 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		return fmt.Errorf("error fetching available correspondents: %w", err)
 	}
 
+	// Build document type name -> ID map
+	documentTypes, err := client.GetAllDocumentTypes(ctx)
+	if err != nil {
+		return fmt.Errorf("error fetching available document types: %w", err)
+	}
+	availableDocumentTypes := make(map[string]int)
+	for _, dt := range documentTypes {
+		availableDocumentTypes[dt.Name] = dt.ID
+	}
+
 	for _, document := range documents {
 		documentID := document.ID
 		originalDoc := document.OriginalDocument
@@ -492,6 +502,17 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					return fmt.Errorf("error creating correspondent '%s': %w", document.SuggestedCorrespondent, err)
 				}
 				updatedFields["correspondent"] = newCorrID
+			}
+		}
+
+		// --- DOCUMENT TYPE ---
+		if document.SuggestedDocumentType != "" && document.SuggestedDocumentType != originalDoc.DocumentTypeName {
+			originalFields["document_type"] = originalDoc.DocumentTypeName
+			if docTypeID, exists := availableDocumentTypes[document.SuggestedDocumentType]; exists {
+				updatedFields["document_type"] = docTypeID
+			} else {
+				// Unlike correspondents, we don't create new document types - only use existing ones
+				log.Warnf("Document type '%s' not found in available types, skipping for document %d", document.SuggestedDocumentType, documentID)
 			}
 		}
 
