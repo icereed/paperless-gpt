@@ -94,8 +94,10 @@ jobs:
           # Determine if E2E tests should run with local build
           RUN_E2E_LOCAL="false"
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            # Internal PRs always run E2E tests
-            RUN_E2E_LOCAL="true"
+            # Only run E2E for internal PRs (not forks)
+            if [[ "${IS_FORK}" == "false" ]]; then
+              RUN_E2E_LOCAL="true"
+            fi
           elif [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
             # Fork PRs only run if labeled with 'safe-to-test'
             LABELS='${{ toJSON(github.event.pull_request.labels.*.name) }}'
