@@ -14,6 +14,10 @@ on:
   pull_request:
     branches:
       - main
+  pull_request_target:
+    branches:
+      - main
+    types: [labeled]
 
 jobs:
   test:
@@ -21,6 +25,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -54,6 +60,56 @@ jobs:
       - name: Run Go tests
         run: go test ./...
 
+  determine-workflow:
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      is_fork: ${{ steps.check.outputs.is_fork }}
+      run_e2e: ${{ steps.check.outputs.run_e2e }}
+      run_e2e_local: ${{ steps.check.outputs.run_e2e_local }}
+    steps:
+      - name: Check PR origin and approval
+        id: check
+        run: |
+          echo "Event: ${{ github.event_name }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Head repository: ${{ github.event.pull_request.head.repo.full_name }}"
+          
+          # Determine if this is a fork PR
+          IS_FORK="false"
+          if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event_name }}" == "pull_request_target" ]]; then
+            if [[ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+              IS_FORK="true"
+            fi
+          fi
+          echo "is_fork=${IS_FORK}" >> $GITHUB_OUTPUT
+          
+          # Determine if E2E tests should run with registry image (push events only)
+          RUN_E2E="false"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            RUN_E2E="true"
+          fi
+          echo "run_e2e=${RUN_E2E}" >> $GITHUB_OUTPUT
+          
+          # Determine if E2E tests should run with local build
+          RUN_E2E_LOCAL="false"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # Internal PRs always run E2E tests
+            RUN_E2E_LOCAL="true"
+          elif [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
+            # Fork PRs only run if labeled with 'safe-to-test'
+            LABELS='${{ toJSON(github.event.pull_request.labels.*.name) }}'
+            if echo "$LABELS" | grep -q "safe-to-test"; then
+              RUN_E2E_LOCAL="true"
+            fi
+          fi
+          echo "run_e2e_local=${RUN_E2E_LOCAL}" >> $GITHUB_OUTPUT
+          
+          echo "Workflow decisions:"
+          echo "  is_fork: ${IS_FORK}"
+          echo "  run_e2e: ${RUN_E2E}"
+          echo "  run_e2e_local: ${RUN_E2E_LOCAL}"
+
   build-amd64:
     runs-on: ubuntu-latest
     needs: test
@@ -63,6 +119,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to Docker Hub
@@ -139,6 +197,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to Docker Hub
@@ -300,8 +360,9 @@ jobs:
           fi
 
   e2e-tests:
-    name: E2E Tests
-    needs: build-amd64
+    name: E2E Tests (Registry Image)
+    needs: [build-amd64, determine-workflow]
+    if: needs.determine-workflow.outputs.run_e2e == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -309,6 +370,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - name: Set PAPERLESS_GPT_IMAGE
         run: |
           GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
@@ -357,5 +420,59 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: test-results
+          path: web-app/test-results/
+          retention-days: 30
+
+  e2e-tests-local:
+    name: E2E Tests (Local Build)
+    needs: determine-workflow
+    if: needs.determine-workflow.outputs.run_e2e_local == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web-app
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Docker image locally
+        run: |
+          cd ..
+          docker build -t icereed/paperless-gpt:e2e .
+          echo "PAPERLESS_GPT_IMAGE=icereed/paperless-gpt:e2e" >> $GITHUB_ENV
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web-app/package-lock.json'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+      - name: Run Playwright tests
+        run: npm run test:e2e
+        env:
+          CI: true
+          DEBUG: testcontainers:containers
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PAPERLESS_GPT_IMAGE: ${{ env.PAPERLESS_GPT_IMAGE }}
+      - name: Upload Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-local
+          path: web-app/playwright-report/
+          retention-days: 30
+      - name: Upload test screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results-local
           path: web-app/test-results/
           retention-days: 30
