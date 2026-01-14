@@ -1,11 +1,9 @@
-import { Browser, chromium, Page } from '@playwright/test';
 import * as fs from 'fs';
 import { GenericContainer, Network, StartedTestContainer, Wait } from 'testcontainers';
 
 export interface TestEnvironment {
   paperlessNgx: StartedTestContainer;
   paperlessGpt: StartedTestContainer;
-  browser: Browser;
   cleanup: () => Promise<void>;
 }
 
@@ -148,13 +146,8 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
     .start();
   console.log('Paperless-gpt container started');
 
-  console.log('Launching browser...');
-  const browser = await chromium.launch();
-  console.log('Browser launched');
-
   const cleanup = async () => {
     console.log('Cleaning up test environment...');
-    await browser.close();
     await paperlessGpt.stop();
     await paperlessNgx.stop();
     await redis.stop();
@@ -167,13 +160,8 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
   return {
     paperlessNgx,
     paperlessGpt,
-    browser,
     cleanup,
   };
-}
-
-export async function waitForElement(page: Page, selector: string, timeout = 5000): Promise<void> {
-  await page.waitForSelector(selector, { timeout });
 }
 
 export interface PaperlessDocument {

@@ -22,10 +22,6 @@ test.beforeEach(async ({ page: testPage }) => {
   await page.screenshot({ path: 'test-results/ocr-initial-state.png' });
 });
 
-test.afterEach(async () => {
-  await page.close();
-});
-
 test('should OCR document via paperless-gpt-ocr-auto tag', async () => {
   const paperlessNgxPort = testEnv.paperlessNgx.getMappedPort(PORTS.paperlessNgx);
   const paperlessGptPort = testEnv.paperlessGpt.getMappedPort(PORTS.paperlessGpt);

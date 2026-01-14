@@ -311,26 +311,21 @@ jobs:
         uses: actions/checkout@v6
       - name: Set PAPERLESS_GPT_IMAGE
         run: |
-          # Use GHCR for forks
-          if [ "${GITHUB_REPOSITORY}" != "icereed/paperless-gpt" ]; then
-            REPO="ghcr.io/${GITHUB_REPOSITORY}"
-            if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-              IMAGE="${REPO}:pr-${GITHUB_SHA}-amd64"
-            elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-              IMAGE="${REPO}:${GITHUB_REF_NAME}-amd64"
-            else
-              IMAGE="${REPO}:latest-amd64"
-            fi
+          GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            IMAGE="${GHCR_REPO}:pr-${GITHUB_SHA}-amd64"
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            IMAGE="${GHCR_REPO}:${GITHUB_REF_NAME}-amd64"
           else
-            if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-              IMAGE="icereed/paperless-gpt:pr-${GITHUB_SHA}-amd64"
-            elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-              IMAGE="icereed/paperless-gpt:${GITHUB_REF_NAME}-amd64"
-            else
-              IMAGE="icereed/paperless-gpt:unreleased-amd64"
-            fi
+            IMAGE="${GHCR_REPO}:unreleased-amd64"
           fi
           echo "PAPERLESS_GPT_IMAGE=${IMAGE}" >> $GITHUB_ENV
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -348,6 +343,7 @@ jobs:
           DEBUG: testcontainers:containers
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PAPERLESS_GPT_IMAGE: ${{ env.PAPERLESS_GPT_IMAGE }}
       - name: Upload Playwright Report
         if: always()
