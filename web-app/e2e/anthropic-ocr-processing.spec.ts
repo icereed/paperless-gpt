@@ -87,6 +87,9 @@ function displayOCRComparison(
   console.log('='.repeat(60));
 }
 
+// Skip all tests in this file if ANTHROPIC_API_KEY is not provided
+test.skip(!process.env.ANTHROPIC_API_KEY, 'ANTHROPIC_API_KEY not provided');
+
 test.beforeAll(async () => {
   testEnv = await setupTestEnvironment({
     // Configure for Anthropic OCR with image mode
@@ -106,11 +109,6 @@ test.beforeEach(async ({ page: testPage }) => {
 });
 
 test('should process image with Anthropic OCR', async () => {
-  // Skip test if ANTHROPIC_API_KEY is not provided
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.log('Skipping Anthropic OCR test - ANTHROPIC_API_KEY not provided');
-    return;
-  }
 
   const paperlessNgxPort = testEnv.paperlessNgx.getMappedPort(PORTS.paperlessNgx);
   const paperlessGptPort = testEnv.paperlessGpt.getMappedPort(PORTS.paperlessGpt);
@@ -247,12 +245,6 @@ test('should process image with Anthropic OCR', async () => {
 });
 
 test('should process multi-page PDF with Anthropic OCR', async () => {
-  // Skip test if ANTHROPIC_API_KEY is not provided
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.log('Skipping Anthropic OCR test - ANTHROPIC_API_KEY not provided');
-    return;
-  }
-
   const paperlessNgxPort = testEnv.paperlessNgx.getMappedPort(PORTS.paperlessNgx);
   const paperlessGptPort = testEnv.paperlessGpt.getMappedPort(PORTS.paperlessGpt);
   const credentials = { username: 'admin', password: 'admin' };
