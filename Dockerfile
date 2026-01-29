@@ -82,7 +82,7 @@ RUN sed -i \
 RUN CGO_ENABLED=1 GOMAXPROCS=$(nproc) go build -tags musl -o paperless-gpt .
 
 # Stage 3: Create a lightweight image with just the binary
-FROM docker.io/alpine:3.23.0
+FROM docker.io/alpine:3.23.3
 
 ENV GIN_MODE=release
 
