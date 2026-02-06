@@ -78,6 +78,7 @@ var (
 	doclingImageExportMode        = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
 	doclingOCRPipeline            = os.Getenv("DOCLING_OCR_PIPELINE")
 	doclingOCREngine              = os.Getenv("DOCLING_OCR_ENGINE")
+	googleThinkingBudget          *int32 // Will be parsed from GOOGLEAI_THINKING_BUDGET
 
 	// Templates
 	titleTemplate         *template.Template
@@ -246,6 +247,17 @@ func main() {
 		}
 	}
 
+	if val, ok := os.LookupEnv("GOOGLEAI_THINKING_BUDGET"); ok {
+		if v, err := strconv.ParseInt(val, 10, 32); err == nil {
+			if v >= math.MinInt32 && v <= math.MaxInt32 {
+				b := int32(v)
+				googleThinkingBudget = &b
+			}
+		} else {
+			log.Warnf("Invalid GOOGLEAI_THINKING_BUDGET value: %v, ignoring", err)
+		}
+	}
+
 	ocrConfig := ocr.Config{
 		Provider:                 providerType,
 		GoogleProjectID:          os.Getenv("GOOGLE_PROJECT_ID"),
@@ -269,6 +281,8 @@ func main() {
 		VisionLLMTemperature:     visionLlmTemperature,
 		OllamaOcrTopK:            ollamaOcrTopK,
 		OllamaContextLength:      ollamaContextLength,
+		GoogleAIAPIKey:           os.Getenv("GOOGLEAI_API_KEY"),
+		GoogleAIThinkingBudget:   googleThinkingBudget,
 	}
 
 	// Parse Azure timeout if set
@@ -291,7 +305,7 @@ func main() {
 
 		// Validate OCR provider and processing mode compatibility
 		log.Infof("Validating OCR provider '%s' with processing mode '%s'", providerType, ocrProcessMode)
-		if err := validateOCRProviderModeCompatibility(providerType, ocrProcessMode); err != nil {
+		if err := validateOCRProviderModeCompatibility(providerType, ocrProcessMode, visionLlmProvider); err != nil {
 			log.Fatalf("❌ Invalid OCR configuration: %v", err)
 		}
 		log.Infof("✅ OCR provider and processing mode configuration is valid")
@@ -507,14 +521,19 @@ func (app *App) isOcrEnabled() bool {
 }
 
 // validateOCRProviderModeCompatibility validates that the OCR provider supports the specified processing mode
-func validateOCRProviderModeCompatibility(provider, mode string) error {
+func validateOCRProviderModeCompatibility(provider, mode, visionProvider string) error {
 	// Define which providers support which modes
 	supportedModes := map[string][]string{
-		"llm":          {"image"},                     // LLM-based OCR only supports image mode
+		"llm":          {"image"},                     // LLM-based OCR only supports image mode (except googleai)
 		"azure":        {"image"},                     // Azure Document Intelligence only supports image mode
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
 		"docling":      {"image", "pdf", "whole_pdf"}, // Docling supports image and PDF modes
+	}
+
+	// Google Gemini API natively handles PDF documents
+	if provider == "llm" && strings.ToLower(visionProvider) == "googleai" {
+		supportedModes["llm"] = []string{"image", "pdf", "whole_pdf"}
 	}
 
 	modes, exists := supportedModes[provider]
@@ -1039,6 +1058,14 @@ func createVisionLLM() (llms.Model, error) {
 
 		// Apply rate limiting with isVision=true
 		return NewRateLimitedLLM(llm, getRateLimitConfig(true)), nil
+	case "googleai":
+		provider, err := ocr.NewGoogleAIProvider(context.Background(), visionLlmModel, os.Getenv("GOOGLEAI_API_KEY"), googleThinkingBudget)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create GoogleAI provider: %w", err)
+		}
+
+		// Apply rate limiting with isVision=true
+		return NewRateLimitedLLM(provider, getRateLimitConfig(true)), nil
 	case "anthropic":
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")
 		if apiKey == "" {
