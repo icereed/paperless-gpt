@@ -47,6 +47,10 @@ type Config struct {
 	VisionLLMMaxTokens   int
 	VisionLLMTemperature *float64
 
+	// Google AI (Gemini) settings
+	GoogleAIAPIKey       string
+	GoogleAIThinkingBudget *int32
+
 	// Ollama OCR-specific settings
 	OllamaOcrTopK       *int
 	OllamaContextLength int
