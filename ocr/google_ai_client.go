@@ -178,6 +178,10 @@ func (p *GoogleAIProvider) GenerateContent(ctx context.Context, messages []llms.
 		}
 	}
 
+	if sb.Len() == 0 {
+		return nil, fmt.Errorf("googleai GenerateContent API returned no non-thinking text parts")
+	}
+
 	return &llms.ContentResponse{
 		Choices: []*llms.ContentChoice{
 			{
