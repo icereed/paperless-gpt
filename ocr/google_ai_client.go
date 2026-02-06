@@ -63,7 +63,14 @@ func (p *GoogleAIProvider) GenerateText(ctx context.Context, prompt string) (str
 		return "", fmt.Errorf("googleai GenerateContent API returned a candidate with no content")
 	}
 
-	return candidate.Content.Parts[0].Text, nil
+	// Skip thinking parts when thinking budget is enabled
+	for _, part := range candidate.Content.Parts {
+		if !part.Thought && part.Text != "" {
+			return part.Text, nil
+		}
+	}
+
+	return "", fmt.Errorf("googleai GenerateContent API returned no non-thinking text parts")
 }
 
 // Close closes any resources held by the provider
@@ -163,10 +170,12 @@ func (p *GoogleAIProvider) GenerateContent(ctx context.Context, messages []llms.
 		return nil, fmt.Errorf("googleai GenerateContent API returned a candidate with no content")
 	}
 
-	// Concatenate text parts
+	// Concatenate non-thinking text parts
 	var sb strings.Builder
 	for _, part := range candidate.Content.Parts {
-		sb.WriteString(part.Text)
+		if !part.Thought {
+			sb.WriteString(part.Text)
+		}
 	}
 
 	return &llms.ContentResponse{
