@@ -184,8 +184,8 @@ func TestGetAllTags(t *testing.T) {
 	assert.Equal(t, expectedTags, tags)
 }
 
-// TestGetDocumentsByTags tests the GetDocumentsByTags method
-func TestGetDocumentsByTags(t *testing.T) {
+// TestGetDocumentsByTag tests the GetDocumentsByTag method
+func TestGetDocumentsByTag(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()
 
@@ -236,8 +236,8 @@ func TestGetDocumentsByTags(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	tags := []string{"tag1", "tag2"}
-	documents, err := env.client.GetDocumentsByTags(ctx, tags, 25)
+	tag := "tag2"
+	documents, err := env.client.GetDocumentsByTag(ctx, tag, 25)
 	require.NoError(t, err)
 
 	expectedDocuments := []Document{

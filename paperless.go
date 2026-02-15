@@ -217,18 +217,13 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 	return tagIDMapping, nil
 }
 
-// GetDocumentsByTags retrieves documents that match the specified tags
-func (client *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []string, pageSize int) ([]Document, error) {
-	tagQueries := make([]string, len(tags))
-	for i, tag := range tags {
-		tagQueries[i] = fmt.Sprintf("tags__name__iexact=%s", tag)
-	}
-	searchQuery := strings.Join(tagQueries, "&")
-	path := fmt.Sprintf("api/documents/?%s&page_size=%d", urlEncode(searchQuery), pageSize)
+// GetDocumentsByTag retrieves documents that match the specified tag
+func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
+	path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=%d", tag, pageSize)
 
 	resp, err := client.Do(ctx, "GET", path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed in GetDocumentsByTags: %w", err)
+		return nil, fmt.Errorf("HTTP request failed in GetDocumentsByTag: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -244,7 +239,7 @@ func (client *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []st
 			"path":        path,
 			"response":    string(bodyBytes),
 			"headers":     resp.Header,
-		}).Error("Error response from server in GetDocumentsByTags")
+		}).Error("Error response from server in GetDocumentsByTag")
 		return nil, fmt.Errorf("error searching documents: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -254,7 +249,7 @@ func (client *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []st
 		log.WithFields(logrus.Fields{
 			"response_body": string(bodyBytes),
 			"error":         err,
-		}).Error("Failed to parse JSON response in GetDocumentsByTags")
+		}).Error("Failed to parse JSON response in GetDocumentsByTag")
 		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
 	}
 
