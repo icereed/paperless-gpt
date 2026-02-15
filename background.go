@@ -80,7 +80,7 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 
 // processAutoTagDocuments handles the background auto-tagging of documents
 func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoTag}, 25)
+	documents, err := app.Client.GetDocumentsByTag(ctx, autoTag, 25)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoTag: %w", err)
 	}
@@ -156,7 +156,7 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 
 // processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
 func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoOcrTag}, 25)
+	documents, err := app.Client.GetDocumentsByTag(ctx, autoOcrTag, 25)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
 	}

@@ -65,13 +65,8 @@ func newMockClient(baseClient *PaperlessClient) *mockClient {
 	}
 }
 
-func (m *mockClient) GetDocumentsByTags(ctx context.Context, tags []string, pageSize int) ([]Document, error) {
-	if len(tags) == 0 {
-		return nil, nil
-	}
-
-	// For simplicity, just return documents for the first tag
-	return m.taggedDocuments[tags[0]], nil
+func (m *mockClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
+	return m.taggedDocuments[tag], nil
 }
 
 func (m *mockClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
@@ -182,7 +177,7 @@ func setupTestCase(tc interface{}, env *testEnv) {
 		json.NewEncoder(w).Encode(response)
 	})
 
-	// Mock the GetDocumentsByTags response
+	// Mock the GetDocumentsByTag response
 	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
 		response := GetDocumentsApiResponse{
 			Results: make([]GetDocumentApiResponseResult, len(documents)),
@@ -337,7 +332,7 @@ func (app *TestApp) ProcessDocumentOCR(ctx context.Context, documentID int, opti
 
 // This method shadows the App.processAutoOcrTagDocuments to avoid calling the original
 func (app *TestApp) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{autoOcrTag}, 25)
+	documents, err := app.Client.GetDocumentsByTag(ctx, autoOcrTag, 25)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
 	}

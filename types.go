@@ -158,7 +158,8 @@ type OCROptions struct {
 
 // ClientInterface defines the interface for PaperlessClient operations
 type ClientInterface interface {
-	GetDocumentsByTags(ctx context.Context, tags []string, pageSize int) ([]Document, error)
+	GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error)
+	GetDocumentCountByTag(ctx context.Context, tag string) (int, error)
 	UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error
 	GetDocument(ctx context.Context, documentID int) (Document, error)
 	GetAllTags(ctx context.Context) (map[string]int, error)
