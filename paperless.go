@@ -217,8 +217,48 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 	return tagIDMapping, nil
 }
 
+// GetDocumentCountByTag checks if there is a document for the specified tag (it is much faster than api/documents/)
+func (client *PaperlessClient) GetDocumentCountByTag(ctx context.Context, tag string) (int, error) {
+	path := fmt.Sprintf("api/tags/?name__iexact=%s", url.QueryEscape(tag))
+
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("error fetching tags: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var tagsResponse struct {
+		Results []struct {
+			DocumentCount int `json:"document_count"`
+		} `json:"results"`
+		Count int `json:"count"`
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&tagsResponse)
+	if err != nil {
+		return 0, err
+	}
+
+	if tagsResponse.Count == 0 {
+		return 0, nil
+	}
+
+	return tagsResponse.Results[0].DocumentCount, nil
+}
+
 // GetDocumentsByTag retrieves documents that match the specified tag
 func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
+	document_count, err := client.GetDocumentCountByTag(ctx, tag)
+	if document_count == 0 {
+		documents := make([]Document, 0, 0)
+		return documents, nil
+	}
+
 	path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=%d", tag, pageSize)
 
 	resp, err := client.Do(ctx, "GET", path, nil)
