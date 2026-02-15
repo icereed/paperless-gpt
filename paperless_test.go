@@ -184,6 +184,46 @@ func TestGetAllTags(t *testing.T) {
 	assert.Equal(t, expectedTags, tags)
 }
 
+// TestGetDocumentCountByTag tests the GetDocumentCountByTag method
+func TestGetDocumentCountByTag(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	// Mock data for paginated responses
+	data1 := map[string]interface{}{
+		"count": 1,
+		"results": []map[string]interface{}{
+			{"document_count": 5},
+		},
+	}
+
+	data2 := map[string]interface{}{
+		"count":   0,
+		"results": []map[string]interface{}{},
+	}
+
+	// Set mock responses for pagination
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query().Get("name__iexact")
+		if query == "available" {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(data1)
+		} else {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(data2)
+		}
+	})
+
+	ctx := context.Background()
+	countAvailable, err := env.client.GetDocumentCountByTag(ctx, "available")
+	require.NoError(t, err)
+	assert.Equal(t, 5, countAvailable)
+
+	countNotAvailable, err := env.client.GetDocumentCountByTag(ctx, "notavailable")
+	require.NoError(t, err)
+	assert.Equal(t, 0, countNotAvailable)
+}
+
 // TestGetDocumentsByTag tests the GetDocumentsByTag method
 func TestGetDocumentsByTag(t *testing.T) {
 	env := newTestEnv(t)
@@ -221,18 +261,33 @@ func TestGetDocumentsByTag(t *testing.T) {
 		"next": nil,
 	}
 
+	// Mock data for tags
+	tagsExactResponse := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"document_count": 2},
+		},
+		"count": 1,
+	}
+
 	// Set mock responses
 	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
 		// Verify query parameters
-		expectedQuery := "tags__name__iexact=tag1&tags__name__iexact=tag2&page_size=25"
+		expectedQuery := "tags__name__iexact=tag2&page_size=25"
 		assert.Equal(t, expectedQuery, r.URL.RawQuery)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(documentsResponse)
 	})
 
 	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(tagsResponse)
+		// Handle GetDocumentCountByTag call
+		if nameFilter := r.URL.Query().Get("name__iexact"); nameFilter != "" {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(tagsExactResponse)
+		} else {
+			// Handle GetAllTags call
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(tagsResponse)
+		}
 	})
 
 	ctx := context.Background()
