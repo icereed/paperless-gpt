@@ -372,8 +372,11 @@ func (m *mockPaperlessClient) GetCustomFields(ctx context.Context) ([]CustomFiel
 }
 
 // Implement other methods of the interface with empty bodies as they are not needed for this test.
-func (m *mockPaperlessClient) GetDocumentsByTags(ctx context.Context, tags []string, pageSize int) ([]Document, error) {
+func (m *mockPaperlessClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
 	return nil, nil
+}
+func (m *mockPaperlessClient) GetDocumentCountByTag(ctx context.Context, tag string) (int, error) {
+	return 0, nil
 }
 func (m *mockPaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
 	return nil

@@ -113,20 +113,20 @@ type Settings struct {
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
 type DocumentSuggestion struct {
-	ID                      int                     `json:"id"`
-	OriginalDocument        Document                `json:"original_document"`
-	SuggestedTitle          string                  `json:"suggested_title,omitempty"`
-	SuggestedTags           []string                `json:"suggested_tags,omitempty"`
-	SuggestedContent        string                  `json:"suggested_content,omitempty"`
-	SuggestedCorrespondent  string                  `json:"suggested_correspondent,omitempty"`
-	SuggestedCreatedDate    string                  `json:"suggested_created_date,omitempty"`
-	SuggestedDocumentType   string                  `json:"suggested_document_type,omitempty"`
-	SuggestedCustomFields   []CustomFieldSuggestion `json:"suggested_custom_fields,omitempty"`
-	KeepOriginalTags        bool                    `json:"keep_original_tags,omitempty"`
-	RemoveTags              []string                `json:"remove_tags,omitempty"`
-	AddTags                 []string                `json:"add_tags,omitempty"`
-	CustomFieldsWriteMode   string                  `json:"custom_fields_write_mode,omitempty"`
-	CustomFieldsEnable      bool                    `json:"custom_fields_enable"`
+	ID                     int                     `json:"id"`
+	OriginalDocument       Document                `json:"original_document"`
+	SuggestedTitle         string                  `json:"suggested_title,omitempty"`
+	SuggestedTags          []string                `json:"suggested_tags,omitempty"`
+	SuggestedContent       string                  `json:"suggested_content,omitempty"`
+	SuggestedCorrespondent string                  `json:"suggested_correspondent,omitempty"`
+	SuggestedCreatedDate   string                  `json:"suggested_created_date,omitempty"`
+	SuggestedDocumentType  string                  `json:"suggested_document_type,omitempty"`
+	SuggestedCustomFields  []CustomFieldSuggestion `json:"suggested_custom_fields,omitempty"`
+	KeepOriginalTags       bool                    `json:"keep_original_tags,omitempty"`
+	RemoveTags             []string                `json:"remove_tags,omitempty"`
+	AddTags                []string                `json:"add_tags,omitempty"`
+	CustomFieldsWriteMode  string                  `json:"custom_fields_write_mode,omitempty"`
+	CustomFieldsEnable     bool                    `json:"custom_fields_enable"`
 }
 
 type Correspondent struct {
@@ -158,7 +158,8 @@ type OCROptions struct {
 
 // ClientInterface defines the interface for PaperlessClient operations
 type ClientInterface interface {
-	GetDocumentsByTags(ctx context.Context, tags []string, pageSize int) ([]Document, error)
+	GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error)
+	GetDocumentCountByTag(ctx context.Context, tag string) (int, error)
 	UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error
 	GetDocument(ctx context.Context, documentID int) (Document, error)
 	GetAllTags(ctx context.Context) (map[string]int, error)

@@ -1,8 +1,8 @@
 package main
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -167,7 +167,7 @@ func (app *App) getCustomFieldsHandler(c *gin.Context) {
 func (app *App) documentsHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	documents, err := app.Client.GetDocumentsByTags(ctx, []string{manualTag}, 25)
+	documents, err := app.Client.GetDocumentsByTag(ctx, manualTag, 25)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching documents: %v", err)})
 		log.Errorf("Error fetching documents: %v", err)
