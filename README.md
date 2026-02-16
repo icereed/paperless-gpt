@@ -7,6 +7,9 @@
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-icereed-ea4aaa?logo=github-sponsors)](https://github.com/sponsors/icereed)
 
+
+<a href="https://trendshift.io/repositories/12701" target="_blank"><img src="https://trendshift.io/api/badge/repositories/12701" alt="icereed%2Fpaperless-gpt | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
 ![Screenshot](./paperless-gpt-screenshot.png)
 
 <sub>💡 Maintained by [Icereed](https://github.com/icereed). Proudly supported by [BubbleTax.de](https://bubbletax.de/?utm_source=github&utm_medium=readme&utm_campaign=paperless) – automated, BMF-compliant tax reports for Interactive Brokers traders in Germany.</sub>
