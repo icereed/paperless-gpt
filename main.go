@@ -48,7 +48,7 @@ var (
 	openaiAPIKey                  = os.Getenv("OPENAI_API_KEY")
 	manualTag                     = os.Getenv("MANUAL_TAG")
 	autoTag                       = os.Getenv("AUTO_TAG")
-	autoTagComplete               = os.Getenv("AUTO_TAG_COMPLETE")
+	autoTagComplete               string // read via os.LookupEnv in validateOrDefaultEnvVars
 	manualOcrTag                  = os.Getenv("MANUAL_OCR_TAG") // Not used yet
 	autoOcrTag                    = os.Getenv("AUTO_OCR_TAG")
 	ocrProcessMode                = os.Getenv("OCR_PROCESS_MODE")
@@ -561,7 +561,9 @@ func validateOrDefaultEnvVars() {
 		pdfOCRCompleteTag = "paperless-gpt-ocr-complete"
 	}
 
-	if autoTagComplete == "" {
+	if val, ok := os.LookupEnv("AUTO_TAG_COMPLETE"); ok {
+		autoTagComplete = val
+	} else {
 		autoTagComplete = "paperless-gpt-auto-complete"
 	}
 
