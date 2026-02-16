@@ -836,11 +836,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 		n := n // capture loop variable
 		g.Go(func() error {
 			// DPI calculation constants
-			const minDPI = 72                     // Minimum DPI to ensure readable text
-			const maxPixelDimension = 10_000      // Maximum pixels along any side (10,000px)
-			const maxTotalPixels = 40_000_000     // Maximum total pixel count (40 megapixels)
-			const maxRenderDPI = 600              // Maximum DPI to use when rendering
-			const maxFileBytes = 10 * 1024 * 1024 // Maximum JPEG file size (10 MB)
+			const minDPI = 72 // Minimum DPI to ensure readable text
 
 			mu.Lock() // MuPDF is not thread-safe
 			rect, err := doc.Bound(n)
@@ -854,14 +850,14 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 			hPts := float64(rect.Dy())
 
 			// Calculate DPI limits based on maximum allowed dimension and total pixels
-			dpiSide := float64(maxPixelDimension*72) / math.Max(wPts, hPts)
-			dpiArea := math.Sqrt(float64(maxTotalPixels) * 72 * 72 / (wPts * hPts))
+			dpiSide := float64(imageMaxPixelDimension*72) / math.Max(wPts, hPts)
+			dpiArea := math.Sqrt(float64(imageMaxTotalPixels) * 72 * 72 / (wPts * hPts))
 
 			// Use the more restrictive of the two limits
 			dpi := math.Min(dpiSide, dpiArea)
 
 			// Ensure DPI stays within acceptable bounds
-			dpi = math.Min(dpi, float64(maxRenderDPI))
+			dpi = math.Min(dpi, float64(imageMaxRenderDPI))
 			dpi = math.Max(dpi, float64(minDPI))
 
 			// Render the page at calculated DPI
@@ -880,7 +876,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 
 			// Try moderate quality reduction first to avoid OCR-affecting artifacts
 			// More granular steps (85, 80, 75, 70, 65, 60)
-			for q := 85; buf.Len() > maxFileBytes && q >= 60; q -= 5 {
+			for q := 85; buf.Len() > imageMaxFileBytes && q >= 60; q -= 5 {
 				buf.Reset()
 				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: q}); err != nil {
 					return err
@@ -888,9 +884,9 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 			}
 
 			// If quality reduction wasn't enough, resize the image as last resort
-			if buf.Len() > maxFileBytes {
+			if buf.Len() > imageMaxFileBytes {
 				// Calculate precise scale factor needed to meet file size target
-				scale := math.Sqrt(float64(maxFileBytes) / float64(buf.Len()))
+				scale := math.Sqrt(float64(imageMaxFileBytes) / float64(buf.Len()))
 
 				// Resize image proportionally using high-quality Lanczos algorithm
 				img = imaging.Resize(img,
@@ -902,6 +898,8 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 					return err
 				}
 			}
+
+			log.Infof("Document %d page %d: final image dimensions %dx%d, size %d bytes, DPI %.0f", documentID, n, img.Bounds().Dx(), img.Bounds().Dy(), buf.Len(), dpi)
 
 			// Save image to file
 			imagePath := filepath.Join(docDir, fmt.Sprintf("page%03d.jpg", n))
