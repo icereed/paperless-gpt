@@ -11,6 +11,7 @@ import (
 
 	_ "image/jpeg"
 
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
@@ -53,6 +54,9 @@ func newLLMProvider(config Config) (*LLMProvider, error) {
 	case "anthropic":
 		logger.Debug("Initializing Anthropic vision model")
 		model, err = createAnthropicClient(config)
+	case "googleai":
+		logger.Debug("Initializing Google AI vision model")
+		model, err = NewGoogleAIProvider(context.Background(), config.VisionLLMModel, config.GoogleAIAPIKey, config.GoogleAIThinkingBudget)
 	default:
 		return nil, fmt.Errorf("unsupported vision LLM provider: %s", config.VisionLLMProvider)
 	}
@@ -82,35 +86,55 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	})
 	logger.Debug("Starting LLM OCR processing")
 
-	// Log the image dimensions
-	img, _, err := image.Decode(bytes.NewReader(imageContent))
-	if err != nil {
-		logger.WithError(err).Error("Failed to decode image")
-		return nil, fmt.Errorf("error decoding image: %w", err)
+	// Detect the content type to handle PDFs differently
+	mtype := mimetype.Detect(imageContent)
+	contentType := mtype.String()
+	isPDF := contentType == "application/pdf"
+	providerName := strings.ToLower(p.provider)
+
+	logger.WithField("content_type", contentType).Debug("Detected content type")
+
+	if isPDF {
+		logger.WithField("pdf_size", len(imageContent)).Debug("Processing PDF content")
+	} else {
+		// Log image dimensions for image content
+		img, _, err := image.Decode(bytes.NewReader(imageContent))
+		if err != nil {
+			logger.WithError(err).Error("Failed to decode image")
+			return nil, fmt.Errorf("error decoding image: %w", err)
+		}
+		bounds := img.Bounds()
+		logger.WithFields(logrus.Fields{
+			"width":  bounds.Dx(),
+			"height": bounds.Dy(),
+		}).Debug("Image dimensions")
 	}
-	bounds := img.Bounds()
-	logger.WithFields(logrus.Fields{
-		"width":  bounds.Dx(),
-		"height": bounds.Dy(),
-	}).Debug("Image dimensions")
 
 	logger.Debugf("Prompt: %s", p.prompt)
 
 	// Prepare content parts based on provider type
 	var parts []llms.ContentPart
-	var imagePart llms.ContentPart
-	providerName := strings.ToLower(p.provider)
+	var contentPart llms.ContentPart
 
 	if providerName == "openai" || providerName == "mistral" {
 		logger.Info("Using OpenAI image format")
-		imagePart = llms.ImageURLPart("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageContent))
+		contentPart = llms.ImageURLPart("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageContent))
+	} else if providerName == "googleai" {
+		// GoogleAI supports both images and PDFs via BinaryPart
+		if isPDF {
+			logger.Info("Using GoogleAI PDF format")
+			contentPart = llms.BinaryPart("application/pdf", imageContent)
+		} else {
+			logger.Info("Using GoogleAI image format")
+			contentPart = llms.BinaryPart("image/jpeg", imageContent)
+		}
 	} else {
 		logger.Info("Using binary image format")
-		imagePart = llms.BinaryPart("image/jpeg", imageContent)
+		contentPart = llms.BinaryPart("image/jpeg", imageContent)
 	}
 
 	parts = []llms.ContentPart{
-		imagePart,
+		contentPart,
 		llms.TextPart(p.prompt),
 	}
 
