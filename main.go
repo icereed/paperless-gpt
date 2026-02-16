@@ -566,6 +566,11 @@ func validateOrDefaultEnvVars() {
 	} else {
 		autoTagComplete = "paperless-gpt-auto-complete"
 	}
+	if autoTagComplete != "" {
+		fmt.Printf("Using %s as auto tag complete\n", autoTagComplete)
+	} else {
+		fmt.Println("Auto tag complete is disabled")
+	}
 
 	if paperlessBaseURL == "" {
 		log.Fatal("Please set the PAPERLESS_BASE_URL environment variable.")
