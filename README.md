@@ -416,7 +416,7 @@ Different OCR providers support different processing modes:
 | **Azure Document Intelligence** | ✅ | ❌ | ❌ |
 | **Google Document AI** | ✅ | ✅ | ✅ |
 | **Mistral OCR** | ✅ | ✅ | ✅ |
-| **Docling Server** | ✅ | ❌ | ❌ |
+| **Docling Server** | ✅ | ✅ | ✅ |
 
 > **Important**: paperless-gpt will validate your configuration at startup and prevent unsupported mode/provider combinations. If you specify an unsupported mode for your provider, the application will fail to start with a clear error message.
 
