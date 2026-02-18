@@ -48,6 +48,7 @@ var (
 	openaiAPIKey                  = os.Getenv("OPENAI_API_KEY")
 	manualTag                     = os.Getenv("MANUAL_TAG")
 	autoTag                       = os.Getenv("AUTO_TAG")
+	autoTagComplete               string // read via os.LookupEnv in validateOrDefaultEnvVars
 	manualOcrTag                  = os.Getenv("MANUAL_OCR_TAG") // Not used yet
 	autoOcrTag                    = os.Getenv("AUTO_OCR_TAG")
 	ocrProcessMode                = os.Getenv("OCR_PROCESS_MODE")
@@ -135,6 +136,7 @@ type App struct {
 	pdfOCRCompleteTag  string            // Tag to add to documents that have been OCR processed
 	pdfOCRTagging      bool              // Whether to add the OCR complete tag to processed PDFs
 	pdfSkipExistingOCR bool              // Whether to skip processing PDFs that already have OCR detected
+	autoTagComplete    string            // Tag to add to documents after auto-processing is complete
 }
 
 func main() {
@@ -334,6 +336,7 @@ func main() {
 		pdfOCRCompleteTag:  pdfOCRCompleteTag,
 		pdfOCRTagging:      pdfOCRTagging,
 		pdfSkipExistingOCR: pdfSkipExistingOCR,
+		autoTagComplete:    autoTagComplete,
 	}
 
 	if app.isOcrEnabled() {
@@ -579,6 +582,17 @@ func validateOrDefaultEnvVars() {
 
 	if pdfOCRCompleteTag == "" {
 		pdfOCRCompleteTag = "paperless-gpt-ocr-complete"
+	}
+
+	if val, ok := os.LookupEnv("AUTO_TAG_COMPLETE"); ok {
+		autoTagComplete = val
+	} else {
+		autoTagComplete = "paperless-gpt-auto-complete"
+	}
+	if autoTagComplete != "" {
+		fmt.Printf("Using %s as auto tag complete\n", autoTagComplete)
+	} else {
+		fmt.Println("Auto tag complete is disabled")
 	}
 
 	if paperlessBaseURL == "" {

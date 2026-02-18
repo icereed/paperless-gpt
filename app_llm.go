@@ -671,6 +671,12 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			// Remove manual tag from the list of suggested tags
 			suggestion.RemoveTags = []string{manualTag, autoTag}
 
+			// Add auto-processing complete tag if configured (only for auto-processing, not manual review)
+			if app.autoTagComplete != "" && suggestionRequest.IsAutoProcessing {
+				suggestion.AddTags = append(suggestion.AddTags, app.autoTagComplete)
+				docLogger.Debugf("Adding auto-processing complete tag '%s'", app.autoTagComplete)
+			}
+
 			documentSuggestions = append(documentSuggestions, suggestion)
 			mu.Unlock()
 
