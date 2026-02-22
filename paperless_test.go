@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
 
@@ -355,8 +356,7 @@ func TestGetDocumentsByTagWithEmoji(t *testing.T) {
 	// Set mock responses
 	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
 		// Verify query parameters - the tag should be URL-encoded
-		// "🤖 AI-Queue" should be encoded as "%F0%9F%A4%96+AI-Queue"
-		expectedQuery := "tags__name__iexact=%F0%9F%A4%96+AI-Queue&page_size=25"
+		expectedQuery := fmt.Sprintf("tags__name__iexact=%s&page_size=25", url.QueryEscape("🤖 AI-Queue"))
 		assert.Equal(t, expectedQuery, r.URL.RawQuery)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(documentsResponse)
