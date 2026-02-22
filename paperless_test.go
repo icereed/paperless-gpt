@@ -317,6 +317,84 @@ func TestGetDocumentsByTag(t *testing.T) {
 	assert.Equal(t, expectedDocuments, documents)
 }
 
+// TestGetDocumentsByTagWithEmoji tests the GetDocumentsByTag method with emoji and special characters
+func TestGetDocumentsByTagWithEmoji(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	// Mock data for documents
+	documentsResponse := GetDocumentsApiResponse{
+		Results: []GetDocumentApiResponseResult{
+			{
+				ID:            1,
+				Title:         "AI Document",
+				Content:       "Content about AI",
+				Tags:          []int{1},
+				Correspondent: 1,
+				CreatedDate:   "2024-01-01",
+			},
+		},
+	}
+
+	// Mock data for tags
+	tagsResponse := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"id": 1, "name": "🤖 AI-Queue"},
+		},
+		"next": nil,
+	}
+
+	// Mock data for exact tag match
+	tagsExactResponse := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"document_count": 1},
+		},
+		"count": 1,
+	}
+
+	// Set mock responses
+	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		// Verify query parameters - the tag should be URL-encoded
+		// "🤖 AI-Queue" should be encoded as "%F0%9F%A4%96+AI-Queue"
+		expectedQuery := "tags__name__iexact=%F0%9F%A4%96+AI-Queue&page_size=25"
+		assert.Equal(t, expectedQuery, r.URL.RawQuery)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(documentsResponse)
+	})
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		// Handle GetDocumentCountByTag call
+		if nameFilter := r.URL.Query().Get("name__iexact"); nameFilter != "" {
+			// Verify the decoded value matches our emoji tag
+			assert.Equal(t, "🤖 AI-Queue", nameFilter)
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(tagsExactResponse)
+		} else {
+			// Handle GetAllTags call
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(tagsResponse)
+		}
+	})
+
+	ctx := context.Background()
+	tag := "🤖 AI-Queue"
+	documents, err := env.client.GetDocumentsByTag(ctx, tag, 25)
+	require.NoError(t, err)
+
+	expectedDocuments := []Document{
+		{
+			ID:            1,
+			Title:         "AI Document",
+			Content:       "Content about AI",
+			Tags:          []string{"🤖 AI-Queue"},
+			Correspondent: "Alpha",
+			CreatedDate:   "2024-01-01",
+		},
+	}
+
+	assert.Equal(t, expectedDocuments, documents)
+}
+
 // TestDownloadPDF tests the DownloadPDF method
 func TestDownloadPDF(t *testing.T) {
 	env := newTestEnv(t)

@@ -261,7 +261,7 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 		return []Document{}, nil
 	}
 
-	path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=%d", tag, pageSize)
+	path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=%d", url.QueryEscape(tag), pageSize)
 
 	resp, err := client.Do(ctx, "GET", path, nil)
 	if err != nil {
