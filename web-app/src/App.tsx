@@ -20,7 +20,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const fetchVersion = async () => {
       try {
-        const response = await fetch('./api/version');
+        const response = await fetch('/api/version');
         if (response.ok) {
           const data = await response.json();
           setVersionInfo(data);
@@ -69,8 +69,8 @@ const App: React.FC = () => {
               {versionInfo && (
                 <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
                   <span className="font-semibold">paperless-gpt</span> {versionInfo.version}
-                  {versionInfo.commit && versionInfo.commit !== 'devCommit' && (
-                    <span className="ml-2">({versionInfo.commit.substring(0, 7)})</span>
+                  {versionInfo.commit && versionInfo.commit !== 'devCommit' && versionInfo.commit.length >= 7 && (
+                    <span className="ml-2">({versionInfo.commit.slice(0, 7)})</span>
                   )}
                 </p>
               )}
