@@ -405,6 +405,9 @@ func main() {
 			baseUrl = strings.TrimRight(baseUrl, "/")
 			c.JSON(http.StatusOK, gin.H{"url": baseUrl})
 		})
+
+		// Get version information
+		api.GET("/version", getVersionHandler)
 	}
 
 	// Serve frontend files
