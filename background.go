@@ -261,9 +261,9 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			docLogger.Infof("Adding OCR complete tag '%s'", app.pdfOCRCompleteTag)
 		}
 
-		// Skip updating the original document if it was replaced (deleted) during OCR.
+		// Skip updating the original document if it was actually replaced (deleted) during OCR.
 		// The replacement document will be processed as a new document on the next cycle.
-		if options.ReplaceOriginal {
+		if options.ReplaceOriginal && processedDoc != nil && processedDoc.ReplacedOriginal {
 			docLogger.Info("Skipping tag update for replaced document (original was deleted)")
 		} else {
 			err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
