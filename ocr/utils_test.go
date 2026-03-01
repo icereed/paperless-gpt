@@ -50,12 +50,12 @@ func TestStripReasoning(t *testing.T) {
 		{
 			name:     "Unclosed think tag",
 			input:    "Content <think>Unclosed reasoning",
-			expected: "Content <think>Unclosed reasoning",
+			expected: "Content",
 		},
 		{
-			name:     "Only closing tag",
-			input:    "Content </think>",
-			expected: "Content </think>",
+			name:     "Dangling closing tag with trailing content",
+			input:    "thinkingstuff </think> content",
+			expected: "content",
 		},
 	}
 
