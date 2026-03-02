@@ -641,6 +641,15 @@ func (app *App) analyzeDocumentsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"result": llmResponse})
 }
 
+// getVersionHandler handles the GET /api/version endpoint
+func getVersionHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"version":   version,
+		"commit":    commit,
+		"buildDate": buildDate,
+	})
+}
+
 // containsDotDot checks if a string contains ".." to prevent path traversal.
 func containsDotDot(s string) bool {
 	return strings.Contains(s, "..")

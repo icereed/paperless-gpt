@@ -158,3 +158,28 @@ func TestUpdatePromptsHandler(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 }
+
+func TestGetVersionHandler(t *testing.T) {
+	router := setupTestRouter(t)
+	router.GET("/api/version", getVersionHandler)
+
+	req, _ := http.NewRequest("GET", "/api/version", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]string
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	require.NoError(t, err)
+
+	// Check that the response contains the expected fields
+	assert.Contains(t, response, "version")
+	assert.Contains(t, response, "commit")
+	assert.Contains(t, response, "buildDate")
+
+	// Verify the values are the default development values
+	assert.Equal(t, "devVersion", response["version"])
+	assert.Equal(t, "devCommit", response["commit"])
+	assert.Equal(t, "devBuildDate", response["buildDate"])
+}
