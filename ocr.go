@@ -146,7 +146,8 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	if processMode == "whole_pdf" {
 		// Process the entire PDF in one go, skipping the splitting step
 		var pdfBytes []byte
-		_, pdfBytes, totalPdfPages, err := app.Client.DownloadDocumentAsPDF(ctx, documentID, 0, false)
+		var err error
+		_, pdfBytes, totalPdfPages, err = app.Client.DownloadDocumentAsPDF(ctx, documentID, 0, false)
 		if err != nil {
 			return nil, fmt.Errorf("error downloading document PDF for document %d: %w", documentID, err)
 		}
