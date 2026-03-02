@@ -20,7 +20,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const fetchVersion = async () => {
       try {
-        const response = await fetch('/api/version');
+        const response = await fetch('./api/version');
         if (response.ok) {
           const data = await response.json();
           setVersionInfo(data);
