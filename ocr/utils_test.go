@@ -6,6 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestStripReasoning verifies that stripReasoning removes <think>...</think>
+// segments and handles malformed or dangling tags safely.
 func TestStripReasoning(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -51,6 +53,11 @@ func TestStripReasoning(t *testing.T) {
 			name:     "Unclosed think tag",
 			input:    "Content <think>Unclosed reasoning",
 			expected: "Content",
+		},
+		{
+			name:     "Balanced tags then dangling closing tag",
+			input:    "<think>ok</think> </think> content",
+			expected: "content",
 		},
 		{
 			name:     "Dangling closing tag with trailing content",
