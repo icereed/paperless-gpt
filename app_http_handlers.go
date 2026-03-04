@@ -14,6 +14,8 @@ import (
 	"text/template"
 	"time"
 
+	"paperless-gpt/sanitize"
+
 	"github.com/Masterminds/sprig/v3"
 	"github.com/gin-gonic/gin"
 )
@@ -606,6 +608,7 @@ func (app *App) analyzeDocumentsHandler(c *gin.Context) {
 			log.Errorf("Error fetching document %d: %v", docID, err)
 			return
 		}
+		doc.Content = sanitize.Sanitize(doc.Content)
 		documents = append(documents, doc)
 	}
 
