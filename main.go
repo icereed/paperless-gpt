@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"paperless-gpt/ocr"
+	"paperless-gpt/sanitize"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -147,6 +148,11 @@ func main() {
 
 	// Initialize logrus logger
 	initLogger()
+
+	// Initialize content sanitization
+	if err := sanitize.Init(); err != nil {
+		log.Fatalf("Failed to initialize sanitization: %v", err)
+	}
 
 	// Load settings from file
 	loadSettings()

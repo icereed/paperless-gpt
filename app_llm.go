@@ -12,6 +12,8 @@ import (
 
 	_ "image/jpeg"
 
+	"paperless-gpt/sanitize"
+
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
 )
@@ -527,7 +529,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			startTime := time.Now()
 			docLogger.Printf("Processing Document ID %d...", documentID)
 
-			content := doc.Content
+			content := sanitize.Sanitize(doc.Content)
 			suggestedTitle := doc.Title
 			var suggestedTags []string
 			var suggestedCorrespondent string
