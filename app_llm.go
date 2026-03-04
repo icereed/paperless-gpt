@@ -401,7 +401,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 		return nil, fmt.Errorf("error calculating available tokens for custom fields: %v", err)
 	}
 
-	truncatedContent, err := truncateContentByTokens(doc.Content, availableTokens)
+	truncatedContent, err := truncateContentByTokens(sanitize.Sanitize(doc.Content), availableTokens)
 	if err != nil {
 		return nil, fmt.Errorf("error truncating content for custom fields: %v", err)
 	}
