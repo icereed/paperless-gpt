@@ -65,6 +65,7 @@ COPY --from=frontend /app/dist /app/web-app/dist
 # Copy the Go source files
 COPY *.go .
 COPY ocr ./ocr
+COPY sanitize ./sanitize
 
 # Import ARGs from top level
 ARG VERSION
