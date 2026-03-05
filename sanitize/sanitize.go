@@ -74,6 +74,10 @@ func Sanitize(content string) string {
 		return content
 	}
 
+	if err := Init(); err != nil {
+		return ""
+	}
+
 	result := content
 
 	// Remove literal patterns
