@@ -12,11 +12,11 @@ var (
 	literalPatterns []string
 	regexPatterns   []*regexp.Regexp
 	initOnce        sync.Once
+	initErr         error
 )
 
 // Init initializes sanitization patterns from environment variables
 func Init() error {
-	var initErr error
 	initOnce.Do(func() {
 		// Parse literal patterns
 		if literals := os.Getenv("REMOVE_FROM_CONTENT"); literals != "" {

@@ -1,7 +1,6 @@
 package sanitize
 
 import (
-	"os"
 	"sync"
 	"testing"
 )
@@ -83,16 +82,11 @@ func TestSanitize(t *testing.T) {
 			literalPatterns = nil
 			regexPatterns = nil
 			initOnce = sync.Once{}
+			initErr = nil
 
 			// Set env vars
-			if tt.literals != "" {
-				os.Setenv("REMOVE_FROM_CONTENT", tt.literals)
-				defer os.Unsetenv("REMOVE_FROM_CONTENT")
-			}
-			if tt.regexes != "" {
-				os.Setenv("REMOVE_FROM_CONTENT_REGEX", tt.regexes)
-				defer os.Unsetenv("REMOVE_FROM_CONTENT_REGEX")
-			}
+			t.Setenv("REMOVE_FROM_CONTENT", tt.literals)
+			t.Setenv("REMOVE_FROM_CONTENT_REGEX", tt.regexes)
 
 			// Initialize
 			err := Init()
