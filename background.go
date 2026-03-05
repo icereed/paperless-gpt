@@ -46,11 +46,14 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 				}
 
 				// Run auto-tagging after OCR
-				autoCount, err := app.processAutoTagDocuments(ctx)
-				if err != nil {
-					return 0, fmt.Errorf("error in processAutoTagDocuments: %w", err)
+				// Only run auto-tagging if OCR did not find any documents to process, otherwise re-run OCR
+				if count == 0 {
+					autoCount, err := app.processAutoTagDocuments(ctx)
+					if err != nil {
+						return 0, fmt.Errorf("error in processAutoTagDocuments: %w", err)
+					}
+					count += autoCount
 				}
-				count += autoCount
 
 				return count, nil
 			}()
