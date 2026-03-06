@@ -1,4 +1,4 @@
-package ocr
+package textsanitize
 
 import "strings"
 
@@ -7,10 +7,9 @@ const (
 	closeThinkTag = "</think>"
 )
 
-// stripReasoning removes the reasoning from the content indicated by <think> and </think> tags.
-// This is useful for models that include reasoning in their output which should be removed
-// from the final OCR text.
-func stripReasoning(content string) string {
+// StripReasoning removes reasoning content indicated by <think> and </think> tags.
+// It is resilient to malformed or dangling tags and always trims the final output.
+func StripReasoning(content string) string {
 	if content == "" {
 		return ""
 	}
