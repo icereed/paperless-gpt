@@ -8,6 +8,7 @@ import (
 	"image"
 	"net/http"
 	"os"
+	"paperless-gpt/internal/textsanitize"
 	"strings"
 
 	_ "image/jpeg"
@@ -177,7 +178,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		return nil, fmt.Errorf("error getting response from LLM: %w", err)
 	}
 
-	text := stripReasoning(completion.Choices[0].Content)
+	text := textsanitize.StripReasoning(completion.Choices[0].Content)
 	limitHit := false
 	tokenCount := -1
 

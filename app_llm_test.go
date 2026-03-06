@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"paperless-gpt/internal/textsanitize"
 	"testing"
 	"text/template"
 
@@ -422,7 +423,7 @@ func TestStripReasoning(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := stripReasoning(tc.input)
+			result := textsanitize.StripReasoning(tc.input)
 			assert.Equal(t, tc.expected, result)
 		})
 	}

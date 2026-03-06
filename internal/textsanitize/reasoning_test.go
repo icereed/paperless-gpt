@@ -1,4 +1,4 @@
-package ocr
+package textsanitize
 
 import (
 	"testing"
@@ -6,8 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestStripReasoning verifies that stripReasoning removes <think>...</think>
-// segments and handles malformed or dangling tags safely.
 func TestStripReasoning(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -68,7 +66,7 @@ func TestStripReasoning(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := stripReasoning(tc.input)
+			result := StripReasoning(tc.input)
 			assert.Equal(t, tc.expected, result)
 		})
 	}
