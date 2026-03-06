@@ -739,7 +739,11 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					continue // Already handled in separate update above
 				}
 			}
+			if field == "content" {
+			log.Debugf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
+		} else {
 			log.Printf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
+		}
 			mod := ModificationHistory{
 				DocumentID:    uint(documentID),
 				ModField:      field,
