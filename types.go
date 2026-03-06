@@ -96,6 +96,7 @@ type GenerateSuggestionsRequest struct {
 	GenerateCreatedDate    bool       `json:"generate_created_date,omitempty"`
 	GenerateCustomFields   bool       `json:"generate_custom_fields,omitempty"`
 	GenerateDocumentTypes  bool       `json:"generate_document_types,omitempty"`
+	IsAutoProcessing       bool       `json:"-"` // internal flag; not exposed via API
 }
 
 // AnalyzeDocumentsRequest is the request payload for the ad-hoc analysis
