@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestStripReasoning verifies reasoning-tag stripping across balanced and malformed tag patterns.
 func TestStripReasoning(t *testing.T) {
 	tests := []struct {
 		name     string
