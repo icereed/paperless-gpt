@@ -161,6 +161,7 @@ type OCROptions struct {
 	CopyMetadata    bool   // Whether to copy metadata from the original document
 	LimitPages      int    // Limit on the number of pages to process (0 = no limit)
 	ProcessMode     string // OCR processing mode: "image" (default) or "pdf"
+	ExistingContent string // Existing document text (e.g., from Tesseract) to include in OCR prompt
 }
 
 // PartialUpdateError signals that a document update succeeded only after
