@@ -284,41 +284,43 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		if autoOcrThenClassify {
 			docLogger.Info("Chaining into classification after OCR")
 
-			// Re-fetch the full document (includes custom fields) to match the auto-tag path
+			// Re-fetch the full document (includes custom fields) to match the auto-tag path.
+			// If this fails, skip classification entirely — incomplete state could produce
+			// wrong results. The user can retry via AUTO_TAG.
 			classifyDoc, fetchErr := app.Client.GetDocument(ctx, document.ID)
 			if fetchErr != nil {
-				docLogger.Errorf("Failed to fetch full document for classification: %v", fetchErr)
-				classifyDoc = document // fall back to the lighter version
-			}
-			// Override content with the freshly OCR'd text
-			classifyDoc.Content = processedDoc.Text
-
-			// Refresh custom fields cache before classification
-			refreshCustomFieldsCache(app.Client)
-
-			classifySuggestion, classifyErr := app.classifyDocument(ctx, classifyDoc, docLogger)
-			if classifyErr != nil {
-				docLogger.Errorf("Classification after OCR failed (OCR content will still be saved): %v", classifyErr)
-				// OCR succeeded — still update content and remove OCR tag below.
-				// User can retry classification via AUTO_TAG.
+				docLogger.Errorf("Failed to fetch full document for classification, skipping: %v", fetchErr)
 			} else {
-				// Merge classification results into the document suggestion
-				documentSuggestion.SuggestedTitle = classifySuggestion.SuggestedTitle
-				documentSuggestion.SuggestedTags = classifySuggestion.SuggestedTags
-				documentSuggestion.SuggestedCorrespondent = classifySuggestion.SuggestedCorrespondent
-				documentSuggestion.SuggestedDocumentType = classifySuggestion.SuggestedDocumentType
-				documentSuggestion.SuggestedCreatedDate = classifySuggestion.SuggestedCreatedDate
-				documentSuggestion.SuggestedCustomFields = classifySuggestion.SuggestedCustomFields
-				documentSuggestion.CustomFieldsWriteMode = classifySuggestion.CustomFieldsWriteMode
-				documentSuggestion.CustomFieldsEnable = classifySuggestion.CustomFieldsEnable
-				documentSuggestion.KeepOriginalTags = true
-				// Merge any RemoveTags from classification, plus AUTO_TAG
-				for _, tag := range append(classifySuggestion.RemoveTags, autoTag) {
-					if !slices.Contains(documentSuggestion.RemoveTags, tag) {
-						documentSuggestion.RemoveTags = append(documentSuggestion.RemoveTags, tag)
+				// Override content with the freshly OCR'd text
+				classifyDoc.Content = processedDoc.Text
+
+				// Refresh custom fields cache before classification
+				refreshCustomFieldsCache(app.Client)
+
+				classifySuggestion, classifyErr := app.classifyDocument(ctx, classifyDoc, docLogger)
+				if classifyErr != nil {
+					docLogger.Errorf("Classification after OCR failed (OCR content will still be saved): %v", classifyErr)
+					// OCR succeeded — still update content and remove OCR tag below.
+					// User can retry classification via AUTO_TAG.
+				} else {
+					// Merge classification results into the document suggestion
+					documentSuggestion.SuggestedTitle = classifySuggestion.SuggestedTitle
+					documentSuggestion.SuggestedTags = classifySuggestion.SuggestedTags
+					documentSuggestion.SuggestedCorrespondent = classifySuggestion.SuggestedCorrespondent
+					documentSuggestion.SuggestedDocumentType = classifySuggestion.SuggestedDocumentType
+					documentSuggestion.SuggestedCreatedDate = classifySuggestion.SuggestedCreatedDate
+					documentSuggestion.SuggestedCustomFields = classifySuggestion.SuggestedCustomFields
+					documentSuggestion.CustomFieldsWriteMode = classifySuggestion.CustomFieldsWriteMode
+					documentSuggestion.CustomFieldsEnable = classifySuggestion.CustomFieldsEnable
+					documentSuggestion.KeepOriginalTags = true
+					// Merge any RemoveTags from classification, plus AUTO_TAG
+					for _, tag := range append(classifySuggestion.RemoveTags, autoTag) {
+						if !slices.Contains(documentSuggestion.RemoveTags, tag) {
+							documentSuggestion.RemoveTags = append(documentSuggestion.RemoveTags, tag)
+						}
 					}
+					docLogger.Info("Classification after OCR completed successfully")
 				}
-				docLogger.Info("Classification after OCR completed successfully")
 			}
 		}
 
