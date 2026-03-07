@@ -31,6 +31,18 @@ type LLMProvider struct {
 	ollamaTopK  *int
 }
 
+// SetPrompt overrides the OCR prompt for subsequent ProcessImage calls.
+// This enables per-document prompt rendering where the template can include
+// document-specific data like existing OCR text.
+func (p *LLMProvider) SetPrompt(prompt string) {
+	p.prompt = prompt
+}
+
+// GetPrompt returns the current OCR prompt.
+func (p *LLMProvider) GetPrompt() string {
+	return p.prompt
+}
+
 func newLLMProvider(config Config) (*LLMProvider, error) {
 	logger := log.WithFields(logrus.Fields{
 		"provider": config.VisionLLMProvider,
