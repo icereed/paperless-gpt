@@ -284,8 +284,13 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		if autoOcrThenClassify {
 			docLogger.Info("Chaining into classification after OCR")
 
-			// Use the freshly OCR'd text for classification (no re-fetch needed)
-			classifyDoc := document
+			// Re-fetch the full document (includes custom fields) to match the auto-tag path
+			classifyDoc, fetchErr := app.Client.GetDocument(ctx, document.ID)
+			if fetchErr != nil {
+				docLogger.Errorf("Failed to fetch full document for classification: %v", fetchErr)
+				classifyDoc = document // fall back to the lighter version
+			}
+			// Override content with the freshly OCR'd text
 			classifyDoc.Content = processedDoc.Text
 
 			// Refresh custom fields cache before classification
@@ -307,8 +312,12 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 				documentSuggestion.CustomFieldsWriteMode = classifySuggestion.CustomFieldsWriteMode
 				documentSuggestion.CustomFieldsEnable = classifySuggestion.CustomFieldsEnable
 				documentSuggestion.KeepOriginalTags = true
-				// Also remove AUTO_TAG if present
-				documentSuggestion.RemoveTags = append(documentSuggestion.RemoveTags, autoTag)
+				// Merge any RemoveTags from classification, plus AUTO_TAG
+				for _, tag := range append(classifySuggestion.RemoveTags, autoTag) {
+					if !slices.Contains(documentSuggestion.RemoveTags, tag) {
+						documentSuggestion.RemoveTags = append(documentSuggestion.RemoveTags, tag)
+					}
+				}
 				docLogger.Info("Classification after OCR completed successfully")
 			}
 		}
