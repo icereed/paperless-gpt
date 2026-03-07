@@ -205,12 +205,15 @@ func main() {
 		providerType = "llm" // Default to LLM provider
 	}
 
+	// Render OCR prompt with empty Content as fallback for the provider default.
+	// Per-document rendering (with existing content) happens in ProcessDocumentOCR.
 	var promptBuffer bytes.Buffer
 	err = ocrTemplate.Execute(&promptBuffer, map[string]interface{}{
 		"Language": getLikelyLanguage(),
+		"Content":  "",
 	})
 	if err != nil {
-		log.Fatalf("error executing tag template: %v", err)
+		log.Fatalf("error executing OCR template: %v", err)
 	}
 
 	ocrPrompt := promptBuffer.String()
