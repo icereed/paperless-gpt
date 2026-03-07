@@ -2,3 +2,11 @@ Just transcribe the text in this image and preserve the formatting and layout (h
 Do that for ALL the text in the image. Be thorough and pay attention. This is very important.
 The image is from a text document so be sure to continue until the bottom of the page.
 Thanks a lot! You tend to forget about some text in the image so please focus! Use markdown format but without a code block.
+{{- if .Content}}
+
+The document already has the following text extracted via basic OCR.
+Use this as a reference to help identify difficult words or numbers, but rely primarily on what you see in the image.
+Correct any errors you find in this existing text:
+
+{{.Content}}
+{{- end}}
