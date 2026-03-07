@@ -123,7 +123,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		}).Debug("Image dimensions")
 	}
 
-	logger.Debugf("Prompt: %s", p.prompt)
+	logger.Debugf("Prompt length: %d", len(p.prompt))
 
 	// Prepare content parts based on provider type
 	var parts []llms.ContentPart
