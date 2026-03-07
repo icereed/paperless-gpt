@@ -31,11 +31,12 @@ type LLMProvider struct {
 	ollamaTopK  *int
 }
 
-// SetPrompt overrides the OCR prompt for subsequent ProcessImage calls.
-// This enables per-document prompt rendering where the template can include
-// document-specific data like existing OCR text.
-func (p *LLMProvider) SetPrompt(prompt string) {
-	p.prompt = prompt
+// WithPrompt returns a shallow copy of the provider with a different prompt.
+// This enables per-document prompt rendering without mutating shared state.
+func (p *LLMProvider) WithPrompt(prompt string) *LLMProvider {
+	clone := *p
+	clone.prompt = prompt
+	return &clone
 }
 
 // GetPrompt returns the current OCR prompt.

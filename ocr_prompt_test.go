@@ -52,6 +52,8 @@ func TestRenderOCRPrompt_WithoutContent(t *testing.T) {
 }
 
 func TestRenderOCRPrompt_LanguageIncluded(t *testing.T) {
+	t.Setenv("LLM_LANGUAGE", "German")
+
 	tmpl, err := template.New("test").Funcs(sprig.FuncMap()).Parse(
 		`Language: {{.Language}}`)
 	require.NoError(t, err)
@@ -68,6 +70,5 @@ func TestRenderOCRPrompt_LanguageIncluded(t *testing.T) {
 
 	result, err := renderOCRPrompt("")
 	require.NoError(t, err)
-	// getLikelyLanguage() defaults to "English" when LLM_LANGUAGE is unset
-	assert.Contains(t, result, "Language:")
+	assert.Equal(t, "Language: German", result)
 }
