@@ -31,6 +31,19 @@ type LLMProvider struct {
 	ollamaTopK  *int
 }
 
+// WithPrompt returns a shallow copy of the provider with a different prompt.
+// This enables per-document prompt rendering without mutating shared state.
+func (p *LLMProvider) WithPrompt(prompt string) *LLMProvider {
+	clone := *p
+	clone.prompt = prompt
+	return &clone
+}
+
+// GetPrompt returns the current OCR prompt.
+func (p *LLMProvider) GetPrompt() string {
+	return p.prompt
+}
+
 func newLLMProvider(config Config) (*LLMProvider, error) {
 	logger := log.WithFields(logrus.Fields{
 		"provider": config.VisionLLMProvider,
@@ -110,7 +123,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		}).Debug("Image dimensions")
 	}
 
-	logger.Debugf("Prompt: %s", p.prompt)
+	logger.Debugf("Prompt length: %d", len(p.prompt))
 
 	// Prepare content parts based on provider type
 	var parts []llms.ContentPart
