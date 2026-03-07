@@ -60,10 +60,8 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	ocrPrompt, err := renderOCRPrompt(options.ExistingContent)
 	if err != nil {
 		docLogger.WithError(err).Warn("Failed to render per-document OCR prompt, using provider default")
-	} else if ocrPrompt != "" {
-		if llmProv, ok := provider.(*ocr.LLMProvider); ok {
-			provider = llmProv.WithPrompt(ocrPrompt)
-		}
+	} else if llmProv, ok := provider.(*ocr.LLMProvider); ok {
+		provider = llmProv.WithPrompt(ocrPrompt)
 	}
 
 	// Determine the actual process mode to use
