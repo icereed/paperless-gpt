@@ -240,6 +240,7 @@ services:
       LOG_LEVEL: "info" # Optional: debug, warn, error
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
+      - ./config:/app/config # Mount the config directory
       # For Google Document AI:
       - ${HOME}/.config/gcloud/application_default_credentials.json:/app/credentials.json
       # For local hOCR and PDF saving:
