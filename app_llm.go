@@ -91,10 +91,11 @@ func (app *App) getSuggestedTags(
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
-		"Language":      likelyLanguage,
-		"AvailableTags": availableTags,
-		"OriginalTags":  originalTags,
-		"Title":         suggestedTitle,
+		"Language":       likelyLanguage,
+		"AvailableTags":  availableTags,
+		"OriginalTags":   originalTags,
+		"Title":          suggestedTitle,
+		"CreateNewTags":  createNewTags,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(tagTemplate, templateData)
@@ -150,7 +151,29 @@ func (app *App) getSuggestedTags(
 	slices.Sort(suggestedTags)
 	suggestedTags = slices.Compact(suggestedTags)
 
-	// Filter out tags that are not in the available tags list
+	// Filter out tags that are not in the available tags list (unless CREATE_NEW_TAGS is enabled)
+	if createNewTags {
+		// When creating new tags is enabled, keep all non-empty suggested tags
+		filteredTags := []string{}
+		for _, tag := range suggestedTags {
+			if tag != "" {
+				// Use the available tag's casing if it exists
+				matched := false
+				for _, availableTag := range availableTags {
+					if strings.EqualFold(tag, availableTag) {
+						filteredTags = append(filteredTags, availableTag)
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					filteredTags = append(filteredTags, tag)
+				}
+			}
+		}
+		return filteredTags, nil
+	}
+
 	filteredTags := []string{}
 	for _, tag := range suggestedTags {
 		for _, availableTag := range availableTags {

@@ -260,6 +260,76 @@ func TestTokenLimitInTagGeneration(t *testing.T) {
 	assert.LessOrEqual(t, len(tokens), 50, "Final prompt should be within token limit")
 }
 
+func TestCreateNewTagsFiltering(t *testing.T) {
+	testLogger := logrus.WithField("test", "test")
+
+	// Initialize tag template for this test
+	var err error
+	tagTemplate, err = template.New("tag").Parse(testTagTemplate)
+	require.NoError(t, err)
+
+	// Save and restore createNewTags
+	originalCreateNewTags := createNewTags
+	defer func() { createNewTags = originalCreateNewTags }()
+
+	ctx := context.Background()
+	availableTags := []string{"invoice", "receipt", "tax"}
+	originalTags := []string{}
+
+	t.Run("default filters out new tags", func(t *testing.T) {
+		createNewTags = false
+		mockLLM := &mockLLM{Response: "invoice, new-tag, receipt"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		require.NoError(t, err)
+
+		assert.Contains(t, tags, "invoice")
+		assert.Contains(t, tags, "receipt")
+		assert.NotContains(t, tags, "new-tag")
+	})
+
+	t.Run("createNewTags allows new tags", func(t *testing.T) {
+		createNewTags = true
+		mockLLM := &mockLLM{Response: "invoice, new-tag, receipt"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		require.NoError(t, err)
+
+		assert.Contains(t, tags, "invoice")
+		assert.Contains(t, tags, "receipt")
+		assert.Contains(t, tags, "new-tag")
+	})
+
+	t.Run("createNewTags preserves existing tag casing", func(t *testing.T) {
+		createNewTags = true
+		mockLLM := &mockLLM{Response: "Invoice, NEW-TAG"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		require.NoError(t, err)
+
+		// Existing tag should use the available tag's casing
+		assert.Contains(t, tags, "invoice")
+		// New tag keeps its original casing
+		assert.Contains(t, tags, "NEW-TAG")
+	})
+
+	t.Run("createNewTags filters out empty tags", func(t *testing.T) {
+		createNewTags = true
+		mockLLM := &mockLLM{Response: "invoice, , receipt"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		require.NoError(t, err)
+
+		for _, tag := range tags {
+			assert.NotEmpty(t, tag)
+		}
+	})
+}
+
 func TestTokenLimitInTitleGeneration(t *testing.T) {
 	testLogger := logrus.WithField("test", "test")
 
