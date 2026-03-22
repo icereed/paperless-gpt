@@ -991,6 +991,9 @@ func createLLM() (llms.Model, error) {
 				log.Warnf("Invalid OLLAMA_CONTEXT_LENGTH value: %v, ignoring", err)
 			}
 		}
+		if client := ocr.OllamaHTTPClient(); client != nil {
+			opts = append(opts, ollama.WithHTTPClient(client))
+		}
 		llm, err := ollama.New(opts...)
 		if err != nil {
 			return nil, err
@@ -1099,6 +1102,9 @@ func createVisionLLM() (llms.Model, error) {
 				log.Warnf("Invalid OLLAMA_CONTEXT_LENGTH value: %v, ignoring", err)
 			}
 		}
+		if client := ocr.OllamaHTTPClient(); client != nil {
+			opts = append(opts, ollama.WithHTTPClient(client))
+		}
 		llm, err := ollama.New(opts...)
 		if err != nil {
 			return nil, err
@@ -1135,6 +1141,7 @@ func createVisionLLM() (llms.Model, error) {
 	}
 }
 
+
 func createCustomHTTPClient() *http.Client {
 	// Create custom transport that adds headers
 	customTransport := &headerTransport{
@@ -1159,8 +1166,9 @@ type headerTransport struct {
 
 // RoundTrip implements the http.RoundTripper interface
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
 	for key, value := range t.headers {
-		req.Header.Add(key, value)
+		req.Header.Set(key, value)
 	}
 	return t.transport.RoundTrip(req)
 }
