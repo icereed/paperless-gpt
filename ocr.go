@@ -135,7 +135,6 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	var imageDataList [][]byte
 	var originalPDFData []byte
 	var totalPdfPages int
-	var imagePaths []string
 	var ocrResults []*ocr.OCRResult
 	var skippedPages []int
 
@@ -290,9 +289,6 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				return nil, fmt.Errorf("error reading image file for document %d, page %d: %w", documentID, i+1, err)
 			}
 
-			// Store image data for potential PDF generation
-			imageDataList = append(imageDataList, imageContent)
-
 			// Pass the page number (1-based index) to ProcessImage
 			result, err := app.ocrProvider.ProcessImage(ctx, imageContent, i+1)
 			if err != nil {
@@ -305,6 +301,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				skippedPages = append(skippedPages, i+1)
 				continue
 			}
+
+			// Store image data only for successfully processed pages
+			imageDataList = append(imageDataList, imageContent)
 
 			if jobID != "" {
 				jobStore.updatePagesDone(jobID, i+1)
@@ -377,12 +376,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 
 				// Apply OCR to PDF if the feature is enabled
 				if app.createLocalPDF && app.localPDFPath != "" {
-					var processedPageCount int
-					if processMode == "pdf" || processMode == "whole_pdf" {
-						processedPageCount = len(ocrTexts)
-					} else {
-						processedPageCount = len(imagePaths)
-					}
+					processedPageCount := len(ocrTexts)
 
 					// SAFETY CHECK: Don't generate PDF if we're processing fewer pages than original document
 					if processedPageCount != totalPdfPages {
