@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"paperless-gpt/internal/textsanitize"
 	"slices"
 	"strings"
 	"sync"
@@ -67,7 +68,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := stripReasoning(strings.TrimSpace(completion.Choices[0].Content))
+	response := textsanitize.StripReasoning(strings.TrimSpace(completion.Choices[0].Content))
 	return response, nil
 }
 
@@ -138,7 +139,7 @@ func (app *App) getSuggestedTags(
 		return nil, fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := stripReasoning(completion.Choices[0].Content)
+	response := textsanitize.StripReasoning(completion.Choices[0].Content)
 
 	suggestedTags := strings.Split(response, ",")
 	for i, tag := range suggestedTags {
@@ -246,7 +247,7 @@ func (app *App) getSuggestedDocumentType(
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := strings.TrimSpace(stripReasoning(completion.Choices[0].Content))
+	response := strings.TrimSpace(textsanitize.StripReasoning(completion.Choices[0].Content))
 
 	// Validate that the response is in the available document types list
 	for _, docType := range availableDocumentTypes {
@@ -314,7 +315,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
-	result := stripReasoning(completion.Choices[0].Content)
+	result := textsanitize.StripReasoning(completion.Choices[0].Content)
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
 
@@ -370,7 +371,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
-	result := stripReasoning(completion.Choices[0].Content)
+	result := textsanitize.StripReasoning(completion.Choices[0].Content)
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
 
@@ -449,7 +450,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 		return nil, fmt.Errorf("error getting response from LLM for custom fields: %v", err)
 	}
 
-	response := stripReasoning(completion.Choices[0].Content)
+	response := textsanitize.StripReasoning(completion.Choices[0].Content)
 	response = stripMarkdown(response)
 	logger.Debugf("LLM response for custom fields: %s", response)
 
@@ -717,22 +718,6 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 // getTodayDate returns the current date in YYYY-MM-DD format
 func getTodayDate() string {
 	return time.Now().Format("2006-01-02")
-}
-
-// stripReasoning removes the reasoning from the content indicated by <think> and </think> tags.
-func stripReasoning(content string) string {
-	// Remove reasoning from the content
-	reasoningStart := strings.Index(content, "<think>")
-	if reasoningStart != -1 {
-		reasoningEnd := strings.Index(content, "</think>")
-		if reasoningEnd != -1 {
-			content = content[:reasoningStart] + content[reasoningEnd+len("</think>"):]
-		}
-	}
-
-	// Trim whitespace
-	content = strings.TrimSpace(content)
-	return content
 }
 
 // stripMarkdown removes the markdown code block from the content.
