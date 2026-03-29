@@ -377,6 +377,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				// Apply OCR to PDF if the feature is enabled
 				if app.createLocalPDF && app.localPDFPath != "" {
 					processedPageCount := len(ocrTexts)
+					if processMode == "whole_pdf" {
+						processedPageCount = totalPdfPages
+					}
 
 					// SAFETY CHECK: Don't generate PDF if we're processing fewer pages than original document
 					if processedPageCount != totalPdfPages {

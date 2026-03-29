@@ -401,6 +401,7 @@ func TestProcessDocumentOCR_PartialPageFailure(t *testing.T) {
 
 	result, err := app.ProcessDocumentOCR(context.Background(), 1, OCROptions{}, "")
 	require.NoError(t, err)
+	require.NotNil(t, result)
 
 	assert.Equal(t, []int{2}, result.SkippedPages)
 	assert.Contains(t, result.Text, "text from page 1")
@@ -425,8 +426,8 @@ func TestProcessDocumentOCR_AllPagesFail(t *testing.T) {
 	}
 
 	result, err := app.ProcessDocumentOCR(context.Background(), 1, OCROptions{}, "")
-	assert.Nil(t, result)
-	assert.Error(t, err)
+	require.Nil(t, result)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "OCR failed on all 2 pages")
 }
 

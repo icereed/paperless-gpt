@@ -244,25 +244,35 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			docLogger.Debug("OCR processing completed")
 		}
 
+		isPartial := len(processedDoc.SkippedPages) > 0
+
 		documentSuggestion := DocumentSuggestion{
 			ID:               document.ID,
 			OriginalDocument: document,
 			SuggestedContent: processedDoc.Text,
 			RemoveTags:       []string{autoOcrTag},
-			// Add OCR complete tag if tagging is enabled and PDF wasn't uploaded (upload handles tagging)
+			// Add appropriate tag based on whether OCR was complete or partial
 			AddTags: func() []string {
-				if app.pdfOCRTagging && !options.UploadPDF {
-					return []string{app.pdfOCRCompleteTag}
+				if !app.pdfOCRTagging || options.UploadPDF {
+					return nil
 				}
-				return nil
+				if isPartial {
+					return []string{app.pdfOCRPartialTag}
+				}
+				return []string{app.pdfOCRCompleteTag}
 			}(),
 		}
 
-		if (app.pdfOCRTagging) && app.pdfOCRCompleteTag != "" {
-			// Add the OCR complete tag if tagging is enabled
-			documentSuggestion.SuggestedTags = []string{app.pdfOCRCompleteTag}
-			documentSuggestion.KeepOriginalTags = true
-			docLogger.Infof("Adding OCR complete tag '%s'", app.pdfOCRCompleteTag)
+		if app.pdfOCRTagging {
+			if isPartial && app.pdfOCRPartialTag != "" {
+				documentSuggestion.SuggestedTags = []string{app.pdfOCRPartialTag}
+				documentSuggestion.KeepOriginalTags = true
+				docLogger.Warnf("Adding OCR partial tag '%s' (skipped pages: %v)", app.pdfOCRPartialTag, processedDoc.SkippedPages)
+			} else if !isPartial && app.pdfOCRCompleteTag != "" {
+				documentSuggestion.SuggestedTags = []string{app.pdfOCRCompleteTag}
+				documentSuggestion.KeepOriginalTags = true
+				docLogger.Infof("Adding OCR complete tag '%s'", app.pdfOCRCompleteTag)
+			}
 		}
 
 		// Skip updating the original document if it was actually replaced (deleted) during OCR.
