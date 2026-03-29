@@ -512,6 +512,16 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			for _, tagName := range finalTagNames {
 				if tagID, exists := availableTags[tagName]; exists {
 					finalTagIDs = append(finalTagIDs, tagID)
+				} else if createNewTags {
+					// Create the new tag in paperless-ngx
+					newTagID, err := client.CreateTag(ctx, tagName)
+					if err != nil {
+						log.Warnf("Document %d: Failed to create new tag '%s': %v", documentID, tagName, err)
+						continue
+					}
+					log.Infof("Document %d: Created new tag '%s' with ID %d", documentID, tagName, newTagID)
+					availableTags[tagName] = newTagID
+					finalTagIDs = append(finalTagIDs, newTagID)
 				}
 			}
 			// Only update tags if there are remaining tags after changes

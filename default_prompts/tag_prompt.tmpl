@@ -1,6 +1,11 @@
 I will provide you with the content and the title of a document.
 Your task is to select appropriate tags for the document from the list of available tags I will provide.
-Only select tags from the provided list. Respond only with the selected tags as a comma-separated list, without any additional information.
+{{- if .CreateNewTags}}
+You may also suggest new tags that are not in the provided list if they are highly relevant to the document.
+{{- else}}
+Only select tags from the provided list.
+{{- end}}
+Respond only with the selected tags as a comma-separated list, without any additional information.
 The content is likely in {{.Language}}.
 
 The data will be provided using an XML-like format for clarity:
@@ -18,4 +23,7 @@ The data will be provided using an XML-like format for clarity:
 </content>
 
 Please concisely select the {{.Language}} tags from the list above that best describe the document.
+{{- if .CreateNewTags}}
+You may also suggest new tags not in the list if they are highly relevant.
+{{- end}}
 Be very selective and only choose the most relevant tags since too many tags will make the document less discoverable.
