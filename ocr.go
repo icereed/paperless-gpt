@@ -23,7 +23,8 @@ type ProcessedDocument struct {
 	HOCRStruct       *hocr.HOCR
 	HOCR             string
 	PDFData          []byte
-	ReplacedOriginal bool // true when the original document was successfully deleted and replaced
+	ReplacedOriginal bool  // true when the original document was successfully deleted and replaced
+	SkippedPages     []int // pages that failed OCR and were skipped
 }
 
 // HOCRCapable defines an interface for OCR providers that can generate hOCR
@@ -136,6 +137,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	var totalPdfPages int
 	var imagePaths []string
 	var ocrResults []*ocr.OCRResult
+	var skippedPages []int
 
 	// Default process mode to app's ocrProcessMode if not set in options
 	processMode = options.ProcessMode
@@ -221,11 +223,14 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			// Pass the page number (1-based index) to ProcessImage
 			result, err := app.ocrProvider.ProcessImage(ctx, pdfContent, i+1)
 			if err != nil {
-				return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
+				pageLogger.Warnf("OCR failed for page, skipping: %v", err)
+				skippedPages = append(skippedPages, i+1)
+				continue
 			}
 			if result == nil {
-				pageLogger.Error("Got nil result from OCR provider")
-				return nil, fmt.Errorf("error performing OCR for document %d, page %d: nil result", documentID, i+1)
+				pageLogger.Warn("Got nil result from OCR provider, skipping page")
+				skippedPages = append(skippedPages, i+1)
+				continue
 			}
 
 			pageLogger.WithField("has_hocr_page", result.HOCRPage != nil).
@@ -291,11 +296,14 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			// Pass the page number (1-based index) to ProcessImage
 			result, err := app.ocrProvider.ProcessImage(ctx, imageContent, i+1)
 			if err != nil {
-				return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
+				pageLogger.Warnf("OCR failed for page, skipping: %v", err)
+				skippedPages = append(skippedPages, i+1)
+				continue
 			}
 			if result == nil {
-				pageLogger.Error("Got nil result from OCR provider")
-				return nil, fmt.Errorf("error performing OCR for document %d, page %d: nil result", documentID, i+1)
+				pageLogger.Warn("Got nil result from OCR provider, skipping page")
+				skippedPages = append(skippedPages, i+1)
+				continue
 			}
 
 			if jobID != "" {
@@ -324,12 +332,22 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		}
 	}
 
+	// If all pages failed OCR, return an error
+	if len(ocrTexts) == 0 && len(skippedPages) > 0 {
+		return nil, fmt.Errorf("OCR failed on all %d pages for document %d", len(skippedPages), documentID)
+	}
+
+	if len(skippedPages) > 0 {
+		docLogger.Warnf("OCR skipped %d pages: %v", len(skippedPages), skippedPages)
+	}
+
 	fullText := strings.Join(ocrTexts, "\n\n")
 
 	// Create ProcessedDocument to hold all the results
 	processedDoc := &ProcessedDocument{
-		ID:   documentID,
-		Text: fullText,
+		ID:           documentID,
+		Text:         fullText,
+		SkippedPages: skippedPages,
 	}
 
 	// Generate complete hOCR if we have hOCR capability

@@ -238,7 +238,11 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			docLogger.Info("OCR processing skipped for document")
 			continue
 		}
-		docLogger.Debug("OCR processing completed")
+		if len(processedDoc.SkippedPages) > 0 {
+			docLogger.Warnf("OCR partially completed, skipped pages: %v", processedDoc.SkippedPages)
+		} else {
+			docLogger.Debug("OCR processing completed")
+		}
 
 		documentSuggestion := DocumentSuggestion{
 			ID:               document.ID,
