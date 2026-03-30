@@ -294,11 +294,17 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			if err != nil {
 				pageLogger.Warnf("OCR failed for page, skipping: %v", err)
 				skippedPages = append(skippedPages, i+1)
+				if jobID != "" {
+					jobStore.updatePagesDone(jobID, i+1)
+				}
 				continue
 			}
 			if result == nil {
 				pageLogger.Warn("Got nil result from OCR provider, skipping page")
 				skippedPages = append(skippedPages, i+1)
+				if jobID != "" {
+					jobStore.updatePagesDone(jobID, i+1)
+				}
 				continue
 			}
 
