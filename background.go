@@ -188,13 +188,16 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			if hasCompleteTag {
 				docLogger.Infof("Document already has OCR complete tag '%s', skipping OCR processing", app.pdfOCRCompleteTag)
 
-				// Remove only the autoOcrTag to take it out of the processing queue
-				// while preserving the OCR complete tag
+				// Remove autoOcrTag and any stale partial tag
+				skipRemoveTags := []string{autoOcrTag}
+				if app.pdfOCRPartialTag != "" {
+					skipRemoveTags = append(skipRemoveTags, app.pdfOCRPartialTag)
+				}
 				err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
 					{
 						ID:               document.ID,
 						OriginalDocument: document,
-						RemoveTags:       []string{autoOcrTag},
+						RemoveTags:       skipRemoveTags,
 					},
 				}, app.Database, false)
 
@@ -246,11 +249,18 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 
 		isPartial := len(processedDoc.SkippedPages) > 0
 
+		// Build remove-tags list: always remove autoOcrTag,
+		// and clear the stale partial tag on full success
+		removeTags := []string{autoOcrTag}
+		if !isPartial && app.pdfOCRPartialTag != "" {
+			removeTags = append(removeTags, app.pdfOCRPartialTag)
+		}
+
 		documentSuggestion := DocumentSuggestion{
 			ID:               document.ID,
 			OriginalDocument: document,
 			SuggestedContent: processedDoc.Text,
-			RemoveTags:       []string{autoOcrTag},
+			RemoveTags:       removeTags,
 			// Add appropriate tag based on whether OCR was complete or partial
 			AddTags: func() []string {
 				if !app.pdfOCRTagging || options.UploadPDF {
