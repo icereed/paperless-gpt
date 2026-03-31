@@ -249,7 +249,8 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			docLogger.Debug("OCR processing completed")
 		}
 
-		isPartial := len(processedDoc.SkippedPages) > 0 || processedDoc.PagesAttempted < processedDoc.TotalPages
+		isPartial := len(processedDoc.SkippedPages) > 0 ||
+			(processedDoc.TotalPages > 0 && processedDoc.PagesAttempted < processedDoc.TotalPages)
 
 		// Build remove-tags list: always remove autoOcrTag,
 		// and clear the stale partial tag on full success
