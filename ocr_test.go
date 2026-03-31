@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"paperless-gpt/ocr"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -347,6 +349,90 @@ func TestOCROptionsValidation(t *testing.T) {
 	}
 }
 
+// pageFailingOCRProvider fails OCR on specific pages (1-based)
+type pageFailingOCRProvider struct {
+	failPages map[int]bool
+}
+
+func (p *pageFailingOCRProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*ocr.OCRResult, error) {
+	if p.failPages[pageNumber] {
+		return nil, fmt.Errorf("OCR engine error on page %d", pageNumber)
+	}
+	return &ocr.OCRResult{
+		Text: fmt.Sprintf("text from page %d", pageNumber),
+	}, nil
+}
+
+// ocrTestClientStub implements ClientInterface for OCR skip-page tests.
+// It creates real temp files so os.ReadFile works inside ProcessDocumentOCR.
+type ocrTestClientStub struct {
+	mockPaperlessClient
+	tmpDir    string
+	pageCount int
+}
+
+func (c *ocrTestClientStub) DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error) {
+	var paths []string
+	for i := 0; i < c.pageCount; i++ {
+		p := filepath.Join(c.tmpDir, fmt.Sprintf("page_%d.png", i))
+		if err := os.WriteFile(p, []byte(fmt.Sprintf("img%d", i)), 0644); err != nil {
+			return nil, 0, err
+		}
+		paths = append(paths, p)
+	}
+	return paths, c.pageCount, nil
+}
+
+func TestProcessDocumentOCR_PartialPageFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	db, err := InitializeTestDB()
+	require.NoError(t, err)
+
+	client := &ocrTestClientStub{tmpDir: tmpDir, pageCount: 3}
+	provider := &pageFailingOCRProvider{failPages: map[int]bool{2: true}} // page 2 fails
+
+	app := &App{
+		Client:         client,
+		Database:       db,
+		ocrProvider:    provider,
+		ocrProcessMode: "image",
+	}
+
+	result, err := app.ProcessDocumentOCR(context.Background(), 1, OCROptions{}, "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	assert.Equal(t, []int{2}, result.SkippedPages)
+	assert.Equal(t, 3, result.TotalPages)
+	assert.Equal(t, 3, result.PagesAttempted)
+	assert.Contains(t, result.Text, "text from page 1")
+	assert.Contains(t, result.Text, "text from page 3")
+	assert.NotContains(t, result.Text, "text from page 2")
+}
+
+func TestProcessDocumentOCR_AllPagesFail(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	db, err := InitializeTestDB()
+	require.NoError(t, err)
+
+	client := &ocrTestClientStub{tmpDir: tmpDir, pageCount: 2}
+	provider := &pageFailingOCRProvider{failPages: map[int]bool{1: true, 2: true}}
+
+	app := &App{
+		Client:         client,
+		Database:       db,
+		ocrProvider:    provider,
+		ocrProcessMode: "image",
+	}
+
+	result, err := app.ProcessDocumentOCR(context.Background(), 1, OCROptions{}, "")
+	require.Nil(t, result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "OCR failed on all 2 pages")
+}
+
 func TestOCRDetectionBehavior(t *testing.T) {
 	testCases := []struct {
 		name               string
@@ -396,8 +482,8 @@ func TestOCRDetectionBehavior(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create a test environment with controlled PDF processing
 			mockApp := &App{
-			    ocrProcessMode:     tc.ocrMode,
-			    pdfSkipExistingOCR: tc.pdfSkipExistingOCR,
+				ocrProcessMode:     tc.ocrMode,
+				pdfSkipExistingOCR: tc.pdfSkipExistingOCR,
 			}
 
 			// Mock the pdfocr.DetectOCR function using monkey patching or a test stub
@@ -406,21 +492,21 @@ func TestOCRDetectionBehavior(t *testing.T) {
 			// Override the relevant conditional check to track if OCR detection would be performed
 			// This is a simplified way to test the behavior without actually processing PDFs
 			shouldCheck := false
-			
+
 			if mockApp.pdfSkipExistingOCR && (tc.ocrMode == "pdf" || tc.ocrMode == "whole_pdf") {
-			    shouldCheck = true
-			    ocrDetectionCalled = true
+				shouldCheck = true
+				ocrDetectionCalled = true
 			}
 
 			// Verify the OCR detection behavior
-			assert.Equal(t, tc.shouldCheckOCR, shouldCheck, 
-			    "OCR detection behavior doesn't match expected for mode=%s, skipExistingOCR=%v", 
-			    tc.ocrMode, tc.pdfSkipExistingOCR)
-			
+			assert.Equal(t, tc.shouldCheckOCR, shouldCheck,
+				"OCR detection behavior doesn't match expected for mode=%s, skipExistingOCR=%v",
+				tc.ocrMode, tc.pdfSkipExistingOCR)
+
 			if tc.shouldCheckOCR {
-			    assert.True(t, ocrDetectionCalled, "OCR detection should be performed")
+				assert.True(t, ocrDetectionCalled, "OCR detection should be performed")
 			} else {
-			    assert.False(t, ocrDetectionCalled, "OCR detection should not be performed")
+				assert.False(t, ocrDetectionCalled, "OCR detection should not be performed")
 			}
 		})
 	}

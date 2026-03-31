@@ -77,6 +77,7 @@ var (
 	pdfReplace                    = os.Getenv("PDF_REPLACE") == "true"
 	pdfCopyMetadata               = os.Getenv("PDF_COPY_METADATA") == "true"
 	pdfOCRCompleteTag             = os.Getenv("PDF_OCR_COMPLETE_TAG")
+	pdfOCRPartialTag              = os.Getenv("OCR_PARTIAL_ERROR_TAG")
 	pdfOCRTagging                 = os.Getenv("PDF_OCR_TAGGING") == "true"
 	pdfSkipExistingOCR            = os.Getenv("PDF_SKIP_EXISTING_OCR") == "true"
 	doclingURL                    = os.Getenv("DOCLING_URL")
@@ -134,6 +135,7 @@ type App struct {
 	pdfReplace         bool              // Whether to replace original document after upload
 	pdfCopyMetadata    bool              // Whether to copy metadata from original to uploaded PDF
 	pdfOCRCompleteTag  string            // Tag to add to documents that have been OCR processed
+	pdfOCRPartialTag   string            // Tag to add to documents with partial OCR (some pages failed)
 	pdfOCRTagging      bool              // Whether to add the OCR complete tag to processed PDFs
 	pdfSkipExistingOCR bool              // Whether to skip processing PDFs that already have OCR detected
 }
@@ -333,6 +335,7 @@ func main() {
 		pdfReplace:         pdfReplace,
 		pdfCopyMetadata:    pdfCopyMetadata,
 		pdfOCRCompleteTag:  pdfOCRCompleteTag,
+		pdfOCRPartialTag:   pdfOCRPartialTag,
 		pdfOCRTagging:      pdfOCRTagging,
 		pdfSkipExistingOCR: pdfSkipExistingOCR,
 	}
@@ -583,6 +586,10 @@ func validateOrDefaultEnvVars() {
 
 	if pdfOCRCompleteTag == "" {
 		pdfOCRCompleteTag = "paperless-gpt-ocr-complete"
+	}
+
+	if pdfOCRPartialTag == "" {
+		pdfOCRPartialTag = "paperless-gpt-ocr-incomplete"
 	}
 
 	if paperlessBaseURL == "" {
