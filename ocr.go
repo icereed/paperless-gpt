@@ -238,6 +238,10 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				continue
 			}
 
+			if jobID != "" {
+				jobStore.updatePagesDone(jobID, i+1)
+			}
+
 			pageLogger.WithField("has_hocr_page", result.HOCRPage != nil).
 				WithField("metadata", result.Metadata).
 				Debug("OCR completed for page")

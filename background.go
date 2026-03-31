@@ -261,16 +261,6 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			OriginalDocument: document,
 			SuggestedContent: processedDoc.Text,
 			RemoveTags:       removeTags,
-			// Add appropriate tag based on whether OCR was complete or partial
-			AddTags: func() []string {
-				if !app.pdfOCRTagging || options.UploadPDF {
-					return nil
-				}
-				if isPartial {
-					return []string{app.pdfOCRPartialTag}
-				}
-				return []string{app.pdfOCRCompleteTag}
-			}(),
 		}
 
 		if app.pdfOCRTagging {
