@@ -25,6 +25,8 @@ type ProcessedDocument struct {
 	PDFData          []byte
 	ReplacedOriginal bool  // true when the original document was successfully deleted and replaced
 	SkippedPages     []int // pages that failed OCR and were skipped
+	TotalPages       int   // total pages in the original document
+	PagesAttempted   int   // pages that were actually downloaded and attempted
 }
 
 // HOCRCapable defines an interface for OCR providers that can generate hOCR
@@ -358,11 +360,21 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 
 	fullText := strings.Join(ocrTexts, "\n\n")
 
+	// Determine pages attempted based on process mode
+	var pagesAttempted int
+	if processMode == "whole_pdf" {
+		pagesAttempted = totalPdfPages
+	} else {
+		pagesAttempted = len(ocrTexts) + len(skippedPages)
+	}
+
 	// Create ProcessedDocument to hold all the results
 	processedDoc := &ProcessedDocument{
-		ID:           documentID,
-		Text:         fullText,
-		SkippedPages: skippedPages,
+		ID:             documentID,
+		Text:           fullText,
+		SkippedPages:   skippedPages,
+		TotalPages:     totalPdfPages,
+		PagesAttempted: pagesAttempted,
 	}
 
 	// Generate complete hOCR if we have hOCR capability

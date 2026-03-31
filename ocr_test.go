@@ -404,6 +404,8 @@ func TestProcessDocumentOCR_PartialPageFailure(t *testing.T) {
 	require.NotNil(t, result)
 
 	assert.Equal(t, []int{2}, result.SkippedPages)
+	assert.Equal(t, 3, result.TotalPages)
+	assert.Equal(t, 3, result.PagesAttempted)
 	assert.Contains(t, result.Text, "text from page 1")
 	assert.Contains(t, result.Text, "text from page 3")
 	assert.NotContains(t, result.Text, "text from page 2")
