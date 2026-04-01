@@ -401,7 +401,15 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	var xmlBuilder strings.Builder
 	xmlBuilder.WriteString("<custom_fields>\n")
 	for _, field := range selectedCustomFields {
-		xmlBuilder.WriteString(fmt.Sprintf("  <field name=\"%s\" type=\"%s\"></field>\n", field.Name, field.DataType))
+		if field.DataType == "select" && field.ExtraData != nil && len(field.ExtraData.SelectOptions) > 0 {
+			xmlBuilder.WriteString(fmt.Sprintf("  <field name=\"%s\" type=\"%s\">\n", field.Name, field.DataType))
+			for _, opt := range field.ExtraData.SelectOptions {
+				xmlBuilder.WriteString(fmt.Sprintf("    <option id=\"%s\">%s</option>\n", opt.ID, opt.Label))
+			}
+			xmlBuilder.WriteString("  </field>\n")
+		} else {
+			xmlBuilder.WriteString(fmt.Sprintf("  <field name=\"%s\" type=\"%s\"></field>\n", field.Name, field.DataType))
+		}
 	}
 	xmlBuilder.WriteString("</custom_fields>")
 	customFieldsXML := xmlBuilder.String()
