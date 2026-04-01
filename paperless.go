@@ -39,10 +39,20 @@ type PaperlessClient struct {
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
+type SelectOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type CustomFieldExtraData struct {
+	SelectOptions []SelectOption `json:"select_options"`
+}
+
 type CustomField struct {
-	ID       int    `json:"id"`
-	Name     string `json:"name"`
-	DataType string `json:"data_type"`
+	ID        int                   `json:"id"`
+	Name      string                `json:"name"`
+	DataType  string                `json:"data_type"`
+	ExtraData *CustomFieldExtraData `json:"extra_data"`
 }
 
 // DocumentType represents a document type from the Paperless-ngx API
