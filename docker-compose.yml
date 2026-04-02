@@ -1,9 +1,99 @@
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  redis:
+    image: docker.io/library/redis:8
+    restart: unless-stopped
+    container_name: paperless-redis
+    volumes:
+      - redisdata:/data
+    environment:
+      - TZ=Asia/Kolkata
+    networks:
+      - paperless
+    labels:
+      - homepage.group=Service
+      - homepage.name=Redis
+      - homepage.icon=sh-redis
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    restart: unless-stopped
+    container_name: paperless-ngx
+    depends_on:
+      - redis
     ports:
-      - "8080:8080"
-    env_file:
-      - .env
+      - 6013:8000
+    volumes:
+      - D:\paperless\paperless-ngx\data:/usr/src/paperless/data
+      - D:\paperless\paperless-ngx\media:/usr/src/paperless/media
+      - D:\paperless\paperless-ngx\export:/usr/src/paperless/export
+      - D:\paperless\paperless-ngx\consume:/usr/src/paperless/consume
+    environment:
+      - PAPERLESS_REDIS=redis://redis:6379
+      - PAPERLESS_URL=http://localhost:6013
+      - USERMAP_UID=1000
+      - USERMAP_GID=1000
+    networks:
+      - paperless
+      - common_database
+    labels:
+      - homepage.group=Tailscale
+      - homepage.name=Paperless-NGX
+      - homepage.icon=sh-paperless-ngx
+      - homepage.href=http://100.120.110.75:6013
+
+  paperless-gpt:
+    restart: unless-stopped
+    build: .
+    container_name: paperless-gpt
+    environment:
+      PAPERLESS_BASE_URL: http://paperless-ngx:8000
+      PAPERLESS_API_TOKEN: b195eaf1d339bbd7b838b51c5d7e456e9190ebb9
+      MANUAL_TAG: paperless-gpt
+      AUTO_TAG: paperless-gpt-auto
+      LLM_PROVIDER: ollama
+      LLM_MODEL: llama3.2:3b
+      OLLAMA_CONTEXT_LENGTH: 8129
+      TOKEN_LIMIT: 1000
+      LLM_LANGUAGE: English
+      OCR_PROVIDER: llm
+      VISION_LLM_PROVIDER: ollama
+      VISION_LLM_MODEL: minicpm-v:8b
+      OLLAMA_HOST: http://100.101.95.33:11434
+      PDF_OCR_TAGGING: "true"
+      PDF_OCR_COMPLETE_TAG: paperless-gpt-ocr-complete
+      PDF_UPLOAD: "false"
+      AUTO_OCR_TAG: paperless-gpt-ocr-auto
+      LOG_LEVEL: info
+      OCR_PROCESS_MODE: image
+      PDF_SKIP_EXISTING_OCR: "false"
+      CREATE_LOCAL_HOCR: "false"
+      LOCAL_HOCR_PATH: /app/hocr
+      CREATE_LOCAL_PDF: "false"
+      LOCAL_PDF_PATH: /app/pdf
+      PDF_REPLACE: "false"
+      PDF_COPY_METADATA: "true"
+      OCR_LIMIT_PAGES: "5"
+    volumes:
+      - D:\paperless\paperless-gpt\prompts:/app/prompts
+      - D:\paperless\paperless-gpt\config\gcloud\application_default_credentials.json:/app/credentials.json
+      - D:\paperless\paperless-gpt\hocr:/app/hocr
+      - D:\paperless\paperless-gpt\pdf:/app/pdf
+    ports:
+      - 6014:8080
+    depends_on:
+      - webserver
+    networks:
+      - paperless
+    labels:
+      - homepage.group=Tailscale
+      - homepage.name=Paperless-GPT
+      - homepage.icon=paperless-gpt
+      - homepage.href=http://100.120.110.75:6014
+
+networks:
+  paperless: {}
+  common_database:
+    external: true
+
+volumes:
+  redisdata: null
