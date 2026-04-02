@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
-	"sort"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 var (
@@ -17,120 +18,111 @@ var (
 
 	reOcrCancellersMu sync.Mutex
 	reOcrCancellers   = make(map[string]context.CancelFunc)
-)
 
-// Job represents an OCR job
-type Job struct {
-	ID         string
-	DocumentID int
-	Status     string // "pending", "in_progress", "completed", "failed", "cancelled"
-	Result     string // OCR result (combined text) or error message
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	PagesDone  int        // Number of pages processed
-	TotalPages int        // Total number of pages in the document
-	Options    OCROptions // OCR processing options
-}
-
-// JobStore manages jobs and their statuses
-type JobStore struct {
-	sync.RWMutex
-	jobs map[string]*Job
-}
-
-var (
 	logger = logrus.New()
-
-	jobStore = &JobStore{
-		jobs: make(map[string]*Job),
-	}
-	jobQueue = make(chan *Job, 100) // Buffered channel with capacity of 100 jobs
 )
 
 func init() {
-
-	// Initialize logger
 	logger.SetOutput(os.Stdout)
 	logger.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
 	logger.SetLevel(logrus.InfoLevel)
-	logger.WithField("prefix", "OCR_JOB")
+	logger.WithField("prefix", "JOB_QUEUE")
 }
 
 func generateJobID() string {
 	return uuid.New().String()
 }
 
-func (store *JobStore) addJob(job *Job) {
-	store.Lock()
-	defer store.Unlock()
-	job.PagesDone = 0 // Initialize PagesDone to 0
-	store.jobs[job.ID] = job
-	logger.Infof("Job added: %v", job)
-}
-
-func (store *JobStore) getJob(jobID string) (*Job, bool) {
-	store.RLock()
-	defer store.RUnlock()
-	job, exists := store.jobs[jobID]
-	return job, exists
-}
-
-func (store *JobStore) GetAllJobs() []*Job {
-	store.RLock()
-	defer store.RUnlock()
-
-	jobs := make([]*Job, 0, len(store.jobs))
-	for _, job := range store.jobs {
-		jobs = append(jobs, job)
+// EnqueueJob inserts a new job into the database queue.
+func EnqueueJob(db *gorm.DB, job *QueuedJob) error {
+	job.CreatedAt = time.Now()
+	job.UpdatedAt = time.Now()
+	if job.MaxRetries == 0 {
+		job.MaxRetries = 3 // default 3 retries
 	}
-
-	sort.Slice(jobs, func(i, j int) bool {
-		return jobs[i].CreatedAt.After(jobs[j].CreatedAt)
-	})
-
-	return jobs
+	return db.Create(job).Error
 }
 
-func (store *JobStore) updateJobStatus(jobID, status, result string) {
-	store.Lock()
-	defer store.Unlock()
-	if job, exists := store.jobs[jobID]; exists {
-		job.Status = status
-		if result != "" {
-			job.Result = result
-		}
-		job.UpdatedAt = time.Now()
-		logger.Infof("Job status updated: %v", job)
-	}
+// GetJob retrieves a queued job by ID.
+func GetJob(db *gorm.DB, jobID string) (*QueuedJob, error) {
+	var job QueuedJob
+	err := db.First(&job, "id = ?", jobID).Error
+	return &job, err
 }
 
-func (store *JobStore) updatePagesDone(jobID string, pagesDone int) {
-	store.Lock()
-	defer store.Unlock()
-	if job, exists := store.jobs[jobID]; exists {
-		job.PagesDone = pagesDone
-		job.UpdatedAt = time.Now()
-		logger.Infof("Job pages done updated: %v", job)
+// GetAllJobs retrieves all queued jobs safely.
+func GetAllJobs(db *gorm.DB) ([]QueuedJob, error) {
+	var jobs []QueuedJob
+	err := db.Order("created_at DESC").Find(&jobs).Error
+	return jobs, err
+}
+
+func UpdateJobStatus(db *gorm.DB, jobID, status, result string) error {
+	return db.Model(&QueuedJob{}).Where("id = ?", jobID).Updates(map[string]interface{}{
+		"status":     status,
+		"result":     result,
+		"updated_at": time.Now(),
+	}).Error
+}
+
+func UpdatePagesDone(db *gorm.DB, jobID string, pagesDone int) error {
+	return db.Model(&QueuedJob{}).Where("id = ?", jobID).Updates(map[string]interface{}{
+		"pages_done": pagesDone,
+		"updated_at": time.Now(),
+	}).Error
+}
+
+func handleJobFailure(db *gorm.DB, job *QueuedJob, err error) {
+	job.Attempts++
+	if job.Attempts >= job.MaxRetries {
+		job.Status = "permanently_failed"
+		job.Result = err.Error()
+	} else {
+		job.Status = "failed"
+		job.Result = err.Error()
+		// Exponential backoff: 30s, 1m, 2m
+		backoffDuration := time.Duration(1<<job.Attempts) * 30 * time.Second
+		job.NextRetryAt = time.Now().Add(backoffDuration)
 	}
+	job.UpdatedAt = time.Now()
+	db.Save(job)
 }
 
 func startWorkerPool(app *App, numWorkers int) {
 	for i := 0; i < numWorkers; i++ {
 		go func(workerID int) {
 			logger.Infof("Worker %d started", workerID)
-			for job := range jobQueue {
-				logger.Infof("Worker %d processing job: %s", workerID, job.ID)
-				processJob(app, job)
+			for {
+				var job QueuedJob
+				// Lock a job prioritizing older pending jobs or older failed jobs ready for retry
+				tx := app.Database.Raw(`
+					UPDATE queued_jobs 
+					SET status = 'in_progress', updated_at = ?
+					WHERE id = (
+						SELECT id FROM queued_jobs 
+						WHERE status = 'pending' OR (status = 'failed' AND attempts < max_retries AND next_retry_at <= ?)
+						ORDER BY created_at ASC 
+						LIMIT 1
+					)
+					RETURNING *;
+				`, time.Now(), time.Now()).Scan(&job)
+
+				if tx.Error != nil || tx.RowsAffected == 0 {
+					// No jobs found, sleep
+					time.Sleep(2 * time.Second)
+					continue
+				}
+
+				logger.Infof("Worker %d processing job: %s, Type: %s, Attempt: %d", workerID, job.ID, job.JobType, job.Attempts+1)
+				processJob(app, &job)
 			}
 		}(i)
 	}
 }
 
-func processJob(app *App, job *Job) {
-	jobStore.updateJobStatus(job.ID, "in_progress", "")
-
+func processJob(app *App, job *QueuedJob) {
 	jobCtx, cancel := context.WithCancel(context.Background())
 	jobCancellersMu.Lock()
 	jobCancellers[job.ID] = cancel
@@ -142,41 +134,134 @@ func processJob(app *App, job *Job) {
 		jobCancellersMu.Unlock()
 	}()
 
+	var err error
+	switch job.JobType {
+	case "manual_ocr", "auto_ocr":
+		err = processOCRJob(app, jobCtx, job)
+	case "auto_tag":
+		err = processAutoTagJob(app, jobCtx, job)
+	default:
+		logger.Warnf("Unknown job type: %s", job.JobType)
+		UpdateJobStatus(app.Database, job.ID, "permanently_failed", "Unknown job type")
+		return
+	}
+
+	if err != nil {
+		if jobCtx.Err() == context.Canceled {
+			UpdateJobStatus(app.Database, job.ID, "cancelled", "Job cancelled by user")
+			logger.Infof("Job cancelled: %s", job.ID)
+		} else {
+			logger.Errorf("Error processing job %s: %v", job.ID, err)
+			handleJobFailure(app.Database, job, err)
+		}
+		return
+	}
+
+	UpdateJobStatus(app.Database, job.ID, "completed", job.Result)
+	logger.Infof("Job completed: %s", job.ID)
+}
+
+// processOCRJob handles both manual and automatic OCR tasks
+func processOCRJob(app *App, ctx context.Context, job *QueuedJob) error {
 	// Delete old OCR page results for this document before starting new OCR
 	if err := DeleteOcrPageResults(app.Database, job.DocumentID); err != nil {
 		logger.Errorf("Failed to delete old OCR page results for document %d: %v", job.DocumentID, err)
-		// Continue processing even if deletion fails
 	}
 
-	// Create OCR options from job options or app defaults
-	options := job.Options
-	if (options == OCROptions{}) {
-		// Use app defaults if job options are not set
-		options = OCROptions{
-			UploadPDF:       app.pdfUpload,
-			ReplaceOriginal: app.pdfReplace,
-			CopyMetadata:    app.pdfCopyMetadata,
-			LimitPages:      limitOcrPages,
-		}
+	options := OCROptions{
+		UploadPDF:       app.pdfUpload,
+		ReplaceOriginal: app.pdfReplace,
+		CopyMetadata:    app.pdfCopyMetadata,
+		LimitPages:      limitOcrPages,
+		ProcessMode:     app.ocrProcessMode,
+	}
+	if job.OptionsJSON != "" {
+		_ = json.Unmarshal([]byte(job.OptionsJSON), &options)
 	}
 
-	processedDoc, err := app.ProcessDocumentOCR(jobCtx, job.DocumentID, options, job.ID)
+	jobIDForLog := ""
+	if job.JobType == "manual_ocr" {
+		jobIDForLog = job.ID
+	}
+
+	// Process document OCR via the injected processor or native
+	var processedDoc *ProcessedDocument
+	var err error
+	if app.docProcessor != nil {
+		processedDoc, err = app.docProcessor.ProcessDocumentOCR(ctx, job.DocumentID, options, jobIDForLog)
+	} else {
+		processedDoc, err = app.ProcessDocumentOCR(ctx, job.DocumentID, options, jobIDForLog)
+	}
+
 	if err != nil {
-		if jobCtx.Err() == context.Canceled {
-			jobStore.updateJobStatus(job.ID, "cancelled", "Job cancelled by user")
-			logger.Infof("Job cancelled: %s", job.ID)
-		} else {
-			logger.Errorf("Error processing document OCR for job %s: %v", job.ID, err)
-			jobStore.updateJobStatus(job.ID, "failed", err.Error())
-		}
-		return
+		return err
 	}
 	if processedDoc == nil {
-		logger.Infof("OCR processing skipped for job %s (document %d)", job.ID, job.DocumentID)
-		jobStore.updateJobStatus(job.ID, "completed", "Skipped (already processed or other reason)")
-		return
+		job.Result = "Skipped (already processed or other reason)"
+		return nil
 	}
 
-	jobStore.updateJobStatus(job.ID, "completed", processedDoc.Text)
-	logger.Infof("Job completed: %s", job.ID)
+	job.Result = processedDoc.Text
+
+	// If this is an auto_ocr job, we need to update tags in Paperless
+	if job.JobType == "auto_ocr" {
+		doc, err := app.Client.GetDocument(ctx, job.DocumentID)
+		if err == nil {
+			documentSuggestion := DocumentSuggestion{
+				ID:               job.DocumentID,
+				OriginalDocument: doc,
+				SuggestedContent: processedDoc.Text,
+				RemoveTags:       []string{autoOcrTag},
+				AddTags: func() []string {
+					if app.pdfOCRTagging && !options.UploadPDF {
+						return []string{app.pdfOCRCompleteTag}
+					}
+					return nil
+				}(),
+			}
+
+			if (app.pdfOCRTagging) && app.pdfOCRCompleteTag != "" {
+				documentSuggestion.SuggestedTags = []string{app.pdfOCRCompleteTag}
+				documentSuggestion.KeepOriginalTags = true
+			}
+
+			if !options.ReplaceOriginal || !processedDoc.ReplacedOriginal {
+				if err := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{documentSuggestion}, app.Database, false); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// processAutoTagJob processes the auto-tagging of a document
+func processAutoTagJob(app *App, ctx context.Context, job *QueuedJob) error {
+	document, err := app.Client.GetDocument(ctx, job.DocumentID)
+	if err != nil {
+		return err
+	}
+
+	docLogger := documentLogger(job.DocumentID)
+	suggestionRequest := GenerateSuggestionsRequest{
+		Documents:              []Document{document},
+		GenerateTitles:         true,  // Ideally we pull this from settings dynamically, handled internally
+		GenerateTags:           true,
+		GenerateCorrespondents: true,
+		GenerateDocumentTypes:  true,
+		GenerateCreatedDate:    true,
+		GenerateCustomFields:   true,  // Validated internally based on settings
+	}
+
+	suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
+	if err != nil {
+		return err
+	}
+
+	if err := app.Client.UpdateDocuments(ctx, suggestions, app.Database, false); err != nil {
+		return err
+	}
+
+	return nil
 }

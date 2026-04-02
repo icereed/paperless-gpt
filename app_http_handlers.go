@@ -228,17 +228,19 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 
 	// Create a new job
 	jobID := generateJobID() // Implement a function to generate unique job IDs
-	job := &Job{
+	job := &QueuedJob{
 		ID:         jobID,
 		DocumentID: documentID,
+		JobType:    "manual_ocr",
 		Status:     "pending",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
 	}
 
 	// Add job to store and queue
-	jobStore.addJob(job)
-	jobQueue <- job
+	if err := EnqueueJob(app.Database, job); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enqueue job"})
+		log.Errorf("Failed to enqueue job: %v", err)
+		return
+	}
 
 	// Return the job ID to the client
 	c.JSON(http.StatusAccepted, gin.H{"job_id": jobID})
@@ -247,8 +249,8 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 func (app *App) getJobStatusHandler(c *gin.Context) {
 	jobID := c.Param("job_id")
 
-	job, exists := jobStore.getJob(jobID)
-	if !exists {
+	job, err := GetJob(app.Database, jobID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
 		return
 	}
@@ -264,7 +266,7 @@ func (app *App) getJobStatusHandler(c *gin.Context) {
 
 	if job.Status == "completed" {
 		response["result"] = job.Result
-	} else if job.Status == "failed" {
+	} else if job.Status == "failed" || job.Status == "permanently_failed" {
 		response["error"] = job.Result
 	}
 
@@ -272,7 +274,12 @@ func (app *App) getJobStatusHandler(c *gin.Context) {
 }
 
 func (app *App) getAllJobsHandler(c *gin.Context) {
-	jobs := jobStore.GetAllJobs()
+	jobs, err := GetAllJobs(app.Database)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve jobs"})
+		log.Errorf("Failed to retrieve jobs: %v", err)
+		return
+	}
 
 	jobList := make([]gin.H, 0, len(jobs))
 	for _, job := range jobs {
@@ -286,7 +293,7 @@ func (app *App) getAllJobsHandler(c *gin.Context) {
 
 		if job.Status == "completed" {
 			response["result"] = job.Result
-		} else if job.Status == "failed" {
+		} else if job.Status == "failed" || job.Status == "permanently_failed" {
 			response["error"] = job.Result
 		}
 

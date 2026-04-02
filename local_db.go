@@ -33,6 +33,23 @@ type OCRPageResult struct {
 	UpdatedAt      time.Time
 }
 
+// QueuedJob represents a persistent asynchronous background task
+type QueuedJob struct {
+	ID          string    `gorm:"primaryKey"`
+	DocumentID  int       `gorm:"index;not null"`
+	JobType     string    `gorm:"index;not null"` // "auto_tag", "auto_ocr", "manual_ocr"
+	Status      string    `gorm:"index;not null;default:'pending'"` // "pending", "in_progress", "failed", "completed", "cancelled"
+	Attempts    int       `gorm:"not null;default:0"`
+	MaxRetries  int       `gorm:"not null;default:3"`
+	NextRetryAt time.Time `gorm:"index"`
+	Result      string    `gorm:"type:TEXT"`
+	PagesDone   int       `gorm:"default:0"`
+	TotalPages  int       `gorm:"default:0"`
+	OptionsJSON string    `gorm:"type:TEXT"` // JSON serialized OCROptions
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 // InitializeDB initializes the SQLite database and migrates the schema
 func InitializeDB() *gorm.DB {
 	// Ensure db directory exists
@@ -50,7 +67,7 @@ func InitializeDB() *gorm.DB {
 	}
 
 	// Migrate the schema (create the tables if they don't exist)
-	err = db.AutoMigrate(&ModificationHistory{}, &OCRPageResult{})
+	err = db.AutoMigrate(&ModificationHistory{}, &OCRPageResult{}, &QueuedJob{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database schema: %v", err)
 	}
