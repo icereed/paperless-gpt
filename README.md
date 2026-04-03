@@ -179,6 +179,7 @@ services:
       # LLM_MODEL: "qwen3:8b"
       # OLLAMA_HOST: "http://host.docker.internal:11434"
       # OLLAMA_CONTEXT_LENGTH: "8192" # Sets Ollama NumCtx (context window)
+      # OLLAMA_HEADERS: "Authorization=Bearer mytoken" # Optional headers for reverse-proxy auth
       # TOKEN_LIMIT: 1000 # Recommended for smaller models
 
       # Option 5: Anthropic/Claude
@@ -569,6 +570,7 @@ For best results with the enhanced OCR features:
 | `VISION_LLM_TEMPERATURE`            | Sampling temperature for Vision OCR generation. Lower is more deterministic. Important: For OpenAI GPT-5 it must be explicitly set to `1.0`.                                                  | No       |                            |
 | `OLLAMA_CONTEXT_LENGTH`             | (Ollama only) Integer. Sets NumCtx (context window) for the Ollama runner. If unset or 0, the model default is used.                                                                          | No       |                            |
 | `OLLAMA_OCR_TOP_K`                  | (Ollama only) Top-k token sampling for Vision OCR. Lower favors more likely tokens; higher increases diversity.                                                                               | No       |                            |
+| `OLLAMA_HEADERS`                    | (Ollama only) Comma-separated `Key=Value` pairs added as HTTP headers to every Ollama request. Useful for authorization when Ollama is behind a reverse proxy (e.g. `Authorization=Bearer mytoken`). | No       |                            |
 | `AZURE_DOCAI_ENDPOINT`              | Azure Document Intelligence endpoint. Required if OCR_PROVIDER is `azure`.                                                                                                                    | Cond.    |                            |
 | `AZURE_DOCAI_KEY`                   | Azure Document Intelligence API key. Required if OCR_PROVIDER is `azure`.                                                                                                                     | Cond.    |                            |
 | `AZURE_DOCAI_MODEL_ID`              | Azure Document Intelligence model ID. Optional if using `azure` provider.                                                                                                                     | No       | prebuilt-read              |
@@ -917,6 +919,7 @@ When using local LLMs (like those through Ollama), you might need to adjust cert
 
 - Use `TOKEN_LIMIT` environment variable to control the maximum number of tokens sent to the LLM
 - For Ollama, set `OLLAMA_CONTEXT_LENGTH` to control the model's context window (NumCtx). This is independent of `TOKEN_LIMIT` and configures the server-side KV cache size. If unset or 0, the model default is used. Choose a value within the model's supported window (e.g., 8192).
+- If Ollama is behind a reverse proxy that requires authentication, set `OLLAMA_HEADERS` to a comma-separated list of `Key=Value` header pairs (e.g. `Authorization=Bearer mytoken`).
 - Smaller models might truncate content unexpectedly if given too much text
 - Start with a conservative limit (e.g., 1000 tokens) and adjust based on your model's capabilities
 - Set to `0` to disable the limit (use with caution)
