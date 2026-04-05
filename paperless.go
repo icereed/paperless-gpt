@@ -886,7 +886,9 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 
 			// Try moderate quality reduction first to avoid OCR-affecting artifacts
 			// More granular steps (85, 80, 75, 70, 65, 60)
+			quality := jpeg.DefaultQuality
 			for q := 85; buf.Len() > imageMaxFileBytes && q >= 60; q -= 5 {
+				quality = q
 				buf.Reset()
 				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: q}); err != nil {
 					return err
@@ -904,7 +906,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 					int(float64(img.Bounds().Dy())*scale),
 					imaging.Lanczos)
 				buf.Reset()
-				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: jpeg.DefaultQuality}); err != nil {
+				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: quality}); err != nil {
 					return err
 				}
 			}
