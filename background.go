@@ -232,6 +232,22 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		if err != nil {
 			docLogger.Errorf("OCR processing failed: %v", err)
 			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
+
+			// Remove the auto OCR tag and add the failed tag to prevent infinite retry loop
+			updateErr := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+				{
+					ID:               document.ID,
+					OriginalDocument: document,
+					RemoveTags:       []string{autoOcrTag},
+					AddTags:          []string{ocrFailedTag},
+				},
+			}, app.Database, false)
+			if updateErr != nil {
+				docLogger.Errorf("Failed to update tags after OCR failure: %v", updateErr)
+			} else {
+				docLogger.Infof("Moved document from '%s' to '%s' after OCR failure", autoOcrTag, ocrFailedTag)
+			}
+
 			continue
 		}
 		if processedDoc == nil {

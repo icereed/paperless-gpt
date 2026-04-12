@@ -38,9 +38,13 @@ func (m *mockOCRProvider) ProcessImage(ctx context.Context, imageData []byte, pa
 // mockDocumentProcessor implements the DocumentProcessor interface for testing
 type mockDocumentProcessor struct {
 	mockText string
+	err      error
 }
 
 func (m *mockDocumentProcessor) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions, jobID string) (*ProcessedDocument, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
 	return &ProcessedDocument{
 		ID:   documentID,
 		Text: m.mockText,
@@ -50,10 +54,11 @@ func (m *mockDocumentProcessor) ProcessDocumentOCR(ctx context.Context, document
 // mockClient implements the ClientInterface for testing
 type mockClient struct {
 	*PaperlessClient
-	documents        map[int]Document
-	tags             map[string]int
-	taggedDocuments  map[string][]Document
-	updateDocsCalled bool
+	documents           map[int]Document
+	tags                map[string]int
+	taggedDocuments     map[string][]Document
+	updateDocsCalled    bool
+	lastUpdateSuggestions []DocumentSuggestion
 }
 
 func newMockClient(baseClient *PaperlessClient) *mockClient {
@@ -71,6 +76,7 @@ func (m *mockClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize
 
 func (m *mockClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
 	m.updateDocsCalled = true
+	m.lastUpdateSuggestions = documents
 	return nil
 }
 
@@ -540,4 +546,61 @@ func TestProcessAutoOcrTagDocuments(t *testing.T) {
 			assert.True(t, client.updateDocsCalled, "UpdateDocuments should have been called")
 		})
 	}
+}
+
+func TestProcessAutoOcrTagDocuments_FailureRemovesTag(t *testing.T) {
+	// Initialize required global variables
+	autoOcrTag = "paperless-gpt-ocr-auto"
+	pdfOCRCompleteTag = "paperless-gpt-ocr-complete"
+	ocrFailedTag = "paperless-gpt-ocr-failed"
+
+	env := setupTest(t)
+	defer env.teardown()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+
+	// Create mock client
+	client := newMockClient(env.client)
+	client.AddTag(autoOcrTag, 2)
+	client.AddTag(ocrFailedTag, 5)
+
+	// Add a document that will fail OCR
+	doc := Document{
+		ID:               42,
+		Title:            "Sensitive Document",
+		Tags:             []string{autoOcrTag},
+		Content:          "Original content",
+		OriginalFileName: "test.pdf",
+	}
+	client.AddDocument(doc, []string{autoOcrTag})
+
+	// Create a document processor that returns an error (simulating content filtering)
+	docProcessor := &mockDocumentProcessor{
+		err: errors.New("anthropic: failed to create message: API returned unexpected status code: 400: Output blocked by content filtering policy"),
+	}
+
+	app := &App{
+		Client:             client,
+		Database:           env.db,
+		ocrProvider:        &mockOCRProvider{text: ""},
+		docProcessor:       docProcessor,
+		ocrProcessMode:     "image",
+		pdfOCRTagging:      false,
+		pdfOCRCompleteTag:  pdfOCRCompleteTag,
+		pdfSkipExistingOCR: false,
+	}
+
+	count, err := app.processAutoOcrTagDocuments(ctx)
+
+	// Should return an error (the OCR failure) but still process the tag update
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Output blocked by content filtering policy")
+	assert.Equal(t, 0, count, "No documents should count as successfully processed")
+
+	// The critical assertion: UpdateDocuments should have been called to move the tag
+	assert.True(t, client.updateDocsCalled, "UpdateDocuments should have been called to update tags on failure")
+	require.Len(t, client.lastUpdateSuggestions, 1)
+	assert.Equal(t, []string{autoOcrTag}, client.lastUpdateSuggestions[0].RemoveTags, "Should remove the auto OCR tag")
+	assert.Equal(t, []string{ocrFailedTag}, client.lastUpdateSuggestions[0].AddTags, "Should add the OCR failed tag")
 }

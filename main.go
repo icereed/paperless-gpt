@@ -50,6 +50,7 @@ var (
 	autoTag                       = os.Getenv("AUTO_TAG")
 	manualOcrTag                  = os.Getenv("MANUAL_OCR_TAG") // Not used yet
 	autoOcrTag                    = os.Getenv("AUTO_OCR_TAG")
+	ocrFailedTag                  = os.Getenv("OCR_FAILED_TAG")
 	ocrProcessMode                = os.Getenv("OCR_PROCESS_MODE")
 	llmProvider                   = os.Getenv("LLM_PROVIDER")
 	llmModel                      = os.Getenv("LLM_MODEL")
@@ -583,6 +584,10 @@ func validateOrDefaultEnvVars() {
 
 	if pdfOCRCompleteTag == "" {
 		pdfOCRCompleteTag = "paperless-gpt-ocr-complete"
+	}
+
+	if ocrFailedTag == "" {
+		ocrFailedTag = "paperless-gpt-ocr-failed"
 	}
 
 	if paperlessBaseURL == "" {
