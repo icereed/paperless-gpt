@@ -247,6 +247,11 @@ services:
       - ./pdf:/app/pdf # Only if CREATE_LOCAL_PDF is true
     ports:
       - "8080:8080"
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.01'
+          memory: 20M
     depends_on:
       - paperless-ngx
 ```
