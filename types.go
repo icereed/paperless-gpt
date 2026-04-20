@@ -134,7 +134,13 @@ type Correspondent struct {
 	MatchingAlgorithm int    `json:"matching_algorithm"`
 	Match             string `json:"match"`
 	IsInsensitive     bool   `json:"is_insensitive"`
-	Owner             *int   `json:"owner"`
+	// omitempty so nil owners are dropped from the JSON body; paperless-ngx
+	// then falls back to the request user (request.user) as the owner of
+	// the newly created object. Sending "owner": null overrides that and
+	// produces ownerless correspondents — they still appear in the
+	// correspondents list, but documents assigned to them are shown as
+	// "private" in the UI instead of the correspondent name.
+	Owner             *int   `json:"owner,omitempty"`
 	SetPermissions    struct {
 		View struct {
 			Users  []int `json:"users"`
