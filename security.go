@@ -87,7 +87,15 @@ func (cfg SecurityConfig) isAuthEnabled() bool {
 // isExemptFromAuth reports whether the given request path should bypass authentication.
 // OAuth provider callbacks cannot carry auth credentials (they are browser redirects from
 // third-party servers), and receipt download tokens are self-authenticating.
+// Session-based auth routes (/api/auth/*) are also exempt because they are either public
+// (login, setup) or protected by the sessionAuthMiddleware that already runs before this
+// middleware; re-requiring HTTP Basic/Bearer on them would break login when
+// AUTH_USERNAME/PASSWORD is set.
 func isExemptFromAuth(path string) bool {
+	// Session auth endpoints – handled by sessionAuthMiddleware
+	if strings.HasPrefix(path, "/api/auth/") {
+		return true
+	}
 	// OAuth callbacks from third-party providers
 	if strings.HasSuffix(path, "/oauth/callback") {
 		return true

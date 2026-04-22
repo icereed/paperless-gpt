@@ -360,3 +360,88 @@ func TestProtectedRoute_OpenWhenNoUsers(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/protected", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
 }
+
+// ---------------------------------------------------------------------------
+// Login → logout → login cycle
+// ---------------------------------------------------------------------------
+
+// TestLoginLogoutLogin verifies the full cycle: log in, log out, then log in again.
+// This is the scenario reported in the "Not authenticated" bug: after logout the
+// session cookie is cleared, and a subsequent login should create a fresh session
+// and return the user object without any 401.
+func TestLoginLogoutLogin(t *testing.T) {
+	db := newTestDB(t)
+	r := newAuthTestRouter(t, db)
+
+	hashed, _ := hashPassword("p@ssw0rd!")
+	db.Create(&User{ID: generateUserID(), Username: "ivan", HashedPassword: hashed})
+
+	// --- First login ---
+	wLogin1 := httptest.NewRecorder()
+	r.ServeHTTP(wLogin1, httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		jsonBody(t, gin.H{"username": "ivan", "password": "p@ssw0rd!"})))
+	require.Equal(t, http.StatusOK, wLogin1.Code)
+	cookie := wLogin1.Result().Cookies()[0]
+
+	// Confirm /me works with session
+	wMe1 := httptest.NewRecorder()
+	reqMe1 := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	reqMe1.AddCookie(cookie)
+	r.ServeHTTP(wMe1, reqMe1)
+	require.Equal(t, http.StatusOK, wMe1.Code)
+
+	// --- Logout ---
+	wLogout := httptest.NewRecorder()
+	reqLogout := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	reqLogout.AddCookie(cookie)
+	r.ServeHTTP(wLogout, reqLogout)
+	require.Equal(t, http.StatusOK, wLogout.Code)
+
+	// Confirm /me now returns 401 (session deleted)
+	wMeAfterLogout := httptest.NewRecorder()
+	reqMeAfterLogout := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	reqMeAfterLogout.AddCookie(cookie)
+	r.ServeHTTP(wMeAfterLogout, reqMeAfterLogout)
+	assert.Equal(t, http.StatusUnauthorized, wMeAfterLogout.Code)
+
+	// --- Second login ---
+	wLogin2 := httptest.NewRecorder()
+	r.ServeHTTP(wLogin2, httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		jsonBody(t, gin.H{"username": "ivan", "password": "p@ssw0rd!"})))
+	require.Equal(t, http.StatusOK, wLogin2.Code, "login after logout must succeed")
+
+	var resp userOut
+	require.NoError(t, json.Unmarshal(wLogin2.Body.Bytes(), &resp))
+	assert.Equal(t, "ivan", resp.Username)
+	assert.NotEmpty(t, wLogin2.Result().Cookies(), "a new session cookie must be set")
+}
+
+// TestLoginWithBasicAuthConfigured verifies that /api/auth/login is reachable even
+// when HTTP Basic Auth (AUTH_USERNAME/AUTH_PASSWORD) is configured. The auth routes
+// are exempted from the static-credentials middleware by isExemptFromAuth.
+func TestLoginWithBasicAuthConfigured(t *testing.T) {
+	db := newTestDB(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(sessionAuthMiddleware(db))
+	// Simulate AUTH_USERNAME + AUTH_PASSWORD being set
+	staticCfg := SecurityConfig{AuthUsername: "admin", AuthPassword: "hunter2"}
+	r.Use(authMiddleware(staticCfg))
+
+	app := &App{Database: db}
+	authGroup := r.Group("/api/auth")
+	authGroup.GET("/setup/status", app.setupStatusHandler)
+	authGroup.POST("/setup", app.createFirstAdminHandler)
+	authGroup.POST("/login", app.loginHandler)
+	authGroup.POST("/logout", app.logoutHandler)
+	authGroup.GET("/me", app.meHandler)
+
+	hashed, _ := hashPassword("userpass")
+	db.Create(&User{ID: generateUserID(), Username: "julia", HashedPassword: hashed})
+
+	// Login must succeed without providing HTTP Basic credentials
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		jsonBody(t, gin.H{"username": "julia", "password": "userpass"})))
+	assert.Equal(t, http.StatusOK, w.Code, "/api/auth/login must not require HTTP Basic Auth")
+}

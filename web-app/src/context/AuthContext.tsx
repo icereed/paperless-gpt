@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import axios from 'axios';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 export interface AuthUser {
   id: string;
@@ -24,6 +25,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [setupRequired, setSetupRequired] = useState(false);
+  // Ref so the interceptor can call fetchMe without a stale closure
+  const fetchMeRef = useRef<(() => Promise<void>) | null>(null);
 
   const checkSetup = useCallback(async () => {
     try {
@@ -61,11 +64,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await checkSetup();
   }, [checkSetup]);
 
+  // Keep the ref up to date so the axios interceptor always calls the latest version.
+  // This is intentionally an effect (not a render-time assignment) to satisfy the
+  // react-hooks/refs rule.
+  useEffect(() => {
+    fetchMeRef.current = fetchMe;
+  });
+
   const refresh = useCallback(async () => {
     setLoading(true);
     await fetchMe();
     setLoading(false);
   }, [fetchMe]);
+
+  // Register a global axios interceptor that re-evaluates auth state whenever any
+  // API call returns 401 (e.g. session expired while the user was on the page).
+  useEffect(() => {
+    const id = axios.interceptors.response.use(
+      (response) => response,
+      async (error: unknown) => {
+        if (
+          axios.isAxiosError(error) &&
+          error.response?.status === 401 &&
+          // Don't intercept auth endpoints themselves – they handle 401 intentionally
+          !String(error.config?.url ?? '').includes('/api/auth/')
+        ) {
+          await fetchMeRef.current?.();
+        }
+        return Promise.reject(error);
+      },
+    );
+    return () => {
+      axios.interceptors.response.eject(id);
+    };
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -96,7 +128,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       credentials: 'same-origin',
     });
     setUser(null);
-  }, []);
+    // Re-sync setupRequired in case the last user was just removed
+    await checkSetup();
+  }, [checkSetup]);
 
   return (
     <AuthContext.Provider value={{ user, loading, setupRequired, login, logout, refresh }}>

@@ -241,9 +241,18 @@ func TestRateLimitMiddleware_ExceedBurst(t *testing.T) {
 
 func TestIsExemptFromAuth(t *testing.T) {
 	exempt := []string{
+		// OAuth callbacks
 		"/api/integrations/jobber/oauth/callback",
 		"/api/integrations/google_drive/oauth/callback",
+		// Jobber receipt tokens
 		"/api/integrations/jobber/receipt/sometoken",
+		// Session auth endpoints (handled by sessionAuthMiddleware)
+		"/api/auth/login",
+		"/api/auth/logout",
+		"/api/auth/setup",
+		"/api/auth/setup/status",
+		"/api/auth/me",
+		"/api/auth/change-password",
 	}
 	for _, p := range exempt {
 		assert.True(t, isExemptFromAuth(p), "expected %q to be exempt", p)
@@ -257,6 +266,39 @@ func TestIsExemptFromAuth(t *testing.T) {
 	}
 	for _, p := range notExempt {
 		assert.False(t, isExemptFromAuth(p), "expected %q NOT to be exempt", p)
+	}
+}
+
+// TestAuthMiddleware_AuthEndpointsExempt verifies that /api/auth/* routes are always
+// reachable even when HTTP Basic/Bearer authentication is configured. This prevents the
+// login endpoint from being blocked by the static-credentials layer.
+func TestAuthMiddleware_AuthEndpointsExempt(t *testing.T) {
+	cfg := SecurityConfig{AuthUsername: "admin", AuthPassword: "secret"}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(authMiddleware(cfg))
+	for _, path := range []string{
+		"/api/auth/login",
+		"/api/auth/logout",
+		"/api/auth/setup",
+		"/api/auth/setup/status",
+		"/api/auth/me",
+	} {
+		r.POST(path, func(c *gin.Context) { c.Status(http.StatusOK) })
+		r.GET(path, func(c *gin.Context) { c.Status(http.StatusOK) })
+	}
+
+	for _, path := range []string{
+		"/api/auth/login",
+		"/api/auth/setup",
+		"/api/auth/setup/status",
+		"/api/auth/me",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		// Must be accessible without HTTP Basic credentials
+		assert.NotEqual(t, http.StatusUnauthorized, w.Code, "path %q should be exempt from HTTP auth", path)
 	}
 }
 
