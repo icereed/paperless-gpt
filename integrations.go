@@ -483,7 +483,7 @@ func (s *IntegrationsService) FetchAllJobberCandidates(ctx context.Context) ([]J
 		return nil, errJobberNotConnected
 	}
 
-	impl := jobberProvider{}
+	impl := newJobberProvider()
 	validConn, err := impl.ensureFreshToken(ctx, s.DB.WithContext(ctx), conn)
 	if err != nil {
 		log.WithError(err).Warn("FetchAllJobberCandidates: failed to ensure fresh Jobber token")
@@ -729,7 +729,7 @@ func (s *IntegrationsService) CreateJobberExpense(ctx context.Context, client Cl
 		return nil, fmt.Errorf("jobber is not connected")
 	}
 
-	impl := jobberProvider{}
+	impl := newJobberProvider()
 	validConn, err := impl.ensureFreshToken(ctx, s.DB.WithContext(ctx), conn)
 	if err != nil {
 		return nil, err
