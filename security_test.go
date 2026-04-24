@@ -253,6 +253,17 @@ func TestIsExemptFromAuth(t *testing.T) {
 		"/api/auth/setup/status",
 		"/api/auth/me",
 		"/api/auth/change-password",
+		// Public frontend shell and assets – the React app must load without a session
+		// so it can render LoginPage / SetupPage. The app itself then handles auth state.
+		"/",
+		"/history",
+		"/settings",
+		"/adhoc-analysis",
+		"/experimental-ocr",
+		"/favicon.ico",
+		"/assets/index.js",
+		"/assets/index.css",
+		"/assets/logo-abc123.svg",
 	}
 	for _, p := range exempt {
 		assert.True(t, isExemptFromAuth(p), "expected %q to be exempt", p)
@@ -262,10 +273,79 @@ func TestIsExemptFromAuth(t *testing.T) {
 		"/api/documents",
 		"/api/settings",
 		"/api/prompts",
-		"/",
+		"/api/version",
+		"/api/tags",
+		// Not a real frontend route – must not be accidentally whitelisted
+		"/assets",
+		"/historyy",
+		"/settings/foo",
 	}
 	for _, p := range notExempt {
 		assert.False(t, isExemptFromAuth(p), "expected %q NOT to be exempt", p)
+	}
+}
+
+// TestIsPublicFrontendPath verifies the allow-list that keeps the React app
+// reachable without a session.
+func TestIsPublicFrontendPath(t *testing.T) {
+	public := []string{
+		"/",
+		"/history",
+		"/settings",
+		"/adhoc-analysis",
+		"/experimental-ocr",
+		"/favicon.ico",
+		"/assets/",
+		"/assets/index.js",
+		"/assets/logo.svg",
+		"/assets/nested/dir/chunk.js",
+	}
+	for _, p := range public {
+		assert.True(t, isPublicFrontendPath(p), "expected %q to be public", p)
+	}
+
+	notPublic := []string{
+		"/api/documents",
+		"/api/auth/me",
+		"/api/version",
+		"/settings/foo",
+		"/historyy",
+		"/assets",
+		"/favicon.icox",
+	}
+	for _, p := range notPublic {
+		assert.False(t, isPublicFrontendPath(p), "expected %q NOT to be public", p)
+	}
+}
+
+// TestAuthMiddleware_FrontendShellExempt verifies that GET / and other frontend
+// HTML/asset paths are reachable even when HTTP Basic auth is configured. Before
+// this was fixed the static-credentials middleware blocked the root route, so an
+// unauthenticated browser could never render LoginPage.
+func TestAuthMiddleware_FrontendShellExempt(t *testing.T) {
+	cfg := SecurityConfig{AuthUsername: "admin", AuthPassword: "secret"}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(authMiddleware(cfg))
+	for _, p := range []string{"/", "/history", "/settings", "/adhoc-analysis", "/experimental-ocr", "/favicon.ico"} {
+		r.GET(p, func(c *gin.Context) { c.Status(http.StatusOK) })
+	}
+	r.GET("/assets/*filepath", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	for _, p := range []string{
+		"/",
+		"/history",
+		"/settings",
+		"/adhoc-analysis",
+		"/experimental-ocr",
+		"/favicon.ico",
+		"/assets/index.js",
+		"/assets/logo.svg",
+	} {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "path %q should be exempt from HTTP auth", p)
 	}
 }
 

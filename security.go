@@ -84,6 +84,29 @@ func (cfg SecurityConfig) isAuthEnabled() bool {
 	return (cfg.AuthUsername != "" && cfg.AuthPassword != "") || cfg.AuthToken != ""
 }
 
+// isPublicFrontendPath reports whether the given request path serves static frontend
+// content (the HTML shell, its bundled assets, or the favicon). These paths must
+// always load so the React app can boot and render the login/setup screens even when
+// the user has no valid session. The React app then decides client-side whether to
+// show LoginPage, SetupPage, or the authenticated UI, and API calls are still gated.
+//
+// The list mirrors the frontend routes registered in main.go. Keep them in sync.
+func isPublicFrontendPath(path string) bool {
+	switch path {
+	case "/",
+		"/history",
+		"/settings",
+		"/adhoc-analysis",
+		"/experimental-ocr",
+		"/favicon.ico":
+		return true
+	}
+	if strings.HasPrefix(path, "/assets/") {
+		return true
+	}
+	return false
+}
+
 // isExemptFromAuth reports whether the given request path should bypass authentication.
 // OAuth provider callbacks cannot carry auth credentials (they are browser redirects from
 // third-party servers), and receipt download tokens are self-authenticating.
@@ -91,7 +114,13 @@ func (cfg SecurityConfig) isAuthEnabled() bool {
 // (login, setup) or protected by the sessionAuthMiddleware that already runs before this
 // middleware; re-requiring HTTP Basic/Bearer on them would break login when
 // AUTH_USERNAME/PASSWORD is set.
+// The static frontend (index.html, /assets/*, favicon) is also exempt – without this
+// the React app cannot load to render LoginPage when a user's session has expired.
 func isExemptFromAuth(path string) bool {
+	// Public frontend shell and assets – the React app must be reachable anonymously.
+	if isPublicFrontendPath(path) {
+		return true
+	}
 	// Session auth endpoints – handled by sessionAuthMiddleware
 	if strings.HasPrefix(path, "/api/auth/") {
 		return true

@@ -416,6 +416,55 @@ func TestLoginLogoutLogin(t *testing.T) {
 	assert.NotEmpty(t, wLogin2.Result().Cookies(), "a new session cookie must be set")
 }
 
+// TestFrontendShellReachableWithoutSession is the regression test for the lockout
+// bug: once a user exists, sessionAuthMiddleware must still allow GET /, /history,
+// /settings, /assets/*, etc. to load so the React app can render LoginPage. Before
+// the fix, a browser with no (or an expired) session cookie would receive
+// {"error":"Not authenticated"} as the HTML shell response and the UI could never
+// be reached again without wiping the users table.
+func TestFrontendShellReachableWithoutSession(t *testing.T) {
+	db := newTestDB(t)
+
+	// Create a user so isSessionAuthEnabled returns true – this is the state
+	// in which the original bug manifested (single-user deployment).
+	hashed, _ := hashPassword("irrelevant1")
+	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(sessionAuthMiddleware(db))
+	// Register the same frontend shell routes as main.go
+	for _, p := range []string{"/", "/history", "/settings", "/adhoc-analysis", "/experimental-ocr", "/favicon.ico"} {
+		r.GET(p, func(c *gin.Context) { c.Status(http.StatusOK) })
+	}
+	r.GET("/assets/*filepath", func(c *gin.Context) { c.Status(http.StatusOK) })
+	// And a protected API route, which must still return 401
+	r.GET("/api/documents", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	// Public frontend paths must be reachable without a session cookie
+	for _, p := range []string{
+		"/",
+		"/history",
+		"/settings",
+		"/adhoc-analysis",
+		"/experimental-ocr",
+		"/favicon.ico",
+		"/assets/index.js",
+		"/assets/logo-abc123.svg",
+	} {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "path %q must load without a session so LoginPage can render", p)
+	}
+
+	// API routes must still require a session
+	reqAPI := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
+	wAPI := httptest.NewRecorder()
+	r.ServeHTTP(wAPI, reqAPI)
+	assert.Equal(t, http.StatusUnauthorized, wAPI.Code, "protected API routes must still require a session")
+}
+
 // TestLoginWithBasicAuthConfigured verifies that /api/auth/login is reachable even
 // when HTTP Basic Auth (AUTH_USERNAME/AUTH_PASSWORD) is configured. The auth routes
 // are exempted from the static-credentials middleware by isExemptFromAuth.

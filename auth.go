@@ -223,7 +223,12 @@ func sessionAuthMiddleware(db *gorm.DB) gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		// Always-public paths
-		if publicAuthPaths[path] ||
+		// Frontend shell/assets MUST be reachable without a session so the React app
+		// can load and render LoginPage when the session is missing/expired. Without
+		// this, an expired session wedges the whole UI: GET / returns a JSON 401 and
+		// the user has no way back in short of wiping the users table.
+		if isPublicFrontendPath(path) ||
+			publicAuthPaths[path] ||
 			strings.HasSuffix(path, "/oauth/callback") ||
 			strings.Contains(path, "/integrations/jobber/receipt/") {
 			c.Next()
