@@ -577,6 +577,7 @@ func (app *App) jobberMatchCandidatesHandler(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.WithError(err).Warn("jobberMatchCandidatesHandler: invalid request payload")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
 	}
@@ -592,7 +593,22 @@ func (app *App) jobberMatchCandidatesHandler(c *gin.Context) {
 	// of candidates, so making one round of paginated API calls is enough.
 	allCandidates, err := app.Integrations.FetchAllJobberCandidates(ctx)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("error fetching Jobber jobs: %v", err)})
+		log.WithError(err).
+			WithField("document_count", len(req.DocumentIDs)).
+			Error("jobberMatchCandidatesHandler: failed to fetch Jobber candidates")
+		status := http.StatusInternalServerError
+		errorCode := "jobber_fetch_failed"
+		if errors.Is(err, errJobberNotConnected) {
+			status = http.StatusBadGateway
+			errorCode = "jobber_not_connected"
+		} else if errors.Is(err, errJobberAuthFailed) {
+			status = http.StatusBadGateway
+			errorCode = "jobber_auth_failed"
+		}
+		c.JSON(status, gin.H{
+			"error": fmt.Sprintf("error fetching Jobber jobs: %v", err),
+			"code":  errorCode,
+		})
 		return
 	}
 

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -8,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func newIntegrationTestContext(req *http.Request) *gin.Context {
@@ -293,5 +296,119 @@ func TestDeriveJobberExpenseDateUsesOriginalDocumentDate(t *testing.T) {
 	}
 	if got != "2025-03-10T00:00:00Z" {
 		t.Fatalf("got %q, want %q", got, "2025-03-10T00:00:00Z")
+	}
+}
+
+func TestIsJobberAuthError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil error", nil, false},
+		{"random error", fmt.Errorf("network timeout"), false},
+		{"401 status", fmt.Errorf("graphql request failed: 401, unauthorized"), true},
+		{"upper-case unauthorized", fmt.Errorf("Unauthorized request"), true},
+		{"invalid_token body", fmt.Errorf("oauth: invalid_token"), true},
+		{"wrapped invalid_grant", fmt.Errorf("refresh: %w", fmt.Errorf("oauth2: invalid_grant: expired")), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isJobberAuthError(tc.err); got != tc.want {
+				t.Fatalf("isJobberAuthError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// resetJobberConnectionRow wipes the shared in-memory sqlite row used by all
+// integration tests so each test starts from a clean state. The tests in this
+// file share the same `file::memory:?cache=shared` database via
+// InitializeTestDB().
+func resetJobberConnectionRow(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	if err := db.Where("provider = ?", integrationProviderJobber).Delete(&IntegrationConnection{}).Error; err != nil {
+		t.Fatalf("reset jobber row: %v", err)
+	}
+}
+
+func TestFetchAllJobberCandidatesReturnsNotConnectedWhenNoRow(t *testing.T) {
+	db, err := InitializeTestDB()
+	if err != nil {
+		t.Fatalf("InitializeTestDB() error = %v", err)
+	}
+	resetJobberConnectionRow(t, db)
+
+	service := NewIntegrationsService(db)
+	candidates, err := service.FetchAllJobberCandidates(t.Context())
+	if !errors.Is(err, errJobberNotConnected) {
+		t.Fatalf("expected errJobberNotConnected, got candidates=%v, err=%v", candidates, err)
+	}
+	if candidates != nil {
+		t.Fatalf("expected nil candidates on not-connected, got %v", candidates)
+	}
+}
+
+func TestFetchAllJobberCandidatesReturnsNotConnectedWhenDisconnected(t *testing.T) {
+	db, err := InitializeTestDB()
+	if err != nil {
+		t.Fatalf("InitializeTestDB() error = %v", err)
+	}
+	resetJobberConnectionRow(t, db)
+
+	now := time.Now()
+	if err := db.Create(&IntegrationConnection{
+		Provider:       integrationProviderJobber,
+		Status:         integrationStatusDisconnected,
+		DisconnectedAt: &now,
+	}).Error; err != nil {
+		t.Fatalf("seed disconnect row: %v", err)
+	}
+
+	service := NewIntegrationsService(db)
+	_, err = service.FetchAllJobberCandidates(t.Context())
+	if !errors.Is(err, errJobberNotConnected) {
+		t.Fatalf("expected errJobberNotConnected when row is disconnected, got %v", err)
+	}
+}
+
+func TestEnsureFreshTokenRefreshesWhenExpiryIsNil(t *testing.T) {
+	db, err := InitializeTestDB()
+	if err != nil {
+		t.Fatalf("InitializeTestDB() error = %v", err)
+	}
+	resetJobberConnectionRow(t, db)
+
+	// Seed a connection with no AccessTokenExpiresAt AND no refresh token.
+	// We expect ensureFreshToken to attempt a refresh (previously it was a no-op)
+	// and fail loudly so the caller surfaces the problem instead of sending a
+	// request with a stale token that produces an opaque 401.
+	if err := db.Create(&IntegrationConnection{
+		Provider:    integrationProviderJobber,
+		Status:      integrationStatusConnected,
+		AccessToken: "stale",
+	}).Error; err != nil {
+		t.Fatalf("seed conn: %v", err)
+	}
+
+	conn, err := getConnectionByProvider(db, integrationProviderJobber)
+	if err != nil {
+		t.Fatalf("get conn: %v", err)
+	}
+
+	provider := jobberProvider{}
+	_, err = provider.ensureFreshToken(t.Context(), db, conn)
+	if err == nil {
+		t.Fatal("expected ensureFreshToken to return an error when expiry is nil and refresh token is missing")
+	}
+}
+
+func TestFetchAllJobberCandidatesIntegrationSchema(t *testing.T) {
+	// Smoke-check that the sentinel errors are defined with stable messages.
+	if errJobberNotConnected == nil || errJobberAuthFailed == nil {
+		t.Fatal("sentinel errors must be defined")
+	}
+	if errJobberNotConnected.Error() == errJobberAuthFailed.Error() {
+		t.Fatal("sentinel errors must be distinguishable")
 	}
 }

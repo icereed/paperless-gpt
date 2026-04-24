@@ -440,21 +440,57 @@ const jobberCandidatePageSize = 100
 // very large accounts causing excessive API calls (100 jobs/page × 5 pages = 500 max).
 const jobberCandidateMaxJobs = 500
 
+// Sentinel errors surfaced by the Jobber integration so HTTP handlers can map
+// them to an appropriate status code and the UI can render a targeted message.
+var (
+	// errJobberNotConnected means the user has not connected Jobber (or has
+	// disconnected it). The UI should prompt the user to connect.
+	errJobberNotConnected = fmt.Errorf("jobber is not connected")
+	// errJobberAuthFailed means Jobber rejected our token (401/unauthorized) and
+	// we could not refresh it. The connection is likely stale and should be
+	// re-authorized from the Integrations settings page.
+	errJobberAuthFailed = fmt.Errorf("jobber authentication failed; please reconnect Jobber from Settings → Integrations")
+)
+
+// isAuthError reports whether an error returned by the Jobber GraphQL API
+// represents an authentication failure that should trigger a token refresh
+// or prompt the user to reconnect.
+func isJobberAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "401") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "invalid_token") ||
+		strings.Contains(msg, "invalid_grant")
+}
+
 // FetchAllJobberCandidates fetches the full job list from Jobber using cursor-based
 // pagination and returns it as an unranked slice of JobberMatchCandidate.
 // It is intended to be called once per batch request, not once per document.
+//
+// If Jobber is not connected it returns errJobberNotConnected so callers can
+// surface a useful message to the user instead of silently pretending the
+// account has zero jobs.
 func (s *IntegrationsService) FetchAllJobberCandidates(ctx context.Context) ([]JobberMatchCandidate, error) {
 	conn, err := getOptionalConnectionByProvider(s.DB.WithContext(ctx), integrationProviderJobber)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("loading jobber connection: %w", err)
 	}
 	if conn == nil || conn.Status != integrationStatusConnected {
-		return []JobberMatchCandidate{}, nil
+		log.Debug("FetchAllJobberCandidates: Jobber is not connected")
+		return nil, errJobberNotConnected
 	}
 
 	impl := jobberProvider{}
 	validConn, err := impl.ensureFreshToken(ctx, s.DB.WithContext(ctx), conn)
 	if err != nil {
+		log.WithError(err).Warn("FetchAllJobberCandidates: failed to ensure fresh Jobber token")
+		if isJobberAuthError(err) {
+			_ = disconnectIntegrationConnection(s.DB.WithContext(ctx), integrationProviderJobber)
+			return nil, errJobberAuthFailed
+		}
 		return nil, err
 	}
 
@@ -468,17 +504,8 @@ func (s *IntegrationsService) FetchAllJobberCandidates(ctx context.Context) ([]J
 		} `json:"client"`
 	}
 
-	var allNodes []jobNode
-	cursor := ""
-
-	for len(allNodes) < jobberCandidateMaxJobs {
-		afterClause := ""
-		if cursor != "" {
-			afterClause = fmt.Sprintf(`, after: %q`, cursor)
-		}
-
-		query := fmt.Sprintf(`query JobCandidates {
-  jobs(first: %d%s) {
+	const query = `query JobCandidates($first: Int!, $after: String) {
+  jobs(first: $first, after: $after) {
     edges {
       cursor
       node {
@@ -496,7 +523,22 @@ func (s *IntegrationsService) FetchAllJobberCandidates(ctx context.Context) ([]J
       endCursor
     }
   }
-}`, jobberCandidatePageSize, afterClause)
+}`
+
+	var allNodes []jobNode
+	cursor := ""
+
+	// Try once, refresh-and-retry once on auth failure so a rotated token that
+	// we haven't noticed expiring yet doesn't nuke a whole batch.
+	retriedAuth := false
+
+	for len(allNodes) < jobberCandidateMaxJobs {
+		variables := map[string]interface{}{
+			"first": jobberCandidatePageSize,
+		}
+		if cursor != "" {
+			variables["after"] = cursor
+		}
 
 		var response struct {
 			Data struct {
@@ -512,15 +554,36 @@ func (s *IntegrationsService) FetchAllJobberCandidates(ctx context.Context) ([]J
 				} `json:"jobs"`
 			} `json:"data"`
 			Errors []struct {
-				Message string `json:"message"`
+				Message    string `json:"message"`
+				Extensions struct {
+					Code string `json:"code"`
+				} `json:"extensions"`
 			} `json:"errors"`
 		}
 
-		if err := executeJSONGraphQL(ctx, "https://api.getjobber.com/api/graphql", validConn.AccessToken, query, nil, &response); err != nil {
-			return nil, err
+		if err := executeJSONGraphQL(ctx, "https://api.getjobber.com/api/graphql", validConn.AccessToken, query, variables, &response); err != nil {
+			if isJobberAuthError(err) && !retriedAuth {
+				retriedAuth = true
+				log.WithError(err).Info("FetchAllJobberCandidates: auth error, attempting forced token refresh")
+				refreshed, refreshErr := impl.forceRefreshToken(ctx, s.DB.WithContext(ctx), validConn)
+				if refreshErr != nil {
+					log.WithError(refreshErr).Warn("FetchAllJobberCandidates: forced token refresh failed; marking Jobber disconnected")
+					_ = disconnectIntegrationConnection(s.DB.WithContext(ctx), integrationProviderJobber)
+					return nil, errJobberAuthFailed
+				}
+				validConn = refreshed
+				continue
+			}
+			return nil, fmt.Errorf("jobber graphql request failed: %w", err)
 		}
 		if len(response.Errors) > 0 {
-			return nil, fmt.Errorf("jobber graphql error: %s", response.Errors[0].Message)
+			firstErr := response.Errors[0]
+			code := strings.ToUpper(strings.TrimSpace(firstErr.Extensions.Code))
+			if code == "UNAUTHENTICATED" || code == "UNAUTHORIZED" {
+				_ = disconnectIntegrationConnection(s.DB.WithContext(ctx), integrationProviderJobber)
+				return nil, errJobberAuthFailed
+			}
+			return nil, fmt.Errorf("jobber graphql error: %s", firstErr.Message)
 		}
 
 		for _, edge := range response.Data.Jobs.Edges {
@@ -533,7 +596,7 @@ func (s *IntegrationsService) FetchAllJobberCandidates(ctx context.Context) ([]J
 		cursor = response.Data.Jobs.PageInfo.EndCursor
 	}
 
-	log.Debugf("fetchAllJobberCandidates: fetched %d job(s) from Jobber", len(allNodes))
+	log.Debugf("FetchAllJobberCandidates: fetched %d job(s) from Jobber", len(allNodes))
 
 	candidates := make([]JobberMatchCandidate, 0, len(allNodes))
 	for _, node := range allNodes {
@@ -1248,16 +1311,40 @@ func (p jobberProvider) FetchIdentity(ctx context.Context, conn *IntegrationConn
 	}, nil
 }
 
+// jobberTokenRefreshSkew is how close to expiry we consider the token "about to
+// expire" and proactively refresh.  Jobber access tokens live for 60 minutes;
+// a generous skew keeps us from ever sending a request with a few-seconds-
+// left-to-live token that Jobber considers expired by the time it arrives.
+const jobberTokenRefreshSkew = 60 * time.Second
+
 func (p jobberProvider) ensureFreshToken(ctx context.Context, db *gorm.DB, conn *IntegrationConnection) (*IntegrationConnection, error) {
 	if conn == nil {
 		return nil, fmt.Errorf("jobber connection not found")
 	}
-	if conn.AccessTokenExpiresAt == nil || conn.AccessTokenExpiresAt.After(time.Now().Add(30*time.Second)) {
+	// If we know the expiry and we have comfortable runway, reuse the token.
+	// Previously this early-returned even when AccessTokenExpiresAt was nil,
+	// which meant a token without a recorded expiry would never refresh and
+	// would eventually 401 forever.
+	if conn.AccessTokenExpiresAt != nil && conn.AccessTokenExpiresAt.After(time.Now().Add(jobberTokenRefreshSkew)) {
 		return conn, nil
+	}
+	return p.forceRefreshToken(ctx, db, conn)
+}
+
+// forceRefreshToken runs the OAuth refresh_token exchange unconditionally and
+// persists the new tokens.  Use it from the reactive retry path when a live
+// request has just returned 401 despite ensureFreshToken having approved the
+// cached token.
+func (p jobberProvider) forceRefreshToken(ctx context.Context, db *gorm.DB, conn *IntegrationConnection) (*IntegrationConnection, error) {
+	if conn == nil {
+		return nil, fmt.Errorf("jobber connection not found")
+	}
+	if strings.TrimSpace(conn.RefreshToken) == "" {
+		return nil, fmt.Errorf("jobber refresh token not available; please reconnect Jobber")
 	}
 	token, err := p.RefreshToken(ctx, conn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("jobber token refresh failed: %w", err)
 	}
 	updated, err := upsertIntegrationConnection(db, integrationProviderJobber, token, &providerIdentity{
 		AccountID:   conn.AccountID,
@@ -1335,12 +1422,17 @@ func (p googleDriveProvider) ensureFreshToken(ctx context.Context, db *gorm.DB, 
 	if conn == nil {
 		return nil, fmt.Errorf("google drive connection not found")
 	}
-	if conn.AccessTokenExpiresAt == nil || conn.AccessTokenExpiresAt.After(time.Now().Add(30*time.Second)) {
+	// Mirror the Jobber fix: if expiry is nil we still refresh. A missing
+	// expiry should be treated as "unknown, play it safe" not "valid forever".
+	if conn.AccessTokenExpiresAt != nil && conn.AccessTokenExpiresAt.After(time.Now().Add(jobberTokenRefreshSkew)) {
 		return conn, nil
+	}
+	if strings.TrimSpace(conn.RefreshToken) == "" {
+		return nil, fmt.Errorf("google drive refresh token not available; please reconnect Google Drive")
 	}
 	token, err := p.RefreshToken(ctx, conn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("google drive token refresh failed: %w", err)
 	}
 	updated, err := upsertIntegrationConnection(db, integrationProviderGoogleDrive, token, &providerIdentity{
 		AccountID:   conn.AccountID,

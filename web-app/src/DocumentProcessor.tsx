@@ -242,7 +242,23 @@ const DocumentProcessor: React.FC = () => {
           );
         } catch (jobberError) {
           console.error("Error fetching Jobber candidates:", jobberError);
-          setError("Suggestions generated, but Jobber candidates could not be loaded.");
+          let detail = "";
+          if (axios.isAxiosError(jobberError) && jobberError.response?.data) {
+            const data = jobberError.response.data as { code?: string; error?: string };
+            if (data.code === "jobber_not_connected") {
+              detail =
+                " Jobber shows as disconnected — open Settings → Integrations and reconnect it.";
+            } else if (data.code === "jobber_auth_failed") {
+              detail =
+                " Jobber rejected our credentials — please reconnect Jobber from Settings → Integrations.";
+            } else if (typeof data.error === "string" && data.error.trim() !== "") {
+              detail = ` (${data.error})`;
+            }
+          }
+          setError(
+            "Suggestions generated, but Jobber candidates could not be loaded." +
+              detail
+          );
         }
       }
     } catch (err) {
