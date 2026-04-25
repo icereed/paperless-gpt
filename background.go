@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
+
+var autoTagDeprecationWarnOnce sync.Once
 
 // This is our interface, allowing us to enable proper testing
 type BackgroundProcessor interface {
@@ -43,6 +46,12 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 						return 0, fmt.Errorf("error in processAutoOcrTagDocuments: %w", err)
 					}
 					count += ocrCount
+				}
+
+				if autoTag != "" {
+					autoTagDeprecationWarnOnce.Do(func() {
+						log.Warnf("The AUTO_TAG auto-apply workflow (%s) is deprecated and will be removed in a future release. Use the manual review workflow with webhook/preprocessing instead.", autoTag)
+					})
 				}
 
 				// Run auto-tagging after OCR

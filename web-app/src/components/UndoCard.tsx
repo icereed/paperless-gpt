@@ -12,6 +12,7 @@ interface ModificationProps {
   Undone: boolean;
   UndoneDate: string | null;
   onUndo: (id: number) => void;
+  onReprocess?: (documentId: number) => void;
   paperlessUrl: string;
 }
 
@@ -44,6 +45,7 @@ const UndoCard: React.FC<ModificationProps> = ({
   Undone,
   UndoneDate,
   onUndo,
+  onReprocess,
   paperlessUrl,
 }) => {
   const formatValue = (value: string, field: string) => {
@@ -171,6 +173,14 @@ const UndoCard: React.FC<ModificationProps> = ({
         </div>
 
         <div className="xl:pl-4">
+          {onReprocess && (
+            <button
+              onClick={() => onReprocess(DocumentID)}
+              className="mb-2 min-w-[132px] rounded-2xl bg-amber-100 px-4 py-3 text-sm font-medium text-amber-800 transition-colors duration-200 hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-200 dark:hover:bg-amber-800"
+            >
+              Reprocess
+            </button>
+          )}
           <button
             onClick={() => onUndo(ID)}
             disabled={Undone}

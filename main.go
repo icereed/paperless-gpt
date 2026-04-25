@@ -105,11 +105,11 @@ var (
 	customFieldsCache   []CustomField
 	customFieldsCacheMu sync.RWMutex
 
-	jobberClientID       = os.Getenv("JOBBER_CLIENT_ID")
-	jobberClientSecret   = os.Getenv("JOBBER_CLIENT_SECRET")
-	googleDriveClientID  = os.Getenv("GOOGLE_DRIVE_CLIENT_ID")
-	googleDriveSecret    = os.Getenv("GOOGLE_DRIVE_CLIENT_SECRET")
-	quickBooksClientID   = os.Getenv("QUICKBOOKS_CLIENT_ID")
+	jobberClientID         = os.Getenv("JOBBER_CLIENT_ID")
+	jobberClientSecret     = os.Getenv("JOBBER_CLIENT_SECRET")
+	googleDriveClientID    = os.Getenv("GOOGLE_DRIVE_CLIENT_ID")
+	googleDriveSecret      = os.Getenv("GOOGLE_DRIVE_CLIENT_SECRET")
+	quickBooksClientID     = os.Getenv("QUICKBOOKS_CLIENT_ID")
 	quickBooksClientSecret = os.Getenv("QUICKBOOKS_CLIENT_SECRET")
 )
 
@@ -373,6 +373,7 @@ func main() {
 
 	// Start Background-Tasks for Auto-Tagging and Auto-OCR (if enabled)
 	StartBackgroundTasks(ctx, app)
+	app.startSuggestionWorker(ctx)
 
 	// Load security configuration
 	secCfg := loadSecurityConfig()
@@ -415,6 +416,7 @@ func main() {
 		// http://localhost:8080/api/documents/544
 		api.GET("/documents/:id", app.getDocumentHandler())
 		api.DELETE("/documents/:id", app.deleteDocumentHandler)
+		api.POST("/paperless/webhook", app.paperlessWebhookHandler)
 		api.POST("/generate-suggestions", app.generateSuggestionsHandler)
 		api.PATCH("/update-documents", app.updateDocumentsHandler)
 		api.GET("/filter-tag", func(c *gin.Context) {
@@ -453,7 +455,10 @@ func main() {
 
 		// Local db actions
 		api.GET("/modifications", app.getModificationHistoryHandler)
+		api.GET("/apply-batches", app.getApplyBatchHistoryHandler)
 		api.POST("/undo-modification/:id", app.undoModificationHandler)
+		api.POST("/undo-batch/:id", app.undoApplyBatchHandler)
+		api.POST("/documents/:id/reprocess", app.reprocessDocumentHandler)
 		api.POST("/analyze-documents", app.analyzeDocumentsHandler)
 
 		// Get public Paperless environment (as set in environment variables)

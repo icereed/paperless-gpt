@@ -584,7 +584,7 @@ For best results with the enhanced OCR features:
 | `APP_PUBLIC_URL`                    | Public URL for this paperless-gpt instance. Used to build OAuth callback URLs and Jobber receipt links when running behind a reverse proxy. For Jobber, register `${APP_PUBLIC_URL}/api/integrations/jobber/oauth/callback`. | No       |                            |
 | `PAPERLESS_GPT_PUBLIC_URL`          | Legacy alias for `APP_PUBLIC_URL`, kept for backward compatibility with existing deployments.                                                                                                 | No       |                            |
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
-| `AUTO_TAG`                          | Tag for auto processing.                                                                                                                                                                      | No       | paperless-gpt-auto         |
+| `AUTO_TAG`                          | Legacy tag for automatic metadata writes. This path is deprecated in 0.5.0; use the manual review workflow or Paperless webhook pre-processing instead.                                      | No       | paperless-gpt-auto         |
 | `LLM_PROVIDER`                      | AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`).                                                                                                                       | Yes      |                            |
 | `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`).                                                                                               | Yes      |                            |
 | `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                    | Cond.    |                            |
@@ -969,7 +969,7 @@ P.O. Box 94515
 1. **Tag Documents**
 
    - Add `paperless-gpt` tag to documents for manual processing
-   - Add `paperless-gpt-auto` for automatic processing
+   - Add `paperless-gpt-auto` for legacy automatic processing (deprecated in 0.5.0; manual review is recommended)
    - Add `paperless-gpt-ocr-auto` for automatic OCR processing
 
 2. **Visit Web UI**
@@ -979,9 +979,24 @@ P.O. Box 94515
 
 3. **Generate & Apply Suggestions**
 
-   - Click "Generate Suggestions" to see AI-proposed titles/tags/correspondents
+   - Click "Generate Suggestions" to see AI-proposed titles/tags/correspondents. Suggestions are cached until the document content, prompts, model, or generation options change.
    - Review and approve or edit suggestions
    - Click "Apply" to save changes to paperless-ngx
+
+### Optional Paperless webhook pre-processing
+
+Paperless GPT can receive Paperless-ngx webhook events at:
+
+```text
+https://your-paperless-gpt-host/api/paperless/webhook
+```
+
+Configure the shared secret under **Settings -> Integrations -> Paperless webhook**. Paperless GPT accepts either:
+
+- `X-Paperless-GPT-Secret: <shared secret>` for Paperless-ngx webhook actions that can set custom headers, or
+- `X-Paperless-Signature: sha256=<hmac>` where the HMAC-SHA256 is computed over the raw request body using the shared secret.
+
+The webhook only pre-generates cached suggestions for tagged documents; it never applies metadata changes. If no webhook secret is configured, the existing polling fallback remains active.
 
 4. **OCR Processing**
    - Tag documents with appropriate OCR tag to process them

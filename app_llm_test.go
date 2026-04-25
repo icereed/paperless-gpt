@@ -477,7 +477,7 @@ func (m *mockPaperlessClient) GetDocumentsByTag(ctx context.Context, tag string,
 func (m *mockPaperlessClient) GetDocumentCountByTag(ctx context.Context, tag string) (int, error) {
 	return 0, nil
 }
-func (m *mockPaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
+func (m *mockPaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool, batchID ...uint) error {
 	return nil
 }
 func (m *mockPaperlessClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
@@ -508,6 +508,9 @@ func (m *mockPaperlessClient) UploadDocument(ctx context.Context, data []byte, f
 	return "", nil
 }
 func (m *mockPaperlessClient) UpsertDocumentCustomFields(ctx context.Context, documentID int, fieldValues map[int]interface{}, db *gorm.DB) error {
+	return nil
+}
+func (m *mockPaperlessClient) UpsertDocumentCustomFieldsWithBatch(ctx context.Context, documentID int, fieldValues map[int]interface{}, db *gorm.DB, batchID *uint) error {
 	return nil
 }
 func (m *mockPaperlessClient) GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error) {

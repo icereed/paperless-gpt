@@ -30,13 +30,13 @@ type User struct {
 
 // UserSession is a server-side session record; its ID is the opaque cookie value.
 type UserSession struct {
-	ID          string `gorm:"primaryKey;size:64"`
-	UserID      string `gorm:"index;size:64;not null"`
-	CreatedAt   time.Time
-	ExpiresAt   time.Time `gorm:"index;not null"`
-	LastSeenAt  time.Time
-	IPAddress   string `gorm:"size:64"`
-	UserAgent   string `gorm:"size:512"`
+	ID         string `gorm:"primaryKey;size:64"`
+	UserID     string `gorm:"index;size:64;not null"`
+	CreatedAt  time.Time
+	ExpiresAt  time.Time `gorm:"index;not null"`
+	LastSeenAt time.Time
+	IPAddress  string `gorm:"size:64"`
+	UserAgent  string `gorm:"size:512"`
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ func verifyPassword(plain, hashed string) bool {
 // ---------------------------------------------------------------------------
 
 const (
-	sessionIdleSeconds   = 24 * 60 * 60     // 24 h sliding window
+	sessionIdleSeconds    = 24 * 60 * 60     // 24 h sliding window
 	sessionHardMaxSeconds = 7 * 24 * 60 * 60 // 7-day absolute ceiling
 )
 
@@ -229,6 +229,7 @@ func sessionAuthMiddleware(db *gorm.DB) gin.HandlerFunc {
 		// the user has no way back in short of wiping the users table.
 		if isPublicFrontendPath(path) ||
 			publicAuthPaths[path] ||
+			path == "/api/paperless/webhook" ||
 			strings.HasSuffix(path, "/oauth/callback") ||
 			strings.Contains(path, "/integrations/jobber/receipt/") {
 			c.Next()

@@ -19,6 +19,8 @@ interface SuggestionCardProps {
   onJobberMatchChange: (docId: number, selectedJobId: string) => void;
   onGoogleDriveToggle: (docId: number, enabled: boolean) => void;
   onJobberExpenseToggle: (docId: number, enabled: boolean) => void;
+  onRegenerateSuggestion?: (docId: number) => void;
+  regenerating?: boolean;
   jobberConnected: boolean;
   jobberEnabled?: boolean;
   jobberExpenseEnabled?: boolean;
@@ -41,6 +43,8 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onJobberMatchChange,
   onGoogleDriveToggle,
   onJobberExpenseToggle,
+  onRegenerateSuggestion,
+  regenerating = false,
   jobberConnected,
   jobberEnabled = true,
   jobberExpenseEnabled = true,
@@ -144,6 +148,33 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                 Delete
               </button>
             ))}
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+              suggestion.cached
+                ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200"
+                : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200"
+            }`}
+          >
+            {suggestion.cached ? "Cached suggestion" : "Fresh suggestion"}
+          </span>
+          {suggestion.generated_at && (
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              Generated {new Date(suggestion.generated_at).toLocaleString()}
+            </span>
+          )}
+          {onRegenerateSuggestion && (
+            <button
+              type="button"
+              onClick={() => onRegenerateSuggestion(suggestion.id)}
+              disabled={regenerating}
+              className="rounded-md bg-purple-100 px-2.5 py-1 text-xs font-medium text-purple-700 transition-colors hover:bg-purple-200 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-purple-900 dark:text-purple-200 dark:hover:bg-purple-800"
+            >
+              {regenerating ? "Regenerating..." : "Regenerate"}
+            </button>
+          )}
         </div>
 
         <div>

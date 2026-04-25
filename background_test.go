@@ -69,7 +69,7 @@ func (m *mockClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize
 	return m.taggedDocuments[tag], nil
 }
 
-func (m *mockClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
+func (m *mockClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool, batchID ...uint) error {
 	m.updateDocsCalled = true
 	return nil
 }

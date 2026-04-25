@@ -41,8 +41,12 @@ func saveSettingsLocked() error {
 		return err
 	}
 
+	// Webhook secrets are persisted in the DB, not settings.json.
+	settingsForFile := settings
+	settingsForFile.PaperlessWebhookSecret = ""
+
 	// Marshal the settings struct to JSON
-	data, err := json.MarshalIndent(settings, "", "  ")
+	data, err := json.MarshalIndent(settingsForFile, "", "  ")
 	if err != nil {
 		return err
 	}

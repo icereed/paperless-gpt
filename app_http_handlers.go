@@ -128,14 +128,21 @@ func (app *App) getSettingsHandler(c *gin.Context) {
 	go refreshCustomFieldsCache(app.Client)
 
 	settingsMutex.RLock()
-	defer settingsMutex.RUnlock()
+	settingsCopy := settings
+	settingsMutex.RUnlock()
 	customFieldsCacheMu.RLock()
 	defer customFieldsCacheMu.RUnlock()
 
+	settingsCopy.PaperlessWebhookSecret = ""
+	webhookConfigured := app.isWebhookConfigured(c.Request.Context(), paperlessWebhookProvider)
+
 	// Create a response that includes both settings and custom fields
 	response := gin.H{
-		"settings":      settings,
+		"settings":      settingsCopy,
 		"custom_fields": customFieldsCache,
+		"webhooks": gin.H{
+			"paperless_configured": webhookConfigured,
+		},
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -156,6 +163,8 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	webhookSecret := strings.TrimSpace(merged.PaperlessWebhookSecret)
+	merged.PaperlessWebhookSecret = ""
 
 	settings = merged
 
@@ -164,6 +173,12 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
 		log.Errorf("Failed to save settings: %v", err)
 		return
+	}
+	if webhookSecret != "" {
+		if err := app.upsertWebhookSecret(c.Request.Context(), paperlessWebhookProvider, webhookSecret); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save Paperless webhook secret"})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Settings saved successfully"})
@@ -208,7 +223,7 @@ func (app *App) generateSuggestionsHandler(c *gin.Context) {
 		return
 	}
 
-	results, err := app.generateDocumentSuggestions(ctx, suggestionRequest, log.WithContext(ctx))
+	results, err := app.generateDocumentSuggestionsCached(ctx, suggestionRequest, log.WithContext(ctx))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error processing documents: %v", err)})
 		log.Errorf("Error processing documents: %v", err)
@@ -228,8 +243,16 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 		return
 	}
 
-	err := app.Client.UpdateDocuments(ctx, documents, app.Database, false)
+	batch, err := app.createApplyBatch(ctx, documents)
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create apply batch"})
+		log.Errorf("Failed to create apply batch: %v", err)
+		return
+	}
+
+	err = app.Client.UpdateDocuments(ctx, documents, app.Database, false, batch.ID)
+	if err != nil {
+		_ = app.finishApplyBatch(ctx, batch.ID, fmt.Sprintf("failed: %v", err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error updating documents: %v", err)})
 		log.Errorf("Error updating documents: %v", err)
 		return
@@ -251,7 +274,7 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 			if !jobberEnabled {
 				log.WithField("document_id", document.ID).Debug("Jobber job selected but job matching is disabled in settings; skipping field write")
 			} else {
-				applied, err := app.applyJobberSelection(ctx, document.ID, selectedCandidate)
+				applied, err := app.applyJobberSelection(ctx, document.ID, selectedCandidate, &batch.ID)
 				if err != nil {
 					result.JobberError = err.Error()
 					log.WithField("document_id", document.ID).WithError(err).Error("Failed to write Jobber fields to Paperless custom fields")
@@ -294,7 +317,17 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 		results = append(results, result)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"results": results})
+	_ = app.finishApplyBatch(ctx, batch.ID, fmt.Sprintf("Applied %d document(s)", len(documents)))
+
+	c.JSON(http.StatusOK, gin.H{"results": results, "batch_id": batch.ID})
+}
+
+func (app *App) createApplyBatch(ctx context.Context, documents []DocumentSuggestion) (*ApplyBatch, error) {
+	return CreateApplyBatch(app.Database.WithContext(ctx), len(documents), fmt.Sprintf("Applying %d document(s)", len(documents)))
+}
+
+func (app *App) finishApplyBatch(ctx context.Context, batchID uint, summary string) error {
+	return FinishApplyBatch(app.Database.WithContext(ctx), batchID, summary)
 }
 
 func (app *App) getIntegrationsStatusHandler(c *gin.Context) {
@@ -595,29 +628,6 @@ func (app *App) jobberMatchCandidatesHandler(c *gin.Context) {
 
 	ctx := c.Request.Context()
 
-	// Fetch the full Jobber job list once — all documents share the same universe
-	// of candidates, so making one round of paginated API calls is enough.
-	allCandidates, err := app.Integrations.FetchAllJobberCandidates(ctx)
-	if err != nil {
-		log.WithError(err).
-			WithField("document_count", len(req.DocumentIDs)).
-			Error("jobberMatchCandidatesHandler: failed to fetch Jobber candidates")
-		status := http.StatusInternalServerError
-		errorCode := "jobber_fetch_failed"
-		if errors.Is(err, errJobberNotConnected) {
-			status = http.StatusBadGateway
-			errorCode = "jobber_not_connected"
-		} else if errors.Is(err, errJobberAuthFailed) {
-			status = http.StatusBadGateway
-			errorCode = "jobber_auth_failed"
-		}
-		c.JSON(status, gin.H{
-			"error": fmt.Sprintf("error fetching Jobber jobs: %v", err),
-			"code":  errorCode,
-		})
-		return
-	}
-
 	// Build a lookup map from the documents provided inline (avoids extra Paperless API calls).
 	docByID := make(map[int]Document, len(req.Documents))
 	for _, d := range req.Documents {
@@ -658,10 +668,60 @@ func (app *App) jobberMatchCandidatesHandler(c *gin.Context) {
 		}
 	}
 
-	// Rank the shared candidate list per document in memory — no more API calls.
+	// Serve cached ranked lists first. Any misses share one Jobber API fetch.
 	results := make(map[int][]JobberMatchCandidate, len(req.DocumentIDs))
 	autoSelected := make(map[int]string, len(req.DocumentIDs))
+	misses := make([]int, 0)
 	for _, id := range req.DocumentIDs {
+		doc, ok := docByID[id]
+		if !ok {
+			continue
+		}
+		preferred := req.SuggestedCreatedDates[strconv.Itoa(id)]
+		matchHash := jobberCandidateMatchHash(doc, preferred)
+		var cached []JobberMatchCandidate
+		cachedAuto, hit, err := app.getCachedIntegrationCandidates(ctx, id, integrationCandidateProviderJobber, matchHash, &cached)
+		if err != nil {
+			log.WithError(err).WithField("document_id", id).Warn("Failed to read cached Jobber candidates; refetching")
+		}
+		if hit {
+			results[id] = cached
+			if cachedAuto != "" {
+				autoSelected[id] = cachedAuto
+			}
+			continue
+		}
+		misses = append(misses, id)
+	}
+
+	var allCandidates []JobberMatchCandidate
+	if len(misses) > 0 {
+		var err error
+		// Fetch the full Jobber job list once — all documents share the same universe
+		// of candidates, so making one round of paginated API calls is enough.
+		allCandidates, err = app.Integrations.FetchAllJobberCandidates(ctx)
+		if err != nil {
+			log.WithError(err).
+				WithField("document_count", len(req.DocumentIDs)).
+				Error("jobberMatchCandidatesHandler: failed to fetch Jobber candidates")
+			status := http.StatusInternalServerError
+			errorCode := "jobber_fetch_failed"
+			if errors.Is(err, errJobberNotConnected) {
+				status = http.StatusBadGateway
+				errorCode = "jobber_not_connected"
+			} else if errors.Is(err, errJobberAuthFailed) {
+				status = http.StatusBadGateway
+				errorCode = "jobber_auth_failed"
+			}
+			c.JSON(status, gin.H{
+				"error": fmt.Sprintf("error fetching Jobber jobs: %v", err),
+				"code":  errorCode,
+			})
+			return
+		}
+	}
+
+	for _, id := range misses {
 		doc, ok := docByID[id]
 		if !ok {
 			results[id] = allCandidates
@@ -673,9 +733,20 @@ func (app *App) jobberMatchCandidatesHandler(c *gin.Context) {
 		if ranked.AutoSelectedID != "" {
 			autoSelected[id] = ranked.AutoSelectedID
 		}
+		matchHash := jobberCandidateMatchHash(doc, preferred)
+		if err := app.saveIntegrationCandidates(ctx, id, integrationCandidateProviderJobber, matchHash, ranked.Candidates, ranked.AutoSelectedID); err != nil {
+			log.WithError(err).WithField("document_id", id).Warn("Failed to cache Jobber candidates")
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"candidates": results, "auto_selected": autoSelected})
+}
+
+func jobberCandidateMatchHash(doc Document, preferredDate string) string {
+	return integrationMatchHash(integrationCandidateProviderJobber, map[string]interface{}{
+		"document_created_date":  doc.CreatedDate,
+		"suggested_created_date": strings.TrimSpace(preferredDate),
+	})
 }
 
 func currentBaseURL(c *gin.Context) string {
@@ -712,7 +783,7 @@ func getSelectedJobberCandidate(document DocumentSuggestion) (JobberMatchCandida
 // It returns (true, nil) when at least one field was written, (false, nil) when
 // no field mappings are configured (a no-op, not an error), and (false, err)
 // when the Paperless API call failed.
-func (app *App) applyJobberSelection(ctx context.Context, documentID int, candidate JobberMatchCandidate) (bool, error) {
+func (app *App) applyJobberSelection(ctx context.Context, documentID int, candidate JobberMatchCandidate, batchID *uint) (bool, error) {
 	settingsMutex.RLock()
 	jobIDFieldID := settings.JobberJobIDFieldID
 	jobNumberFieldID := settings.JobberJobNumberFieldID
@@ -752,7 +823,7 @@ func (app *App) applyJobberSelection(ctx context.Context, documentID int, candid
 		WithField("fields_to_write", len(fieldValues)).
 		Info("Writing Jobber job details to Paperless custom fields")
 
-	if err := app.Client.UpsertDocumentCustomFields(ctx, documentID, fieldValues, app.Database); err != nil {
+	if err := app.Client.UpsertDocumentCustomFieldsWithBatch(ctx, documentID, fieldValues, app.Database, batchID); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -1116,6 +1187,31 @@ func (app *App) getModificationHistoryHandler(c *gin.Context) {
 	})
 }
 
+func (app *App) getApplyBatchHistoryHandler(c *gin.Context) {
+	page := 1
+	pageSize := 20
+	if p, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil && p > 0 {
+		page = p
+	}
+	if ps, err := strconv.Atoi(c.DefaultQuery("pageSize", "20")); err == nil && ps > 0 && ps <= 100 {
+		pageSize = ps
+	}
+
+	items, total, err := GetPaginatedApplyBatches(app.Database.WithContext(c.Request.Context()), page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve apply batch history"})
+		return
+	}
+	totalPages := (int(total) + pageSize - 1) / pageSize
+	c.JSON(http.StatusOK, gin.H{
+		"items":       items,
+		"totalItems":  total,
+		"totalPages":  totalPages,
+		"currentPage": page,
+		"pageSize":    pageSize,
+	})
+}
+
 func (app *App) undoModificationHandler(c *gin.Context) {
 	id := c.Param("id")
 	modID, err := strconv.Atoi(id)
@@ -1138,17 +1234,68 @@ func (app *App) undoModificationHandler(c *gin.Context) {
 		return
 	}
 
-	// Ok, we're actually doing the update:
-	ctx := c.Request.Context()
+	if err := app.undoSingleModification(c.Request.Context(), modification); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update document"})
+		log.Errorf("Failed to undo modification: %v", err)
+		return
+	}
 
-	// Make the document suggestions for UpdateDocuments
+	c.Status(http.StatusOK)
+}
+
+func (app *App) undoApplyBatchHandler(c *gin.Context) {
+	id := c.Param("id")
+	batchID, err := strconv.Atoi(id)
+	if err != nil || batchID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid batch ID"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	batch, err := GetApplyBatch(app.Database.WithContext(ctx), uint(batchID))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Apply batch not found"})
+		return
+	}
+	if batch.Undone {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Apply batch has already been undone"})
+		return
+	}
+
+	var modifications []ModificationHistory
+	if err := app.Database.WithContext(ctx).
+		Where("batch_id = ? AND undone = ?", batch.ID, false).
+		Order("id DESC").
+		Find(&modifications).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve batch modifications"})
+		return
+	}
+
+	for i := range modifications {
+		if err := app.undoSingleModification(ctx, &modifications[i]); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to undo modification %d: %v", modifications[i].ID, err)})
+			return
+		}
+	}
+
+	if err := SetApplyBatchUndone(app.Database.WithContext(ctx), batch); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to mark batch as undone"})
+		return
+	}
+	c.Status(http.StatusOK)
+}
+
+func (app *App) undoSingleModification(ctx context.Context, modification *ModificationHistory) error {
+	if modification.Undone {
+		return nil
+	}
+
 	var suggestion DocumentSuggestion
 	suggestion.ID = int(modification.DocumentID)
+	var err error
 	suggestion.OriginalDocument, err = app.Client.GetDocument(ctx, int(modification.DocumentID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve original document"})
-		log.Errorf("Failed to retrieve original document: %v", err)
-		return
+		return fmt.Errorf("failed to retrieve current document: %w", err)
 	}
 	switch modification.ModField {
 	case "title":
@@ -1156,9 +1303,7 @@ func (app *App) undoModificationHandler(c *gin.Context) {
 	case "tags":
 		var tags []string
 		if err := json.Unmarshal([]byte(modification.PreviousValue), &tags); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unmarshal previous tags"})
-			log.Errorf("Failed to unmarshal previous tags: %v", err)
-			return
+			return fmt.Errorf("failed to unmarshal previous tags: %w", err)
 		}
 		suggestion.SuggestedTags = tags
 	case "content":
@@ -1170,28 +1315,50 @@ func (app *App) undoModificationHandler(c *gin.Context) {
 	case "created_date":
 		suggestion.SuggestedCreatedDate = modification.PreviousValue
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid modification field"})
-		log.Errorf("Invalid modification field: %v", modification.ModField)
+		return fmt.Errorf("invalid modification field: %s", modification.ModField)
+	}
+
+	if err := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, app.Database, true); err != nil {
+		return err
+	}
+	return SetModificationUndone(app.Database, modification)
+}
+
+func (app *App) reprocessDocumentHandler(c *gin.Context) {
+	id := c.Param("id")
+	documentID, err := strconv.Atoi(id)
+	if err != nil || documentID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid document ID"})
 		return
 	}
 
-	// Update the document
-	err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, app.Database, true)
+	ctx := c.Request.Context()
+	document, err := app.Client.GetDocument(ctx, documentID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update document"})
-		log.Errorf("Failed to update document: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to load document: %v", err)})
 		return
 	}
 
-	// Successful, so set modification as undone
-	err = SetModificationUndone(app.Database, modification)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to mark modification as undone"})
+	if err := app.invalidateDocumentSuggestionCache(ctx, documentID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to invalidate cached suggestions"})
 		return
 	}
 
-	// Else all was ok
-	c.Status(http.StatusOK)
+	suggestion := DocumentSuggestion{
+		ID:               documentID,
+		OriginalDocument: document,
+		SuggestedTags:    []string{manualTag},
+		KeepOriginalTags: true,
+	}
+	if err := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, app.Database, false); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to re-apply filter tag: %v", err)})
+		return
+	}
+	if err := app.enqueueSuggestionJob(ctx, documentID, ""); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to enqueue document for preprocessing"})
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"document_id": documentID, "status": "queued"})
 }
 
 // analyzeDocumentsHandler handles the POST /api/analyze-documents endpoint

@@ -75,6 +75,7 @@ type OAuthStateRecord struct {
 type IntegrationActionLog struct {
 	ID              uint   `gorm:"primaryKey"`
 	DocumentID      int    `gorm:"index;not null"`
+	BatchID         *uint  `gorm:"index"`
 	Provider        string `gorm:"size:64;index;not null"`
 	ActionType      string `gorm:"size:64;not null"`
 	Status          string `gorm:"size:32;not null"`
@@ -362,7 +363,8 @@ func insertIntegrationActionLog(db *gorm.DB, entry *IntegrationActionLog) {
 }
 
 type IntegrationsService struct {
-	DB *gorm.DB
+	DB             *gorm.DB
+	CurrentBatchID *uint
 }
 
 type GoogleDriveUploadResult struct {
@@ -642,7 +644,7 @@ func (s *IntegrationsService) GetJobberCandidates(ctx context.Context, document 
 	return rankJobberCandidates(document, candidates), nil
 }
 
-func (s *IntegrationsService) UploadDocumentToGoogleDrive(ctx context.Context, client ClientInterface, documentID int, folderID string) (*GoogleDriveUploadResult, error) {
+func (s *IntegrationsService) UploadDocumentToGoogleDrive(ctx context.Context, client ClientInterface, documentID int, folderID string, batchID ...uint) (*GoogleDriveUploadResult, error) {
 	conn, err := getOptionalConnectionByProvider(s.DB.WithContext(ctx), integrationProviderGoogleDrive)
 	if err != nil {
 		return nil, err
@@ -716,7 +718,7 @@ func (s *IntegrationsService) UploadDocumentToGoogleDrive(ctx context.Context, c
 		return nil, err
 	}
 
-	insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{
+	entry := &IntegrationActionLog{
 		DocumentID:      documentID,
 		Provider:        integrationProviderGoogleDrive,
 		ActionType:      "upload_document",
@@ -724,7 +726,11 @@ func (s *IntegrationsService) UploadDocumentToGoogleDrive(ctx context.Context, c
 		ExternalID:      uploadResp.ID,
 		ExternalURL:     uploadResp.WebView,
 		ResponseSummary: string(bodyBytes),
-	})
+	}
+	if len(batchID) > 0 && batchID[0] > 0 {
+		entry.BatchID = &batchID[0]
+	}
+	insertIntegrationActionLog(s.DB.WithContext(ctx), entry)
 
 	return &GoogleDriveUploadResult{
 		FileID:  uploadResp.ID,
@@ -732,7 +738,12 @@ func (s *IntegrationsService) UploadDocumentToGoogleDrive(ctx context.Context, c
 	}, nil
 }
 
-func (s *IntegrationsService) CreateJobberExpense(ctx context.Context, client ClientInterface, suggestion DocumentSuggestion, candidate JobberMatchCandidate) (*JobberExpenseCreateResult, error) {
+func (s *IntegrationsService) CreateJobberExpense(ctx context.Context, client ClientInterface, suggestion DocumentSuggestion, candidate JobberMatchCandidate, batchID ...uint) (*JobberExpenseCreateResult, error) {
+	var appliedBatchID *uint
+	if len(batchID) > 0 && batchID[0] > 0 {
+		appliedBatchID = &batchID[0]
+	}
+
 	conn, err := getOptionalConnectionByProvider(s.DB.WithContext(ctx), integrationProviderJobber)
 	if err != nil {
 		return nil, err
@@ -842,50 +853,58 @@ func (s *IntegrationsService) CreateJobberExpense(ctx context.Context, client Cl
 	requestSummary := fmt.Sprintf("job=%s title=%s", candidate.ID, title)
 
 	if err := executeJSONGraphQL(ctx, "https://api.getjobber.com/api/graphql", validConn.AccessToken, mutation, map[string]interface{}{"input": input}, &response); err != nil {
-		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{
+		entry := &IntegrationActionLog{
 			DocumentID:     suggestion.ID,
 			Provider:       integrationProviderJobber,
 			ActionType:     "expense_create",
 			Status:         "error",
 			RequestSummary: requestSummary,
 			ErrorMessage:   err.Error(),
-		})
+		}
+		entry.BatchID = appliedBatchID
+		insertIntegrationActionLog(s.DB.WithContext(ctx), entry)
 		return nil, err
 	}
 	if len(response.Errors) > 0 {
 		errMsg := fmt.Sprintf("jobber graphql error: %s", response.Errors[0].Message)
-		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{
+		entry := &IntegrationActionLog{
 			DocumentID:     suggestion.ID,
 			Provider:       integrationProviderJobber,
 			ActionType:     "expense_create",
 			Status:         "error",
 			RequestSummary: requestSummary,
 			ErrorMessage:   errMsg,
-		})
+		}
+		entry.BatchID = appliedBatchID
+		insertIntegrationActionLog(s.DB.WithContext(ctx), entry)
 		return nil, fmt.Errorf("%s", errMsg)
 	}
 	if len(response.Data.ExpenseCreate.UserErrors) > 0 {
 		errMsg := fmt.Sprintf("jobber expense create error: %s", response.Data.ExpenseCreate.UserErrors[0].Message)
-		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{
+		entry := &IntegrationActionLog{
 			DocumentID:     suggestion.ID,
 			Provider:       integrationProviderJobber,
 			ActionType:     "expense_create",
 			Status:         "error",
 			RequestSummary: requestSummary,
 			ErrorMessage:   errMsg,
-		})
+		}
+		entry.BatchID = appliedBatchID
+		insertIntegrationActionLog(s.DB.WithContext(ctx), entry)
 		return nil, fmt.Errorf("%s", errMsg)
 	}
 	if response.Data.ExpenseCreate.Expense == nil {
 		errMsg := "jobber expense create returned no expense"
-		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{
+		entry := &IntegrationActionLog{
 			DocumentID:     suggestion.ID,
 			Provider:       integrationProviderJobber,
 			ActionType:     "expense_create",
 			Status:         "error",
 			RequestSummary: requestSummary,
 			ErrorMessage:   errMsg,
-		})
+		}
+		entry.BatchID = appliedBatchID
+		insertIntegrationActionLog(s.DB.WithContext(ctx), entry)
 		return nil, fmt.Errorf("%s", errMsg)
 	}
 
@@ -896,7 +915,7 @@ func (s *IntegrationsService) CreateJobberExpense(ctx context.Context, client Cl
 		webURL = ""
 	}
 
-	insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{
+	entry := &IntegrationActionLog{
 		DocumentID:      suggestion.ID,
 		Provider:        integrationProviderJobber,
 		ActionType:      "expense_create",
@@ -904,7 +923,9 @@ func (s *IntegrationsService) CreateJobberExpense(ctx context.Context, client Cl
 		ExternalID:      expenseID,
 		RequestSummary:  requestSummary,
 		ResponseSummary: expenseID,
-	})
+	}
+	entry.BatchID = appliedBatchID
+	insertIntegrationActionLog(s.DB.WithContext(ctx), entry)
 
 	return &JobberExpenseCreateResult{
 		ExpenseID: expenseID,

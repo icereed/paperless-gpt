@@ -32,8 +32,8 @@ type GetDocumentApiResponseResult struct {
 	// Modified            time.Time     `json:"modified"`
 	// Added               time.Time     `json:"added"`
 	// ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
-	OriginalFileName string               `json:"original_file_name"`
-	ArchivedFileName string               `json:"archived_file_name"`
+	OriginalFileName string                `json:"original_file_name"`
+	ArchivedFileName string                `json:"archived_file_name"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
 	// Owner               int           `json:"owner"`
 	// UserCanChange       bool          `json:"user_can_change"`
@@ -100,6 +100,12 @@ type GenerateSuggestionsRequest struct {
 	GenerateCreatedDate    bool       `json:"generate_created_date,omitempty"`
 	GenerateCustomFields   bool       `json:"generate_custom_fields,omitempty"`
 	GenerateDocumentTypes  bool       `json:"generate_document_types,omitempty"`
+	Regenerate             bool       `json:"regenerate,omitempty"`
+}
+
+func (req GenerateSuggestionsRequest) WithoutRegenerate() GenerateSuggestionsRequest {
+	req.Regenerate = false
+	return req
 }
 
 // AnalyzeDocumentsRequest is the request payload for the ad-hoc analysis
@@ -133,6 +139,7 @@ type Settings struct {
 	GoogleDriveEnabled               bool   `json:"google_drive_enabled"`
 	GoogleDriveFolderID              string `json:"google_drive_folder_id"`
 	QuickBooksEnabled                bool   `json:"quickbooks_enabled"`
+	PaperlessWebhookSecret           string `json:"paperless_webhook_secret,omitempty"`
 }
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
@@ -155,6 +162,8 @@ type DocumentSuggestion struct {
 	SelectedJobberMatchID  string                  `json:"selected_jobber_match_id,omitempty"`
 	CreateJobberExpense    bool                    `json:"create_jobber_expense,omitempty"`
 	UploadToGoogleDrive    bool                    `json:"upload_to_google_drive,omitempty"`
+	Cached                 bool                    `json:"cached,omitempty"`
+	GeneratedAt            string                  `json:"generated_at,omitempty"`
 }
 
 type JobberMatchCandidate struct {
@@ -244,7 +253,7 @@ type OCROptions struct {
 type ClientInterface interface {
 	GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error)
 	GetDocumentCountByTag(ctx context.Context, tag string) (int, error)
-	UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error
+	UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool, batchID ...uint) error
 	GetDocument(ctx context.Context, documentID int) (Document, error)
 	GetAllTags(ctx context.Context) (map[string]int, error)
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
@@ -256,6 +265,7 @@ type ClientInterface interface {
 	DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error)
 	UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error)
 	UpsertDocumentCustomFields(ctx context.Context, documentID int, fieldValues map[int]interface{}, db *gorm.DB) error
+	UpsertDocumentCustomFieldsWithBatch(ctx context.Context, documentID int, fieldValues map[int]interface{}, db *gorm.DB, batchID *uint) error
 	GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error)
 	DeleteDocument(ctx context.Context, documentID int) error
 }

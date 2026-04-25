@@ -470,6 +470,10 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 
 // UpsertDocumentCustomFields updates only the provided custom field IDs while preserving unrelated fields.
 func (client *PaperlessClient) UpsertDocumentCustomFields(ctx context.Context, documentID int, fieldValues map[int]interface{}, db *gorm.DB) error {
+	return client.UpsertDocumentCustomFieldsWithBatch(ctx, documentID, fieldValues, db, nil)
+}
+
+func (client *PaperlessClient) UpsertDocumentCustomFieldsWithBatch(ctx context.Context, documentID int, fieldValues map[int]interface{}, db *gorm.DB, batchID *uint) error {
 	if len(fieldValues) == 0 {
 		return nil
 	}
@@ -529,6 +533,7 @@ func (client *PaperlessClient) UpsertDocumentCustomFields(ctx context.Context, d
 		}
 		mod := ModificationHistory{
 			DocumentID:    uint(documentID),
+			BatchID:       batchID,
 			ModField:      fmt.Sprintf("custom_field_%d", fieldID),
 			PreviousValue: fmt.Sprintf("%v", previousValue),
 			NewValue:      fmt.Sprintf("%v", value),
@@ -542,7 +547,12 @@ func (client *PaperlessClient) UpsertDocumentCustomFields(ctx context.Context, d
 }
 
 // UpdateDocuments updates the specified documents with suggested changes
-func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
+func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool, batchID ...uint) error {
+	var appliedBatchID *uint
+	if len(batchID) > 0 && batchID[0] > 0 {
+		appliedBatchID = &batchID[0]
+	}
+
 	availableTags, err := client.GetAllTags(ctx)
 	if err != nil {
 		return fmt.Errorf("error fetching available tags: %w", err)
@@ -824,14 +834,15 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 						if err == nil {
 							defer tagResp.Body.Close()
 							if tagResp.StatusCode == http.StatusOK {
-						log.Infof("Document %d: Successfully removed auto/manual tag", documentID)
-							// Record this tag change with tag names for both PreviousValue and NewValue
-							mod := ModificationHistory{
-								DocumentID:    uint(documentID),
-								ModField:      "tags",
-								PreviousValue: marshalModificationValue(originalDoc.Tags),
-								NewValue:      marshalModificationValue(remainingTagNames),
-							}
+								log.Infof("Document %d: Successfully removed auto/manual tag", documentID)
+								// Record this tag change with tag names for both PreviousValue and NewValue
+								mod := ModificationHistory{
+									DocumentID:    uint(documentID),
+									BatchID:       appliedBatchID,
+									ModField:      "tags",
+									PreviousValue: marshalModificationValue(originalDoc.Tags),
+									NewValue:      marshalModificationValue(remainingTagNames),
+								}
 								if err := InsertModification(db, &mod); err != nil {
 									log.Warnf("Error inserting tag modification record: %v", err)
 								}
@@ -857,6 +868,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			newStr := marshalModificationValue(updatedFields[field])
 			mod := ModificationHistory{
 				DocumentID:    uint(documentID),
+				BatchID:       appliedBatchID,
 				ModField:      field,
 				PreviousValue: prevStr,
 				NewValue:      newStr,

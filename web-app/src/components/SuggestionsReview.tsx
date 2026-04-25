@@ -17,6 +17,8 @@ interface SuggestionsReviewProps {
   onJobberMatchChange: (docId: number, candidateId: string) => void;
   onJobberExpenseToggle: (docId: number, checked: boolean) => void;
   onGoogleDriveToggle: (docId: number, checked: boolean) => void;
+  onRegenerateSuggestion: (docId: number) => void;
+  regeneratingDocId?: number | null;
   onBack: () => void;
   onUpdate: () => void;
   updating: boolean;
@@ -41,6 +43,8 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   onJobberMatchChange,
   onJobberExpenseToggle,
   onGoogleDriveToggle,
+  onRegenerateSuggestion,
+  regeneratingDocId,
   onBack,
   onUpdate,
   updating,
@@ -103,6 +107,8 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           onJobberMatchChange={onJobberMatchChange}
           onJobberExpenseToggle={onJobberExpenseToggle}
           onGoogleDriveToggle={onGoogleDriveToggle}
+          onRegenerateSuggestion={onRegenerateSuggestion}
+          regenerating={regeneratingDocId === doc.id}
           jobberConnected={!!integrationStatuses.jobber?.connected}
           jobberEnabled={jobberEnabled}
           jobberExpenseEnabled={jobberExpenseEnabled}

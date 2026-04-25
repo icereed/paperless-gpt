@@ -34,12 +34,12 @@ type SecurityConfig struct {
 // loadSecurityConfig reads security configuration from environment variables.
 func loadSecurityConfig() SecurityConfig {
 	cfg := SecurityConfig{
-		AuthUsername: os.Getenv("AUTH_USERNAME"),
-		AuthPassword: os.Getenv("AUTH_PASSWORD"),
-		AuthToken:    os.Getenv("AUTH_TOKEN"),
-		RateLimitRPS: 10,
+		AuthUsername:   os.Getenv("AUTH_USERNAME"),
+		AuthPassword:   os.Getenv("AUTH_PASSWORD"),
+		AuthToken:      os.Getenv("AUTH_TOKEN"),
+		RateLimitRPS:   10,
 		RateLimitBurst: 30,
-		MaxBodyBytes: 10 * 1024 * 1024, // 10 MiB
+		MaxBodyBytes:   10 * 1024 * 1024, // 10 MiB
 	}
 
 	// Trusted proxies: default to loopback only
@@ -123,6 +123,11 @@ func isExemptFromAuth(path string) bool {
 	}
 	// Session auth endpoints – handled by sessionAuthMiddleware
 	if strings.HasPrefix(path, "/api/auth/") {
+		return true
+	}
+	// Paperless webhook requests cannot carry the app's browser/session auth;
+	// the webhook handler authenticates them with its own shared secret.
+	if path == "/api/paperless/webhook" {
 		return true
 	}
 	// OAuth callbacks from third-party providers

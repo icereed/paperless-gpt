@@ -12,6 +12,7 @@ export interface DocumentsToProcessProps {
   children?: React.ReactNode;
   paperlessUrl?: string;
   onDeleteDocument?: (documentId: number) => void;
+  onReprocessDocument?: (documentId: number) => void;
 }
 
 const DocumentsToProcess: React.FC<DocumentsToProcessProps> = ({
@@ -22,6 +23,7 @@ const DocumentsToProcess: React.FC<DocumentsToProcessProps> = ({
   children,
   paperlessUrl,
   onDeleteDocument,
+  onReprocessDocument,
 }) => {
   const gridClassName =
     gridCols === "3"
@@ -40,6 +42,7 @@ const DocumentsToProcess: React.FC<DocumentsToProcessProps> = ({
             onSelect={() => onSelectDocument && onSelectDocument(doc.id)}
             paperlessUrl={paperlessUrl}
             onDelete={onDeleteDocument}
+            onReprocess={onReprocessDocument}
           />
         ))}
       </div>

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import ArrowTopRightOnSquareIcon from "@heroicons/react/24/outline/ArrowTopRightOnSquareIcon";
 import EyeIcon from "@heroicons/react/24/outline/EyeIcon";
+import ArrowPathIcon from "@heroicons/react/24/outline/ArrowPathIcon";
 import TrashIcon from "@heroicons/react/24/outline/TrashIcon";
 import { Document } from "../DocumentProcessor";
 import DocumentPreviewModal from "./DocumentPreviewModal";
@@ -11,6 +12,7 @@ interface DocumentCardProps {
   onSelect?: (documentId: number) => void;
   paperlessUrl?: string;
   onDelete?: (documentId: number) => void;
+  onReprocess?: (documentId: number) => void;
 }
 
 const DocumentCard: React.FC<DocumentCardProps> = ({
@@ -19,6 +21,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
   onSelect,
   paperlessUrl,
   onDelete,
+  onReprocess,
 }) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -83,6 +86,19 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
               <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
               View
             </a>
+          )}
+          {onReprocess && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onReprocess(document.id);
+              }}
+              className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-200 dark:hover:bg-amber-800"
+            >
+              <ArrowPathIcon className="h-3.5 w-3.5" />
+              Reprocess
+            </button>
           )}
           {onDelete &&
             (confirmDelete ? (

@@ -36,6 +36,7 @@ export interface GenerateSuggestionsRequest {
   generate_custom_fields?: boolean;
   selected_custom_field_ids?: number[];
   custom_field_write_mode?: string;
+  regenerate?: boolean;
 }
 
 export interface CustomFieldSuggestion {
@@ -95,6 +96,8 @@ export interface DocumentSuggestion {
   selected_jobber_match_id?: string;
   create_jobber_expense?: boolean;
   upload_to_google_drive?: boolean;
+  cached?: boolean;
+  generated_at?: string;
 }
 
 export interface TagOption {
@@ -116,6 +119,7 @@ const DocumentProcessor: React.FC = () => {
   const [allCustomFields, setAllCustomFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [regeneratingDocId, setRegeneratingDocId] = useState<number | null>(null);
   const [updating, setUpdating] = useState(false);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [filterTag, setFilterTag] = useState<string | null>(null);
@@ -184,6 +188,63 @@ const DocumentProcessor: React.FC = () => {
     fetchInitialData();
   }, [fetchInitialData]);
 
+  const hydrateSuggestions = useCallback((data: DocumentSuggestion[]) => {
+    const customFieldMap = new Map((allCustomFields || []).map(cf => [cf.id, cf.name]));
+    return data.map(suggestion => ({
+      ...suggestion,
+      suggested_custom_fields: suggestion.suggested_custom_fields?.map(cf => ({
+        ...cf,
+        name: customFieldMap.get(cf.id) || cf.name || 'Unknown Field',
+        isSelected: cf.isSelected ?? true,
+      })),
+      jobber_candidates: suggestion.jobber_candidates || [],
+      selected_jobber_match_id: suggestion.selected_jobber_match_id || "",
+      create_jobber_expense: !!suggestion.create_jobber_expense,
+      upload_to_google_drive: !!suggestion.upload_to_google_drive,
+    }));
+  }, [allCustomFields]);
+
+  const fetchJobberMatchesForSuggestions = useCallback(async (
+    docsForMatching: Document[],
+    suggestionsForMatching: DocumentSuggestion[],
+  ) => {
+    if (!integrationStatuses.jobber?.connected || !jobberEnabled) {
+      return;
+    }
+
+    const suggestedDates: Record<string, string> = {};
+    suggestionsForMatching.forEach((s) => {
+      if (s.suggested_created_date) {
+        suggestedDates[String(s.id)] = s.suggested_created_date;
+      }
+    });
+
+    const jobberResponse = await axios.post<{
+      candidates: Record<string, JobberMatchCandidate[]>;
+      auto_selected?: Record<string, string>;
+    }>(
+      "./api/integrations/jobber/match-candidates",
+      {
+        document_ids: docsForMatching.map((d) => d.id),
+        documents: docsForMatching,
+        suggested_created_dates: suggestedDates,
+      }
+    );
+
+    setSuggestions((current) =>
+      current.map((suggestion) => {
+        const candidates = jobberResponse.data.candidates?.[String(suggestion.id)];
+        if (!candidates) return suggestion;
+        const autoSelected = jobberResponse.data.auto_selected?.[String(suggestion.id)] || "";
+        return {
+          ...suggestion,
+          jobber_candidates: candidates,
+          selected_jobber_match_id: suggestion.selected_jobber_match_id || autoSelected,
+        };
+      })
+    );
+  }, [integrationStatuses.jobber?.connected, jobberEnabled]);
+
   const handleProcessDocuments = async () => {
     setProcessing(true);
     setError(null);
@@ -209,61 +270,14 @@ const DocumentProcessor: React.FC = () => {
         requestPayload
       );
 
-      // Post-process suggestions to add names and isSelected flag
-      const customFieldMap = new Map((allCustomFields || []).map(cf => [cf.id, cf.name]));
-      const processedSuggestions = data.map(suggestion => ({
-        ...suggestion,
-        suggested_custom_fields: suggestion.suggested_custom_fields?.map(cf => ({
-          ...cf,
-          name: customFieldMap.get(cf.id) || 'Unknown Field',
-          isSelected: true,
-        })),
-        jobber_candidates: [],
-        selected_jobber_match_id: suggestion.selected_jobber_match_id || "",
-        create_jobber_expense: !!suggestion.create_jobber_expense,
-        upload_to_google_drive: !!suggestion.upload_to_google_drive,
-      }));
+      const processedSuggestions = hydrateSuggestions(data);
 
       setSuggestions(processedSuggestions);
       setIntegrationResults([]);
 
       if (integrationStatuses.jobber?.connected && jobberEnabled) {
         try {
-          // Pass the full document objects so the server can rank candidates
-          // without making extra Paperless API calls for each document. Also
-          // pass the freshly-suggested created dates so date-based matching
-          // uses the LLM's normalized date instead of the (often-wrong)
-          // Paperless date.
-          const suggestedDates: Record<string, string> = {};
-          processedSuggestions.forEach((s) => {
-            if (s.suggested_created_date) {
-              suggestedDates[String(s.id)] = s.suggested_created_date;
-            }
-          });
-
-          const jobberResponse = await axios.post<{
-            candidates: Record<string, JobberMatchCandidate[]>;
-            auto_selected?: Record<string, string>;
-          }>(
-            "./api/integrations/jobber/match-candidates",
-            {
-              document_ids: docsToProcess.map((d) => d.id),
-              documents: docsToProcess,
-              suggested_created_dates: suggestedDates,
-            }
-          );
-
-          setSuggestions((current) =>
-            current.map((suggestion) => {
-              const candidates = jobberResponse.data.candidates?.[String(suggestion.id)] || [];
-              const autoSelected = jobberResponse.data.auto_selected?.[String(suggestion.id)] || "";
-              return {
-                ...suggestion,
-                jobber_candidates: candidates,
-                selected_jobber_match_id: suggestion.selected_jobber_match_id || autoSelected,
-              };
-            })
-          );
+          await fetchJobberMatchesForSuggestions(docsToProcess, processedSuggestions);
         } catch (jobberError) {
           console.error("Error fetching Jobber candidates:", jobberError);
           let detail = "";
@@ -290,6 +304,41 @@ const DocumentProcessor: React.FC = () => {
       setError("Failed to generate suggestions.");
     } finally {
       setProcessing(false);
+    }
+  };
+
+  const handleRegenerateSuggestion = async (docId: number) => {
+    const currentSuggestion = suggestions.find((s) => s.id === docId);
+    const documentToRegenerate = currentSuggestion?.original_document || documents.find((d) => d.id === docId);
+    if (!documentToRegenerate) return;
+
+    setRegeneratingDocId(docId);
+    setError(null);
+    try {
+      const requestPayload: GenerateSuggestionsRequest = {
+        documents: [documentToRegenerate],
+        generate_titles: generateTitles,
+        generate_tags: generateTags,
+        generate_correspondents: generateCorrespondents,
+        generate_document_types: generateDocumentTypes,
+        generate_created_date: generateCreatedDate,
+        generate_custom_fields: generateCustomFields,
+        regenerate: true,
+      };
+      const { data } = await axios.post<DocumentSuggestion[]>("./api/generate-suggestions", requestPayload);
+      const [replacement] = hydrateSuggestions(data);
+      if (!replacement) return;
+      setSuggestions((current) => current.map((s) => s.id === docId ? replacement : s));
+      try {
+        await fetchJobberMatchesForSuggestions([documentToRegenerate], [replacement]);
+      } catch (jobberError) {
+        console.error("Error refreshing Jobber candidates:", jobberError);
+      }
+    } catch (err) {
+      console.error("Error regenerating suggestion:", err);
+      setError("Failed to regenerate suggestion.");
+    } finally {
+      setRegeneratingDocId(null);
     }
   };
 
@@ -438,6 +487,17 @@ const DocumentProcessor: React.FC = () => {
     } catch (err) {
       console.error("Error deleting document:", err);
       setError("Failed to delete document.");
+    }
+  };
+
+  const handleReprocessDocument = async (docId: number) => {
+    setError(null);
+    try {
+      await axios.post(`./api/documents/${docId}/reprocess`);
+      await reloadDocuments();
+    } catch (err) {
+      console.error("Error reprocessing document:", err);
+      setError("Failed to reprocess document.");
     }
   };
 
@@ -599,6 +659,7 @@ const DocumentProcessor: React.FC = () => {
           onSelectDocument={handleSelectDocument}
           paperlessUrl={paperlessUrl}
           onDeleteDocument={handleDeleteDocument}
+          onReprocessDocument={handleReprocessDocument}
         >
           <div className="mb-6 rounded-3xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -710,6 +771,8 @@ const DocumentProcessor: React.FC = () => {
           onJobberMatchChange={handleJobberSelectionChange}
           onJobberExpenseToggle={handleJobberExpenseToggle}
           onGoogleDriveToggle={handleGoogleDriveToggle}
+          onRegenerateSuggestion={handleRegenerateSuggestion}
+          regeneratingDocId={regeneratingDocId}
           onBack={resetSuggestions}
           onUpdate={handleUpdateDocuments}
           updating={updating}

@@ -26,6 +26,11 @@ interface SettingsData {
   google_drive_enabled: boolean;
   google_drive_folder_id: string;
   quickbooks_enabled: boolean;
+  paperless_webhook_secret: string;
+}
+
+interface WebhookStatus {
+  paperless_configured?: boolean;
 }
 
 interface IntegrationStatus {
@@ -51,6 +56,7 @@ const defaultSettings: SettingsData = {
   google_drive_enabled: false,
   google_drive_folder_id: '',
   quickbooks_enabled: false,
+  paperless_webhook_secret: '',
 };
 
 const CUSTOM_FIELD_REF_PREFIX = 'custom_field:';
@@ -92,6 +98,7 @@ const IntegrationsEditor: React.FC = () => {
   const [initialSettings, setInitialSettings] = useState<SettingsData>(defaultSettings);
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const [statuses, setStatuses] = useState<Record<string, IntegrationStatus>>({});
+  const [webhookStatus, setWebhookStatus] = useState<WebhookStatus>({});
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -145,11 +152,13 @@ const IntegrationsEditor: React.FC = () => {
         google_drive_enabled: !!settingsData.settings?.google_drive_enabled,
         google_drive_folder_id: settingsData.settings?.google_drive_folder_id || '',
         quickbooks_enabled: !!settingsData.settings?.quickbooks_enabled,
+        paperless_webhook_secret: '',
       };
 
       setSettings(nextSettings);
       setInitialSettings(nextSettings);
       setCustomFields(settingsData.custom_fields || []);
+      setWebhookStatus(settingsData.webhooks || {});
 
       const statusMap: Record<string, IntegrationStatus> = {};
       for (const status of integrationsData.providers || integrationsData.integrations || []) {
@@ -223,8 +232,12 @@ const IntegrationsEditor: React.FC = () => {
         const errData = await response.json();
         throw new Error(errData.error || 'Failed to save settings');
       }
-      setInitialSettings(settings);
       setSuccessMessage('Integration settings saved successfully!');
+      if (settings.paperless_webhook_secret.trim() !== '') {
+        setWebhookStatus((prev) => ({ ...prev, paperless_configured: true }));
+      }
+      setSettings((prev) => ({ ...prev, paperless_webhook_secret: '' }));
+      setInitialSettings((prev) => ({ ...prev, paperless_webhook_secret: '' }));
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
       console.error('Error saving integration settings:', err);
@@ -561,6 +574,32 @@ const IntegrationsEditor: React.FC = () => {
             QuickBooks is connection-only for now. No receipt upload action will appear on document cards yet.
           </p>
         </IntegrationCard>
+
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
+          <SectionHeader
+            title="Paperless webhook"
+            description="Optional: configure Paperless-ngx to POST document.created and document.updated events here so Paperless GPT can pre-generate suggestions before you open the review queue. If this is not configured, the existing polling fallback remains active."
+          />
+          <p className="mb-4 text-sm text-gray-600 dark:text-gray-300">
+            Webhook URL: <code>{window.location.origin}/api/paperless/webhook</code>
+          </p>
+          <p className="mb-4 text-sm text-gray-600 dark:text-gray-300">
+            Status: {webhookStatus.paperless_configured ? 'secret configured' : 'not configured'}
+          </p>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Shared secret
+          </label>
+          <input
+            type="password"
+            value={settings.paperless_webhook_secret}
+            onChange={(e) => handleSettingChange('paperless_webhook_secret', e.target.value)}
+            className="mt-2 w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+            placeholder={webhookStatus.paperless_configured ? 'Leave blank to keep existing secret' : 'Enter shared webhook secret'}
+          />
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            The secret is stored separately from settings.json and is never shown after saving.
+          </p>
+        </div>
       </div>
 
       <div className="flex justify-end mt-6">
