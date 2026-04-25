@@ -35,36 +35,152 @@ func TestJobberMatchCandidateDisplayLabel(t *testing.T) {
 	}
 }
 
-func TestRankJobberCandidatesPrefersJobNumberClientAndTitleMatches(t *testing.T) {
-	document := Document{
-		Title:            "Paint receipt for job 1107",
-		Content:          "Materials purchased for Imene Benaissa and peinture retouche.",
-		Correspondent:    "Benjamin Moore",
-		DocumentTypeName: "Receipt",
-	}
+func TestRankJobberCandidatesPrefersDateInWindow(t *testing.T) {
+	document := Document{CreatedDate: "2024-03-12"}
 
 	candidates := []JobberMatchCandidate{
 		{
-			ID:         "job-1",
-			JobNumber:  "1103",
-			ClientName: "Monica Bialobrzeski",
-			JobName:    "Hardwood floor restauration estimate",
+			ID:        "job-old",
+			JobNumber: "1101",
+			StartAt:   "2024-01-05T00:00:00Z",
+			EndAt:     "2024-01-10T00:00:00Z",
 		},
 		{
-			ID:         "job-2",
-			JobNumber:  "1107",
-			ClientName: "Imene Benaissa",
-			JobName:    "Retouche de peinture et travaux divers",
+			ID:        "job-match",
+			JobNumber: "1107",
+			StartAt:   "2024-03-10T00:00:00Z",
+			EndAt:     "2024-03-15T00:00:00Z",
+		},
+		{
+			ID:        "job-future",
+			JobNumber: "1110",
+			StartAt:   "2024-05-01T00:00:00Z",
+			EndAt:     "2024-05-02T00:00:00Z",
 		},
 	}
 
 	ranked := rankJobberCandidates(document, candidates)
-	if len(ranked) != 2 {
-		t.Fatalf("expected 2 ranked candidates, got %d", len(ranked))
+	if len(ranked) != 3 {
+		t.Fatalf("expected 3 ranked candidates, got %d", len(ranked))
+	}
+	if ranked[0].ID != "job-match" {
+		t.Fatalf("expected best ranked candidate to be job-match, got %s", ranked[0].ID)
+	}
+	if ranked[0].MatchReason == "" {
+		t.Fatalf("expected non-empty match reason for in-window candidate")
+	}
+}
+
+func TestRankJobberCandidatesAutoSelectsUniqueWinner(t *testing.T) {
+	document := Document{CreatedDate: "2024-03-12"}
+
+	candidates := []JobberMatchCandidate{
+		{
+			ID:      "job-other",
+			StartAt: "2024-02-01T00:00:00Z",
+			EndAt:   "2024-02-02T00:00:00Z",
+		},
+		{
+			ID:      "job-match",
+			StartAt: "2024-03-10T00:00:00Z",
+			EndAt:   "2024-03-15T00:00:00Z",
+		},
 	}
 
-	if ranked[0].ID != "job-2" {
-		t.Fatalf("expected best ranked candidate to be job-2, got %s", ranked[0].ID)
+	result, hasDate := rankJobberCandidatesWithSelection(document, "", candidates)
+	if !hasDate {
+		t.Fatal("expected hasDate=true when document has a created date")
+	}
+	if result.AutoSelectedID != "job-match" {
+		t.Fatalf("expected auto-selected job-match, got %q", result.AutoSelectedID)
+	}
+}
+
+func TestRankJobberCandidatesNoAutoSelectOnTie(t *testing.T) {
+	document := Document{CreatedDate: "2024-03-12"}
+
+	// Two jobs whose windows both contain the doc date — ambiguous, no auto-pick.
+	candidates := []JobberMatchCandidate{
+		{
+			ID:      "job-a",
+			StartAt: "2024-03-10T00:00:00Z",
+			EndAt:   "2024-03-15T00:00:00Z",
+		},
+		{
+			ID:      "job-b",
+			StartAt: "2024-03-11T00:00:00Z",
+			EndAt:   "2024-03-13T00:00:00Z",
+		},
+	}
+
+	result, _ := rankJobberCandidatesWithSelection(document, "", candidates)
+	if result.AutoSelectedID != "" {
+		t.Fatalf("expected no auto-selection on tie, got %q", result.AutoSelectedID)
+	}
+}
+
+func TestRankJobberCandidatesPrefersSuggestedDateOverDocCreatedDate(t *testing.T) {
+	// Paperless's created_date is wrong; the LLM has just suggested the right one.
+	document := Document{CreatedDate: "2024-01-01"}
+	suggested := "2024-03-12"
+
+	candidates := []JobberMatchCandidate{
+		{
+			ID:      "matches-paperless",
+			StartAt: "2024-01-01T00:00:00Z",
+			EndAt:   "2024-01-01T00:00:00Z",
+		},
+		{
+			ID:      "matches-suggested",
+			StartAt: "2024-03-10T00:00:00Z",
+			EndAt:   "2024-03-15T00:00:00Z",
+		},
+	}
+
+	result, _ := rankJobberCandidatesWithSelection(document, suggested, candidates)
+	if result.AutoSelectedID != "matches-suggested" {
+		t.Fatalf("expected suggested date to drive matching, got %q", result.AutoSelectedID)
+	}
+}
+
+func TestRankJobberCandidatesNearWindowMatchesWithReducedScore(t *testing.T) {
+	document := Document{CreatedDate: "2024-03-09"} // 1 day before job start
+	candidates := []JobberMatchCandidate{
+		{
+			ID:      "job-close",
+			StartAt: "2024-03-10T00:00:00Z",
+			EndAt:   "2024-03-15T00:00:00Z",
+		},
+		{
+			ID:      "job-far",
+			StartAt: "2024-08-01T00:00:00Z",
+			EndAt:   "2024-08-05T00:00:00Z",
+		},
+	}
+
+	ranked := rankJobberCandidates(document, candidates)
+	if ranked[0].ID != "job-close" {
+		t.Fatalf("expected near-window match to rank first, got %s", ranked[0].ID)
+	}
+}
+
+func TestRankJobberCandidatesFallsBackToRecencyWhenNoDocDate(t *testing.T) {
+	document := Document{} // no date at all
+	candidates := []JobberMatchCandidate{
+		{ID: "old", StartAt: "2024-01-01T00:00:00Z"},
+		{ID: "new", StartAt: "2024-06-01T00:00:00Z"},
+		{ID: "middle", StartAt: "2024-03-01T00:00:00Z"},
+	}
+
+	ranked := rankJobberCandidates(document, candidates)
+	if ranked[0].ID != "new" {
+		t.Fatalf("expected most-recent job first, got %s", ranked[0].ID)
+	}
+	if ranked[1].ID != "middle" {
+		t.Fatalf("expected middle job second, got %s", ranked[1].ID)
+	}
+	if ranked[2].ID != "old" {
+		t.Fatalf("expected oldest job last, got %s", ranked[2].ID)
 	}
 }
 

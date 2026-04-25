@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -16,6 +17,47 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
 )
+
+// llmDateRegexp matches the first ISO-like date in an LLM response, allowing
+// 1- or 2-digit month/day and either '-' or '/' separators. The regex is
+// intentionally lenient — we normalize the captured groups into the strict
+// YYYY-MM-DD format below.
+var llmDateRegexp = regexp.MustCompile(`(\d{4})[-/](\d{1,2})[-/](\d{1,2})`)
+
+// normalizeSuggestedCreatedDate cleans up an LLM date response and returns a
+// strict YYYY-MM-DD string, or "" if no valid date could be extracted.
+//
+// LLMs frequently violate "respond only with YYYY-MM-DD" by wrapping the
+// answer in code fences, prose, quotes, or trailing punctuation; or by using
+// non-zero-padded months/days. The HTML <input type="date"> control silently
+// ignores any value that isn't a strict YYYY-MM-DD, so we have to normalize
+// before handing it to the front-end.
+func normalizeSuggestedCreatedDate(raw string) string {
+	cleaned := stripReasoning(raw)
+	cleaned = stripMarkdown(cleaned)
+	cleaned = strings.TrimSpace(cleaned)
+	cleaned = strings.Trim(cleaned, "\"'`")
+
+	match := llmDateRegexp.FindStringSubmatch(cleaned)
+	if len(match) != 4 {
+		return ""
+	}
+	year := match[1]
+	month := match[2]
+	if len(month) == 1 {
+		month = "0" + month
+	}
+	day := match[3]
+	if len(day) == 1 {
+		day = "0" + day
+	}
+	candidate := fmt.Sprintf("%s-%s-%s", year, month, day)
+
+	if _, err := time.Parse("2006-01-02", candidate); err != nil {
+		return ""
+	}
+	return candidate
+}
 
 // getSuggestedCorrespondent generates a suggested correspondent for a document using the LLM
 func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, suggestedTitle string, availableCorrespondents []string, correspondentBlackList []string) (string, error) {
@@ -392,8 +434,12 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, title string, conte
 	if len(completion.Choices) == 0 {
 		return "", fmt.Errorf("LLM returned no choices for created date suggestion")
 	}
-	result := stripReasoning(completion.Choices[0].Content)
-	return strings.TrimSpace(strings.Trim(result, "\"")), nil
+	raw := completion.Choices[0].Content
+	normalized := normalizeSuggestedCreatedDate(raw)
+	if normalized == "" {
+		logger.Warnf("LLM returned an unparseable created date; ignoring. Raw response: %q", raw)
+	}
+	return normalized, nil
 }
 
 // getSuggestedCustomFields generates suggested custom fields for a document using the LLM.

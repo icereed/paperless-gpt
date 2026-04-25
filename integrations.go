@@ -495,10 +495,14 @@ func (s *IntegrationsService) FetchAllJobberCandidates(ctx context.Context) ([]J
 	}
 
 	type jobNode struct {
-		ID        string `json:"id"`
-		JobNumber int    `json:"jobNumber"`
-		Title     string `json:"title"`
-		Client    struct {
+		ID          string `json:"id"`
+		JobNumber   int    `json:"jobNumber"`
+		Title       string `json:"title"`
+		StartAt     string `json:"startAt"`
+		EndAt       string `json:"endAt"`
+		CompletedAt string `json:"completedAt"`
+		CreatedAt   string `json:"createdAt"`
+		Client      struct {
 			Name        string `json:"name"`
 			CompanyName string `json:"companyName"`
 		} `json:"client"`
@@ -512,6 +516,10 @@ func (s *IntegrationsService) FetchAllJobberCandidates(ctx context.Context) ([]J
         id
         jobNumber
         title
+        startAt
+        endAt
+        completedAt
+        createdAt
         client {
           name
           companyName
@@ -609,10 +617,14 @@ func (s *IntegrationsService) FetchAllJobberCandidates(ctx context.Context) ([]J
 			jobName = "Untitled job"
 		}
 		candidates = append(candidates, JobberMatchCandidate{
-			ID:         node.ID,
-			JobNumber:  fmt.Sprintf("%d", node.JobNumber),
-			ClientName: clientName,
-			JobName:    jobName,
+			ID:          node.ID,
+			JobNumber:   fmt.Sprintf("%d", node.JobNumber),
+			ClientName:  clientName,
+			JobName:     jobName,
+			StartAt:     node.StartAt,
+			EndAt:       node.EndAt,
+			CompletedAt: node.CompletedAt,
+			CreatedAt:   node.CreatedAt,
 		})
 	}
 
@@ -1114,39 +1126,195 @@ func parseNumericValue(value interface{}) (float64, bool) {
 	return 0, false
 }
 
-func rankJobberCandidates(document Document, candidates []JobberMatchCandidate) []JobberMatchCandidate {
-	type scored struct {
-		candidate JobberMatchCandidate
-		score     int
+// jobberMatchNearWindowDays is how far outside a job's [start, end] window the
+// document date can fall and still be considered a match (with a reduced
+// score). Materials are often bought the day before a visit and receipts can
+// be written up the day after, so a small one-week buffer captures the common
+// real-world cases without being so wide that it creates constant false
+// positives.
+const jobberMatchNearWindowDays = 7
+
+// jobberLongRunningThresholdDays caps how many days a job's [start, end]
+// window can span before we consider it "long-running" and slightly
+// de-prioritize it relative to a tighter-window job that also matches. A
+// year-long recurring job whose window happens to contain the doc date is a
+// weaker signal than a single-day visit on the same date.
+const jobberLongRunningThresholdDays = 365
+
+const (
+	jobberScoreInWindow      = 100
+	jobberScoreInLongWindow  = 80
+	jobberScorePerDayPenalty = 5
+)
+
+// jobberRankResult bundles the ranked list with the per-document candidate ID
+// to auto-select, when one stands out. AutoSelectedID is empty when no
+// candidate is unambiguously best (no candidate is in-window, or several are
+// tied for the top score).
+type jobberRankResult struct {
+	Candidates     []JobberMatchCandidate
+	AutoSelectedID string
+}
+
+// parseJobberDate parses an ISO-8601 timestamp from Jobber and returns the
+// calendar day in UTC. Jobber returns full timestamps for date fields
+// (e.g. "2024-03-12T13:00:00Z"); for matching purposes we only care about the
+// day, so we truncate the time component.
+func parseJobberDate(value string) (time.Time, bool) {
+	if value == "" {
+		return time.Time{}, false
 	}
-	docText := strings.ToLower(strings.Join([]string{
-		document.Title,
-		document.Content,
-		document.Correspondent,
-		document.DocumentTypeName,
-	}, " "))
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC), true
+	}
+	if t, err := time.Parse("2006-01-02", value); err == nil {
+		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC), true
+	}
+	return time.Time{}, false
+}
+
+// jobberCandidateWindow returns the effective [start, end] window for a
+// candidate using Jobber's available date fields, falling back forward when
+// some are missing. Returns ok=false when no usable date is available.
+func jobberCandidateWindow(c JobberMatchCandidate) (start, end time.Time, ok bool) {
+	startParsed, hasStart := parseJobberDate(c.StartAt)
+	endParsed, hasEnd := parseJobberDate(c.EndAt)
+	completedParsed, hasCompleted := parseJobberDate(c.CompletedAt)
+
+	switch {
+	case hasStart && hasEnd:
+		return startParsed, endParsed, true
+	case hasStart && hasCompleted:
+		return startParsed, completedParsed, true
+	case hasStart:
+		return startParsed, startParsed, true
+	case hasEnd:
+		return endParsed, endParsed, true
+	case hasCompleted:
+		return completedParsed, completedParsed, true
+	}
+	return time.Time{}, time.Time{}, false
+}
+
+// scoreJobberCandidate rates a single candidate against a parsed document
+// date. The returned score follows the constants documented at the top of
+// this section (in-window > long-running in-window > near-window decaying by
+// distance > 0). reason is a short human-readable label explaining the
+// score and is surfaced in the UI when set.
+func scoreJobberCandidate(docDate time.Time, c JobberMatchCandidate) (int, string) {
+	start, end, ok := jobberCandidateWindow(c)
+	if !ok {
+		return 0, ""
+	}
+
+	windowDays := int(end.Sub(start).Hours()/24) + 1
+	if windowDays < 1 {
+		windowDays = 1
+	}
+
+	if !docDate.Before(start) && !docDate.After(end) {
+		if windowDays > jobberLongRunningThresholdDays {
+			return jobberScoreInLongWindow, fmt.Sprintf("Document date is within this job's window (%s – %s)", start.Format("2006-01-02"), end.Format("2006-01-02"))
+		}
+		return jobberScoreInWindow, fmt.Sprintf("Document date is within this job's window (%s – %s)", start.Format("2006-01-02"), end.Format("2006-01-02"))
+	}
+
+	var distance int
+	if docDate.Before(start) {
+		distance = int(start.Sub(docDate).Hours() / 24)
+	} else {
+		distance = int(docDate.Sub(end).Hours() / 24)
+	}
+	if distance <= jobberMatchNearWindowDays {
+		score := jobberScoreInWindow - distance*jobberScorePerDayPenalty
+		if score < 1 {
+			score = 1
+		}
+		return score, fmt.Sprintf("Document date is %d day(s) outside this job's window (%s – %s)", distance, start.Format("2006-01-02"), end.Format("2006-01-02"))
+	}
+	return 0, ""
+}
+
+// rankJobberCandidates orders candidates by relevance to the supplied
+// document, using only the document's date and each Jobber job's date fields.
+// Candidates without dates fall to the bottom and are ordered by job
+// recency.
+//
+// This deliberately avoids substring matching against OCR'd document text:
+// receipts vary wildly in how (and whether) they reference jobs by number or
+// client, and free-text matches were prone to false positives. The document's
+// date, by contrast, is structured and almost always present.
+func rankJobberCandidates(document Document, candidates []JobberMatchCandidate) []JobberMatchCandidate {
+	result, _ := rankJobberCandidatesWithSelection(document, "", candidates)
+	return result.Candidates
+}
+
+// rankJobberCandidatesWithSelection ranks candidates and additionally returns
+// the ID of the candidate to auto-select, when one is unambiguously best.
+//
+// preferredDocDate, when non-empty, takes precedence over document.CreatedDate
+// — it lets callers feed in the LLM-suggested date that the user is about to
+// approve, instead of the (often wrong) date stored in Paperless.
+func rankJobberCandidatesWithSelection(document Document, preferredDocDate string, candidates []JobberMatchCandidate) (jobberRankResult, bool) {
+	type scored struct {
+		candidate  JobberMatchCandidate
+		score      int
+		reason     string
+		recencyKey time.Time
+	}
+
+	docDateStr := strings.TrimSpace(preferredDocDate)
+	if docDateStr == "" {
+		docDateStr = strings.TrimSpace(document.CreatedDate)
+	}
+	docDate, hasDocDate := parseJobberDate(docDateStr)
+
 	scoredCandidates := make([]scored, 0, len(candidates))
 	for _, candidate := range candidates {
-		score := 0
-		if candidate.JobNumber != "" && strings.Contains(docText, strings.ToLower(candidate.JobNumber)) {
-			score += 10
+		var score int
+		var reason string
+		if hasDocDate {
+			score, reason = scoreJobberCandidate(docDate, candidate)
 		}
-		if candidate.ClientName != "" && strings.Contains(docText, strings.ToLower(candidate.ClientName)) {
-			score += 5
+		recencyKey, _ := parseJobberDate(candidate.StartAt)
+		if recencyKey.IsZero() {
+			recencyKey, _ = parseJobberDate(candidate.CreatedAt)
 		}
-		if candidate.JobName != "" && strings.Contains(docText, strings.ToLower(candidate.JobName)) {
-			score += 3
-		}
-		scoredCandidates = append(scoredCandidates, scored{candidate: candidate, score: score})
+
+		c := candidate
+		c.MatchReason = reason
+		scoredCandidates = append(scoredCandidates, scored{
+			candidate:  c,
+			score:      score,
+			reason:     reason,
+			recencyKey: recencyKey,
+		})
 	}
+
 	sort.SliceStable(scoredCandidates, func(i, j int) bool {
-		return scoredCandidates[i].score > scoredCandidates[j].score
+		if scoredCandidates[i].score != scoredCandidates[j].score {
+			return scoredCandidates[i].score > scoredCandidates[j].score
+		}
+		// Secondary: more recent first (later date wins).
+		return scoredCandidates[i].recencyKey.After(scoredCandidates[j].recencyKey)
 	})
+
 	result := make([]JobberMatchCandidate, 0, len(scoredCandidates))
 	for _, item := range scoredCandidates {
 		result = append(result, item.candidate)
 	}
-	return result
+
+	autoID := ""
+	// Only auto-select when there's a clear winner: the top candidate must be
+	// a strong match (in-window) and strictly better than the runner-up.
+	// Otherwise we'd be picking arbitrarily from a tie.
+	if len(scoredCandidates) >= 1 && scoredCandidates[0].score >= jobberScoreInLongWindow {
+		if len(scoredCandidates) == 1 || scoredCandidates[0].score > scoredCandidates[1].score {
+			autoID = scoredCandidates[0].candidate.ID
+		}
+	}
+
+	return jobberRankResult{Candidates: result, AutoSelectedID: autoID}, hasDocDate
 }
 
 func executeJSONGraphQL(ctx context.Context, endpoint, accessToken, query string, variables map[string]interface{}, target interface{}) error {

@@ -50,6 +50,11 @@ export interface JobberMatchCandidate {
   job_number: string;
   client_name: string;
   job_name: string;
+  start_at?: string;
+  end_at?: string;
+  completed_at?: string;
+  created_at?: string;
+  match_reason?: string;
 }
 
 export interface DocumentIntegrationResult {
@@ -225,20 +230,39 @@ const DocumentProcessor: React.FC = () => {
       if (integrationStatuses.jobber?.connected && jobberEnabled) {
         try {
           // Pass the full document objects so the server can rank candidates
-          // without making extra Paperless API calls for each document.
-          const jobberResponse = await axios.post<{ candidates: Record<string, JobberMatchCandidate[]> }>(
+          // without making extra Paperless API calls for each document. Also
+          // pass the freshly-suggested created dates so date-based matching
+          // uses the LLM's normalized date instead of the (often-wrong)
+          // Paperless date.
+          const suggestedDates: Record<string, string> = {};
+          processedSuggestions.forEach((s) => {
+            if (s.suggested_created_date) {
+              suggestedDates[String(s.id)] = s.suggested_created_date;
+            }
+          });
+
+          const jobberResponse = await axios.post<{
+            candidates: Record<string, JobberMatchCandidate[]>;
+            auto_selected?: Record<string, string>;
+          }>(
             "./api/integrations/jobber/match-candidates",
             {
               document_ids: docsToProcess.map((d) => d.id),
               documents: docsToProcess,
+              suggested_created_dates: suggestedDates,
             }
           );
 
           setSuggestions((current) =>
-            current.map((suggestion) => ({
-              ...suggestion,
-              jobber_candidates: jobberResponse.data.candidates?.[String(suggestion.id)] || [],
-            }))
+            current.map((suggestion) => {
+              const candidates = jobberResponse.data.candidates?.[String(suggestion.id)] || [];
+              const autoSelected = jobberResponse.data.auto_selected?.[String(suggestion.id)] || "";
+              return {
+                ...suggestion,
+                jobber_candidates: candidates,
+                selected_jobber_match_id: suggestion.selected_jobber_match_id || autoSelected,
+              };
+            })
           );
         } catch (jobberError) {
           console.error("Error fetching Jobber candidates:", jobberError);

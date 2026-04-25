@@ -428,6 +428,35 @@ func TestStripReasoning(t *testing.T) {
 	}
 }
 
+func TestNormalizeSuggestedCreatedDate(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"plain ISO date", "2024-03-12", "2024-03-12"},
+		{"with surrounding whitespace", "  2024-03-12 \n", "2024-03-12"},
+		{"wrapped in quotes", "\"2024-03-12\"", "2024-03-12"},
+		{"wrapped in markdown fence", "```\n2024-03-12\n```", "2024-03-12"},
+		{"wrapped in json markdown fence", "```json\n2024-03-12\n```", "2024-03-12"},
+		{"with reasoning prefix", "<think>let me see</think>\n2024-03-12", "2024-03-12"},
+		{"with prose prefix", "The document was created on 2024-03-12.", "2024-03-12"},
+		{"non-zero-padded", "2024-3-9", "2024-03-09"},
+		{"slashes", "2024/03/12", "2024-03-12"},
+		{"trailing period", "2024-03-12.", "2024-03-12"},
+		{"empty input", "", ""},
+		{"no date in text", "I don't know", ""},
+		{"invalid month", "2024-13-12", ""},
+		{"invalid day", "2024-02-31", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeSuggestedCreatedDate(tc.input)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
+
 // mockPaperlessClient is a mock implementation of the ClientInterface for testing.
 type mockPaperlessClient struct {
 	CustomFields []CustomField

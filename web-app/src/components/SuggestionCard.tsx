@@ -69,6 +69,14 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
     );
   }, [suggestion.jobber_candidates, jobberSearch]);
 
+  const selectedJobberCandidate = useMemo(
+    () =>
+      suggestion.jobber_candidates?.find(
+        (c) => c.id === suggestion.selected_jobber_match_id
+      ),
+    [suggestion.jobber_candidates, suggestion.selected_jobber_match_id]
+  );
+
   const handleJobberSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setJobberSearch(e.target.value);
   }, []);
@@ -256,7 +264,11 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
             </label>
             <input
               type="date"
-              value={suggestion.suggested_created_date || ""}
+              value={
+                suggestion.suggested_created_date ||
+                document.created_date ||
+                ""
+              }
               onChange={(e) => onCreatedDateChange(suggestion.id, e.target.value)}
               className="mt-2 w-full rounded border border-gray-300 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
             />
@@ -334,6 +346,11 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                   <option disabled value="">No results for "{jobberSearch}"</option>
                 )}
               </select>
+              {selectedJobberCandidate?.match_reason && (
+                <p className="mt-1.5 text-xs text-blue-700 dark:text-blue-300">
+                  {selectedJobberCandidate.match_reason}
+                </p>
+              )}
             </div>
 
             <div className="flex items-start gap-3">

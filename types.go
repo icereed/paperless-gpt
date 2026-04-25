@@ -162,6 +162,18 @@ type JobberMatchCandidate struct {
 	JobNumber  string `json:"job_number"`
 	ClientName string `json:"client_name"`
 	JobName    string `json:"job_name"`
+	// StartAt is the job's scheduled start date (ISO-8601). Empty when Jobber
+	// does not have a start date for the job (e.g. unscheduled work).
+	StartAt string `json:"start_at,omitempty"`
+	// EndAt is the job's scheduled end date (ISO-8601). Empty for open-ended jobs.
+	EndAt string `json:"end_at,omitempty"`
+	// CompletedAt is the date the job was marked complete (ISO-8601).
+	CompletedAt string `json:"completed_at,omitempty"`
+	// CreatedAt is when the job record was created in Jobber. Always present.
+	CreatedAt string `json:"created_at,omitempty"`
+	// MatchReason is a short human-readable explanation of why this candidate
+	// was ranked where it was — useful for the UI to show "auto-matched on date".
+	MatchReason string `json:"match_reason,omitempty"`
 }
 
 func (c JobberMatchCandidate) DisplayLabel() string {

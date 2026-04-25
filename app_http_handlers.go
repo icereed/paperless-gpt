@@ -574,6 +574,12 @@ func (app *App) jobberMatchCandidatesHandler(c *gin.Context) {
 		// handler does not need to fetch them from Paperless.  Elements are
 		// matched by position/ID to DocumentIDs.
 		Documents []Document `json:"documents,omitempty"`
+		// SuggestedCreatedDates maps document ID -> normalized YYYY-MM-DD date
+		// that the LLM just suggested. When present, this date is used for
+		// matching instead of the document's CreatedDate from Paperless: the
+		// whole point of running the LLM is that Paperless's date is often
+		// wrong, so matching against it would be too.
+		SuggestedCreatedDates map[string]string `json:"suggested_created_dates,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -654,16 +660,22 @@ func (app *App) jobberMatchCandidatesHandler(c *gin.Context) {
 
 	// Rank the shared candidate list per document in memory — no more API calls.
 	results := make(map[int][]JobberMatchCandidate, len(req.DocumentIDs))
+	autoSelected := make(map[int]string, len(req.DocumentIDs))
 	for _, id := range req.DocumentIDs {
 		doc, ok := docByID[id]
 		if !ok {
 			results[id] = allCandidates
 			continue
 		}
-		results[id] = rankJobberCandidates(doc, allCandidates)
+		preferred := req.SuggestedCreatedDates[strconv.Itoa(id)]
+		ranked, _ := rankJobberCandidatesWithSelection(doc, preferred, allCandidates)
+		results[id] = ranked.Candidates
+		if ranked.AutoSelectedID != "" {
+			autoSelected[id] = ranked.AutoSelectedID
+		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"candidates": results})
+	c.JSON(http.StatusOK, gin.H{"candidates": results, "auto_selected": autoSelected})
 }
 
 func currentBaseURL(c *gin.Context) string {
