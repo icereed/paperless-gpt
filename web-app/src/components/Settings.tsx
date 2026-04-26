@@ -4,6 +4,7 @@ import CustomFieldsEditor from './CustomFieldsEditor';
 import MetadataRestrictionsEditor from './MetadataRestrictionsEditor';
 import IntegrationsEditor from './IntegrationsEditor';
 import ChangePassword from './ChangePassword';
+import AIProvidersEditor from './AIProvidersEditor';
 
 const Settings: React.FC = () => {
   return (
@@ -22,6 +23,7 @@ const Settings: React.FC = () => {
       </section>
 
       <div className="space-y-8">
+        <AIProvidersEditor />
         <PromptsEditor />
         <MetadataRestrictionsEditor />
         <CustomFieldsEditor />

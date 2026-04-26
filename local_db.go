@@ -95,6 +95,18 @@ type WebhookSecret struct {
 	UpdatedAt time.Time
 }
 
+type AIProviderSetting struct {
+	ID              uint   `gorm:"primaryKey"`
+	Provider        string `gorm:"size:64;uniqueIndex;not null"`
+	Enabled         bool   `gorm:"not null;default:false"`
+	BaseURL         string `gorm:"size:2048"`
+	DefaultModel    string `gorm:"size:255"`
+	EncryptedAPIKey string `gorm:"type:TEXT"`
+	TaskModelsJSON  string `gorm:"type:TEXT"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
 type OCRPageResult struct {
 	ID             uint   `gorm:"primaryKey"`
 	DocumentID     int    `gorm:"index;not null"`
@@ -134,7 +146,7 @@ func InitializeDB() *gorm.DB {
 	}
 
 	// Migrate the schema (create the tables if they don't exist)
-	err = db.AutoMigrate(&ModificationHistory{}, &ApplyBatch{}, &DocumentSuggestionCache{}, &IntegrationCandidateCache{}, &SuggestionJob{}, &WebhookSecret{}, &OCRPageResult{}, &IntegrationConnection{}, &OAuthStateRecord{}, &IntegrationActionLog{}, &IntegrationReceiptShare{}, &ReceiptAccessToken{}, &User{}, &UserSession{})
+	err = db.AutoMigrate(&ModificationHistory{}, &ApplyBatch{}, &DocumentSuggestionCache{}, &IntegrationCandidateCache{}, &SuggestionJob{}, &WebhookSecret{}, &AIProviderSetting{}, &OCRPageResult{}, &IntegrationConnection{}, &OAuthStateRecord{}, &IntegrationActionLog{}, &IntegrationReceiptShare{}, &ReceiptAccessToken{}, &User{}, &UserSession{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database schema: %v", err)
 	}

@@ -18,6 +18,26 @@ import (
 	"github.com/tmc/langchaingo/llms"
 )
 
+func (app *App) generateTaskContent(ctx context.Context, task string, prompt string, logger *logrus.Entry) (*llms.ContentResponse, error) {
+	llm, model, err := app.getLLMForTask(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	if logger != nil && model != "" {
+		logger.WithFields(logrus.Fields{"task": task, "model": model}).Debug("Using AI model for suggestion task")
+	}
+	return llm.GenerateContent(ctx, []llms.MessageContent{
+		{
+			Parts: []llms.ContentPart{
+				llms.TextContent{
+					Text: prompt,
+				},
+			},
+			Role: llms.ChatMessageTypeHuman,
+		},
+	})
+}
+
 // llmDateRegexp matches the first ISO-like date in an LLM response, allowing
 // 1- or 2-digit month/day and either '-' or '/' separators. The regex is
 // intentionally lenient — we normalize the captured groups into the strict
@@ -96,16 +116,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	prompt := promptBuffer.String()
 	log.Debugf("Correspondent suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
+	completion, err := app.generateTaskContent(ctx, TaskCorrespondent, prompt, log.WithContext(ctx))
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
@@ -142,11 +153,11 @@ func (app *App) getSuggestedTags(
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
-		"Language":       likelyLanguage,
-		"AvailableTags":  availableTags,
-		"OriginalTags":   originalTags,
-		"Title":          suggestedTitle,
-		"CreateNewTags":  effectiveCreateNewTags,
+		"Language":      likelyLanguage,
+		"AvailableTags": availableTags,
+		"OriginalTags":  originalTags,
+		"Title":         suggestedTitle,
+		"CreateNewTags": effectiveCreateNewTags,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(tagTemplate, templateData)
@@ -174,16 +185,7 @@ func (app *App) getSuggestedTags(
 	prompt := promptBuffer.String()
 	logger.Debugf("Tag suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
+	completion, err := app.generateTaskContent(ctx, TaskTags, prompt, logger)
 	if err != nil {
 		logger.Errorf("Error getting response from LLM: %v", err)
 		return nil, fmt.Errorf("error getting response from LLM: %v", err)
@@ -285,16 +287,7 @@ func (app *App) getSuggestedDocumentType(
 	prompt := promptBuffer.String()
 	logger.Debugf("Document type suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
+	completion, err := app.generateTaskContent(ctx, TaskDocumentType, prompt, logger)
 	if err != nil {
 		logger.Errorf("Error getting response from LLM: %v", err)
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
@@ -358,16 +351,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	prompt := promptBuffer.String()
 	logger.Debugf("Title suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
+	completion, err := app.generateTaskContent(ctx, TaskTitle, prompt, logger)
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
@@ -418,16 +402,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, title string, conte
 	prompt := promptBuffer.String()
 	logger.Debugf("CreatedDate suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: []llms.ContentPart{
-				llms.TextContent{
-					Text: prompt,
-				},
-			},
-			Role: llms.ChatMessageTypeHuman,
-		},
-	})
+	completion, err := app.generateTaskContent(ctx, TaskCreatedDate, prompt, logger)
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
@@ -500,14 +475,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	prompt := promptBuffer.String()
 	logger.Debugf("Custom field suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Role: llms.ChatMessageTypeHuman,
-			Parts: []llms.ContentPart{
-				llms.TextContent{Text: prompt},
-			},
-		},
-	})
+	completion, err := app.generateTaskContent(ctx, TaskCustomFields, prompt, logger)
 	if err != nil {
 		return nil, fmt.Errorf("error getting response from LLM for custom fields: %v", err)
 	}

@@ -739,6 +739,9 @@ func (s *IntegrationsService) UploadDocumentToGoogleDrive(ctx context.Context, c
 }
 
 func (s *IntegrationsService) CreateJobberExpense(ctx context.Context, client ClientInterface, suggestion DocumentSuggestion, candidate JobberMatchCandidate, batchID ...uint) (*JobberExpenseCreateResult, error) {
+	if !suggestion.ApplyJobber {
+		return nil, fmt.Errorf("jobber apply is disabled for this document")
+	}
 	var appliedBatchID *uint
 	if len(batchID) > 0 && batchID[0] > 0 {
 		appliedBatchID = &batchID[0]

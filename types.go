@@ -108,12 +108,6 @@ func (req GenerateSuggestionsRequest) WithoutRegenerate() GenerateSuggestionsReq
 	return req
 }
 
-// AnalyzeDocumentsRequest is the request payload for the ad-hoc analysis
-type AnalyzeDocumentsRequest struct {
-	DocumentIDs []int  `json:"document_ids"`
-	Prompt      string `json:"prompt"`
-}
-
 // Settings defines the structure for server-side UI settings
 type Settings struct {
 	CustomFieldsEnable               bool   `json:"custom_fields_enable"`
@@ -160,6 +154,7 @@ type DocumentSuggestion struct {
 	CustomFieldsEnable     bool                    `json:"custom_fields_enable"`
 	JobberCandidates       []JobberMatchCandidate  `json:"jobber_candidates,omitempty"`
 	SelectedJobberMatchID  string                  `json:"selected_jobber_match_id,omitempty"`
+	ApplyJobber            bool                    `json:"apply_jobber,omitempty"`
 	CreateJobberExpense    bool                    `json:"create_jobber_expense,omitempty"`
 	UploadToGoogleDrive    bool                    `json:"upload_to_google_drive,omitempty"`
 	Cached                 bool                    `json:"cached,omitempty"`

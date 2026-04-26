@@ -96,7 +96,6 @@ var (
 	createdDateTemplate   *template.Template
 	customFieldTemplate   *template.Template
 	ocrTemplate           *template.Template
-	adhocAnalysisTemplate *template.Template
 	templateMutex         sync.RWMutex
 
 	// Server-side settings
@@ -134,6 +133,7 @@ type App struct {
 	Integrations       *IntegrationsService
 	LLM                llms.Model
 	VisionLLM          llms.Model
+	llmCache           *sync.Map
 	ocrProvider        ocr.Provider      // OCR provider interface
 	ocrProcessMode     string            // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
 	docProcessor       DocumentProcessor // Optional: Can be used for mocking
@@ -201,10 +201,12 @@ func main() {
 		log.Fatalf("Failed to load templates: %v", err)
 	}
 
-	// Initialize LLM
+	// Initialize the env-configured LLM when available. UI-managed provider settings
+	// can be saved after startup, so missing env credentials should not prevent the
+	// settings UI from loading.
 	llm, err := createLLM()
 	if err != nil {
-		log.Fatalf("Failed to create LLM client: %v", err)
+		log.Warnf("LLM client is not ready yet: %v", err)
 	}
 
 	// Initialize Vision LLM
@@ -337,6 +339,7 @@ func main() {
 		Integrations:       integrations,
 		LLM:                llm,
 		VisionLLM:          visionLlm,
+		llmCache:           &sync.Map{},
 		ocrProvider:        ocrProvider,
 		ocrProcessMode:     ocrProcessMode,
 		docProcessor:       nil, // App itself implements DocumentProcessor
@@ -459,7 +462,9 @@ func main() {
 		api.POST("/undo-modification/:id", app.undoModificationHandler)
 		api.POST("/undo-batch/:id", app.undoApplyBatchHandler)
 		api.POST("/documents/:id/reprocess", app.reprocessDocumentHandler)
-		api.POST("/analyze-documents", app.analyzeDocumentsHandler)
+		api.GET("/ai/providers/settings", app.getAIProviderSettingsHandler)
+		api.POST("/ai/providers/settings", app.updateAIProviderSettingsHandler)
+		api.POST("/ai/providers/test", app.testAIProviderSettingsHandler)
 
 		// Get public Paperless environment (as set in environment variables)
 		api.GET("/paperless-url", func(c *gin.Context) {
@@ -492,9 +497,6 @@ func main() {
 		router.GET("/settings", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
-		router.GET("/adhoc-analysis", func(c *gin.Context) {
-			c.File("web-app/dist/index.html")
-		})
 		router.GET("/favicon.ico", func(c *gin.Context) {
 			c.File("web-app/dist/favicon.ico")
 		})
@@ -522,10 +524,6 @@ func main() {
 		})
 		// settings route
 		router.GET("/settings", func(c *gin.Context) {
-			serveEmbeddedFile(c, "", "index.html")
-		})
-		// adhoc-analysis route
-		router.GET("/adhoc-analysis", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
 	}
@@ -657,10 +655,6 @@ func validateOrDefaultEnvVars() {
 		log.Fatal("Please set the PAPERLESS_API_TOKEN environment variable.")
 	}
 
-	if llmProvider == "" {
-		log.Fatal("Please set the LLM_PROVIDER environment variable.")
-	}
-
 	if visionLlmProvider != "" &&
 		visionLlmProvider != "openai" &&
 		visionLlmProvider != "ollama" &&
@@ -670,8 +664,8 @@ func validateOrDefaultEnvVars() {
 
 		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai', 'mistral' or 'anthropic'.")
 	}
-	if llmProvider != "openai" && llmProvider != "ollama" && llmProvider != "googleai" && llmProvider != "mistral" && llmProvider != "anthropic" {
-		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai', 'mistral' or 'anthropic'.")
+	if llmProvider != "" && llmProvider != "openai" && llmProvider != "openrouter" && llmProvider != "ollama" && llmProvider != "googleai" && llmProvider != "mistral" && llmProvider != "anthropic" {
+		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai', 'openrouter', 'ollama', 'googleai', 'mistral' or 'anthropic'.")
 	}
 
 	// Validate OCR provider if set
@@ -703,7 +697,7 @@ func validateOrDefaultEnvVars() {
 		}
 	}
 
-	if llmModel == "" {
+	if llmProvider != "" && llmModel == "" {
 		log.Fatal("Please set the LLM_MODEL environment variable.")
 	}
 
@@ -717,11 +711,15 @@ func validateOrDefaultEnvVars() {
 			log.Fatal("Please set the ANTHROPIC_API_KEY environment variable for Anthropic provider.")
 		}
 	}
-	if llmProvider == "openai" || visionLlmProvider == "openai" {
-		if openaiAPIKey == "" {
-			log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
-		}
+	if (llmProvider == "openai" || visionLlmProvider == "openai") && openaiAPIKey == "" {
+		log.Fatal("Please set the OPENAI_API_KEY environment variable for OpenAI provider.")
+	}
 
+	if llmProvider == "openrouter" && os.Getenv("OPENROUTER_API_KEY") == "" {
+		log.Fatal("Please set the OPENROUTER_API_KEY environment variable for OpenRouter provider.")
+	}
+
+	if llmProvider == "openai" || visionLlmProvider == "openai" {
 		// Check Azure specific configuration
 		if strings.ToLower(os.Getenv("OPENAI_API_TYPE")) == "azure" {
 			if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL == "" {
@@ -944,10 +942,6 @@ func loadTemplates() error {
 	if err != nil {
 		return err
 	}
-	adhocAnalysisTemplate, err = loadTemplate("adhoc-analysis_prompt.tmpl")
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -1012,9 +1006,12 @@ func createLLM() (llms.Model, error) {
 
 		// Apply rate limiting with isVision=false
 		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
-	case "openai":
+	case "openai", "openrouter":
 		if openaiAPIKey == "" {
-			return nil, fmt.Errorf("OpenAI API key is not set")
+			openaiAPIKey = os.Getenv("OPENROUTER_API_KEY")
+		}
+		if openaiAPIKey == "" {
+			return nil, fmt.Errorf("OpenAI/OpenRouter API key is not set")
 		}
 
 		options := []openai.Option{
@@ -1023,7 +1020,10 @@ func createLLM() (llms.Model, error) {
 			openai.WithHTTPClient(createCustomHTTPClient()),
 		}
 
-		if strings.ToLower(os.Getenv("OPENAI_API_TYPE")) == "azure" {
+		if strings.ToLower(llmProvider) == "openrouter" {
+			options = append(options, openai.WithBaseURL(defaultBaseURLForProvider(AIProviderOpenRouter)))
+			options[2] = openai.WithHTTPClient(createOpenRouterHTTPClient())
+		} else if strings.ToLower(os.Getenv("OPENAI_API_TYPE")) == "azure" {
 			baseURL := os.Getenv("OPENAI_BASE_URL")
 			if baseURL == "" {
 				return nil, fmt.Errorf("OPENAI_BASE_URL is required for Azure OpenAI")
@@ -1098,7 +1098,7 @@ func createLLM() (llms.Model, error) {
 		// Apply rate limiting with isVision=false
 		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, ollama, mistral, googleai, anthropic)", llmProvider)
+		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, openrouter, ollama, mistral, googleai, anthropic)", llmProvider)
 	}
 }
 

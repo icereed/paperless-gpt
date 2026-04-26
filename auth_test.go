@@ -434,7 +434,7 @@ func TestFrontendShellReachableWithoutSession(t *testing.T) {
 	r := gin.New()
 	r.Use(sessionAuthMiddleware(db))
 	// Register the same frontend shell routes as main.go
-	for _, p := range []string{"/", "/history", "/settings", "/adhoc-analysis", "/experimental-ocr", "/favicon.ico"} {
+	for _, p := range []string{"/", "/history", "/settings", "/experimental-ocr", "/favicon.ico"} {
 		r.GET(p, func(c *gin.Context) { c.Status(http.StatusOK) })
 	}
 	r.GET("/assets/*filepath", func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -446,7 +446,6 @@ func TestFrontendShellReachableWithoutSession(t *testing.T) {
 		"/",
 		"/history",
 		"/settings",
-		"/adhoc-analysis",
 		"/experimental-ocr",
 		"/favicon.ico",
 		"/assets/index.js",

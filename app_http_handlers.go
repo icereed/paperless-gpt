@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -184,6 +183,42 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Settings saved successfully"})
 }
 
+func (app *App) getAIProviderSettingsHandler(c *gin.Context) {
+	response, err := app.getAIProviderSettings(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load AI provider settings"})
+		return
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func (app *App) updateAIProviderSettingsHandler(c *gin.Context) {
+	var req AIProviderSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+	response, err := app.saveAIProviderSettings(c.Request.Context(), req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func (app *App) testAIProviderSettingsHandler(c *gin.Context) {
+	var req AIProviderSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+	if err := app.testAIProviderSettings(c.Request.Context(), req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "AI provider connection succeeded"})
+}
+
 // getCustomFieldsHandler handles the GET /api/custom_fields endpoint
 func (app *App) getCustomFieldsHandler(c *gin.Context) {
 	// Check for "force_pull" query parameter
@@ -261,6 +296,7 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 	settingsMutex.RLock()
 	jobberEnabled := settings.JobberEnabled
 	jobberExpenseEnabled := settings.JobberExpenseEnabled
+	googleDriveFolderID := settings.GoogleDriveFolderID
 	settingsMutex.RUnlock()
 
 	results := make([]DocumentIntegrationResult, 0, len(documents))
@@ -271,7 +307,9 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 		}
 
 		if selectedCandidate, ok := getSelectedJobberCandidate(document); ok {
-			if !jobberEnabled {
+			if !document.ApplyJobber {
+				log.WithField("document_id", document.ID).Debug("Jobber job selected but per-document Jobber apply is disabled; skipping")
+			} else if !jobberEnabled {
 				log.WithField("document_id", document.ID).Debug("Jobber job selected but job matching is disabled in settings; skipping field write")
 			} else {
 				applied, err := app.applyJobberSelection(ctx, document.ID, selectedCandidate, &batch.ID)
@@ -286,12 +324,12 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 				}
 			}
 
-			if document.CreateJobberExpense {
+			if document.ApplyJobber && document.CreateJobberExpense {
 				if !jobberExpenseEnabled {
 					log.WithField("document_id", document.ID).Debug("Jobber expense creation requested but expense creation is disabled in settings; skipping")
 					result.JobberExpenseError = "expense creation is disabled in Settings → Integrations → Jobber"
 				} else {
-					expenseResult, err := app.Integrations.CreateJobberExpense(ctx, app.Client, document, selectedCandidate)
+					expenseResult, err := app.Integrations.CreateJobberExpense(ctx, app.Client, document, selectedCandidate, batch.ID)
 					if err != nil {
 						result.JobberExpenseError = err.Error()
 						log.WithField("document_id", document.ID).WithError(err).Error("Failed to create Jobber expense")
@@ -304,7 +342,7 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 		}
 
 		if document.UploadToGoogleDrive {
-			uploadResult, err := app.Integrations.UploadDocumentToGoogleDrive(ctx, app.Client, document.ID, settings.GoogleDriveFolderID)
+			uploadResult, err := app.Integrations.UploadDocumentToGoogleDrive(ctx, app.Client, document.ID, googleDriveFolderID)
 			if err != nil {
 				result.GoogleDriveError = err.Error()
 			} else {
@@ -1359,60 +1397,6 @@ func (app *App) reprocessDocumentHandler(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{"document_id": documentID, "status": "queued"})
-}
-
-// analyzeDocumentsHandler handles the POST /api/analyze-documents endpoint
-func (app *App) analyzeDocumentsHandler(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	var req AnalyzeDocumentsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request payload: %v", err)})
-		log.Errorf("Invalid request payload: %v", err)
-		return
-	}
-
-	var documents []Document
-	for _, docID := range req.DocumentIDs {
-		doc, err := app.Client.GetDocument(ctx, docID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error fetching document %d: %v", docID, err)})
-			log.Errorf("Error fetching document %d: %v", docID, err)
-			return
-		}
-		documents = append(documents, doc)
-	}
-
-	// Create a new template from the prompt string in the request
-	tmpl, err := template.New("adhoc-analysis").Funcs(sprig.FuncMap()).Parse(req.Prompt)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid prompt template"})
-		log.Errorf("Invalid prompt template: %v", err)
-		return
-	}
-
-	var promptBuffer bytes.Buffer
-	err = tmpl.Execute(&promptBuffer, map[string]interface{}{
-		"Documents": documents,
-		"Language":  getLikelyLanguage(),
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error executing adhoc analysis template"})
-		log.Errorf("Error executing adhoc analysis template: %v", err)
-		return
-	}
-
-	finalPrompt := promptBuffer.String()
-
-	// Call LLM with the custom prompt and document contexts
-	llmResponse, err := app.LLM.Call(ctx, finalPrompt)
-	if err != nil {
-		log.Errorf("Error calling LLM for adhoc analysis: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error calling LLM: %v", err)})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"result": llmResponse})
 }
 
 // getVersionHandler handles the GET /api/version endpoint

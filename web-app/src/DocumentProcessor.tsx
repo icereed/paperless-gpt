@@ -94,6 +94,7 @@ export interface DocumentSuggestion {
   custom_fields_write_mode?: string;
   jobber_candidates?: JobberMatchCandidate[];
   selected_jobber_match_id?: string;
+  apply_jobber?: boolean;
   create_jobber_expense?: boolean;
   upload_to_google_drive?: boolean;
   cached?: boolean;
@@ -199,6 +200,7 @@ const DocumentProcessor: React.FC = () => {
       })),
       jobber_candidates: suggestion.jobber_candidates || [],
       selected_jobber_match_id: suggestion.selected_jobber_match_id || "",
+      apply_jobber: !!suggestion.apply_jobber,
       create_jobber_expense: !!suggestion.create_jobber_expense,
       upload_to_google_drive: !!suggestion.upload_to_google_drive,
     }));
@@ -240,6 +242,7 @@ const DocumentProcessor: React.FC = () => {
           ...suggestion,
           jobber_candidates: candidates,
           selected_jobber_match_id: suggestion.selected_jobber_match_id || autoSelected,
+          apply_jobber: suggestion.apply_jobber ?? !!(suggestion.selected_jobber_match_id || autoSelected),
         };
       })
     );
@@ -402,7 +405,22 @@ const DocumentProcessor: React.FC = () => {
           ? {
               ...doc,
               selected_jobber_match_id: selectedJobberMatchId,
-              create_jobber_expense: selectedJobberMatchId ? doc.create_jobber_expense : false,
+              apply_jobber: selectedJobberMatchId ? true : false,
+              create_jobber_expense: selectedJobberMatchId && doc.apply_jobber ? doc.create_jobber_expense : false,
+            }
+          : doc
+      )
+    );
+  };
+
+  const handleApplyJobberToggle = (docId: number, enabled: boolean) => {
+    setSuggestions((prevSuggestions) =>
+      prevSuggestions.map((doc) =>
+        doc.id === docId
+          ? {
+              ...doc,
+              apply_jobber: enabled,
+              create_jobber_expense: enabled ? doc.create_jobber_expense : false,
             }
           : doc
       )
@@ -769,6 +787,7 @@ const DocumentProcessor: React.FC = () => {
           onCreatedDateChange={handleCreatedDateChange}
           onCustomFieldSuggestionToggle={handleCustomFieldSuggestionToggle}
           onJobberMatchChange={handleJobberSelectionChange}
+          onApplyJobberToggle={handleApplyJobberToggle}
           onJobberExpenseToggle={handleJobberExpenseToggle}
           onGoogleDriveToggle={handleGoogleDriveToggle}
           onRegenerateSuggestion={handleRegenerateSuggestion}

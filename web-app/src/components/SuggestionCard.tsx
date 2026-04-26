@@ -17,6 +17,7 @@ interface SuggestionCardProps {
   onCreatedDateChange: (docId: number, createdDate: string) => void;
   onCustomFieldSuggestionToggle: (docId: number, fieldId: number) => void;
   onJobberMatchChange: (docId: number, selectedJobId: string) => void;
+  onApplyJobberToggle: (docId: number, enabled: boolean) => void;
   onGoogleDriveToggle: (docId: number, enabled: boolean) => void;
   onJobberExpenseToggle: (docId: number, enabled: boolean) => void;
   onRegenerateSuggestion?: (docId: number) => void;
@@ -41,6 +42,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onCreatedDateChange,
   onCustomFieldSuggestionToggle,
   onJobberMatchChange,
+  onApplyJobberToggle,
   onGoogleDriveToggle,
   onJobberExpenseToggle,
   onRegenerateSuggestion,
@@ -80,6 +82,8 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
       ),
     [suggestion.jobber_candidates, suggestion.selected_jobber_match_id]
   );
+  const jobberCandidatesAvailable = (suggestion.jobber_candidates?.length ?? 0) > 0;
+  const applyJobberEnabled = !!suggestion.apply_jobber;
 
   const handleJobberSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setJobberSearch(e.target.value);
@@ -335,6 +339,43 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
 
           <div className="mt-6 space-y-4 border-t border-gray-200 pt-4 dark:border-gray-700">
             <div>
+              <h4 className="text-sm font-semibold uppercase tracking-[0.12em] text-gray-500 dark:text-gray-400">
+                Integrations for this document
+              </h4>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Choose which connected integrations should run when this suggestion is applied.
+              </p>
+            </div>
+
+            <div className="flex items-start gap-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <input
+                type="checkbox"
+                id={`apply-jobber-${suggestion.id}`}
+                checked={applyJobberEnabled}
+                disabled={!jobberConnected || !jobberEnabled || !jobberCandidatesAvailable}
+                onChange={(e) => onApplyJobberToggle(suggestion.id, e.target.checked)}
+                className="mt-1 h-4 w-4"
+              />
+              <div>
+                <label
+                  htmlFor={`apply-jobber-${suggestion.id}`}
+                  className="font-medium text-gray-700 dark:text-gray-300"
+                >
+                  Apply Jobber
+                </label>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {!jobberConnected
+                    ? "Connect Jobber in Settings to enable job matching."
+                    : !jobberEnabled
+                      ? "Enable Jobber in Settings -> Integrations first."
+                      : !jobberCandidatesAvailable
+                        ? "No Jobber matches are available for this document."
+                        : "Write the selected Jobber job to Paperless and optionally create an expense."}
+                </p>
+              </div>
+            </div>
+
+            <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Jobber Match
                 {(suggestion.jobber_candidates?.length ?? 0) > 0 && (
@@ -343,7 +384,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                   </span>
                 )}
               </label>
-              {jobberConnected && jobberEnabled && (suggestion.jobber_candidates?.length ?? 0) > 10 && (
+              {applyJobberEnabled && jobberConnected && jobberEnabled && (suggestion.jobber_candidates?.length ?? 0) > 10 && (
                 <input
                   type="text"
                   value={jobberSearch}
@@ -355,18 +396,20 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               <select
                 value={suggestion.selected_jobber_match_id || ""}
                 onChange={(e) => onJobberMatchChange(suggestion.id, e.target.value)}
-                disabled={!jobberConnected || !jobberEnabled || !suggestion.jobber_candidates?.length}
+                disabled={!applyJobberEnabled || !jobberConnected || !jobberEnabled || !suggestion.jobber_candidates?.length}
                 className="mt-1.5 w-full rounded border border-gray-300 px-2 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
                 size={filteredJobberCandidates.length > 0 && jobberSearch ? Math.min(filteredJobberCandidates.length + 1, 8) : 1}
               >
                 <option value="">
-                  {!jobberConnected
-                    ? "Connect Jobber in Settings"
-                    : !jobberEnabled
-                      ? "Enable Jobber in Settings → Integrations"
-                      : suggestion.jobber_candidates?.length
-                        ? "— No match —"
-                        : "No Jobber matches found"}
+                  {!applyJobberEnabled
+                    ? "Jobber is disabled for this document"
+                    : !jobberConnected
+                      ? "Connect Jobber in Settings"
+                      : !jobberEnabled
+                        ? "Enable Jobber in Settings -> Integrations"
+                        : suggestion.jobber_candidates?.length
+                          ? "-- No match --"
+                          : "No Jobber matches found"}
                 </option>
                 {filteredJobberCandidates.map((candidate) => (
                   <option key={candidate.id} value={candidate.id}>
@@ -389,7 +432,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                 type="checkbox"
                 id={`jobber-expense-${suggestion.id}`}
                 checked={suggestion.create_jobber_expense ?? false}
-                disabled={!jobberConnected || !jobberEnabled || !suggestion.selected_jobber_match_id || !jobberExpenseEnabled}
+                disabled={!applyJobberEnabled || !jobberConnected || !jobberEnabled || !suggestion.selected_jobber_match_id || !jobberExpenseEnabled}
                 onChange={(e) => onJobberExpenseToggle(suggestion.id, e.target.checked)}
                 className="mt-1 h-4 w-4"
               />
@@ -401,12 +444,14 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                   Create Jobber expense
                 </label>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {!jobberConnected
+                  {!applyJobberEnabled
+                    ? "Enable Apply Jobber for this document first."
+                    : !jobberConnected
                     ? "Connect Jobber in Settings to enable expense creation."
                     : !jobberEnabled
-                      ? "Enable Jobber in Settings → Integrations first."
+                      ? "Enable Jobber in Settings -> Integrations first."
                       : !jobberExpenseEnabled
-                        ? "Enable expense creation in Settings → Integrations → Jobber first."
+                        ? "Enable expense creation in Settings -> Integrations -> Jobber first."
                         : !suggestion.selected_jobber_match_id
                           ? "Select a Jobber job first."
                           : "Creates an expense linked to the selected Jobber job using the approved document details."}
@@ -454,8 +499,8 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                 )}
                 {integrationResult && integrationResult.paperless_updated && integrationResult.jobber_applied === false && !integrationResult.jobber_error && (
                   <p className="mt-1 text-amber-700 dark:text-amber-300">
-                    Jobber job was selected but no custom field mappings are configured — nothing was written to Paperless.
-                    Go to <strong>Settings → Integrations → Jobber → Job matching</strong> to map Jobber fields to Paperless custom fields.
+                    Jobber job was selected but no custom field mappings are configured - nothing was written to Paperless.
+                    Go to <strong>Settings {"->"} Integrations {"->"} Jobber {"->"} Job matching</strong> to map Jobber fields to Paperless custom fields.
                   </p>
                 )}
                 {integrationResult?.jobber_expense_created && (

@@ -96,7 +96,6 @@ func isPublicFrontendPath(path string) bool {
 	case "/",
 		"/history",
 		"/settings",
-		"/adhoc-analysis",
 		"/experimental-ocr",
 		"/favicon.ico":
 		return true

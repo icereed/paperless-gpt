@@ -29,12 +29,13 @@ const (
 var suggestionGenerationLocks sync.Map
 
 type suggestionCacheMetadata struct {
-	Provider       string `json:"provider"`
-	Model          string `json:"model"`
-	PromptVersions string `json:"prompt_versions"`
+	Provider       string            `json:"provider"`
+	Model          string            `json:"model"`
+	TaskModels     map[string]string `json:"task_models,omitempty"`
+	PromptVersions string            `json:"prompt_versions"`
 }
 
-func currentSuggestionCacheMetadata() suggestionCacheMetadata {
+func envSuggestionCacheMetadata() suggestionCacheMetadata {
 	return suggestionCacheMetadata{
 		Provider:       strings.ToLower(strings.TrimSpace(llmProvider)),
 		Model:          strings.TrimSpace(llmModel),
@@ -204,7 +205,7 @@ func (app *App) saveSuggestionCache(ctx context.Context, suggestion DocumentSugg
 }
 
 func (app *App) generateDocumentSuggestionsCached(ctx context.Context, req GenerateSuggestionsRequest, logger *logrus.Entry) ([]DocumentSuggestion, error) {
-	metadata := currentSuggestionCacheMetadata()
+	metadata := app.currentSuggestionCacheMetadata(ctx)
 	resultsByID := make(map[int]DocumentSuggestion, len(req.Documents))
 	misses := make([]Document, 0)
 

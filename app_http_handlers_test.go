@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // setupTestRouter creates a gin router for testing and sets up necessary directories and files.
@@ -41,7 +43,6 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 		"created_date_prompt.tmpl",
 		"custom_field_prompt.tmpl",
 		"ocr_prompt.tmpl",
-		"adhoc-analysis_prompt.tmpl",
 	}
 	for _, file := range promptFiles {
 		require.NoError(
@@ -189,6 +190,156 @@ func TestUpdatePromptsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
+}
+
+func TestUpdateDocumentsApplyJobberFalseSkipsJobberActions(t *testing.T) {
+	db, err := InitializeTestDB()
+	require.NoError(t, err)
+	settingsMutex.Lock()
+	previousSettings := settings
+	settings = defaultSettings()
+	settings.JobberEnabled = true
+	settings.JobberExpenseEnabled = true
+	settings.JobberJobIDFieldID = 10
+	settingsMutex.Unlock()
+	t.Cleanup(func() {
+		settingsMutex.Lock()
+		settings = previousSettings
+		settingsMutex.Unlock()
+	})
+
+	client := &updateDocumentsMockClient{}
+	app := &App{
+		Client:       client,
+		Database:     db,
+		Integrations: NewIntegrationsService(db),
+	}
+	router := gin.New()
+	router.PATCH("/api/update-documents", app.updateDocumentsHandler)
+
+	payload := []DocumentSuggestion{{
+		ID: 1,
+		JobberCandidates: []JobberMatchCandidate{{
+			ID:        "job-1",
+			JobNumber: "1001",
+		}},
+		SelectedJobberMatchID: "job-1",
+		ApplyJobber:           false,
+		CreateJobberExpense:   true,
+	}}
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/update-documents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.False(t, client.upsertCalled)
+}
+
+func TestUpdateDocumentsApplyJobberTrueWritesFields(t *testing.T) {
+	db, err := InitializeTestDB()
+	require.NoError(t, err)
+	settingsMutex.Lock()
+	previousSettings := settings
+	settings = defaultSettings()
+	settings.JobberEnabled = true
+	settings.JobberJobIDFieldID = 10
+	settingsMutex.Unlock()
+	t.Cleanup(func() {
+		settingsMutex.Lock()
+		settings = previousSettings
+		settingsMutex.Unlock()
+	})
+
+	client := &updateDocumentsMockClient{}
+	app := &App{
+		Client:       client,
+		Database:     db,
+		Integrations: NewIntegrationsService(db),
+	}
+	router := gin.New()
+	router.PATCH("/api/update-documents", app.updateDocumentsHandler)
+
+	payload := []DocumentSuggestion{{
+		ID: 1,
+		JobberCandidates: []JobberMatchCandidate{{
+			ID:        "job-1",
+			JobNumber: "1001",
+		}},
+		SelectedJobberMatchID: "job-1",
+		ApplyJobber:           true,
+	}}
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/update-documents", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.True(t, client.upsertCalled)
+}
+
+type updateDocumentsMockClient struct {
+	upsertCalled bool
+}
+
+func (m *updateDocumentsMockClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
+	return nil, nil
+}
+func (m *updateDocumentsMockClient) GetDocumentCountByTag(ctx context.Context, tag string) (int, error) {
+	return 0, nil
+}
+func (m *updateDocumentsMockClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool, batchID ...uint) error {
+	return nil
+}
+func (m *updateDocumentsMockClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
+	return Document{}, nil
+}
+func (m *updateDocumentsMockClient) GetAllTags(ctx context.Context) (map[string]int, error) {
+	return nil, nil
+}
+func (m *updateDocumentsMockClient) GetAllCorrespondents(ctx context.Context) (map[string]int, error) {
+	return nil, nil
+}
+func (m *updateDocumentsMockClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
+	return nil, nil
+}
+func (m *updateDocumentsMockClient) GetCustomFields(ctx context.Context) ([]CustomField, error) {
+	return nil, nil
+}
+func (m *updateDocumentsMockClient) CreateTag(ctx context.Context, tagName string) (int, error) {
+	return 0, nil
+}
+func (m *updateDocumentsMockClient) DownloadPDF(ctx context.Context, document Document) ([]byte, error) {
+	return nil, nil
+}
+func (m *updateDocumentsMockClient) DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error) {
+	return nil, 0, nil
+}
+func (m *updateDocumentsMockClient) DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error) {
+	return nil, nil, 0, nil
+}
+func (m *updateDocumentsMockClient) UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error) {
+	return "", nil
+}
+func (m *updateDocumentsMockClient) UpsertDocumentCustomFields(ctx context.Context, documentID int, fieldValues map[int]interface{}, db *gorm.DB) error {
+	m.upsertCalled = true
+	return nil
+}
+func (m *updateDocumentsMockClient) UpsertDocumentCustomFieldsWithBatch(ctx context.Context, documentID int, fieldValues map[int]interface{}, db *gorm.DB, batchID *uint) error {
+	m.upsertCalled = true
+	return nil
+}
+func (m *updateDocumentsMockClient) GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error) {
+	return nil, nil
+}
+func (m *updateDocumentsMockClient) DeleteDocument(ctx context.Context, documentID int) error {
+	return nil
 }
 
 func TestGetVersionHandler(t *testing.T) {

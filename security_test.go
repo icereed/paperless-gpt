@@ -258,7 +258,6 @@ func TestIsExemptFromAuth(t *testing.T) {
 		"/",
 		"/history",
 		"/settings",
-		"/adhoc-analysis",
 		"/experimental-ocr",
 		"/favicon.ico",
 		"/assets/index.js",
@@ -292,7 +291,6 @@ func TestIsPublicFrontendPath(t *testing.T) {
 		"/",
 		"/history",
 		"/settings",
-		"/adhoc-analysis",
 		"/experimental-ocr",
 		"/favicon.ico",
 		"/assets/",
@@ -327,7 +325,7 @@ func TestAuthMiddleware_FrontendShellExempt(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(authMiddleware(cfg))
-	for _, p := range []string{"/", "/history", "/settings", "/adhoc-analysis", "/experimental-ocr", "/favicon.ico"} {
+	for _, p := range []string{"/", "/history", "/settings", "/experimental-ocr", "/favicon.ico"} {
 		r.GET(p, func(c *gin.Context) { c.Status(http.StatusOK) })
 	}
 	r.GET("/assets/*filepath", func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -336,7 +334,6 @@ func TestAuthMiddleware_FrontendShellExempt(t *testing.T) {
 		"/",
 		"/history",
 		"/settings",
-		"/adhoc-analysis",
 		"/experimental-ocr",
 		"/favicon.ico",
 		"/assets/index.js",

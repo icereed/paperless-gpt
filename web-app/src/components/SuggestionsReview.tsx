@@ -15,6 +15,7 @@ interface SuggestionsReviewProps {
   onCreatedDateChange: (docId: number, createdDate: string) => void;
   onCustomFieldSuggestionToggle: (docId: number, fieldId: number) => void;
   onJobberMatchChange: (docId: number, candidateId: string) => void;
+  onApplyJobberToggle: (docId: number, checked: boolean) => void;
   onJobberExpenseToggle: (docId: number, checked: boolean) => void;
   onGoogleDriveToggle: (docId: number, checked: boolean) => void;
   onRegenerateSuggestion: (docId: number) => void;
@@ -41,6 +42,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   onCreatedDateChange,
   onCustomFieldSuggestionToggle,
   onJobberMatchChange,
+  onApplyJobberToggle,
   onJobberExpenseToggle,
   onGoogleDriveToggle,
   onRegenerateSuggestion,
@@ -105,6 +107,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           onCreatedDateChange={onCreatedDateChange}
           onCustomFieldSuggestionToggle={onCustomFieldSuggestionToggle}
           onJobberMatchChange={onJobberMatchChange}
+          onApplyJobberToggle={onApplyJobberToggle}
           onJobberExpenseToggle={onJobberExpenseToggle}
           onGoogleDriveToggle={onGoogleDriveToggle}
           onRegenerateSuggestion={onRegenerateSuggestion}

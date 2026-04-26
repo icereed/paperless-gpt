@@ -1,14 +1,11 @@
 import {
   mdiCogOutline,
-  mdiFileChartOutline,
   mdiHistory,
   mdiHomeOutline,
   mdiLogout,
-  mdiTextBoxSearchOutline,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import axios from "axios";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import logo from "../assets/logo.svg";
 import { useAuth } from "../context/AuthContext";
@@ -20,7 +17,6 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
   const [collapsed, setCollapsed] = useState(false);
-  const [ocrEnabled, setOcrEnabled] = useState(false);
   const location = useLocation();
   const { user, logout } = useAuth();
 
@@ -32,50 +28,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
     onSelectPage(page);
   };
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchOcrEnabled = async () => {
-      try {
-        const res = await axios.get<{ enabled: boolean }>(
-          "./api/experimental/ocr"
-        );
-        if (isMounted) {
-          setOcrEnabled(res.data.enabled);
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    void fetchOcrEnabled();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
   const menuItems = [
     { name: "home", path: "./", icon: mdiHomeOutline, title: "Home" },
-    {
-      name: "adhoc-analysis",
-      path: "./adhoc-analysis",
-      icon: mdiFileChartOutline,
-      title: "Ad-hoc Analysis",
-    },
     { name: "history", path: "./history", icon: mdiHistory, title: "History" },
     { name: "settings", path: "./settings", icon: mdiCogOutline, title: "Settings" },
   ];
-
-  // If OCR is enabled, add the OCR menu item
-  if (ocrEnabled) {
-    menuItems.push({
-      name: "ocr",
-      path: "./experimental-ocr",
-      icon: mdiTextBoxSearchOutline,
-      title: "OCR",
-    });
-  }
 
   return (
     <aside

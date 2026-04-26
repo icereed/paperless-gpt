@@ -6,7 +6,6 @@ import DocumentProcessor from './DocumentProcessor';
 import ExperimentalOCR from './ExperimentalOCR';
 import History from './History';
 import Settings from './components/Settings';
-import AdhocAnalysis from './AdhocAnalysis';
 import LoginPage from './pages/LoginPage';
 import SetupPage from './pages/SetupPage';
 
@@ -39,7 +38,7 @@ const AppShell: React.FC = () => {
   // Derive the router basename from the HTML <base> element when set by the
   // server (e.g. when hosted under a sub-path). Fall back to stripping only
   // the known top-level page segments so deep nesting doesn't corrupt it.
-  const knownRoutes = ['/', '/adhoc-analysis', '/experimental-ocr', '/history', '/settings'];
+  const knownRoutes = ['/', '/experimental-ocr', '/history', '/settings'];
   const deriveBasename = (): string => {
     const base = document.querySelector('base');
     if (base?.href) {
@@ -86,28 +85,14 @@ const AppShell: React.FC = () => {
             <div className="flex-1">
               <Routes>
                 <Route path="/" element={<DocumentProcessor />} />
-                <Route path="/adhoc-analysis" element={<AdhocAnalysis />} />
                 <Route path="/experimental-ocr" element={<ExperimentalOCR />} />
                 <Route path="/history" element={<History />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>
             </div>
             <footer className="border-t border-gray-200 bg-white/90 px-6 py-4 text-center text-sm text-gray-600 backdrop-blur dark:border-gray-800 dark:bg-gray-900/90 dark:text-gray-300">
-              <p className="font-medium">
-                <span role="img" aria-label="coffee" className="mr-1">☕</span>
-                If paperless-gpt saved you time, consider supporting future development.
-              </p>
-              <a
-                href="https://buymeacoffee.com/icereed"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 inline-flex items-center rounded-md bg-yellow-300 px-4 py-2 text-sm font-semibold text-black no-underline shadow-sm transition hover:bg-yellow-400 hover:shadow dark:bg-yellow-400 dark:hover:bg-yellow-500"
-                aria-label="Buy me a coffee to support future development"
-              >
-                Buy Me a Coffee
-              </a>
               {versionInfo && (
-                <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   <span className="font-semibold">paperless-gpt</span> {versionInfo.version}
                   {versionInfo.commit && versionInfo.commit !== 'devCommit' && versionInfo.commit.length >= 7 && (
                     <span className="ml-2">({versionInfo.commit.slice(0, 7)})</span>
