@@ -26,6 +26,27 @@ interface SettingsData {
   google_drive_enabled: boolean;
   google_drive_folder_id: string;
   quickbooks_enabled: boolean;
+  quickbooks_receipt_upload_enabled: boolean;
+  firefly_enabled: boolean;
+  firefly_instance_url: string;
+  firefly_api_token: string;
+  firefly_api_token_configured?: boolean;
+  firefly_default_source_account: string;
+  firefly_default_destination_account: string;
+  firefly_default_currency: string;
+  firefly_default_category: string;
+  firefly_default_budget: string;
+  firefly_notes_template: string;
+  firefly_description_field_ref: string;
+  firefly_date_field_ref: string;
+  firefly_amount_field_ref: string;
+  firefly_currency_field_ref: string;
+  firefly_category_field_ref: string;
+  firefly_budget_field_ref: string;
+  firefly_notes_field_ref: string;
+  firefly_external_ref_field_ref: string;
+  firefly_source_account_field_ref: string;
+  firefly_destination_account_field_ref: string;
   paperless_webhook_secret: string;
 }
 
@@ -56,6 +77,27 @@ const defaultSettings: SettingsData = {
   google_drive_enabled: false,
   google_drive_folder_id: '',
   quickbooks_enabled: false,
+  quickbooks_receipt_upload_enabled: false,
+  firefly_enabled: false,
+  firefly_instance_url: '',
+  firefly_api_token: '',
+  firefly_api_token_configured: false,
+  firefly_default_source_account: '',
+  firefly_default_destination_account: '',
+  firefly_default_currency: 'USD',
+  firefly_default_category: '',
+  firefly_default_budget: '',
+  firefly_notes_template: '',
+  firefly_description_field_ref: '',
+  firefly_date_field_ref: '',
+  firefly_amount_field_ref: '',
+  firefly_currency_field_ref: '',
+  firefly_category_field_ref: '',
+  firefly_budget_field_ref: '',
+  firefly_notes_field_ref: '',
+  firefly_external_ref_field_ref: '',
+  firefly_source_account_field_ref: '',
+  firefly_destination_account_field_ref: '',
   paperless_webhook_secret: '',
 };
 
@@ -152,6 +194,27 @@ const IntegrationsEditor: React.FC = () => {
         google_drive_enabled: !!settingsData.settings?.google_drive_enabled,
         google_drive_folder_id: settingsData.settings?.google_drive_folder_id || '',
         quickbooks_enabled: !!settingsData.settings?.quickbooks_enabled,
+        quickbooks_receipt_upload_enabled: !!settingsData.settings?.quickbooks_receipt_upload_enabled,
+        firefly_enabled: !!settingsData.settings?.firefly_enabled,
+        firefly_instance_url: settingsData.settings?.firefly_instance_url || '',
+        firefly_api_token: '',
+        firefly_api_token_configured: !!settingsData.settings?.firefly_api_token_configured,
+        firefly_default_source_account: settingsData.settings?.firefly_default_source_account || '',
+        firefly_default_destination_account: settingsData.settings?.firefly_default_destination_account || '',
+        firefly_default_currency: settingsData.settings?.firefly_default_currency || 'USD',
+        firefly_default_category: settingsData.settings?.firefly_default_category || '',
+        firefly_default_budget: settingsData.settings?.firefly_default_budget || '',
+        firefly_notes_template: settingsData.settings?.firefly_notes_template || '',
+        firefly_description_field_ref: settingsData.settings?.firefly_description_field_ref || '',
+        firefly_date_field_ref: settingsData.settings?.firefly_date_field_ref || 'document.created_date',
+        firefly_amount_field_ref: settingsData.settings?.firefly_amount_field_ref || '',
+        firefly_currency_field_ref: settingsData.settings?.firefly_currency_field_ref || '',
+        firefly_category_field_ref: settingsData.settings?.firefly_category_field_ref || '',
+        firefly_budget_field_ref: settingsData.settings?.firefly_budget_field_ref || '',
+        firefly_notes_field_ref: settingsData.settings?.firefly_notes_field_ref || '',
+        firefly_external_ref_field_ref: settingsData.settings?.firefly_external_ref_field_ref || '',
+        firefly_source_account_field_ref: settingsData.settings?.firefly_source_account_field_ref || '',
+        firefly_destination_account_field_ref: settingsData.settings?.firefly_destination_account_field_ref || '',
         paperless_webhook_secret: '',
       };
 
@@ -570,9 +633,70 @@ const IntegrationsEditor: React.FC = () => {
             />
             <label htmlFor="quickbooksEnabled">Enable QuickBooks connection</label>
           </div>
+          <div className="flex items-center mb-4">
+            <input
+              type="checkbox"
+              id="quickbooksReceiptUpload"
+              checked={settings.quickbooks_receipt_upload_enabled}
+              onChange={(e) => handleSettingChange('quickbooks_receipt_upload_enabled', e.target.checked)}
+              className="w-4 h-4 mr-2"
+            />
+            <label htmlFor="quickbooksReceiptUpload">Enable receipt upload</label>
+          </div>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            QuickBooks is connection-only for now. No receipt upload action will appear on document cards yet.
+            Receipt upload sends the Paperless PDF to QuickBooks Receipts for Intuit matching/OCR. Direct Bill or Purchase creation is future work.
+            {statuses.quickbooks?.connected && !statuses.quickbooks.account_id ? ' Realm ID is missing; reconnect QuickBooks before uploading receipts.' : ''}
           </p>
+        </IntegrationCard>
+
+        <IntegrationCard
+          title="Firefly III"
+          status={statuses.firefly}
+          onConnect={() => undefined}
+          onDisconnect={() => undefined}
+          connecting={false}
+          disconnecting={false}
+          showOAuthActions={false}
+        >
+          <SectionHeader
+            title="Personal Access Token"
+            description="Firefly uses a Personal Access Token and never OAuth. The token is encrypted at rest and only shown as configured after saving."
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              <span className="block">Instance URL</span>
+              <input className="mt-1.5 w-full rounded border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200" value={settings.firefly_instance_url} onChange={(e) => handleSettingChange('firefly_instance_url', e.target.value)} placeholder="https://firefly.example.com" />
+            </label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              <span className="block">Personal Access Token {settings.firefly_api_token_configured ? '(configured)' : ''}</span>
+              <input type="password" className="mt-1.5 w-full rounded border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200" value={settings.firefly_api_token} onChange={(e) => handleSettingChange('firefly_api_token', e.target.value)} placeholder={settings.firefly_api_token_configured ? 'Leave blank to keep existing token' : 'Firefly PAT'} />
+            </label>
+          </div>
+          <div className="mt-4 flex items-center gap-2">
+            <input type="checkbox" id="fireflyEnabled" checked={settings.firefly_enabled} onChange={(e) => handleSettingChange('firefly_enabled', e.target.checked)} className="w-4 h-4" />
+            <label htmlFor="fireflyEnabled" className="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Firefly match/create/attach</label>
+          </div>
+          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <TextInput label="Default source account" value={settings.firefly_default_source_account} onChange={(v) => handleSettingChange('firefly_default_source_account', v)} />
+            <TextInput label="Default destination account" value={settings.firefly_default_destination_account} onChange={(v) => handleSettingChange('firefly_default_destination_account', v)} />
+            <TextInput label="Default currency" value={settings.firefly_default_currency} onChange={(v) => handleSettingChange('firefly_default_currency', v)} />
+            <TextInput label="Default category" value={settings.firefly_default_category} onChange={(v) => handleSettingChange('firefly_default_category', v)} />
+            <TextInput label="Default budget" value={settings.firefly_default_budget} onChange={(v) => handleSettingChange('firefly_default_budget', v)} />
+            <TextInput label="Notes template" value={settings.firefly_notes_template} onChange={(v) => handleSettingChange('firefly_notes_template', v)} />
+          </div>
+          <div className="mt-5">
+            <SectionHeader title="Field mappings" description="Choose where Firefly transaction fields come from. Amount is required; if unmapped, Paperless GPT scans suggested custom fields named total, amount, or price." />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FieldReferenceSelect label="Description" tooltip="Transaction description." value={settings.firefly_description_field_ref} options={expenseFieldOptions} customFields={customFields} onChange={(value) => handleSettingChange('firefly_description_field_ref', value)} />
+              <FieldReferenceSelect label="Date" tooltip="Transaction date." value={settings.firefly_date_field_ref} options={expenseFieldOptions} customFields={customFields} onChange={(value) => handleSettingChange('firefly_date_field_ref', value)} />
+              <FieldReferenceSelect label="Amount" tooltip="Required transaction amount." value={settings.firefly_amount_field_ref} options={expenseFieldOptions} customFields={customFields} onChange={(value) => handleSettingChange('firefly_amount_field_ref', value)} />
+              <FieldReferenceSelect label="Currency" tooltip="Currency code." value={settings.firefly_currency_field_ref} options={expenseFieldOptions} customFields={customFields} onChange={(value) => handleSettingChange('firefly_currency_field_ref', value)} />
+              <FieldReferenceSelect label="Category" tooltip="Optional category override." value={settings.firefly_category_field_ref} options={expenseFieldOptions} customFields={customFields} onChange={(value) => handleSettingChange('firefly_category_field_ref', value)} />
+              <FieldReferenceSelect label="Budget" tooltip="Optional budget override." value={settings.firefly_budget_field_ref} options={expenseFieldOptions} customFields={customFields} onChange={(value) => handleSettingChange('firefly_budget_field_ref', value)} />
+              <FieldReferenceSelect label="Notes" tooltip="Optional notes field." value={settings.firefly_notes_field_ref} options={expenseFieldOptions} customFields={customFields} onChange={(value) => handleSettingChange('firefly_notes_field_ref', value)} />
+              <FieldReferenceSelect label="External reference" tooltip="Optional external reference." value={settings.firefly_external_ref_field_ref} options={expenseFieldOptions} customFields={customFields} onChange={(value) => handleSettingChange('firefly_external_ref_field_ref', value)} />
+            </div>
+          </div>
         </IntegrationCard>
 
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
@@ -631,6 +755,7 @@ interface IntegrationCardProps {
   onDisconnect: () => void;
   connecting: boolean;
   disconnecting: boolean;
+  showOAuthActions?: boolean;
   children: React.ReactNode;
 }
 
@@ -641,6 +766,7 @@ const IntegrationCard: React.FC<IntegrationCardProps> = ({
   onDisconnect,
   connecting,
   disconnecting,
+  showOAuthActions = true,
   children,
 }) => {
   return (
@@ -663,7 +789,7 @@ const IntegrationCard: React.FC<IntegrationCardProps> = ({
           </p>
         </div>
 
-        <div className="flex gap-2">
+        {showOAuthActions && <div className="flex gap-2">
           <button
             onClick={onConnect}
             disabled={!status?.configured || connecting}
@@ -678,7 +804,7 @@ const IntegrationCard: React.FC<IntegrationCardProps> = ({
           >
             {disconnecting ? 'Disconnecting…' : 'Disconnect'}
           </button>
-        </div>
+        </div>}
       </div>
 
       {children}
@@ -840,6 +966,20 @@ const FieldReferenceSelect: React.FC<FieldReferenceSelectProps> = ({ label, tool
   );
 };
 
+const TextSetting: React.FC<{ label: string; value: string; onChange: (value: string) => void }> = ({ label, value, onChange }) => (
+  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+    <span className="block">{label}</span>
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="mt-1.5 w-full rounded border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+    />
+  </label>
+);
+
+const TextInput = TextSetting;
+
 function prettyProviderName(provider: string): string {
   switch (provider) {
     case 'google_drive':
@@ -848,6 +988,8 @@ function prettyProviderName(provider: string): string {
       return 'QuickBooks';
     case 'jobber':
       return 'Jobber';
+    case 'firefly':
+      return 'Firefly III';
     default:
       return provider;
   }

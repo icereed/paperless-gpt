@@ -26,6 +26,7 @@ const (
 	integrationProviderJobber      = "jobber"
 	integrationProviderGoogleDrive = "google_drive"
 	integrationProviderQuickBooks  = "quickbooks"
+	integrationProviderFirefly     = "firefly"
 
 	integrationStatusConnected    = "connected"
 	integrationStatusDisconnected = "disconnected"
@@ -319,7 +320,7 @@ func (app *App) getIntegrationStatuses(ctx context.Context) ([]IntegrationConnec
 		integrationProviderQuickBooks,
 	}
 
-	statuses := make([]IntegrationConnectionStatus, 0, len(providers))
+	statuses := make([]IntegrationConnectionStatus, 0, len(providers)+1)
 	for _, providerName := range providers {
 		impl := getIntegrationProvider(providerName)
 		if impl == nil {
@@ -330,6 +331,9 @@ func (app *App) getIntegrationStatuses(ctx context.Context) ([]IntegrationConnec
 			return nil, err
 		}
 		statuses = append(statuses, summarizeIntegrationStatus(providerName, impl, conn))
+	}
+	if app.Integrations != nil {
+		statuses = append(statuses, app.Integrations.FireflyStatus(ctx))
 	}
 
 	return statuses, nil

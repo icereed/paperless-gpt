@@ -20,12 +20,20 @@ interface SuggestionCardProps {
   onApplyJobberToggle: (docId: number, enabled: boolean) => void;
   onGoogleDriveToggle: (docId: number, enabled: boolean) => void;
   onJobberExpenseToggle: (docId: number, enabled: boolean) => void;
+  onFireflyMatchChange: (docId: number, selectedTransactionId: string) => void;
+  onApplyFireflyToggle: (docId: number, enabled: boolean) => void;
+  onFireflyCreateToggle: (docId: number, enabled: boolean) => void;
+  onQuickBooksToggle: (docId: number, enabled: boolean) => void;
   onRegenerateSuggestion?: (docId: number) => void;
   regenerating?: boolean;
   jobberConnected: boolean;
   jobberEnabled?: boolean;
   jobberExpenseEnabled?: boolean;
   googleDriveConnected: boolean;
+  fireflyConnected: boolean;
+  fireflyEnabled?: boolean;
+  quickBooksConnected: boolean;
+  quickBooksReceiptUploadEnabled?: boolean;
   integrationResult?: DocumentIntegrationResult;
   paperlessUrl?: string;
   onDelete?: (documentId: number) => void;
@@ -45,12 +53,20 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onApplyJobberToggle,
   onGoogleDriveToggle,
   onJobberExpenseToggle,
+  onFireflyMatchChange,
+  onApplyFireflyToggle,
+  onFireflyCreateToggle,
+  onQuickBooksToggle,
   onRegenerateSuggestion,
   regenerating = false,
   jobberConnected,
   jobberEnabled = true,
   jobberExpenseEnabled = true,
   googleDriveConnected,
+  fireflyConnected,
+  fireflyEnabled = false,
+  quickBooksConnected,
+  quickBooksReceiptUploadEnabled = false,
   integrationResult,
   paperlessUrl,
   onDelete,
@@ -84,6 +100,15 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   );
   const jobberCandidatesAvailable = (suggestion.jobber_candidates?.length ?? 0) > 0;
   const applyJobberEnabled = !!suggestion.apply_jobber;
+  const fireflyCandidatesAvailable = (suggestion.firefly_candidates?.length ?? 0) > 0;
+  const selectedFireflyCandidate = useMemo(
+    () =>
+      suggestion.firefly_candidates?.find(
+        (c) => c.id === suggestion.selected_firefly_transaction_id
+      ),
+    [suggestion.firefly_candidates, suggestion.selected_firefly_transaction_id]
+  );
+  const applyFireflyEnabled = !!suggestion.apply_firefly;
 
   const handleJobberSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setJobberSearch(e.target.value);
@@ -483,12 +508,126 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               </div>
             </div>
 
+            <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id={`apply-firefly-${suggestion.id}`}
+                  checked={applyFireflyEnabled}
+                  disabled={!fireflyConnected || !fireflyEnabled}
+                  onChange={(e) => onApplyFireflyToggle(suggestion.id, e.target.checked)}
+                  className="mt-1 h-4 w-4"
+                />
+                <div>
+                  <label htmlFor={`apply-firefly-${suggestion.id}`} className="font-medium text-gray-700 dark:text-gray-300">
+                    Apply Firefly III
+                  </label>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {!fireflyConnected
+                      ? "Configure and test Firefly in Settings to enable transaction matching."
+                      : !fireflyEnabled
+                        ? "Enable Firefly in Settings -> Integrations first."
+                        : "Attach the Paperless archive PDF to a selected or newly created transaction."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Firefly transaction match
+                  {fireflyCandidatesAvailable && (
+                    <span className="ml-1.5 text-xs font-normal text-gray-400 dark:text-gray-500">
+                      ({suggestion.firefly_candidates!.length} candidates)
+                    </span>
+                  )}
+                </label>
+                <select
+                  value={suggestion.selected_firefly_transaction_id || ""}
+                  onChange={(e) => onFireflyMatchChange(suggestion.id, e.target.value)}
+                  disabled={!applyFireflyEnabled || !fireflyConnected || !fireflyEnabled}
+                  className="mt-1.5 w-full rounded border border-gray-300 px-2 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+                >
+                  <option value="">
+                    {!applyFireflyEnabled
+                      ? "Firefly is disabled for this document"
+                      : !fireflyConnected
+                        ? "Configure Firefly in Settings"
+                        : fireflyCandidatesAvailable
+                          ? "-- No match --"
+                          : "No existing transaction candidates"}
+                  </option>
+                  {(suggestion.firefly_candidates ?? []).map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.date} - {candidate.amount} {candidate.currency_code} - {candidate.description}
+                    </option>
+                  ))}
+                </select>
+                {selectedFireflyCandidate?.match_reason && (
+                  <p className="mt-1.5 text-xs text-blue-700 dark:text-blue-300">
+                    {selectedFireflyCandidate.match_reason}
+                  </p>
+                )}
+                {selectedFireflyCandidate?.url && (
+                  <a className="mt-1.5 inline-block text-xs underline" href={selectedFireflyCandidate.url} target="_blank" rel="noopener noreferrer">
+                    Open selected transaction
+                  </a>
+                )}
+              </div>
+
+              <label className="mt-3 flex items-start gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={suggestion.create_firefly_transaction ?? false}
+                  disabled={!applyFireflyEnabled || !fireflyConnected || !fireflyEnabled || !!suggestion.selected_firefly_transaction_id}
+                  onChange={(e) => onFireflyCreateToggle(suggestion.id, e.target.checked)}
+                  className="mt-1 h-4 w-4"
+                />
+                <span>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Create Firefly transaction if no match</span>
+                  <span className="block text-gray-500 dark:text-gray-400">
+                    New withdrawal creation only runs when this box is checked.
+                  </span>
+                </span>
+              </label>
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                Paperless archive PDF will be attached to the selected or newly created transaction.
+              </p>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id={`quickbooks-${suggestion.id}`}
+                checked={suggestion.upload_to_quickbooks ?? false}
+                disabled={!quickBooksConnected || !quickBooksReceiptUploadEnabled}
+                onChange={(e) => onQuickBooksToggle(suggestion.id, e.target.checked)}
+                className="mt-1 h-4 w-4"
+              />
+              <div>
+                <label htmlFor={`quickbooks-${suggestion.id}`} className="font-medium text-gray-700 dark:text-gray-300">
+                  Upload receipt to QuickBooks
+                </label>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {!quickBooksConnected
+                    ? "Connect QuickBooks in Settings to enable receipt uploads."
+                    : !quickBooksReceiptUploadEnabled
+                      ? "Enable QuickBooks receipt uploads in Settings -> Integrations first."
+                      : "Uploads the Paperless PDF to QuickBooks Receipts for Intuit matching/OCR."}
+                </p>
+              </div>
+            </div>
+
             {(integrationResult?.jobber_applied ||
               integrationResult?.jobber_expense_created ||
               integrationResult?.jobber_error ||
               integrationResult?.jobber_expense_error ||
               integrationResult?.google_drive_uploaded ||
               integrationResult?.google_drive_error ||
+              integrationResult?.firefly_matched ||
+              integrationResult?.firefly_created ||
+              integrationResult?.firefly_error ||
+              integrationResult?.quickbooks_uploaded ||
+              integrationResult?.quickbooks_error ||
               (integrationResult && integrationResult.paperless_updated && integrationResult.jobber_applied === false && !integrationResult.jobber_error)) && (
               <div className="rounded border border-gray-200 p-3 text-sm dark:border-gray-700">
                 <h4 className="font-semibold text-gray-700 dark:text-gray-300">Last apply result</h4>
@@ -542,6 +681,43 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                 {integrationResult?.google_drive_error && (
                   <p className="mt-1 text-red-700 dark:text-red-300">
                     Google Drive: {integrationResult.google_drive_error}
+                  </p>
+                )}
+                {(integrationResult?.firefly_matched || integrationResult?.firefly_created) && (
+                  <p className="mt-1 text-green-700 dark:text-green-300">
+                    Firefly {integrationResult.firefly_created ? "transaction created" : "existing transaction selected"}
+                    {integrationResult.firefly_attachment_uploaded ? " and PDF attached" : ""}
+                    {integrationResult.firefly_url ? (
+                      <>
+                        {" "}
+                        <a className="underline" href={integrationResult.firefly_url} target="_blank" rel="noopener noreferrer">
+                          Open transaction
+                        </a>
+                      </>
+                    ) : "."}
+                  </p>
+                )}
+                {integrationResult?.firefly_error && (
+                  <p className="mt-1 text-red-700 dark:text-red-300">
+                    Firefly: {integrationResult.firefly_error}
+                  </p>
+                )}
+                {integrationResult?.quickbooks_uploaded && (
+                  <p className="mt-1 text-green-700 dark:text-green-300">
+                    QuickBooks receipt uploaded
+                    {integrationResult.quickbooks_url ? (
+                      <>
+                        {" "}
+                        <a className="underline" href={integrationResult.quickbooks_url} target="_blank" rel="noopener noreferrer">
+                          Open Receipts
+                        </a>
+                      </>
+                    ) : "."}
+                  </p>
+                )}
+                {integrationResult?.quickbooks_error && (
+                  <p className="mt-1 text-red-700 dark:text-red-300">
+                    QuickBooks: {integrationResult.quickbooks_error}
                   </p>
                 )}
               </div>

@@ -110,55 +110,81 @@ func (req GenerateSuggestionsRequest) WithoutRegenerate() GenerateSuggestionsReq
 
 // Settings defines the structure for server-side UI settings
 type Settings struct {
-	CustomFieldsEnable               bool   `json:"custom_fields_enable"`
-	CustomFieldsSelectedIDs          []int  `json:"custom_fields_selected_ids"`
-	CustomFieldsWriteMode            string `json:"custom_fields_write_mode"` // "append", "update", or "replace"
-	RestrictTagsToExisting           bool   `json:"restrict_tags_to_existing"`
-	RestrictCorrespondentsToExisting bool   `json:"restrict_correspondents_to_existing"`
-	RestrictDocumentTypesToExisting  bool   `json:"restrict_document_types_to_existing"`
-	JobberEnabled                    bool   `json:"jobber_enabled"`
-	JobberJobIDFieldID               int    `json:"jobber_job_id_field_id"`
-	JobberJobNumberFieldID           int    `json:"jobber_job_number_field_id"`
-	JobberClientFieldID              int    `json:"jobber_client_field_id"`
-	JobberJobNameFieldID             int    `json:"jobber_job_name_field_id"`
-	JobberExpenseEnabled             bool   `json:"jobber_expense_enabled"`
-	JobberExpenseTitleFieldRef       string `json:"jobber_expense_title_field_ref"`
-	JobberExpenseTitleFieldID        int    `json:"jobber_expense_title_field_id"`
-	JobberExpenseDescriptionFieldRef string `json:"jobber_expense_description_field_ref"`
-	JobberExpenseDescriptionFieldID  int    `json:"jobber_expense_description_field_id"`
-	JobberExpenseDateFieldRef        string `json:"jobber_expense_date_field_ref"`
-	JobberExpenseDateFieldID         int    `json:"jobber_expense_date_field_id"`
-	JobberExpenseTotalFieldRef       string `json:"jobber_expense_total_field_ref"`
-	JobberExpenseTotalFieldID        int    `json:"jobber_expense_total_field_id"`
-	GoogleDriveEnabled               bool   `json:"google_drive_enabled"`
-	GoogleDriveFolderID              string `json:"google_drive_folder_id"`
-	QuickBooksEnabled                bool   `json:"quickbooks_enabled"`
-	PaperlessWebhookSecret           string `json:"paperless_webhook_secret,omitempty"`
+	CustomFieldsEnable                bool   `json:"custom_fields_enable"`
+	CustomFieldsSelectedIDs           []int  `json:"custom_fields_selected_ids"`
+	CustomFieldsWriteMode             string `json:"custom_fields_write_mode"` // "append", "update", or "replace"
+	RestrictTagsToExisting            bool   `json:"restrict_tags_to_existing"`
+	RestrictCorrespondentsToExisting  bool   `json:"restrict_correspondents_to_existing"`
+	RestrictDocumentTypesToExisting   bool   `json:"restrict_document_types_to_existing"`
+	JobberEnabled                     bool   `json:"jobber_enabled"`
+	JobberJobIDFieldID                int    `json:"jobber_job_id_field_id"`
+	JobberJobNumberFieldID            int    `json:"jobber_job_number_field_id"`
+	JobberClientFieldID               int    `json:"jobber_client_field_id"`
+	JobberJobNameFieldID              int    `json:"jobber_job_name_field_id"`
+	JobberExpenseEnabled              bool   `json:"jobber_expense_enabled"`
+	JobberExpenseTitleFieldRef        string `json:"jobber_expense_title_field_ref"`
+	JobberExpenseTitleFieldID         int    `json:"jobber_expense_title_field_id"`
+	JobberExpenseDescriptionFieldRef  string `json:"jobber_expense_description_field_ref"`
+	JobberExpenseDescriptionFieldID   int    `json:"jobber_expense_description_field_id"`
+	JobberExpenseDateFieldRef         string `json:"jobber_expense_date_field_ref"`
+	JobberExpenseDateFieldID          int    `json:"jobber_expense_date_field_id"`
+	JobberExpenseTotalFieldRef        string `json:"jobber_expense_total_field_ref"`
+	JobberExpenseTotalFieldID         int    `json:"jobber_expense_total_field_id"`
+	GoogleDriveEnabled                bool   `json:"google_drive_enabled"`
+	GoogleDriveFolderID               string `json:"google_drive_folder_id"`
+	QuickBooksEnabled                 bool   `json:"quickbooks_enabled"`
+	QuickBooksReceiptUploadEnabled    bool   `json:"quickbooks_receipt_upload_enabled"`
+	FireflyEnabled                    bool   `json:"firefly_enabled"`
+	FireflyInstanceURL                string `json:"firefly_instance_url"`
+	FireflyAPIToken                   string `json:"firefly_api_token,omitempty"`
+	FireflyAPITokenConfigured         bool   `json:"firefly_api_token_configured,omitempty"`
+	FireflyDefaultSourceAccount       string `json:"firefly_default_source_account"`
+	FireflyDefaultDestinationAccount  string `json:"firefly_default_destination_account"`
+	FireflyDefaultCurrency            string `json:"firefly_default_currency"`
+	FireflyDefaultCategory            string `json:"firefly_default_category"`
+	FireflyDefaultBudget              string `json:"firefly_default_budget"`
+	FireflyNotesTemplate              string `json:"firefly_notes_template"`
+	FireflyDescriptionFieldRef        string `json:"firefly_description_field_ref"`
+	FireflyDateFieldRef               string `json:"firefly_date_field_ref"`
+	FireflyAmountFieldRef             string `json:"firefly_amount_field_ref"`
+	FireflyCurrencyFieldRef           string `json:"firefly_currency_field_ref"`
+	FireflyCategoryFieldRef           string `json:"firefly_category_field_ref"`
+	FireflyBudgetFieldRef             string `json:"firefly_budget_field_ref"`
+	FireflyNotesFieldRef              string `json:"firefly_notes_field_ref"`
+	FireflyExternalRefFieldRef        string `json:"firefly_external_ref_field_ref"`
+	FireflySourceAccountFieldRef      string `json:"firefly_source_account_field_ref"`
+	FireflyDestinationAccountFieldRef string `json:"firefly_destination_account_field_ref"`
+	PaperlessWebhookSecret            string `json:"paperless_webhook_secret,omitempty"`
 }
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
 type DocumentSuggestion struct {
-	ID                     int                     `json:"id"`
-	OriginalDocument       Document                `json:"original_document"`
-	SuggestedTitle         string                  `json:"suggested_title,omitempty"`
-	SuggestedTags          []string                `json:"suggested_tags,omitempty"`
-	SuggestedContent       string                  `json:"suggested_content,omitempty"`
-	SuggestedCorrespondent string                  `json:"suggested_correspondent,omitempty"`
-	SuggestedCreatedDate   string                  `json:"suggested_created_date,omitempty"`
-	SuggestedDocumentType  string                  `json:"suggested_document_type,omitempty"`
-	SuggestedCustomFields  []CustomFieldSuggestion `json:"suggested_custom_fields,omitempty"`
-	KeepOriginalTags       bool                    `json:"keep_original_tags,omitempty"`
-	RemoveTags             []string                `json:"remove_tags,omitempty"`
-	AddTags                []string                `json:"add_tags,omitempty"`
-	CustomFieldsWriteMode  string                  `json:"custom_fields_write_mode,omitempty"`
-	CustomFieldsEnable     bool                    `json:"custom_fields_enable"`
-	JobberCandidates       []JobberMatchCandidate  `json:"jobber_candidates,omitempty"`
-	SelectedJobberMatchID  string                  `json:"selected_jobber_match_id,omitempty"`
-	ApplyJobber            bool                    `json:"apply_jobber,omitempty"`
-	CreateJobberExpense    bool                    `json:"create_jobber_expense,omitempty"`
-	UploadToGoogleDrive    bool                    `json:"upload_to_google_drive,omitempty"`
-	Cached                 bool                    `json:"cached,omitempty"`
-	GeneratedAt            string                  `json:"generated_at,omitempty"`
+	ID                           int                           `json:"id"`
+	OriginalDocument             Document                      `json:"original_document"`
+	SuggestedTitle               string                        `json:"suggested_title,omitempty"`
+	SuggestedTags                []string                      `json:"suggested_tags,omitempty"`
+	SuggestedContent             string                        `json:"suggested_content,omitempty"`
+	SuggestedCorrespondent       string                        `json:"suggested_correspondent,omitempty"`
+	SuggestedCreatedDate         string                        `json:"suggested_created_date,omitempty"`
+	SuggestedDocumentType        string                        `json:"suggested_document_type,omitempty"`
+	SuggestedCustomFields        []CustomFieldSuggestion       `json:"suggested_custom_fields,omitempty"`
+	KeepOriginalTags             bool                          `json:"keep_original_tags,omitempty"`
+	RemoveTags                   []string                      `json:"remove_tags,omitempty"`
+	AddTags                      []string                      `json:"add_tags,omitempty"`
+	CustomFieldsWriteMode        string                        `json:"custom_fields_write_mode,omitempty"`
+	CustomFieldsEnable           bool                          `json:"custom_fields_enable"`
+	JobberCandidates             []JobberMatchCandidate        `json:"jobber_candidates,omitempty"`
+	SelectedJobberMatchID        string                        `json:"selected_jobber_match_id,omitempty"`
+	ApplyJobber                  bool                          `json:"apply_jobber,omitempty"`
+	CreateJobberExpense          bool                          `json:"create_jobber_expense,omitempty"`
+	UploadToGoogleDrive          bool                          `json:"upload_to_google_drive,omitempty"`
+	ApplyFirefly                 bool                          `json:"apply_firefly,omitempty"`
+	FireflyCandidates            []FireflyTransactionCandidate `json:"firefly_candidates,omitempty"`
+	SelectedFireflyTransactionID string                        `json:"selected_firefly_transaction_id,omitempty"`
+	CreateFireflyTransaction     bool                          `json:"create_firefly_transaction,omitempty"`
+	UploadToQuickBooks           bool                          `json:"upload_to_quickbooks,omitempty"`
+	Cached                       bool                          `json:"cached,omitempty"`
+	GeneratedAt                  string                        `json:"generated_at,omitempty"`
 }
 
 type JobberMatchCandidate struct {
@@ -203,18 +229,42 @@ type IntegrationConnectionStatus struct {
 	Reason      string `json:"reason,omitempty"`
 }
 
+type FireflyTransactionCandidate struct {
+	ID              string `json:"id"`
+	Description     string `json:"description"`
+	Date            string `json:"date"`
+	Amount          string `json:"amount"`
+	CurrencyCode    string `json:"currency_code"`
+	SourceName      string `json:"source_name,omitempty"`
+	DestinationName string `json:"destination_name,omitempty"`
+	Category        string `json:"category,omitempty"`
+	Budget          string `json:"budget,omitempty"`
+	URL             string `json:"url,omitempty"`
+	MatchReason     string `json:"match_reason,omitempty"`
+}
+
 type DocumentIntegrationResult struct {
-	DocumentID           int    `json:"document_id"`
-	PaperlessUpdated     bool   `json:"paperless_updated"`
-	JobberApplied        bool   `json:"jobber_applied,omitempty"`
-	JobberError          string `json:"jobber_error,omitempty"`
-	JobberExpenseCreated bool   `json:"jobber_expense_created,omitempty"`
-	JobberExpenseID      string `json:"jobber_expense_id,omitempty"`
-	JobberExpenseError   string `json:"jobber_expense_error,omitempty"`
-	GoogleDriveUploaded  bool   `json:"google_drive_uploaded,omitempty"`
-	GoogleDriveFileID    string `json:"google_drive_file_id,omitempty"`
-	GoogleDriveURL       string `json:"google_drive_url,omitempty"`
-	GoogleDriveError     string `json:"google_drive_error,omitempty"`
+	DocumentID                int    `json:"document_id"`
+	PaperlessUpdated          bool   `json:"paperless_updated"`
+	JobberApplied             bool   `json:"jobber_applied,omitempty"`
+	JobberError               string `json:"jobber_error,omitempty"`
+	JobberExpenseCreated      bool   `json:"jobber_expense_created,omitempty"`
+	JobberExpenseID           string `json:"jobber_expense_id,omitempty"`
+	JobberExpenseError        string `json:"jobber_expense_error,omitempty"`
+	GoogleDriveUploaded       bool   `json:"google_drive_uploaded,omitempty"`
+	GoogleDriveFileID         string `json:"google_drive_file_id,omitempty"`
+	GoogleDriveURL            string `json:"google_drive_url,omitempty"`
+	GoogleDriveError          string `json:"google_drive_error,omitempty"`
+	FireflyMatched            bool   `json:"firefly_matched,omitempty"`
+	FireflyCreated            bool   `json:"firefly_created,omitempty"`
+	FireflyAttachmentUploaded bool   `json:"firefly_attachment_uploaded,omitempty"`
+	FireflyTransactionID      string `json:"firefly_transaction_id,omitempty"`
+	FireflyURL                string `json:"firefly_url,omitempty"`
+	FireflyError              string `json:"firefly_error,omitempty"`
+	QuickBooksUploaded        bool   `json:"quickbooks_uploaded,omitempty"`
+	QuickBooksAttachableID    string `json:"quickbooks_attachable_id,omitempty"`
+	QuickBooksURL             string `json:"quickbooks_url,omitempty"`
+	QuickBooksError           string `json:"quickbooks_error,omitempty"`
 }
 
 type Correspondent struct {

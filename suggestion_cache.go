@@ -23,7 +23,8 @@ const (
 	suggestionJobStatusSucceeded = "succeeded"
 	suggestionJobStatusFailed    = "failed"
 
-	integrationCandidateProviderJobber = "jobber"
+	integrationCandidateProviderJobber  = "jobber"
+	integrationCandidateProviderFirefly = "firefly"
 )
 
 var suggestionGenerationLocks sync.Map

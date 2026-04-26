@@ -108,7 +108,6 @@ type OCRTestCase struct {
 type appStubBG struct {
 	*App
 	ocrCalls int
-	tagCalls int
 }
 
 func (a *appStubBG) isOcrEnabled() bool { return true }
@@ -119,15 +118,6 @@ func (a *appStubBG) processAutoOcrTagDocuments(ctx context.Context) (int, error)
 		return 1, nil
 	}
 	return a.App.processAutoOcrTagDocuments(ctx)
-}
-
-func (a *appStubBG) processAutoTagDocuments(ctx context.Context) (int, error) {
-	a.tagCalls++
-	// Return fixed count for background test
-	if a.App == nil {
-		return 1, nil
-	}
-	return a.App.processAutoTagDocuments(ctx)
 }
 
 // Setup a Test
@@ -312,7 +302,6 @@ func TestBackgroundTasks_ShutdownOnContextCancel(t *testing.T) {
 	}
 
 	assert.Greater(t, app.ocrCalls, 0, "OCR loop should have run at least once")
-	assert.Greater(t, app.tagCalls, 0, "Tag loop should have run at least once")
 }
 
 // TestApp extends App with testing capabilities

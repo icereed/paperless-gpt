@@ -18,6 +18,10 @@ interface SuggestionsReviewProps {
   onApplyJobberToggle: (docId: number, checked: boolean) => void;
   onJobberExpenseToggle: (docId: number, checked: boolean) => void;
   onGoogleDriveToggle: (docId: number, checked: boolean) => void;
+  onFireflyMatchChange: (docId: number, candidateId: string) => void;
+  onApplyFireflyToggle: (docId: number, checked: boolean) => void;
+  onFireflyCreateToggle: (docId: number, checked: boolean) => void;
+  onQuickBooksToggle: (docId: number, checked: boolean) => void;
   onRegenerateSuggestion: (docId: number) => void;
   regeneratingDocId?: number | null;
   onBack: () => void;
@@ -27,6 +31,8 @@ interface SuggestionsReviewProps {
   onDeleteDocument?: (documentId: number) => void;
   jobberEnabled?: boolean;
   jobberExpenseEnabled?: boolean;
+  fireflyEnabled?: boolean;
+  quickBooksReceiptUploadEnabled?: boolean;
 }
 
 const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
@@ -45,6 +51,10 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   onApplyJobberToggle,
   onJobberExpenseToggle,
   onGoogleDriveToggle,
+  onFireflyMatchChange,
+  onApplyFireflyToggle,
+  onFireflyCreateToggle,
+  onQuickBooksToggle,
   onRegenerateSuggestion,
   regeneratingDocId,
   onBack,
@@ -54,6 +64,8 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   onDeleteDocument,
   jobberEnabled = true,
   jobberExpenseEnabled = true,
+  fireflyEnabled = false,
+  quickBooksReceiptUploadEnabled = false,
 }) => {
   const integrationResultMap = useMemo(
     () => new Map(integrationResults.map((r) => [r.document_id, r])),
@@ -110,11 +122,19 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           onApplyJobberToggle={onApplyJobberToggle}
           onJobberExpenseToggle={onJobberExpenseToggle}
           onGoogleDriveToggle={onGoogleDriveToggle}
+          onFireflyMatchChange={onFireflyMatchChange}
+          onApplyFireflyToggle={onApplyFireflyToggle}
+          onFireflyCreateToggle={onFireflyCreateToggle}
+          onQuickBooksToggle={onQuickBooksToggle}
           onRegenerateSuggestion={onRegenerateSuggestion}
           regenerating={regeneratingDocId === doc.id}
           jobberConnected={!!integrationStatuses.jobber?.connected}
           jobberEnabled={jobberEnabled}
           jobberExpenseEnabled={jobberExpenseEnabled}
+          fireflyConnected={!!integrationStatuses.firefly?.connected}
+          fireflyEnabled={fireflyEnabled}
+          quickBooksConnected={!!integrationStatuses.quickbooks?.connected}
+          quickBooksReceiptUploadEnabled={quickBooksReceiptUploadEnabled}
           googleDriveConnected={!!integrationStatuses.google_drive?.connected}
           integrationResult={integrationResultMap.get(doc.id)}
           paperlessUrl={paperlessUrl}

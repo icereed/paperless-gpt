@@ -132,7 +132,7 @@ func (app *App) getSettingsHandler(c *gin.Context) {
 	customFieldsCacheMu.RLock()
 	defer customFieldsCacheMu.RUnlock()
 
-	settingsCopy.PaperlessWebhookSecret = ""
+	settingsCopy = sanitizeSettingsForResponse(settingsCopy)
 	webhookConfigured := app.isWebhookConfigured(c.Request.Context(), paperlessWebhookProvider)
 
 	// Create a response that includes both settings and custom fields
@@ -160,6 +160,10 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 	merged, err := mergeSettingsPatch(settings, patch)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := mergeSecretSettings(settings, &merged); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save encrypted integration secret"})
 		return
 	}
 	webhookSecret := strings.TrimSpace(merged.PaperlessWebhookSecret)
@@ -351,6 +355,34 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 				result.GoogleDriveURL = uploadResult.FileURL
 			}
 		}
+		if document.ApplyFirefly {
+			fireflyResult, err := app.Integrations.ApplyFirefly(ctx, app.Client, document, batch.ID)
+			if err != nil {
+				result.FireflyError = err.Error()
+				if fireflyResult != nil {
+					result.FireflyMatched = fireflyResult.Matched
+					result.FireflyCreated = fireflyResult.Created
+					result.FireflyTransactionID = fireflyResult.TransactionID
+					result.FireflyURL = fireflyResult.URL
+				}
+			} else if fireflyResult != nil {
+				result.FireflyMatched = fireflyResult.Matched
+				result.FireflyCreated = fireflyResult.Created
+				result.FireflyAttachmentUploaded = fireflyResult.AttachmentUploaded
+				result.FireflyTransactionID = fireflyResult.TransactionID
+				result.FireflyURL = fireflyResult.URL
+			}
+		}
+		if document.UploadToQuickBooks {
+			qboResult, err := app.Integrations.UploadQuickBooksReceipt(ctx, app.Client, document, batch.ID)
+			if err != nil {
+				result.QuickBooksError = err.Error()
+			} else {
+				result.QuickBooksUploaded = true
+				result.QuickBooksAttachableID = qboResult.AttachableID
+				result.QuickBooksURL = qboResult.URL
+			}
+		}
 
 		results = append(results, result)
 	}
@@ -373,6 +405,7 @@ func (app *App) getIntegrationsStatusHandler(c *gin.Context) {
 		app.Integrations.Status("jobber"),
 		app.Integrations.Status("google_drive"),
 		app.Integrations.Status("quickbooks"),
+		app.Integrations.FireflyStatus(c.Request.Context()),
 	}
 
 	c.JSON(http.StatusOK, gin.H{"providers": statuses})
@@ -780,11 +813,111 @@ func (app *App) jobberMatchCandidatesHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"candidates": results, "auto_selected": autoSelected})
 }
 
+func (app *App) fireflyMatchCandidatesHandler(c *gin.Context) {
+	var req struct {
+		DocumentIDs           []int                `json:"document_ids"`
+		Documents             []Document           `json:"documents,omitempty"`
+		Suggestions           []DocumentSuggestion `json:"suggestions,omitempty"`
+		SuggestedCreatedDates map[string]string    `json:"suggested_created_dates,omitempty"`
+		Amounts               map[string]string    `json:"amounts,omitempty"`
+		Currencies            map[string]string    `json:"currencies,omitempty"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+	ctx := c.Request.Context()
+	docByID := make(map[int]Document, len(req.Documents))
+	for _, doc := range req.Documents {
+		docByID[doc.ID] = doc
+	}
+	suggestionByID := make(map[int]DocumentSuggestion, len(req.Suggestions))
+	for _, suggestion := range req.Suggestions {
+		suggestionByID[suggestion.ID] = suggestion
+	}
+	results := make(map[int][]FireflyTransactionCandidate, len(req.DocumentIDs))
+	autoSelected := make(map[int]string, len(req.DocumentIDs))
+	for _, id := range req.DocumentIDs {
+		suggestion, ok := suggestionByID[id]
+		if !ok {
+			doc := docByID[id]
+			if doc.ID == 0 {
+				fetched, err := app.Client.GetDocument(ctx, id)
+				if err != nil {
+					log.WithError(err).WithField("document_id", id).Warn("Could not fetch document for Firefly matching")
+					continue
+				}
+				doc = fetched
+			}
+			suggestion = DocumentSuggestion{ID: id, OriginalDocument: doc}
+		}
+		if date := strings.TrimSpace(req.SuggestedCreatedDates[strconv.Itoa(id)]); date != "" {
+			suggestion.SuggestedCreatedDate = date
+		}
+		if amount := strings.TrimSpace(req.Amounts[strconv.Itoa(id)]); amount != "" {
+			suggestion.SuggestedCustomFields = append(suggestion.SuggestedCustomFields, CustomFieldSuggestion{Name: "amount", Value: amount})
+		}
+		if currency := strings.TrimSpace(req.Currencies[strconv.Itoa(id)]); currency != "" {
+			suggestion.SuggestedCustomFields = append(suggestion.SuggestedCustomFields, CustomFieldSuggestion{Name: "currency", Value: currency})
+		}
+		matchHash := fireflyCandidateMatchHash(suggestion)
+		var cached []FireflyTransactionCandidate
+		cachedAuto, hit, err := app.getCachedIntegrationCandidates(ctx, id, integrationCandidateProviderFirefly, matchHash, &cached)
+		if err == nil && hit {
+			results[id] = cached
+			if cachedAuto != "" {
+				autoSelected[id] = cachedAuto
+			}
+			continue
+		}
+		candidates, auto, err := app.Integrations.FetchFireflyTransactionCandidates(ctx, suggestion)
+		if err != nil {
+			results[id] = []FireflyTransactionCandidate{}
+			log.WithError(err).WithField("document_id", id).Warn("Firefly candidates unavailable")
+			continue
+		}
+		results[id] = candidates
+		if auto != "" {
+			autoSelected[id] = auto
+		}
+		if err := app.saveIntegrationCandidates(ctx, id, integrationCandidateProviderFirefly, matchHash, candidates, auto); err != nil {
+			log.WithError(err).WithField("document_id", id).Warn("Failed to cache Firefly candidates")
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"candidates": results, "auto_selected": autoSelected})
+}
+
 func jobberCandidateMatchHash(doc Document, preferredDate string) string {
 	return integrationMatchHash(integrationCandidateProviderJobber, map[string]interface{}{
 		"document_created_date":  doc.CreatedDate,
 		"suggested_created_date": strings.TrimSpace(preferredDate),
 	})
+}
+
+func fireflyCandidateMatchHash(suggestion DocumentSuggestion) string {
+	cfg, _, _ := fireflyConfigFromSettings()
+	derived, _ := deriveFireflyTransaction(suggestion, cfg)
+	return integrationMatchHash(integrationCandidateProviderFirefly, map[string]interface{}{
+		"document_id": suggestion.ID,
+		"date":        derived.Date,
+		"amount":      derived.AmountString,
+		"currency":    derived.CurrencyCode,
+		"instance":    cfg.InstanceURL,
+		"source":      cfg.DefaultSourceAccount,
+		"destination": cfg.DefaultDestinationAccount,
+	})
+}
+
+func getSelectedFireflyCandidate(document DocumentSuggestion) (FireflyTransactionCandidate, bool) {
+	if document.SelectedFireflyTransactionID == "" {
+		return FireflyTransactionCandidate{}, false
+	}
+	for _, candidate := range document.FireflyCandidates {
+		if candidate.ID == document.SelectedFireflyTransactionID {
+			return candidate, true
+		}
+	}
+	return FireflyTransactionCandidate{ID: document.SelectedFireflyTransactionID}, true
 }
 
 func currentBaseURL(c *gin.Context) string {

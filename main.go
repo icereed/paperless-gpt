@@ -440,6 +440,7 @@ func main() {
 		api.POST("/integrations/:provider/disconnect", app.disconnectIntegrationHandler)
 		api.GET("/integrations/jobber/receipt/:token", app.jobberReceiptHandler)
 		api.POST("/integrations/jobber/match-candidates", app.jobberMatchCandidatesHandler)
+		api.POST("/integrations/firefly/match-candidates", app.fireflyMatchCandidatesHandler)
 
 		// OCR endpoints
 		api.POST("/documents/:id/ocr", app.submitOCRJobHandler)

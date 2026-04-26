@@ -18,6 +18,9 @@ func defaultSettings() Settings {
 		JobberExpenseEnabled:             false,
 		GoogleDriveEnabled:               false,
 		QuickBooksEnabled:                false,
+		QuickBooksReceiptUploadEnabled:   false,
+		FireflyEnabled:                   false,
+		FireflyDefaultCurrency:           "USD",
 	}
 }
 

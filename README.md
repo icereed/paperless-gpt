@@ -60,7 +60,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 9. **Unified Web UI**
 
    - **Manual Review**: Approve or tweak AI's suggestions.
-   - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
+   - **Explicit Integrations**: Review per-document Jobber, Firefly III, QuickBooks, and Google Drive side effects before anything leaves Paperless GPT.
 
 ## Table of Contents
 
@@ -145,9 +145,9 @@ services:
       PAPERLESS_BASE_URL: "http://paperless-ngx:8000"
       PAPERLESS_API_TOKEN: "your_paperless_api_token"
       PAPERLESS_PUBLIC_URL: "http://paperless.mydomain.com" # Optional
-      APP_PUBLIC_URL: "https://paperless-gpt.mydomain.com" # Recommended for OAuth callbacks and Jobber receipt links
+      APP_PUBLIC_URL: "https://paperless-gpt.mydomain.com" # Recommended for OAuth callbacks and receipt links
       MANUAL_TAG: "paperless-gpt" # Optional, default: paperless-gpt
-      AUTO_TAG: "paperless-gpt-auto" # Optional, default: paperless-gpt-auto
+      # AUTO_TAG is ignored for metadata writes in 0.7.0; use manual review or webhooks instead.
       # LLM Configuration - Choose one:
 
       # Option 1: Standard OpenAI
@@ -572,7 +572,7 @@ For best results with the enhanced OCR features:
 | `APP_PUBLIC_URL`                    | Public URL for this paperless-gpt instance. Used to build OAuth callback URLs and Jobber receipt links when running behind a reverse proxy. For Jobber, register `${APP_PUBLIC_URL}/api/integrations/jobber/oauth/callback`. | No       |                            |
 | `PAPERLESS_GPT_PUBLIC_URL`          | Legacy alias for `APP_PUBLIC_URL`, kept for backward compatibility with existing deployments.                                                                                                 | No       |                            |
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
-| `AUTO_TAG`                          | Legacy tag for automatic metadata writes. This path is deprecated in 0.5.0; use the manual review workflow or Paperless webhook pre-processing instead.                                      | No       | paperless-gpt-auto         |
+| `AUTO_TAG`                          | Ignored legacy tag. Automatic metadata writes from tag-only processing were removed in 0.7.0; use manual review or Paperless webhook pre-processing instead.                                 | No       | paperless-gpt-auto         |
 | `LLM_PROVIDER`                      | AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`).                                                                                                                       | Yes      |                            |
 | `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`).                                                                                               | Yes      |                            |
 | `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                    | Cond.    |                            |
