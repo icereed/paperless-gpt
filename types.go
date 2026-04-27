@@ -117,6 +117,9 @@ type Settings struct {
 	RestrictCorrespondentsToExisting  bool   `json:"restrict_correspondents_to_existing"`
 	RestrictDocumentTypesToExisting   bool   `json:"restrict_document_types_to_existing"`
 	JobberEnabled                     bool   `json:"jobber_enabled"`
+	JobberClientID                    string `json:"jobber_client_id"`
+	JobberClientSecret                string `json:"jobber_client_secret,omitempty"`
+	JobberClientSecretConfigured      bool   `json:"jobber_client_secret_configured,omitempty"`
 	JobberJobIDFieldID                int    `json:"jobber_job_id_field_id"`
 	JobberJobNumberFieldID            int    `json:"jobber_job_number_field_id"`
 	JobberClientFieldID               int    `json:"jobber_client_field_id"`
@@ -131,8 +134,14 @@ type Settings struct {
 	JobberExpenseTotalFieldRef        string `json:"jobber_expense_total_field_ref"`
 	JobberExpenseTotalFieldID         int    `json:"jobber_expense_total_field_id"`
 	GoogleDriveEnabled                bool   `json:"google_drive_enabled"`
+	GoogleDriveClientID               string `json:"google_drive_client_id"`
+	GoogleDriveClientSecret           string `json:"google_drive_client_secret,omitempty"`
+	GoogleDriveClientSecretConfigured bool   `json:"google_drive_client_secret_configured,omitempty"`
 	GoogleDriveFolderID               string `json:"google_drive_folder_id"`
 	QuickBooksEnabled                 bool   `json:"quickbooks_enabled"`
+	QuickBooksClientID                string `json:"quickbooks_client_id"`
+	QuickBooksClientSecret            string `json:"quickbooks_client_secret,omitempty"`
+	QuickBooksClientSecretConfigured  bool   `json:"quickbooks_client_secret_configured,omitempty"`
 	QuickBooksReceiptUploadEnabled    bool   `json:"quickbooks_receipt_upload_enabled"`
 	FireflyEnabled                    bool   `json:"firefly_enabled"`
 	FireflyInstanceURL                string `json:"firefly_instance_url"`
@@ -154,6 +163,7 @@ type Settings struct {
 	FireflyExternalRefFieldRef        string `json:"firefly_external_ref_field_ref"`
 	FireflySourceAccountFieldRef      string `json:"firefly_source_account_field_ref"`
 	FireflyDestinationAccountFieldRef string `json:"firefly_destination_account_field_ref"`
+	IntegrationPublicURL              string `json:"integration_public_url"`
 	PaperlessWebhookSecret            string `json:"paperless_webhook_secret,omitempty"`
 }
 

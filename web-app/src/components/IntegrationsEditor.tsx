@@ -14,6 +14,9 @@ interface FieldOption {
 
 interface SettingsData {
   jobber_enabled: boolean;
+  jobber_client_id: string;
+  jobber_client_secret: string;
+  jobber_client_secret_configured?: boolean;
   jobber_job_id_field_id: number;
   jobber_job_number_field_id: number;
   jobber_client_field_id: number;
@@ -24,8 +27,14 @@ interface SettingsData {
   jobber_expense_date_field_ref: string;
   jobber_expense_total_field_ref: string;
   google_drive_enabled: boolean;
+  google_drive_client_id: string;
+  google_drive_client_secret: string;
+  google_drive_client_secret_configured?: boolean;
   google_drive_folder_id: string;
   quickbooks_enabled: boolean;
+  quickbooks_client_id: string;
+  quickbooks_client_secret: string;
+  quickbooks_client_secret_configured?: boolean;
   quickbooks_receipt_upload_enabled: boolean;
   firefly_enabled: boolean;
   firefly_instance_url: string;
@@ -47,6 +56,7 @@ interface SettingsData {
   firefly_external_ref_field_ref: string;
   firefly_source_account_field_ref: string;
   firefly_destination_account_field_ref: string;
+  integration_public_url: string;
   paperless_webhook_secret: string;
 }
 
@@ -65,6 +75,9 @@ interface IntegrationStatus {
 
 const defaultSettings: SettingsData = {
   jobber_enabled: false,
+  jobber_client_id: '',
+  jobber_client_secret: '',
+  jobber_client_secret_configured: false,
   jobber_job_id_field_id: 0,
   jobber_job_number_field_id: 0,
   jobber_client_field_id: 0,
@@ -75,8 +88,14 @@ const defaultSettings: SettingsData = {
   jobber_expense_date_field_ref: '',
   jobber_expense_total_field_ref: '',
   google_drive_enabled: false,
+  google_drive_client_id: '',
+  google_drive_client_secret: '',
+  google_drive_client_secret_configured: false,
   google_drive_folder_id: '',
   quickbooks_enabled: false,
+  quickbooks_client_id: '',
+  quickbooks_client_secret: '',
+  quickbooks_client_secret_configured: false,
   quickbooks_receipt_upload_enabled: false,
   firefly_enabled: false,
   firefly_instance_url: '',
@@ -98,6 +117,7 @@ const defaultSettings: SettingsData = {
   firefly_external_ref_field_ref: '',
   firefly_source_account_field_ref: '',
   firefly_destination_account_field_ref: '',
+  integration_public_url: '',
   paperless_webhook_secret: '',
 };
 
@@ -170,6 +190,9 @@ const IntegrationsEditor: React.FC = () => {
 
       const nextSettings: SettingsData = {
         jobber_enabled: !!settingsData.settings?.jobber_enabled,
+        jobber_client_id: settingsData.settings?.jobber_client_id || '',
+        jobber_client_secret: '',
+        jobber_client_secret_configured: !!settingsData.settings?.jobber_client_secret_configured,
         jobber_job_id_field_id: Number(settingsData.settings?.jobber_job_id_field_id || 0),
         jobber_job_number_field_id: Number(settingsData.settings?.jobber_job_number_field_id || 0),
         jobber_client_field_id: Number(settingsData.settings?.jobber_client_field_id || 0),
@@ -192,8 +215,14 @@ const IntegrationsEditor: React.FC = () => {
           settingsData.settings?.jobber_expense_total_field_id,
         ),
         google_drive_enabled: !!settingsData.settings?.google_drive_enabled,
+        google_drive_client_id: settingsData.settings?.google_drive_client_id || '',
+        google_drive_client_secret: '',
+        google_drive_client_secret_configured: !!settingsData.settings?.google_drive_client_secret_configured,
         google_drive_folder_id: settingsData.settings?.google_drive_folder_id || '',
         quickbooks_enabled: !!settingsData.settings?.quickbooks_enabled,
+        quickbooks_client_id: settingsData.settings?.quickbooks_client_id || '',
+        quickbooks_client_secret: '',
+        quickbooks_client_secret_configured: !!settingsData.settings?.quickbooks_client_secret_configured,
         quickbooks_receipt_upload_enabled: !!settingsData.settings?.quickbooks_receipt_upload_enabled,
         firefly_enabled: !!settingsData.settings?.firefly_enabled,
         firefly_instance_url: settingsData.settings?.firefly_instance_url || '',
@@ -215,6 +244,7 @@ const IntegrationsEditor: React.FC = () => {
         firefly_external_ref_field_ref: settingsData.settings?.firefly_external_ref_field_ref || '',
         firefly_source_account_field_ref: settingsData.settings?.firefly_source_account_field_ref || '',
         firefly_destination_account_field_ref: settingsData.settings?.firefly_destination_account_field_ref || '',
+        integration_public_url: settingsData.settings?.integration_public_url || '',
         paperless_webhook_secret: '',
       };
 
@@ -234,6 +264,19 @@ const IntegrationsEditor: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  }, []);
+
+  const refreshStatuses = useCallback(async () => {
+    const response = await fetch('./api/integrations');
+    if (!response.ok) {
+      throw new Error('Failed to fetch integrations');
+    }
+    const integrationsData = await response.json();
+    const statusMap: Record<string, IntegrationStatus> = {};
+    for (const status of integrationsData.providers || integrationsData.integrations || []) {
+      statusMap[status.provider] = status;
+    }
+    setStatuses(statusMap);
   }, []);
 
   useEffect(() => {
@@ -296,11 +339,24 @@ const IntegrationsEditor: React.FC = () => {
         throw new Error(errData.error || 'Failed to save settings');
       }
       setSuccessMessage('Integration settings saved successfully!');
+      const savedSettings: SettingsData = {
+        ...settings,
+        jobber_client_secret: '',
+        jobber_client_secret_configured: settings.jobber_client_secret.trim() !== '' || !!settings.jobber_client_secret_configured,
+        google_drive_client_secret: '',
+        google_drive_client_secret_configured: settings.google_drive_client_secret.trim() !== '' || !!settings.google_drive_client_secret_configured,
+        quickbooks_client_secret: '',
+        quickbooks_client_secret_configured: settings.quickbooks_client_secret.trim() !== '' || !!settings.quickbooks_client_secret_configured,
+        firefly_api_token: '',
+        firefly_api_token_configured: settings.firefly_api_token.trim() !== '' || !!settings.firefly_api_token_configured,
+        paperless_webhook_secret: '',
+      };
       if (settings.paperless_webhook_secret.trim() !== '') {
         setWebhookStatus((prev) => ({ ...prev, paperless_configured: true }));
       }
-      setSettings((prev) => ({ ...prev, paperless_webhook_secret: '' }));
-      setInitialSettings((prev) => ({ ...prev, paperless_webhook_secret: '' }));
+      setSettings(savedSettings);
+      setInitialSettings(savedSettings);
+      await refreshStatuses();
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
       console.error('Error saving integration settings:', err);
@@ -308,7 +364,7 @@ const IntegrationsEditor: React.FC = () => {
     } finally {
       setIsSaving(false);
     }
-  }, [isDirty, settings]);
+  }, [isDirty, refreshStatuses, settings]);
 
   const handleConnect = useCallback(async (provider: string) => {
     setConnectingProvider(provider);
@@ -459,6 +515,22 @@ const IntegrationsEditor: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 gap-6">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
+          <SectionHeader
+            title="OAuth callback URL"
+            description="Set this when Paperless GPT is behind a reverse proxy or accessed through a public domain. Register each provider callback URL using this base URL."
+          />
+          <TextInput
+            label="Public Paperless GPT URL"
+            value={settings.integration_public_url}
+            onChange={(v) => handleSettingChange('integration_public_url', v)}
+            placeholder={window.location.origin}
+          />
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            Example callback: {(settings.integration_public_url || window.location.origin).replace(/\/$/, '')}/api/integrations/jobber/oauth/callback
+          </p>
+        </div>
+
         <IntegrationCard
           title="Jobber"
           status={statuses.jobber}
@@ -467,6 +539,15 @@ const IntegrationsEditor: React.FC = () => {
           connecting={connectingProvider === 'jobber'}
           disconnecting={disconnectingProvider === 'jobber'}
         >
+          <OAuthCredentialFields
+            providerName="Jobber"
+            clientId={settings.jobber_client_id}
+            clientSecret={settings.jobber_client_secret}
+            clientSecretConfigured={!!settings.jobber_client_secret_configured}
+            onClientIdChange={(value) => handleSettingChange('jobber_client_id', value)}
+            onClientSecretChange={(value) => handleSettingChange('jobber_client_secret', value)}
+          />
+
           {/* ── Job matching ───────────────────────────────────────────── */}
           <SectionHeader
             title="Job matching"
@@ -587,6 +668,15 @@ const IntegrationsEditor: React.FC = () => {
           connecting={connectingProvider === 'google_drive'}
           disconnecting={disconnectingProvider === 'google_drive'}
         >
+          <OAuthCredentialFields
+            providerName="Google Drive"
+            clientId={settings.google_drive_client_id}
+            clientSecret={settings.google_drive_client_secret}
+            clientSecretConfigured={!!settings.google_drive_client_secret_configured}
+            onClientIdChange={(value) => handleSettingChange('google_drive_client_id', value)}
+            onClientSecretChange={(value) => handleSettingChange('google_drive_client_secret', value)}
+          />
+
           <div className="flex items-center mb-4">
             <input
               type="checkbox"
@@ -623,6 +713,15 @@ const IntegrationsEditor: React.FC = () => {
           connecting={connectingProvider === 'quickbooks'}
           disconnecting={disconnectingProvider === 'quickbooks'}
         >
+          <OAuthCredentialFields
+            providerName="QuickBooks"
+            clientId={settings.quickbooks_client_id}
+            clientSecret={settings.quickbooks_client_secret}
+            clientSecretConfigured={!!settings.quickbooks_client_secret_configured}
+            onClientIdChange={(value) => handleSettingChange('quickbooks_client_id', value)}
+            onClientSecretChange={(value) => handleSettingChange('quickbooks_client_secret', value)}
+          />
+
           <div className="flex items-center mb-4">
             <input
               type="checkbox"
@@ -781,10 +880,10 @@ const IntegrationCard: React.FC<IntegrationCardProps> = ({
                   Connected{status.account_name ? ` as ${status.account_name}` : ''}.
                 </>
               ) : (
-                'Configured on the server but not connected.'
+                'Configured but not connected.'
               )
             ) : (
-              status?.reason || 'Provider is not configured on the server.'
+              status?.reason || 'Provider is not configured.'
             )}
           </p>
         </div>
@@ -966,13 +1065,52 @@ const FieldReferenceSelect: React.FC<FieldReferenceSelectProps> = ({ label, tool
   );
 };
 
-const TextSetting: React.FC<{ label: string; value: string; onChange: (value: string) => void }> = ({ label, value, onChange }) => (
+interface OAuthCredentialFieldsProps {
+  providerName: string;
+  clientId: string;
+  clientSecret: string;
+  clientSecretConfigured: boolean;
+  onClientIdChange: (value: string) => void;
+  onClientSecretChange: (value: string) => void;
+}
+
+const OAuthCredentialFields: React.FC<OAuthCredentialFieldsProps> = ({
+  providerName,
+  clientId,
+  clientSecret,
+  clientSecretConfigured,
+  onClientIdChange,
+  onClientSecretChange,
+}) => (
+  <div className="mb-5 border-b border-gray-200 pb-5 dark:border-gray-700">
+    <SectionHeader
+      title="Connection setup"
+      description={`Enter your ${providerName} OAuth app credentials here, then save changes before connecting.`}
+    />
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <TextInput label="Client ID" value={clientId} onChange={onClientIdChange} />
+      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+        <span className="block">Client secret {clientSecretConfigured ? '(configured)' : ''}</span>
+        <input
+          type="password"
+          value={clientSecret}
+          onChange={(e) => onClientSecretChange(e.target.value)}
+          className="mt-1.5 w-full rounded border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+          placeholder={clientSecretConfigured ? 'Leave blank to keep existing secret' : 'Client secret'}
+        />
+      </label>
+    </div>
+  </div>
+);
+
+const TextSetting: React.FC<{ label: string; value: string; onChange: (value: string) => void; placeholder?: string }> = ({ label, value, onChange, placeholder }) => (
   <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
     <span className="block">{label}</span>
     <input
       type="text"
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
       className="mt-1.5 w-full rounded border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
     />
   </label>

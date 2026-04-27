@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -229,6 +230,38 @@ func TestGetIntegrationProviderJobberUsesCurrentEnv(t *testing.T) {
 	}
 }
 
+func TestGetIntegrationProviderJobberUsesSettingsCredentials(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_SECRET_KEY", strings.Repeat("s", 32))
+	t.Setenv("JOBBER_CLIENT_ID", "")
+	t.Setenv("JOBBER_CLIENT_SECRET", "")
+	encryptedSecret, err := EncryptSecret("settings-jobber-secret")
+	if err != nil {
+		t.Fatalf("EncryptSecret() error = %v", err)
+	}
+
+	settingsMutex.Lock()
+	previousSettings := settings
+	settings = defaultSettings()
+	settings.JobberClientID = "settings-jobber-client-id"
+	settings.JobberClientSecret = encryptedSecret
+	settingsMutex.Unlock()
+	t.Cleanup(func() {
+		settingsMutex.Lock()
+		settings = previousSettings
+		settingsMutex.Unlock()
+	})
+
+	provider := getIntegrationProvider(integrationProviderJobber)
+	if provider == nil {
+		t.Fatal("expected jobber provider")
+	}
+
+	configured, reason := provider.Configured()
+	if !configured {
+		t.Fatalf("expected jobber provider to be configured from settings, got reason %q", reason)
+	}
+}
+
 func TestGetIntegrationProviderJobberRequiresBothEnvVars(t *testing.T) {
 	originalID, hadID := os.LookupEnv("JOBBER_CLIENT_ID")
 	originalSecret, hadSecret := os.LookupEnv("JOBBER_CLIENT_SECRET")
@@ -263,6 +296,28 @@ func TestGetIntegrationProviderJobberRequiresBothEnvVars(t *testing.T) {
 	}
 	if reason == "" {
 		t.Fatal("expected non-empty reason when env vars are missing")
+	}
+}
+
+func TestConfiguredPublicBaseURLPrefersSettings(t *testing.T) {
+	t.Setenv("APP_PUBLIC_URL", "https://env.paperless-gpt.example.com")
+	t.Setenv("PAPERLESS_GPT_PUBLIC_URL", "https://legacy.paperless-gpt.example.com/")
+
+	settingsMutex.Lock()
+	previousSettings := settings
+	settings = defaultSettings()
+	settings.IntegrationPublicURL = "https://settings.paperless-gpt.example.com/"
+	settingsMutex.Unlock()
+	t.Cleanup(func() {
+		settingsMutex.Lock()
+		settings = previousSettings
+		settingsMutex.Unlock()
+	})
+
+	got := configuredPublicBaseURL()
+	want := "https://settings.paperless-gpt.example.com"
+	if got != want {
+		t.Fatalf("configuredPublicBaseURL() = %q, want %q", got, want)
 	}
 }
 

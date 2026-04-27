@@ -149,23 +149,47 @@ func sanitizeSettingsForResponse(s Settings) Settings {
 		s.FireflyAPIToken = ""
 		s.FireflyAPITokenConfigured = true
 	}
+	if s.JobberClientSecret != "" {
+		s.JobberClientSecret = ""
+		s.JobberClientSecretConfigured = true
+	}
+	if s.GoogleDriveClientSecret != "" {
+		s.GoogleDriveClientSecret = ""
+		s.GoogleDriveClientSecretConfigured = true
+	}
+	if s.QuickBooksClientSecret != "" {
+		s.QuickBooksClientSecret = ""
+		s.QuickBooksClientSecretConfigured = true
+	}
 	s.PaperlessWebhookSecret = ""
 	return s
 }
 
 func mergeSecretSettings(current Settings, merged *Settings) error {
-	if strings.TrimSpace(merged.FireflyAPIToken) == "" {
-		merged.FireflyAPIToken = current.FireflyAPIToken
-		return nil
+	secrets := []struct {
+		current *string
+		merged  *string
+	}{
+		{current: &current.FireflyAPIToken, merged: &merged.FireflyAPIToken},
+		{current: &current.JobberClientSecret, merged: &merged.JobberClientSecret},
+		{current: &current.GoogleDriveClientSecret, merged: &merged.GoogleDriveClientSecret},
+		{current: &current.QuickBooksClientSecret, merged: &merged.QuickBooksClientSecret},
 	}
-	if IsEncryptedSecret(merged.FireflyAPIToken) {
-		return nil
+
+	for _, secret := range secrets {
+		if strings.TrimSpace(*secret.merged) == "" {
+			*secret.merged = *secret.current
+			continue
+		}
+		if IsEncryptedSecret(*secret.merged) {
+			continue
+		}
+		encrypted, err := EncryptSecret(strings.TrimSpace(*secret.merged))
+		if err != nil {
+			return err
+		}
+		*secret.merged = encrypted
 	}
-	encrypted, err := EncryptSecret(strings.TrimSpace(merged.FireflyAPIToken))
-	if err != nil {
-		return err
-	}
-	merged.FireflyAPIToken = encrypted
 	return nil
 }
 

@@ -149,6 +149,12 @@ func generateOAuthStateToken() (string, error) {
 }
 
 func configuredPublicBaseURL() string {
+	settingsMutex.RLock()
+	settingsPublicURL := strings.TrimRight(strings.TrimSpace(settings.IntegrationPublicURL), "/")
+	settingsMutex.RUnlock()
+	if settingsPublicURL != "" {
+		return settingsPublicURL
+	}
 	if configured := strings.TrimSpace(os.Getenv("PAPERLESS_GPT_PUBLIC_URL")); configured != "" {
 		return strings.TrimRight(configured, "/")
 	}
@@ -1390,7 +1396,7 @@ func (b oauthProviderBase) Name() string {
 
 func (b oauthProviderBase) Configured() (bool, string) {
 	if strings.TrimSpace(b.clientID) == "" || strings.TrimSpace(b.clientSecret) == "" {
-		return false, "provider is not configured on server"
+		return false, "client ID and client secret are required"
 	}
 	return true, ""
 }
@@ -1459,16 +1465,55 @@ func providerTokenFromOAuthToken(token *oauth2.Token) *providerToken {
 	}
 }
 
+func decryptedSettingsSecret(encrypted string) string {
+	if strings.TrimSpace(encrypted) == "" {
+		return ""
+	}
+	secret, err := DecryptSecret(encrypted)
+	if err != nil {
+		log.WithError(err).Warn("Failed to decrypt integration secret")
+		return ""
+	}
+	return strings.TrimSpace(secret)
+}
+
+func configuredOAuthCredentials(provider, clientIDEnv, clientSecretEnv string) (string, string) {
+	settingsMutex.RLock()
+	var clientID, encryptedSecret string
+	switch provider {
+	case integrationProviderJobber:
+		clientID = settings.JobberClientID
+		encryptedSecret = settings.JobberClientSecret
+	case integrationProviderGoogleDrive:
+		clientID = settings.GoogleDriveClientID
+		encryptedSecret = settings.GoogleDriveClientSecret
+	case integrationProviderQuickBooks:
+		clientID = settings.QuickBooksClientID
+		encryptedSecret = settings.QuickBooksClientSecret
+	}
+	settingsMutex.RUnlock()
+
+	if strings.TrimSpace(clientID) == "" {
+		clientID = os.Getenv(clientIDEnv)
+	}
+	clientSecret := decryptedSettingsSecret(encryptedSecret)
+	if clientSecret == "" {
+		clientSecret = os.Getenv(clientSecretEnv)
+	}
+	return strings.TrimSpace(clientID), strings.TrimSpace(clientSecret)
+}
+
 type jobberProvider struct {
 	oauthProviderBase
 }
 
 func newJobberProvider() jobberProvider {
+	clientID, clientSecret := configuredOAuthCredentials(integrationProviderJobber, "JOBBER_CLIENT_ID", "JOBBER_CLIENT_SECRET")
 	return jobberProvider{
 		oauthProviderBase: oauthProviderBase{
 			name:         integrationProviderJobber,
-			clientID:     strings.TrimSpace(os.Getenv("JOBBER_CLIENT_ID")),
-			clientSecret: strings.TrimSpace(os.Getenv("JOBBER_CLIENT_SECRET")),
+			clientID:     clientID,
+			clientSecret: clientSecret,
 			authURL:      "https://api.getjobber.com/api/oauth/authorize",
 			tokenURL:     "https://api.getjobber.com/api/oauth/token",
 			scopes: []string{
@@ -1558,11 +1603,12 @@ type googleDriveProvider struct {
 }
 
 func newGoogleDriveProvider() googleDriveProvider {
+	clientID, clientSecret := configuredOAuthCredentials(integrationProviderGoogleDrive, "GOOGLE_DRIVE_CLIENT_ID", "GOOGLE_DRIVE_CLIENT_SECRET")
 	return googleDriveProvider{
 		oauthProviderBase: oauthProviderBase{
 			name:         integrationProviderGoogleDrive,
-			clientID:     strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_CLIENT_ID")),
-			clientSecret: strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_CLIENT_SECRET")),
+			clientID:     clientID,
+			clientSecret: clientSecret,
 			authURL:      "https://accounts.google.com/o/oauth2/auth",
 			tokenURL:     "https://oauth2.googleapis.com/token",
 			scopes: []string{
@@ -1646,11 +1692,12 @@ type quickBooksProvider struct {
 }
 
 func newQuickBooksProvider() quickBooksProvider {
+	clientID, clientSecret := configuredOAuthCredentials(integrationProviderQuickBooks, "QUICKBOOKS_CLIENT_ID", "QUICKBOOKS_CLIENT_SECRET")
 	return quickBooksProvider{
 		oauthProviderBase: oauthProviderBase{
 			name:         integrationProviderQuickBooks,
-			clientID:     strings.TrimSpace(os.Getenv("QUICKBOOKS_CLIENT_ID")),
-			clientSecret: strings.TrimSpace(os.Getenv("QUICKBOOKS_CLIENT_SECRET")),
+			clientID:     clientID,
+			clientSecret: clientSecret,
 			authURL:      "https://appcenter.intuit.com/connect/oauth2",
 			tokenURL:     "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
 			scopes: []string{
