@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sort"
@@ -562,6 +564,9 @@ func (app *App) testAIProviderSettings(ctx context.Context, req AIProviderSettin
 	if model == "" {
 		return errors.New("default model is required")
 	}
+	if provider == AIProviderOpenRouter {
+		return testOpenRouterSettings(ctx, cfg, model)
+	}
 	llm, err := buildLLMFromConfig(ctx, cfg, model)
 	if err != nil {
 		return err
@@ -577,4 +582,124 @@ func (app *App) testAIProviderSettings(ctx context.Context, req AIProviderSettin
 		return errors.New("AI provider returned no response")
 	}
 	return nil
+}
+
+type openRouterAPIError struct {
+	Code     int                    `json:"code"`
+	Message  string                 `json:"message"`
+	Metadata map[string]interface{} `json:"metadata"`
+}
+
+type openRouterErrorPayload struct {
+	Error openRouterAPIError `json:"error"`
+}
+
+type openRouterChatPayload struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+	Error *openRouterAPIError `json:"error,omitempty"`
+}
+
+func testOpenRouterSettings(ctx context.Context, cfg *AIProviderConfig, model string) error {
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return errors.New("OpenRouter API key is not set")
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	if baseURL == "" {
+		baseURL = defaultBaseURLForProvider(AIProviderOpenRouter)
+	}
+	requestBody := map[string]interface{}{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "Reply with OK."},
+		},
+		"max_tokens": 8,
+	}
+	bodyBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := createOpenRouterHTTPClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("OpenRouter connection failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed reading OpenRouter response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return formatOpenRouterError(resp.StatusCode, respBytes)
+	}
+
+	var payload openRouterChatPayload
+	if err := json.Unmarshal(respBytes, &payload); err != nil {
+		return fmt.Errorf("OpenRouter returned an invalid response: %w", err)
+	}
+	if payload.Error != nil {
+		return formatOpenRouterAPIError(payload.Error.Code, *payload.Error)
+	}
+	if len(payload.Choices) == 0 {
+		return errors.New("OpenRouter returned no response choices")
+	}
+	return nil
+}
+
+func formatOpenRouterError(statusCode int, body []byte) error {
+	var payload openRouterErrorPayload
+	if err := json.Unmarshal(body, &payload); err != nil || strings.TrimSpace(payload.Error.Message) == "" {
+		return fmt.Errorf("OpenRouter returned unexpected status code %d: %s", statusCode, strings.TrimSpace(string(body)))
+	}
+
+	return formatOpenRouterAPIError(statusCode, payload.Error)
+}
+
+func formatOpenRouterAPIError(statusCode int, apiError openRouterAPIError) error {
+	message := fmt.Sprintf("OpenRouter error %d: %s", statusCode, strings.TrimSpace(apiError.Message))
+	if providerName, ok := apiError.Metadata["provider_name"].(string); ok && strings.TrimSpace(providerName) != "" {
+		message += fmt.Sprintf(" from %s", strings.TrimSpace(providerName))
+	}
+	if raw, ok := apiError.Metadata["raw"]; ok {
+		if rawMessage := stringifyOpenRouterMetadata(raw); rawMessage != "" {
+			message += fmt.Sprintf(" - %s", rawMessage)
+		}
+	}
+
+	switch statusCode {
+	case http.StatusTooManyRequests:
+		message += ". You are being rate limited by OpenRouter or the upstream model provider. Try again later, choose a less rate-limited model, or configure provider keys in OpenRouter."
+	case http.StatusPaymentRequired:
+		message += ". Your OpenRouter account or API key has insufficient credits."
+	case http.StatusUnauthorized:
+		message += ". Check that your OpenRouter API key is valid and enabled."
+	case http.StatusServiceUnavailable, http.StatusBadGateway:
+		message += ". The selected model provider is temporarily unavailable; try another model or retry later."
+	}
+	return errors.New(message)
+}
+
+func stringifyOpenRouterMetadata(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case nil:
+		return ""
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Sprint(v)
+		}
+		return string(data)
+	}
 }

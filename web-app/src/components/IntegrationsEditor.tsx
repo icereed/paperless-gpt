@@ -169,6 +169,10 @@ const IntegrationsEditor: React.FC = () => {
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [disconnectingProvider, setDisconnectingProvider] = useState<string | null>(null);
 
+  const hasOAuthCredentials = useCallback((clientId: string, clientSecret: string, clientSecretConfigured: boolean) => {
+    return clientId.trim() !== '' && (clientSecret.trim() !== '' || clientSecretConfigured);
+  }, []);
+
   const refreshData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -315,9 +319,9 @@ const IntegrationsEditor: React.FC = () => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSaveSettings = useCallback(async () => {
+  const persistSettings = useCallback(async (showSuccessMessage = true): Promise<boolean> => {
     if (!isDirty) {
-      return;
+      return true;
     }
     setIsSaving(true);
     setError(null);
@@ -338,7 +342,9 @@ const IntegrationsEditor: React.FC = () => {
         const errData = await response.json();
         throw new Error(errData.error || 'Failed to save settings');
       }
-      setSuccessMessage('Integration settings saved successfully!');
+      if (showSuccessMessage) {
+        setSuccessMessage('Integration settings saved successfully!');
+      }
       const savedSettings: SettingsData = {
         ...settings,
         jobber_client_secret: '',
@@ -357,14 +363,22 @@ const IntegrationsEditor: React.FC = () => {
       setSettings(savedSettings);
       setInitialSettings(savedSettings);
       await refreshStatuses();
-      setTimeout(() => setSuccessMessage(null), 3000);
+      if (showSuccessMessage) {
+        setTimeout(() => setSuccessMessage(null), 3000);
+      }
+      return true;
     } catch (err) {
       console.error('Error saving integration settings:', err);
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
+      return false;
     } finally {
       setIsSaving(false);
     }
   }, [isDirty, refreshStatuses, settings]);
+
+  const handleSaveSettings = useCallback(async () => {
+    await persistSettings(true);
+  }, [persistSettings]);
 
   const handleConnect = useCallback(async (provider: string) => {
     setConnectingProvider(provider);
@@ -409,12 +423,21 @@ const IntegrationsEditor: React.FC = () => {
     window.addEventListener('message', onMessage);
 
     try {
+      if (isDirty) {
+        const saved = await persistSettings(false);
+        if (!saved) {
+          popup.close();
+          cleanup();
+          return;
+        }
+      }
+
       const response = await fetch(`./api/integrations/${provider}/connect/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ return_path: '/settings' }),
       });
-      const payload = await response.json();
+      const payload = await parseJsonResponse<{ error?: string; redirect_url?: string; url?: string }>(response);
       if (!response.ok) {
         popup.close();
         cleanup();
@@ -451,7 +474,7 @@ const IntegrationsEditor: React.FC = () => {
     } finally {
       setConnectingProvider(null);
     }
-  }, [refreshData]);
+  }, [isDirty, persistSettings, refreshData]);
 
   const handleDisconnect = useCallback(async (provider: string) => {
     setDisconnectingProvider(provider);
@@ -492,6 +515,24 @@ const IntegrationsEditor: React.FC = () => {
     [customFields],
   );
 
+  const oauthReady = {
+    jobber: hasOAuthCredentials(
+      settings.jobber_client_id,
+      settings.jobber_client_secret,
+      !!settings.jobber_client_secret_configured,
+    ),
+    google_drive: hasOAuthCredentials(
+      settings.google_drive_client_id,
+      settings.google_drive_client_secret,
+      !!settings.google_drive_client_secret_configured,
+    ),
+    quickbooks: hasOAuthCredentials(
+      settings.quickbooks_client_id,
+      settings.quickbooks_client_secret,
+      !!settings.quickbooks_client_secret_configured,
+    ),
+  };
+
   if (isLoading) {
     return <div className="p-6">Loading...</div>;
   }
@@ -529,11 +570,16 @@ const IntegrationsEditor: React.FC = () => {
           <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
             Example callback: {(settings.integration_public_url || window.location.origin).replace(/\/$/, '')}/api/integrations/jobber/oauth/callback
           </p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Google Drive callback: {(settings.integration_public_url || window.location.origin).replace(/\/$/, '')}/api/integrations/google_drive/oauth/callback
+          </p>
         </div>
 
         <IntegrationCard
           title="Jobber"
           status={statuses.jobber}
+          canConnect={oauthReady.jobber}
+          connectHelpText="Enter a Jobber client ID and client secret to connect."
           onConnect={() => handleConnect('jobber')}
           onDisconnect={() => handleDisconnect('jobber')}
           connecting={connectingProvider === 'jobber'}
@@ -663,6 +709,8 @@ const IntegrationsEditor: React.FC = () => {
         <IntegrationCard
           title="Google Drive"
           status={statuses.google_drive}
+          canConnect={oauthReady.google_drive}
+          connectHelpText="Enter a Google Drive client ID and client secret to connect."
           onConnect={() => handleConnect('google_drive')}
           onDisconnect={() => handleDisconnect('google_drive')}
           connecting={connectingProvider === 'google_drive'}
@@ -708,6 +756,8 @@ const IntegrationsEditor: React.FC = () => {
         <IntegrationCard
           title="QuickBooks"
           status={statuses.quickbooks}
+          canConnect={oauthReady.quickbooks}
+          connectHelpText="Enter a QuickBooks client ID and client secret to connect."
           onConnect={() => handleConnect('quickbooks')}
           onDisconnect={() => handleDisconnect('quickbooks')}
           connecting={connectingProvider === 'quickbooks'}
@@ -850,6 +900,8 @@ const IntegrationsEditor: React.FC = () => {
 interface IntegrationCardProps {
   title: string;
   status?: IntegrationStatus;
+  canConnect?: boolean;
+  connectHelpText?: string;
   onConnect: () => void;
   onDisconnect: () => void;
   connecting: boolean;
@@ -861,6 +913,8 @@ interface IntegrationCardProps {
 const IntegrationCard: React.FC<IntegrationCardProps> = ({
   title,
   status,
+  canConnect,
+  connectHelpText,
   onConnect,
   onDisconnect,
   connecting,
@@ -868,6 +922,8 @@ const IntegrationCard: React.FC<IntegrationCardProps> = ({
   showOAuthActions = true,
   children,
 }) => {
+  const connectReady = canConnect ?? !!status?.configured;
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
@@ -888,22 +944,32 @@ const IntegrationCard: React.FC<IntegrationCardProps> = ({
           </p>
         </div>
 
-        {showOAuthActions && <div className="flex gap-2">
-          <button
-            onClick={onConnect}
-            disabled={!status?.configured || connecting}
-            className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-          >
-            {connecting ? 'Connecting…' : 'Connect'}
-          </button>
-          <button
-            onClick={onDisconnect}
-            disabled={!status?.connected || disconnecting}
-            className="px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
-          >
-            {disconnecting ? 'Disconnecting…' : 'Disconnect'}
-          </button>
-        </div>}
+        {showOAuthActions && (
+          <div className="flex flex-col items-start gap-1 md:items-end">
+            <div className="flex gap-2">
+              <button
+                onClick={onConnect}
+                disabled={!connectReady || connecting}
+                title={!connectReady ? connectHelpText || status?.reason || 'Provider is not configured.' : undefined}
+                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {connecting ? 'Connecting…' : 'Connect'}
+              </button>
+              <button
+                onClick={onDisconnect}
+                disabled={!status?.connected || disconnecting}
+                className="px-4 py-2 rounded bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+              >
+                {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+              </button>
+            </div>
+            {!connectReady && (
+              <p className="max-w-xs text-xs text-gray-500 dark:text-gray-400">
+                {connectHelpText || status?.reason || 'Provider is not configured.'}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {children}
@@ -1131,6 +1197,14 @@ function prettyProviderName(provider: string): string {
     default:
       return provider;
   }
+}
+
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  if (!text.trim()) {
+    return {} as T;
+  }
+  return JSON.parse(text) as T;
 }
 
 export default IntegrationsEditor;

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -126,4 +128,60 @@ func TestOpenRouterHeaders(t *testing.T) {
 	resp, err := createOpenRouterHTTPClient().Get(server.URL)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
+}
+
+func TestOpenRouterConnectionTestSurfacesProviderRateLimit(t *testing.T) {
+	appPublicURL = "https://paperless.example"
+	t.Cleanup(func() { appPublicURL = "" })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/chat/completions", r.URL.Path)
+		require.Equal(t, "Bearer or-secret", r.Header.Get("Authorization"))
+		require.Equal(t, "https://paperless.example", r.Header.Get("HTTP-Referer"))
+		require.Equal(t, "paperless-gpt", r.Header.Get("X-Title"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"Provider returned error","code":429,"metadata":{"provider_name":"Chutes","raw":"moonshotai/kimi-k2:free is temporarily rate-limited upstream"}}}`))
+	}))
+	defer server.Close()
+
+	app := &App{}
+	err := app.testAIProviderSettings(t.Context(), AIProviderSettingsRequest{
+		Provider:     AIProviderOpenRouter,
+		BaseURL:      server.URL,
+		DefaultModel: "moonshotai/kimi-k2:free",
+		APIKey:       "or-secret",
+	})
+
+	require.Error(t, err)
+	message := err.Error()
+	require.Contains(t, message, "OpenRouter error 429: Provider returned error from Chutes")
+	require.Contains(t, message, "moonshotai/kimi-k2:free is temporarily rate-limited upstream")
+	require.Contains(t, message, "choose a less rate-limited model")
+}
+
+func TestOpenRouterConnectionTestAcceptsSuccessfulChatResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Model     string `json:"model"`
+			MaxTokens int    `json:"max_tokens"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		require.NoError(t, r.Body.Close())
+		require.Equal(t, "openai/gpt-4o-mini", payload.Model)
+		require.Equal(t, 8, payload.MaxTokens)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"OK"}}]}`))
+	}))
+	defer server.Close()
+
+	app := &App{}
+	err := app.testAIProviderSettings(t.Context(), AIProviderSettingsRequest{
+		Provider:     AIProviderOpenRouter,
+		BaseURL:      strings.TrimRight(server.URL, "/"),
+		DefaultModel: "openai/gpt-4o-mini",
+		APIKey:       "or-secret",
+	})
+
+	require.NoError(t, err)
 }
