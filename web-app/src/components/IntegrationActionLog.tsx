@@ -78,6 +78,7 @@ const IntegrationActionLog: React.FC = () => {
           >
             <option value="">All providers</option>
             <option value="jobber">Jobber</option>
+            <option value="firefly">Firefly III</option>
             <option value="google_drive">Google Drive</option>
             <option value="quickbooks">QuickBooks</option>
           </select>
@@ -122,8 +123,8 @@ const IntegrationActionLog: React.FC = () => {
                     <td className="py-2 pr-4 whitespace-nowrap text-gray-500 dark:text-gray-400">
                       {new Date(entry.CreatedAt).toLocaleString()}
                     </td>
-                    <td className="py-2 pr-4 capitalize">{entry.Provider.replace('_', ' ')}</td>
-                    <td className="py-2 pr-4">{entry.ActionType.replace('_', ' ')}</td>
+                    <td className="py-2 pr-4">{formatProvider(entry.Provider)}</td>
+                    <td className="py-2 pr-4">{formatAction(entry.ActionType)}</td>
                     <td className="py-2 pr-4">{entry.DocumentID}</td>
                     <td className="py-2 pr-4">{statusBadge(entry.Status)}</td>
                     <td className="py-2 max-w-xs">
@@ -182,3 +183,22 @@ const IntegrationActionLog: React.FC = () => {
 };
 
 export default IntegrationActionLog;
+
+function formatProvider(provider: string): string {
+  switch (provider) {
+    case 'jobber':
+      return 'Jobber';
+    case 'firefly':
+      return 'Firefly III';
+    case 'google_drive':
+      return 'Google Drive';
+    case 'quickbooks':
+      return 'QuickBooks';
+    default:
+      return provider.replace('_', ' ');
+  }
+}
+
+function formatAction(action: string): string {
+  return action.replace(/_/g, ' ');
+}

@@ -148,6 +148,7 @@ services:
       APP_PUBLIC_URL: "https://paperless-gpt.mydomain.com" # Recommended for OAuth callbacks and receipt links
       MANUAL_TAG: "paperless-gpt" # Optional, default: paperless-gpt
       # AUTO_TAG is ignored for metadata writes in 0.7.0; use manual review or webhooks instead.
+      # AUTO_OCR_TAG still controls the automatic OCR queue.
       # LLM Configuration - Choose one:
 
       # Option 1: Standard OpenAI
@@ -321,6 +322,36 @@ For detailed provider-specific documentation:
 - [Mistral AI Integration](docs/mistral_llm.md)
 
 paperless-gpt supports four different OCR providers, each with unique strengths and capabilities:
+
+---
+
+## Finance integrations
+
+Paperless GPT 0.7.0 adds explicit, per-document finance actions under **Settings -> Integrations** and on each suggestion card. These integrations run only when a user enables the provider and selects the action for a specific document.
+
+### Firefly III
+
+- Configure Firefly III with an instance URL and Personal Access Token. The PAT is encrypted at rest and is never returned to the frontend; the UI only shows whether a token is configured.
+- Map transaction fields from Paperless document data, suggestion data, or custom fields. Amount is required. If no amount mapping is set, Paperless GPT falls back to suggested custom fields whose names include `total`, `amount`, or `price`.
+- Matching is performed before creation. Existing transactions around the document/suggested date are scored by amount, currency, date proximity, and description overlap.
+- A strong unique match is auto-selected. Ambiguous matches require a user choice.
+- If no match is selected, Paperless GPT does nothing unless **Create Firefly transaction if no match** is checked for that document.
+- Selected or newly created Firefly transactions receive the Paperless archive PDF as an attachment.
+- Re-applying a document is duplicate-protected by searching for likely existing transactions before creating.
+
+### QuickBooks
+
+- QuickBooks continues to use OAuth from **Settings -> Integrations**.
+- Enable **receipt upload** to show a per-document **Upload receipt to QuickBooks** checkbox.
+- Upload sends the Paperless PDF to QuickBooks Receipts for Intuit OCR/matching.
+- 0.7.0 does not create QuickBooks Bills or Purchases directly. Direct accounting object creation is future work.
+- If receipt upload returns Intuit `ApplicationAuthorizationFailed` / code `3100`, reconnect QuickBooks from **Settings -> Integrations**. This usually means the saved token is no longer authorized for the selected company, the app credentials changed after connection, or the wrong QuickBooks realm/company was connected.
+
+### History and undo
+
+Integration actions are recorded in apply batch history and the integration action log with provider, action type, external ID, external URL when available, and per-document errors. Undo rewrites Paperless metadata only; it does not delete Firefly transactions, Firefly attachments, QuickBooks attachables, Jobber expenses, or Google Drive uploads.
+
+Set `APP_PUBLIC_URL` or the Settings -> Integrations public URL when OAuth providers are enabled so callback URLs and external deep-links use the public host.
 
 ### 1. LLM-based OCR (Default)
 

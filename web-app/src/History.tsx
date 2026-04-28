@@ -193,8 +193,9 @@ const History: React.FC = () => {
               Modification history
             </h1>
             <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">
-              Review document changes made by Paperless GPT and undo any update
-              that should be rolled back.
+              Review document changes made by Paperless GPT and undo any Paperless
+              metadata update that should be rolled back. External integration side
+              effects are shown for reference and are not deleted automatically.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -207,7 +208,7 @@ const History: React.FC = () => {
             <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
               <p className="text-sm text-gray-500 dark:text-gray-400">Undo note</p>
               <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">
-                Tag undos do not restore <code>paperless-gpt-auto</code>
+                Undo rewrites Paperless metadata only
               </p>
             </div>
           </div>
@@ -247,6 +248,11 @@ const History: React.FC = () => {
                 {batch.integration_actions.length > 0 && (
                   <div className="mb-4 rounded-2xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
                     <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Integration side effects</p>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Undo rewrites Paperless metadata only. Firefly transactions/attachments,
+                      QuickBooks receipts, Jobber expenses, and Google Drive files are not
+                      deleted automatically.
+                    </p>
                     <div className="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">
                       {batch.integration_actions.map((action) => (
                         <div key={action.ID} className="flex flex-wrap items-center gap-2">

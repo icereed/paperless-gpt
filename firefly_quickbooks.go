@@ -702,7 +702,10 @@ func (s *IntegrationsService) UploadQuickBooksReceipt(ctx context.Context, clien
 		appliedBatchID = &batchID[0]
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		err := fmt.Errorf("quickbooks receipt upload failed: %d, %s", resp.StatusCode, string(raw))
+		err := quickBooksReceiptUploadError(resp.StatusCode, raw)
+		if isQuickBooksAuthorizationFailed(raw) {
+			_ = disconnectIntegrationConnection(s.DB.WithContext(ctx), integrationProviderQuickBooks)
+		}
 		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{DocumentID: suggestion.ID, BatchID: appliedBatchID, Provider: integrationProviderQuickBooks, ActionType: "receipt_upload", Status: "error", ErrorMessage: err.Error()})
 		return nil, err
 	}
@@ -720,6 +723,21 @@ func (s *IntegrationsService) UploadQuickBooksReceipt(ctx context.Context, clien
 		ResponseSummary: string(raw),
 	})
 	return &QuickBooksUploadResult{AttachableID: attachableID, URL: resultURL}, nil
+}
+
+func quickBooksReceiptUploadError(statusCode int, raw []byte) error {
+	if isQuickBooksAuthorizationFailed(raw) {
+		return fmt.Errorf("QuickBooks rejected the receipt upload because this app is not authorized for the connected company. Reconnect QuickBooks from Settings -> Integrations, and make sure the Intuit app has QuickBooks Online Accounting access enabled before reconnecting")
+	}
+	return fmt.Errorf("quickbooks receipt upload failed: %d, %s", statusCode, string(raw))
+}
+
+func isQuickBooksAuthorizationFailed(raw []byte) bool {
+	lower := strings.ToLower(string(raw))
+	return strings.Contains(lower, "applicationauthorizationfailed") ||
+		strings.Contains(lower, `"code":"3100"`) ||
+		strings.Contains(lower, `"code":3100`) ||
+		strings.Contains(lower, "errorcode=003100")
 }
 
 func buildQuickBooksReceiptUpload(filename string, content []byte, note string) (io.Reader, string, error) {

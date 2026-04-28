@@ -599,6 +599,7 @@ func (app *App) integrationOAuthCallbackHandler(c *gin.Context) {
 		AccessToken:          token.AccessToken,
 		RefreshToken:         token.RefreshToken,
 		AccessTokenExpiresAt: token.ExpiresAt,
+		Scopes:               strings.Join(token.Scopes, " "),
 	})
 	if err != nil {
 		log.WithError(err).Warnf("failed to fetch identity for provider %s after OAuth", provider)

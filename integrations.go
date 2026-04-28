@@ -1710,6 +1710,17 @@ func newQuickBooksProvider() quickBooksProvider {
 func (p quickBooksProvider) FetchIdentity(ctx context.Context, conn *IntegrationConnection) (*providerIdentity, error) {
 	metadata := metadataMap(conn)
 	accountID := metadata["realm_id"]
+	if strings.TrimSpace(accountID) == "" {
+		for _, scope := range strings.Fields(conn.Scopes) {
+			if strings.HasPrefix(scope, "realm:") {
+				accountID = strings.TrimSpace(strings.TrimPrefix(scope, "realm:"))
+				break
+			}
+		}
+	}
+	if accountID != "" {
+		metadata["realm_id"] = accountID
+	}
 	accountName := strings.TrimSpace(conn.AccountName)
 	if accountName == "" {
 		accountName = "QuickBooks company"
