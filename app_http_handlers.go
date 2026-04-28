@@ -349,6 +349,7 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 			uploadResult, err := app.Integrations.UploadDocumentToGoogleDrive(ctx, app.Client, document.ID, googleDriveFolderID)
 			if err != nil {
 				result.GoogleDriveError = err.Error()
+				log.WithField("document_id", document.ID).WithError(err).Error("Failed to upload document to Google Drive")
 			} else {
 				result.GoogleDriveUploaded = true
 				result.GoogleDriveFileID = uploadResult.FileID

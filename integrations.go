@@ -663,7 +663,7 @@ func (s *IntegrationsService) UploadDocumentToGoogleDrive(ctx context.Context, c
 		return nil, fmt.Errorf("google drive is not connected")
 	}
 
-	impl := googleDriveProvider{}
+	impl := newGoogleDriveProvider()
 	validConn, err := impl.ensureFreshToken(ctx, s.DB.WithContext(ctx), conn)
 	if err != nil {
 		return nil, err
