@@ -22,6 +22,12 @@ import (
 const (
 	fireflyExternalIDPrefix = "paperless-gpt-document-"
 	fireflyDateWindowDays   = 7
+
+	quickBooksEnvironmentProduction = "production"
+	quickBooksEnvironmentSandbox    = "sandbox"
+
+	quickBooksProductionAPIBaseURL = "https://quickbooks.api.intuit.com"
+	quickBooksSandboxAPIBaseURL    = "https://sandbox-quickbooks.api.intuit.com"
 )
 
 type FireflyConfig struct {
@@ -683,7 +689,7 @@ func (s *IntegrationsService) UploadQuickBooksReceipt(ctx context.Context, clien
 	if err != nil {
 		return nil, err
 	}
-	apiURL := fmt.Sprintf("https://quickbooks.api.intuit.com/v3/company/%s/upload", url.PathEscape(realmID))
+	apiURL := quickBooksUploadURL(realmID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, body)
 	if err != nil {
 		return nil, err
@@ -730,6 +736,27 @@ func quickBooksReceiptUploadError(statusCode int, raw []byte) error {
 		return fmt.Errorf("QuickBooks rejected the receipt upload because this app is not authorized for the connected company. Reconnect QuickBooks from Settings -> Integrations, and make sure the Intuit app has QuickBooks Online Accounting access enabled before reconnecting")
 	}
 	return fmt.Errorf("quickbooks receipt upload failed: %d, %s", statusCode, string(raw))
+}
+
+func quickBooksUploadURL(realmID string) string {
+	return fmt.Sprintf("%s/v3/company/%s/upload", quickBooksAPIBaseURL(), url.PathEscape(realmID))
+}
+
+func quickBooksAPIBaseURL() string {
+	settingsMutex.RLock()
+	environment := normalizeQuickBooksEnvironment(settings.QuickBooksEnvironment)
+	settingsMutex.RUnlock()
+	if environment == quickBooksEnvironmentSandbox {
+		return quickBooksSandboxAPIBaseURL
+	}
+	return quickBooksProductionAPIBaseURL
+}
+
+func normalizeQuickBooksEnvironment(environment string) string {
+	if strings.EqualFold(strings.TrimSpace(environment), quickBooksEnvironmentSandbox) {
+		return quickBooksEnvironmentSandbox
+	}
+	return quickBooksEnvironmentProduction
 }
 
 func isQuickBooksAuthorizationFailed(raw []byte) bool {

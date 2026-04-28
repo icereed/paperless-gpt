@@ -35,6 +35,7 @@ interface SettingsData {
   quickbooks_client_id: string;
   quickbooks_client_secret: string;
   quickbooks_client_secret_configured?: boolean;
+  quickbooks_environment: string;
   quickbooks_receipt_upload_enabled: boolean;
   firefly_enabled: boolean;
   firefly_instance_url: string;
@@ -96,6 +97,7 @@ const defaultSettings: SettingsData = {
   quickbooks_client_id: '',
   quickbooks_client_secret: '',
   quickbooks_client_secret_configured: false,
+  quickbooks_environment: 'production',
   quickbooks_receipt_upload_enabled: false,
   firefly_enabled: false,
   firefly_instance_url: '',
@@ -227,6 +229,7 @@ const IntegrationsEditor: React.FC = () => {
         quickbooks_client_id: settingsData.settings?.quickbooks_client_id || '',
         quickbooks_client_secret: '',
         quickbooks_client_secret_configured: !!settingsData.settings?.quickbooks_client_secret_configured,
+        quickbooks_environment: settingsData.settings?.quickbooks_environment === 'sandbox' ? 'sandbox' : 'production',
         quickbooks_receipt_upload_enabled: !!settingsData.settings?.quickbooks_receipt_upload_enabled,
         firefly_enabled: !!settingsData.settings?.firefly_enabled,
         firefly_instance_url: settingsData.settings?.firefly_instance_url || '',
@@ -771,6 +774,21 @@ const IntegrationsEditor: React.FC = () => {
             onClientIdChange={(value) => handleSettingChange('quickbooks_client_id', value)}
             onClientSecretChange={(value) => handleSettingChange('quickbooks_client_secret', value)}
           />
+
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
+            <span className="block">QuickBooks environment</span>
+            <select
+              value={settings.quickbooks_environment}
+              onChange={(e) => handleSettingChange('quickbooks_environment', e.target.value)}
+              className="mt-1.5 w-full rounded border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
+            >
+              <option value="production">Production</option>
+              <option value="sandbox">Sandbox</option>
+            </select>
+            <span className="mt-1 block text-xs font-normal text-gray-500 dark:text-gray-400">
+              Match this to the Intuit app credentials and company you connect. Changing environments requires reconnecting QuickBooks.
+            </span>
+          </label>
 
           <div className="flex items-center mb-4">
             <input

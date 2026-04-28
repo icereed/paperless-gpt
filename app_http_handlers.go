@@ -1030,6 +1030,7 @@ func mergeSettingsPatch(current Settings, patch map[string]interface{}) (Setting
 	if merged.CustomFieldsWriteMode == "" {
 		merged.CustomFieldsWriteMode = current.CustomFieldsWriteMode
 	}
+	merged.QuickBooksEnvironment = normalizeQuickBooksEnvironment(merged.QuickBooksEnvironment)
 
 	return merged, nil
 }

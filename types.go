@@ -142,6 +142,7 @@ type Settings struct {
 	QuickBooksClientID                string `json:"quickbooks_client_id"`
 	QuickBooksClientSecret            string `json:"quickbooks_client_secret,omitempty"`
 	QuickBooksClientSecretConfigured  bool   `json:"quickbooks_client_secret_configured,omitempty"`
+	QuickBooksEnvironment             string `json:"quickbooks_environment"`
 	QuickBooksReceiptUploadEnabled    bool   `json:"quickbooks_receipt_upload_enabled"`
 	FireflyEnabled                    bool   `json:"firefly_enabled"`
 	FireflyInstanceURL                string `json:"firefly_instance_url"`

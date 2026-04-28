@@ -323,6 +323,39 @@ func TestQuickBooksFetchIdentityPersistsRealmFromScope(t *testing.T) {
 	}
 }
 
+func TestQuickBooksAPIBaseURLUsesSandboxWhenConfigured(t *testing.T) {
+	withQuickBooksEnvironment(t, quickBooksEnvironmentSandbox)
+
+	if got := quickBooksAPIBaseURL(); got != quickBooksSandboxAPIBaseURL {
+		t.Fatalf("expected sandbox base URL, got %q", got)
+	}
+}
+
+func TestNormalizeQuickBooksEnvironment(t *testing.T) {
+	if got := normalizeQuickBooksEnvironment(quickBooksEnvironmentSandbox); got != quickBooksEnvironmentSandbox {
+		t.Fatalf("expected sandbox, got %q", got)
+	}
+	for _, value := range []string{"", "bad-value", quickBooksEnvironmentProduction} {
+		if got := normalizeQuickBooksEnvironment(value); got != quickBooksEnvironmentProduction {
+			t.Fatalf("expected production for %q, got %q", value, got)
+		}
+	}
+}
+
+func TestQuickBooksAPIBaseURLDefaultsToProduction(t *testing.T) {
+	withQuickBooksEnvironment(t, "")
+
+	if got := quickBooksAPIBaseURL(); got != quickBooksProductionAPIBaseURL {
+		t.Fatalf("expected production base URL, got %q", got)
+	}
+}
+
+func TestDefaultSettingsUseQuickBooksProduction(t *testing.T) {
+	if got := defaultSettings().QuickBooksEnvironment; got != quickBooksEnvironmentProduction {
+		t.Fatalf("expected default QuickBooks environment %q, got %q", quickBooksEnvironmentProduction, got)
+	}
+}
+
 func TestParseQuickBooksAttachableID(t *testing.T) {
 	raw := []byte(`{"AttachableResponse":[{"Attachable":{"Id":"987"}}]}`)
 	if got := parseQuickBooksAttachableID(raw); got != "987" {
@@ -355,6 +388,18 @@ func TestFormatQuickBooksUploadErrorKeepsUnexpectedPayload(t *testing.T) {
 	if !strings.Contains(err.Error(), "other failure") {
 		t.Fatalf("expected original payload for unexpected error, got %v", err)
 	}
+}
+
+func withQuickBooksEnvironment(t *testing.T, environment string) {
+	t.Helper()
+	t.Cleanup(func() {
+		settingsMutex.Lock()
+		settings = Settings{}
+		settingsMutex.Unlock()
+	})
+	settingsMutex.Lock()
+	settings = Settings{QuickBooksEnvironment: environment}
+	settingsMutex.Unlock()
 }
 
 func readAllString(t *testing.T, reader io.Reader) string {
