@@ -715,7 +715,17 @@ func (s *IntegrationsService) UploadQuickBooksReceipt(ctx context.Context, clien
 		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{DocumentID: suggestion.ID, BatchID: appliedBatchID, Provider: integrationProviderQuickBooks, ActionType: "receipt_upload", Status: "error", ErrorMessage: err.Error()})
 		return nil, err
 	}
+	if isQuickBooksFaultResponse(raw) {
+		err := quickBooksReceiptUploadError(resp.StatusCode, raw)
+		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{DocumentID: suggestion.ID, BatchID: appliedBatchID, Provider: integrationProviderQuickBooks, ActionType: "receipt_upload", Status: "error", ErrorMessage: err.Error(), ResponseSummary: string(raw)})
+		return nil, err
+	}
 	attachableID := parseQuickBooksAttachableID(raw)
+	if attachableID == "" {
+		err := fmt.Errorf("quickbooks receipt upload returned success but no attachable ID; verify the connected QuickBooks company/environment and inspect integration action log response")
+		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{DocumentID: suggestion.ID, BatchID: appliedBatchID, Provider: integrationProviderQuickBooks, ActionType: "receipt_upload", Status: "error", ErrorMessage: err.Error(), ResponseSummary: string(raw)})
+		return nil, err
+	}
 	resultURL := fmt.Sprintf("https://app.qbo.intuit.com/app/receipts?companyId=%s", url.QueryEscape(realmID))
 	insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{
 		DocumentID:      suggestion.ID,
@@ -848,6 +858,23 @@ func quickBooksRealmID(conn *IntegrationConnection) string {
 	return ""
 }
 
+
+func isQuickBooksFaultResponse(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return false
+	}
+	for key := range payload {
+		if strings.EqualFold(strings.TrimSpace(key), "fault") {
+			return true
+		}
+	}
+	return false
+}
+
 func parseQuickBooksAttachableID(raw []byte) string {
 	var payload map[string]interface{}
 	if err := json.Unmarshal(raw, &payload); err != nil {
@@ -860,8 +887,14 @@ func parseQuickBooksAttachableID(raw []byte) string {
 			if id, ok := v["Id"].(string); ok && id != "" {
 				return id
 			}
+			if id, ok := v["Id"].(float64); ok {
+				return strconv.FormatInt(int64(id), 10)
+			}
 			if id, ok := v["id"].(string); ok && id != "" {
 				return id
+			}
+			if id, ok := v["id"].(float64); ok {
+				return strconv.FormatInt(int64(id), 10)
 			}
 			for _, child := range v {
 				if id := walk(child); id != "" {

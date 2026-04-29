@@ -356,6 +356,29 @@ func TestDefaultSettingsUseQuickBooksProduction(t *testing.T) {
 	}
 }
 
+func TestIsQuickBooksFaultResponse(t *testing.T) {
+	if !isQuickBooksFaultResponse([]byte(`{"Fault":{"Error":[{"Message":"bad"}]}}`)) {
+		t.Fatalf("expected fault response detection")
+	}
+	if isQuickBooksFaultResponse([]byte(`{"AttachableResponse":[{"Attachable":{"Id":"123"}}]}`)) {
+		t.Fatalf("did not expect fault detection for success payload")
+	}
+}
+
+func TestParseQuickBooksAttachableIDReturnsEmptyWhenMissing(t *testing.T) {
+	raw := []byte(`{"AttachableResponse":[{"Attachable":{}}]}`)
+	if got := parseQuickBooksAttachableID(raw); got != "" {
+		t.Fatalf("expected empty attachable id, got %q", got)
+	}
+}
+
+func TestParseQuickBooksAttachableIDSupportsNumericValues(t *testing.T) {
+	raw := []byte(`{"AttachableResponse":[{"Attachable":{"Id":987}}]}`)
+	if got := parseQuickBooksAttachableID(raw); got != "987" {
+		t.Fatalf("expected attachable id 987, got %q", got)
+	}
+}
+
 func TestParseQuickBooksAttachableID(t *testing.T) {
 	raw := []byte(`{"AttachableResponse":[{"Attachable":{"Id":"987"}}]}`)
 	if got := parseQuickBooksAttachableID(raw); got != "987" {
