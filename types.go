@@ -138,12 +138,6 @@ type Settings struct {
 	GoogleDriveClientSecret           string `json:"google_drive_client_secret,omitempty"`
 	GoogleDriveClientSecretConfigured bool   `json:"google_drive_client_secret_configured,omitempty"`
 	GoogleDriveFolderID               string `json:"google_drive_folder_id"`
-	QuickBooksEnabled                 bool   `json:"quickbooks_enabled"`
-	QuickBooksClientID                string `json:"quickbooks_client_id"`
-	QuickBooksClientSecret            string `json:"quickbooks_client_secret,omitempty"`
-	QuickBooksClientSecretConfigured  bool   `json:"quickbooks_client_secret_configured,omitempty"`
-	QuickBooksEnvironment             string `json:"quickbooks_environment"`
-	QuickBooksReceiptUploadEnabled    bool   `json:"quickbooks_receipt_upload_enabled"`
 	FireflyEnabled                    bool   `json:"firefly_enabled"`
 	FireflyInstanceURL                string `json:"firefly_instance_url"`
 	FireflyAPIToken                   string `json:"firefly_api_token,omitempty"`
@@ -193,7 +187,6 @@ type DocumentSuggestion struct {
 	FireflyCandidates            []FireflyTransactionCandidate `json:"firefly_candidates,omitempty"`
 	SelectedFireflyTransactionID string                        `json:"selected_firefly_transaction_id,omitempty"`
 	CreateFireflyTransaction     bool                          `json:"create_firefly_transaction,omitempty"`
-	UploadToQuickBooks           bool                          `json:"upload_to_quickbooks,omitempty"`
 	Cached                       bool                          `json:"cached,omitempty"`
 	GeneratedAt                  string                        `json:"generated_at,omitempty"`
 }
@@ -272,10 +265,6 @@ type DocumentIntegrationResult struct {
 	FireflyTransactionID      string `json:"firefly_transaction_id,omitempty"`
 	FireflyURL                string `json:"firefly_url,omitempty"`
 	FireflyError              string `json:"firefly_error,omitempty"`
-	QuickBooksUploaded        bool   `json:"quickbooks_uploaded,omitempty"`
-	QuickBooksAttachableID    string `json:"quickbooks_attachable_id,omitempty"`
-	QuickBooksURL             string `json:"quickbooks_url,omitempty"`
-	QuickBooksError           string `json:"quickbooks_error,omitempty"`
 }
 
 type Correspondent struct {

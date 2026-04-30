@@ -90,10 +90,6 @@ export interface DocumentIntegrationResult {
   firefly_transaction_id?: string;
   firefly_url?: string;
   firefly_error?: string;
-  quickbooks_uploaded?: boolean;
-  quickbooks_attachable_id?: string;
-  quickbooks_url?: string;
-  quickbooks_error?: string;
 }
 
 export interface IntegrationStatus {
@@ -125,7 +121,6 @@ export interface DocumentSuggestion {
   firefly_candidates?: FireflyTransactionCandidate[];
   selected_firefly_transaction_id?: string;
   create_firefly_transaction?: boolean;
-  upload_to_quickbooks?: boolean;
   cached?: boolean;
   generated_at?: string;
 }
@@ -159,7 +154,6 @@ const DocumentProcessor: React.FC = () => {
   const [jobberEnabled, setJobberEnabled] = useState(true);
   const [jobberExpenseEnabled, setJobberExpenseEnabled] = useState(true);
   const [fireflyEnabled, setFireflyEnabled] = useState(false);
-  const [quickBooksReceiptUploadEnabled, setQuickBooksReceiptUploadEnabled] = useState(false);
   const [generateTitles, setGenerateTitles] = useState(true);
   const [generateTags, setGenerateTags] = useState(true);
   const [generateCorrespondents, setGenerateCorrespondents] = useState(true);
@@ -188,7 +182,7 @@ const DocumentProcessor: React.FC = () => {
         axios.get<CustomField[]>('./api/custom_fields'),
         axios.get<{ url: string }>("./api/paperless-url"),
         axios.get<{ providers: IntegrationStatus[] }>("./api/integrations"),
-        axios.get<{ settings: { jobber_enabled?: boolean; jobber_expense_enabled?: boolean; firefly_enabled?: boolean; quickbooks_receipt_upload_enabled?: boolean } }>("./api/settings"),
+        axios.get<{ settings: { jobber_enabled?: boolean; jobber_expense_enabled?: boolean; firefly_enabled?: boolean } }>("./api/settings"),
       ]);
 
       setFilterTag(filterTagRes.data.tag);
@@ -202,7 +196,6 @@ const DocumentProcessor: React.FC = () => {
       setJobberEnabled(settingsRes.data.settings?.jobber_enabled ?? true);
       setJobberExpenseEnabled(settingsRes.data.settings?.jobber_expense_enabled ?? true);
       setFireflyEnabled(settingsRes.data.settings?.firefly_enabled ?? false);
-      setQuickBooksReceiptUploadEnabled(settingsRes.data.settings?.quickbooks_receipt_upload_enabled ?? false);
       setDocuments(documentsRes.data);
       setSelectedDocuments(documentsRes.data.map((d: Document) => d.id));
       const tags = Object.keys(tagsRes.data).map((tag) => ({
@@ -240,7 +233,6 @@ const DocumentProcessor: React.FC = () => {
       selected_firefly_transaction_id: suggestion.selected_firefly_transaction_id || "",
       apply_firefly: !!suggestion.apply_firefly,
       create_firefly_transaction: !!suggestion.create_firefly_transaction,
-      upload_to_quickbooks: !!suggestion.upload_to_quickbooks,
     }));
   }, [allCustomFields]);
 
@@ -557,14 +549,6 @@ const DocumentProcessor: React.FC = () => {
     setSuggestions((prevSuggestions) =>
       prevSuggestions.map((doc) =>
         doc.id === docId ? { ...doc, create_firefly_transaction: enabled } : doc
-      )
-    );
-  };
-
-  const handleQuickBooksToggle = (docId: number, enabled: boolean) => {
-    setSuggestions((prevSuggestions) =>
-      prevSuggestions.map((doc) =>
-        doc.id === docId ? { ...doc, upload_to_quickbooks: enabled } : doc
       )
     );
   };
@@ -919,7 +903,6 @@ const DocumentProcessor: React.FC = () => {
           onFireflyMatchChange={handleFireflySelectionChange}
           onApplyFireflyToggle={handleApplyFireflyToggle}
           onFireflyCreateToggle={handleFireflyCreateToggle}
-          onQuickBooksToggle={handleQuickBooksToggle}
           onRegenerateSuggestion={handleRegenerateSuggestion}
           regeneratingDocId={regeneratingDocId}
           onBack={resetSuggestions}
@@ -932,7 +915,6 @@ const DocumentProcessor: React.FC = () => {
           jobberEnabled={jobberEnabled}
           jobberExpenseEnabled={jobberExpenseEnabled}
           fireflyEnabled={fireflyEnabled}
-          quickBooksReceiptUploadEnabled={quickBooksReceiptUploadEnabled}
         />
       )}
 

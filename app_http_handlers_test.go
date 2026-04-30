@@ -80,22 +80,6 @@ func TestGetPromptsHandler(t *testing.T) {
 	assert.Equal(t, promptContent, response["test_prompt.tmpl"])
 }
 
-func TestMergeSettingsPatchDefaultsQuickBooksEnvironment(t *testing.T) {
-	merged, err := mergeSettingsPatch(Settings{}, map[string]interface{}{})
-	require.NoError(t, err)
-
-	assert.Equal(t, quickBooksEnvironmentProduction, merged.QuickBooksEnvironment)
-}
-
-func TestMergeSettingsPatchAcceptsQuickBooksSandboxEnvironment(t *testing.T) {
-	merged, err := mergeSettingsPatch(defaultSettings(), map[string]interface{}{
-		"quickbooks_environment": quickBooksEnvironmentSandbox,
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, quickBooksEnvironmentSandbox, merged.QuickBooksEnvironment)
-}
-
 func TestUpdatePromptsHandler(t *testing.T) {
 	router := setupTestRouter(t)
 

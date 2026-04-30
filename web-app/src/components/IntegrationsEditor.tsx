@@ -31,12 +31,6 @@ interface SettingsData {
   google_drive_client_secret: string;
   google_drive_client_secret_configured?: boolean;
   google_drive_folder_id: string;
-  quickbooks_enabled: boolean;
-  quickbooks_client_id: string;
-  quickbooks_client_secret: string;
-  quickbooks_client_secret_configured?: boolean;
-  quickbooks_environment: string;
-  quickbooks_receipt_upload_enabled: boolean;
   firefly_enabled: boolean;
   firefly_instance_url: string;
   firefly_api_token: string;
@@ -93,12 +87,6 @@ const defaultSettings: SettingsData = {
   google_drive_client_secret: '',
   google_drive_client_secret_configured: false,
   google_drive_folder_id: '',
-  quickbooks_enabled: false,
-  quickbooks_client_id: '',
-  quickbooks_client_secret: '',
-  quickbooks_client_secret_configured: false,
-  quickbooks_environment: 'production',
-  quickbooks_receipt_upload_enabled: false,
   firefly_enabled: false,
   firefly_instance_url: '',
   firefly_api_token: '',
@@ -225,12 +213,6 @@ const IntegrationsEditor: React.FC = () => {
         google_drive_client_secret: '',
         google_drive_client_secret_configured: !!settingsData.settings?.google_drive_client_secret_configured,
         google_drive_folder_id: settingsData.settings?.google_drive_folder_id || '',
-        quickbooks_enabled: !!settingsData.settings?.quickbooks_enabled,
-        quickbooks_client_id: settingsData.settings?.quickbooks_client_id || '',
-        quickbooks_client_secret: '',
-        quickbooks_client_secret_configured: !!settingsData.settings?.quickbooks_client_secret_configured,
-        quickbooks_environment: settingsData.settings?.quickbooks_environment === 'sandbox' ? 'sandbox' : 'production',
-        quickbooks_receipt_upload_enabled: !!settingsData.settings?.quickbooks_receipt_upload_enabled,
         firefly_enabled: !!settingsData.settings?.firefly_enabled,
         firefly_instance_url: settingsData.settings?.firefly_instance_url || '',
         firefly_api_token: '',
@@ -354,8 +336,6 @@ const IntegrationsEditor: React.FC = () => {
         jobber_client_secret_configured: settings.jobber_client_secret.trim() !== '' || !!settings.jobber_client_secret_configured,
         google_drive_client_secret: '',
         google_drive_client_secret_configured: settings.google_drive_client_secret.trim() !== '' || !!settings.google_drive_client_secret_configured,
-        quickbooks_client_secret: '',
-        quickbooks_client_secret_configured: settings.quickbooks_client_secret.trim() !== '' || !!settings.quickbooks_client_secret_configured,
         firefly_api_token: '',
         firefly_api_token_configured: settings.firefly_api_token.trim() !== '' || !!settings.firefly_api_token_configured,
         paperless_webhook_secret: '',
@@ -528,11 +508,6 @@ const IntegrationsEditor: React.FC = () => {
       settings.google_drive_client_id,
       settings.google_drive_client_secret,
       !!settings.google_drive_client_secret_configured,
-    ),
-    quickbooks: hasOAuthCredentials(
-      settings.quickbooks_client_id,
-      settings.quickbooks_client_secret,
-      !!settings.quickbooks_client_secret_configured,
     ),
   };
 
@@ -754,66 +729,6 @@ const IntegrationsEditor: React.FC = () => {
               Uploaded files will use the latest filename from Paperless-ngx.
             </p>
           </fieldset>
-        </IntegrationCard>
-
-        <IntegrationCard
-          title="QuickBooks"
-          status={statuses.quickbooks}
-          canConnect={oauthReady.quickbooks}
-          connectHelpText="Enter a QuickBooks client ID and client secret to connect."
-          onConnect={() => handleConnect('quickbooks')}
-          onDisconnect={() => handleDisconnect('quickbooks')}
-          connecting={connectingProvider === 'quickbooks'}
-          disconnecting={disconnectingProvider === 'quickbooks'}
-        >
-          <OAuthCredentialFields
-            providerName="QuickBooks"
-            clientId={settings.quickbooks_client_id}
-            clientSecret={settings.quickbooks_client_secret}
-            clientSecretConfigured={!!settings.quickbooks_client_secret_configured}
-            onClientIdChange={(value) => handleSettingChange('quickbooks_client_id', value)}
-            onClientSecretChange={(value) => handleSettingChange('quickbooks_client_secret', value)}
-          />
-
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
-            <span className="block">QuickBooks environment</span>
-            <select
-              value={settings.quickbooks_environment}
-              onChange={(e) => handleSettingChange('quickbooks_environment', e.target.value)}
-              className="mt-1.5 w-full rounded border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200"
-            >
-              <option value="production">Production</option>
-              <option value="sandbox">Sandbox</option>
-            </select>
-            <span className="mt-1 block text-xs font-normal text-gray-500 dark:text-gray-400">
-              Match this to the Intuit app credentials and company you connect. Changing environments requires reconnecting QuickBooks.
-            </span>
-          </label>
-
-          <div className="flex items-center mb-4">
-            <input
-              type="checkbox"
-              id="quickbooksEnabled"
-              checked={settings.quickbooks_enabled}
-              onChange={(e) => handleSettingChange('quickbooks_enabled', e.target.checked)}
-              className="w-4 h-4 mr-2"
-            />
-            <label htmlFor="quickbooksEnabled">Enable QuickBooks connection</label>
-          </div>
-          <div className="flex items-center mb-4">
-            <input
-              type="checkbox"
-              id="quickbooksReceiptUpload"
-              checked={settings.quickbooks_receipt_upload_enabled}
-              onChange={(e) => handleSettingChange('quickbooks_receipt_upload_enabled', e.target.checked)}
-              className="w-4 h-4 mr-2"
-            />
-            <label htmlFor="quickbooksReceiptUpload">Enable receipt upload</label>
-          </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Receipt upload sends the Paperless PDF to QuickBooks Receipts for Intuit matching/OCR. Direct Bill or Purchase creation is future work.
-            {statuses.quickbooks?.connected && !statuses.quickbooks.account_id ? ' Realm ID is missing; reconnect QuickBooks before uploading receipts.' : ''}
-          </p>
         </IntegrationCard>
 
         <IntegrationCard
@@ -1206,8 +1121,6 @@ function prettyProviderName(provider: string): string {
   switch (provider) {
     case 'google_drive':
       return 'Google Drive';
-    case 'quickbooks':
-      return 'QuickBooks';
     case 'jobber':
       return 'Jobber';
     case 'firefly':

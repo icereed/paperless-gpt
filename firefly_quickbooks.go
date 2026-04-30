@@ -15,22 +15,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 const (
 	fireflyExternalIDPrefix = "paperless-gpt-document-"
 	fireflyDateWindowDays   = 7
-
-	quickBooksEnvironmentProduction = "production"
-	quickBooksEnvironmentSandbox    = "sandbox"
-
-	quickBooksProductionAPIBaseURL = "https://quickbooks.api.intuit.com"
-	quickBooksSandboxAPIBaseURL    = "https://sandbox-quickbooks.api.intuit.com"
-
-	quickBooksProductionReceiptsURL = "https://app.qbo.intuit.com/app/receipts"
-	quickBooksSandboxReceiptsURL    = "https://app.sandbox.qbo.intuit.com/app/receipts"
 )
 
 type FireflyConfig struct {
@@ -75,11 +64,6 @@ type FireflyApplyResult struct {
 	AttachmentUploaded bool
 	TransactionID      string
 	URL                string
-}
-
-type QuickBooksUploadResult struct {
-	AttachableID string
-	URL          string
 }
 
 func (s *IntegrationsService) FireflyStatus(ctx context.Context) IntegrationConnectionStatus {
@@ -166,10 +150,6 @@ func sanitizeSettingsForResponse(s Settings) Settings {
 		s.GoogleDriveClientSecret = ""
 		s.GoogleDriveClientSecretConfigured = true
 	}
-	if s.QuickBooksClientSecret != "" {
-		s.QuickBooksClientSecret = ""
-		s.QuickBooksClientSecretConfigured = true
-	}
 	s.PaperlessWebhookSecret = ""
 	return s
 }
@@ -182,7 +162,6 @@ func mergeSecretSettings(current Settings, merged *Settings) error {
 		{current: &current.FireflyAPIToken, merged: &merged.FireflyAPIToken},
 		{current: &current.JobberClientSecret, merged: &merged.JobberClientSecret},
 		{current: &current.GoogleDriveClientSecret, merged: &merged.GoogleDriveClientSecret},
-		{current: &current.QuickBooksClientSecret, merged: &merged.QuickBooksClientSecret},
 	}
 
 	for _, secret := range secrets {
@@ -654,276 +633,6 @@ func buildFireflyAttachmentUpload(transactionID, filename string, content []byte
 		return nil, "", err
 	}
 	return bytes.NewReader(body.Bytes()), writer.FormDataContentType(), nil
-}
-
-func (s *IntegrationsService) UploadQuickBooksReceipt(ctx context.Context, client ClientInterface, suggestion DocumentSuggestion, batchID ...uint) (*QuickBooksUploadResult, error) {
-	conn, err := getOptionalConnectionByProvider(s.DB.WithContext(ctx), integrationProviderQuickBooks)
-	if err != nil {
-		return nil, err
-	}
-	if conn == nil || conn.Status != integrationStatusConnected {
-		return nil, fmt.Errorf("quickbooks is not connected")
-	}
-	settingsMutex.RLock()
-	enabled := settings.QuickBooksEnabled && settings.QuickBooksReceiptUploadEnabled
-	settingsMutex.RUnlock()
-	if !enabled {
-		return nil, fmt.Errorf("QuickBooks receipt upload is disabled in settings")
-	}
-	impl := newQuickBooksProvider()
-	validConn, err := impl.ensureFreshToken(ctx, s.DB.WithContext(ctx), conn)
-	if err != nil {
-		return nil, err
-	}
-	realmID := quickBooksRealmID(validConn)
-	if realmID == "" {
-		return nil, fmt.Errorf("QuickBooks realm ID is missing; reconnect QuickBooks from Settings")
-	}
-	document, err := client.GetDocument(ctx, suggestion.ID)
-	if err != nil {
-		return nil, err
-	}
-	content, err := client.DownloadPDF(ctx, document)
-	if err != nil {
-		return nil, err
-	}
-	filename := safePDFFilename(document, suggestion.ID)
-	body, contentType, err := buildQuickBooksReceiptUpload(filename, content, firstNonEmpty(suggestion.SuggestedTitle, document.Title))
-	if err != nil {
-		return nil, err
-	}
-	apiURL := quickBooksUploadURL(realmID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+validConn.AccessToken)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", contentType)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	var appliedBatchID *uint
-	if len(batchID) > 0 && batchID[0] > 0 {
-		appliedBatchID = &batchID[0]
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		err := quickBooksReceiptUploadError(resp.StatusCode, raw)
-		if isQuickBooksAuthorizationFailed(raw) {
-			_ = disconnectIntegrationConnection(s.DB.WithContext(ctx), integrationProviderQuickBooks)
-		}
-		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{DocumentID: suggestion.ID, BatchID: appliedBatchID, Provider: integrationProviderQuickBooks, ActionType: "receipt_upload", Status: "error", ErrorMessage: err.Error()})
-		return nil, err
-	}
-	if isQuickBooksFaultResponse(raw) {
-		err := quickBooksReceiptUploadError(resp.StatusCode, raw)
-		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{DocumentID: suggestion.ID, BatchID: appliedBatchID, Provider: integrationProviderQuickBooks, ActionType: "receipt_upload", Status: "error", ErrorMessage: err.Error(), ResponseSummary: string(raw)})
-		return nil, err
-	}
-	attachableID := parseQuickBooksAttachableID(raw)
-	if attachableID == "" {
-		err := fmt.Errorf("quickbooks receipt upload returned success but no attachable ID; verify the connected QuickBooks company/environment and inspect integration action log response")
-		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{DocumentID: suggestion.ID, BatchID: appliedBatchID, Provider: integrationProviderQuickBooks, ActionType: "receipt_upload", Status: "error", ErrorMessage: err.Error(), ResponseSummary: string(raw)})
-		return nil, err
-	}
-	resultURL := fmt.Sprintf("%s?companyId=%s", quickBooksReceiptsBaseURL(), url.QueryEscape(realmID))
-	insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{
-		DocumentID:      suggestion.ID,
-		BatchID:         appliedBatchID,
-		Provider:        integrationProviderQuickBooks,
-		ActionType:      "receipt_upload",
-		Status:          "success",
-		ExternalID:      attachableID,
-		ExternalURL:     resultURL,
-		RequestSummary:  filename,
-		ResponseSummary: string(raw),
-	})
-	return &QuickBooksUploadResult{AttachableID: attachableID, URL: resultURL}, nil
-}
-
-func quickBooksReceiptUploadError(statusCode int, raw []byte) error {
-	if isQuickBooksAuthorizationFailed(raw) {
-		return fmt.Errorf("QuickBooks rejected the receipt upload because this app is not authorized for the connected company. Reconnect QuickBooks from Settings -> Integrations, and make sure the Intuit app has QuickBooks Online Accounting access enabled before reconnecting")
-	}
-	return fmt.Errorf("quickbooks receipt upload failed: %d, %s", statusCode, string(raw))
-}
-
-func quickBooksUploadURL(realmID string) string {
-	return fmt.Sprintf("%s/v3/company/%s/upload", quickBooksAPIBaseURL(), url.PathEscape(realmID))
-}
-
-func quickBooksAPIBaseURL() string {
-	settingsMutex.RLock()
-	environment := normalizeQuickBooksEnvironment(settings.QuickBooksEnvironment)
-	settingsMutex.RUnlock()
-	if environment == quickBooksEnvironmentSandbox {
-		return quickBooksSandboxAPIBaseURL
-	}
-	return quickBooksProductionAPIBaseURL
-}
-
-func normalizeQuickBooksEnvironment(environment string) string {
-	if strings.EqualFold(strings.TrimSpace(environment), quickBooksEnvironmentSandbox) {
-		return quickBooksEnvironmentSandbox
-	}
-	return quickBooksEnvironmentProduction
-}
-
-func quickBooksReceiptsBaseURL() string {
-	settingsMutex.RLock()
-	environment := normalizeQuickBooksEnvironment(settings.QuickBooksEnvironment)
-	settingsMutex.RUnlock()
-	if environment == quickBooksEnvironmentSandbox {
-		return quickBooksSandboxReceiptsURL
-	}
-	return quickBooksProductionReceiptsURL
-}
-
-func isQuickBooksAuthorizationFailed(raw []byte) bool {
-	lower := strings.ToLower(string(raw))
-	return strings.Contains(lower, "applicationauthorizationfailed") ||
-		strings.Contains(lower, `"code":"3100"`) ||
-		strings.Contains(lower, `"code":3100`) ||
-		strings.Contains(lower, "errorcode=003100")
-}
-
-func buildQuickBooksReceiptUpload(filename string, content []byte, note string) (io.Reader, string, error) {
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	metadata := map[string]interface{}{
-		"AttachableRef": []map[string]interface{}{},
-		"FileName":      filename,
-		"ContentType":   "application/pdf",
-		"Category":      "Receipt",
-		"Note":          strings.TrimSpace(note),
-	}
-	rawMeta, _ := json.Marshal(metadata)
-	metaHeader := textproto.MIMEHeader{}
-	metaHeader.Set("Content-Disposition", `form-data; name="file_metadata_01"`)
-	metaHeader.Set("Content-Type", "application/json")
-	metaPart, err := writer.CreatePart(metaHeader)
-	if err != nil {
-		return nil, "", err
-	}
-	if _, err := metaPart.Write(rawMeta); err != nil {
-		return nil, "", err
-	}
-	fileHeader := textproto.MIMEHeader{}
-	fileHeader.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file_content_01"; filename="%s"`, sanitizeMIMEFilename(filename)))
-	fileHeader.Set("Content-Type", "application/pdf")
-	filePart, err := writer.CreatePart(fileHeader)
-	if err != nil {
-		return nil, "", err
-	}
-	if _, err := filePart.Write(content); err != nil {
-		return nil, "", err
-	}
-	if err := writer.Close(); err != nil {
-		return nil, "", err
-	}
-	return bytes.NewReader(body.Bytes()), writer.FormDataContentType(), nil
-}
-
-func (p quickBooksProvider) ensureFreshToken(ctx context.Context, db *gorm.DB, conn *IntegrationConnection) (*IntegrationConnection, error) {
-	if conn == nil {
-		return nil, fmt.Errorf("quickbooks connection not found")
-	}
-	if conn.AccessTokenExpiresAt != nil && conn.AccessTokenExpiresAt.After(time.Now().Add(jobberTokenRefreshSkew)) {
-		return conn, nil
-	}
-	if strings.TrimSpace(conn.RefreshToken) == "" {
-		return nil, fmt.Errorf("quickbooks refresh token not available; please reconnect QuickBooks")
-	}
-	token, err := p.RefreshToken(ctx, conn)
-	if err != nil {
-		return nil, fmt.Errorf("quickbooks token refresh failed: %w", err)
-	}
-	updated, err := upsertIntegrationConnection(db, integrationProviderQuickBooks, token, &providerIdentity{
-		AccountID:   conn.AccountID,
-		AccountName: conn.AccountName,
-		Metadata:    metadataMap(conn),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return updated, nil
-}
-
-func quickBooksRealmID(conn *IntegrationConnection) string {
-	if conn == nil {
-		return ""
-	}
-	if strings.TrimSpace(conn.AccountID) != "" {
-		return strings.TrimSpace(conn.AccountID)
-	}
-	metadata := metadataMap(conn)
-	if strings.TrimSpace(metadata["realm_id"]) != "" {
-		return strings.TrimSpace(metadata["realm_id"])
-	}
-	for _, scope := range strings.Fields(conn.Scopes) {
-		if strings.HasPrefix(scope, "realm:") {
-			return strings.TrimPrefix(scope, "realm:")
-		}
-	}
-	return ""
-}
-
-
-func isQuickBooksFaultResponse(raw []byte) bool {
-	if len(raw) == 0 {
-		return false
-	}
-	var payload map[string]interface{}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return false
-	}
-	for key := range payload {
-		if strings.EqualFold(strings.TrimSpace(key), "fault") {
-			return true
-		}
-	}
-	return false
-}
-
-func parseQuickBooksAttachableID(raw []byte) string {
-	var payload map[string]interface{}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return ""
-	}
-	var walk func(interface{}) string
-	walk = func(value interface{}) string {
-		switch v := value.(type) {
-		case map[string]interface{}:
-			if id, ok := v["Id"].(string); ok && id != "" {
-				return id
-			}
-			if id, ok := v["Id"].(float64); ok {
-				return strconv.FormatInt(int64(id), 10)
-			}
-			if id, ok := v["id"].(string); ok && id != "" {
-				return id
-			}
-			if id, ok := v["id"].(float64); ok {
-				return strconv.FormatInt(int64(id), 10)
-			}
-			for _, child := range v {
-				if id := walk(child); id != "" {
-					return id
-				}
-			}
-		case []interface{}:
-			for _, child := range v {
-				if id := walk(child); id != "" {
-					return id
-				}
-			}
-		}
-		return ""
-	}
-	return walk(payload)
 }
 
 func resolveMappedString(suggestion DocumentSuggestion, fieldRef string) string {

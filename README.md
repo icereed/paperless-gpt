@@ -60,7 +60,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 9. **Unified Web UI**
 
    - **Manual Review**: Approve or tweak AI's suggestions.
-   - **Explicit Integrations**: Review per-document Jobber, Firefly III, QuickBooks, and Google Drive side effects before anything leaves Paperless GPT.
+   - **Explicit Integrations**: Review per-document Jobber, Firefly III, and Google Drive side effects before anything leaves Paperless GPT.
 
 ## Table of Contents
 
@@ -339,17 +339,9 @@ Paperless GPT 0.7.0 adds explicit, per-document finance actions under **Settings
 - Selected or newly created Firefly transactions receive the Paperless archive PDF as an attachment.
 - Re-applying a document is duplicate-protected by searching for likely existing transactions before creating.
 
-### QuickBooks
-
-- QuickBooks continues to use OAuth from **Settings -> Integrations**.
-- Enable **receipt upload** to show a per-document **Upload receipt to QuickBooks** checkbox.
-- Upload sends the Paperless PDF to QuickBooks Receipts for Intuit OCR/matching.
-- 0.7.0 does not create QuickBooks Bills or Purchases directly. Direct accounting object creation is future work.
-- If receipt upload returns Intuit `ApplicationAuthorizationFailed` / code `3100`, reconnect QuickBooks from **Settings -> Integrations**. This usually means the saved token is no longer authorized for the selected company, the app credentials changed after connection, or the wrong QuickBooks realm/company was connected.
-
 ### History and undo
 
-Integration actions are recorded in apply batch history and the integration action log with provider, action type, external ID, external URL when available, and per-document errors. Undo rewrites Paperless metadata only; it does not delete Firefly transactions, Firefly attachments, QuickBooks attachables, Jobber expenses, or Google Drive uploads.
+Integration actions are recorded in apply batch history and the integration action log with provider, action type, external ID, external URL when available, and per-document errors. Undo rewrites Paperless metadata only; it does not delete Firefly transactions, Firefly attachments, Jobber expenses, or Google Drive uploads.
 
 Set `APP_PUBLIC_URL` or the Settings -> Integrations public URL when OAuth providers are enabled so callback URLs and external deep-links use the public host.
 

@@ -80,7 +80,6 @@ const IntegrationActionLog: React.FC = () => {
             <option value="jobber">Jobber</option>
             <option value="firefly">Firefly III</option>
             <option value="google_drive">Google Drive</option>
-            <option value="quickbooks">QuickBooks</option>
           </select>
           <button
             onClick={() => fetchPage(page, providerFilter)}
@@ -192,8 +191,6 @@ function formatProvider(provider: string): string {
       return 'Firefly III';
     case 'google_drive':
       return 'Google Drive';
-    case 'quickbooks':
-      return 'QuickBooks';
     default:
       return provider.replace('_', ' ');
   }

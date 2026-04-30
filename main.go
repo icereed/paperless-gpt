@@ -104,12 +104,10 @@ var (
 	customFieldsCache   []CustomField
 	customFieldsCacheMu sync.RWMutex
 
-	jobberClientID         = os.Getenv("JOBBER_CLIENT_ID")
-	jobberClientSecret     = os.Getenv("JOBBER_CLIENT_SECRET")
-	googleDriveClientID    = os.Getenv("GOOGLE_DRIVE_CLIENT_ID")
-	googleDriveSecret      = os.Getenv("GOOGLE_DRIVE_CLIENT_SECRET")
-	quickBooksClientID     = os.Getenv("QUICKBOOKS_CLIENT_ID")
-	quickBooksClientSecret = os.Getenv("QUICKBOOKS_CLIENT_SECRET")
+	jobberClientID      = os.Getenv("JOBBER_CLIENT_ID")
+	jobberClientSecret  = os.Getenv("JOBBER_CLIENT_SECRET")
+	googleDriveClientID = os.Getenv("GOOGLE_DRIVE_CLIENT_ID")
+	googleDriveSecret   = os.Getenv("GOOGLE_DRIVE_CLIENT_SECRET")
 )
 
 // refreshCustomFieldsCache fetches custom fields from Paperless and updates the cache.

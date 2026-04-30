@@ -23,7 +23,6 @@ interface SuggestionCardProps {
   onFireflyMatchChange: (docId: number, selectedTransactionId: string) => void;
   onApplyFireflyToggle: (docId: number, enabled: boolean) => void;
   onFireflyCreateToggle: (docId: number, enabled: boolean) => void;
-  onQuickBooksToggle: (docId: number, enabled: boolean) => void;
   onRegenerateSuggestion?: (docId: number) => void;
   regenerating?: boolean;
   jobberConnected: boolean;
@@ -32,8 +31,6 @@ interface SuggestionCardProps {
   googleDriveConnected: boolean;
   fireflyConnected: boolean;
   fireflyEnabled?: boolean;
-  quickBooksConnected: boolean;
-  quickBooksReceiptUploadEnabled?: boolean;
   integrationResult?: DocumentIntegrationResult;
   paperlessUrl?: string;
   onDelete?: (documentId: number) => void;
@@ -56,7 +53,6 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onFireflyMatchChange,
   onApplyFireflyToggle,
   onFireflyCreateToggle,
-  onQuickBooksToggle,
   onRegenerateSuggestion,
   regenerating = false,
   jobberConnected,
@@ -65,8 +61,6 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   googleDriveConnected,
   fireflyConnected,
   fireflyEnabled = false,
-  quickBooksConnected,
-  quickBooksReceiptUploadEnabled = false,
   integrationResult,
   paperlessUrl,
   onDelete,
@@ -594,29 +588,6 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               </p>
             </div>
 
-            <div className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                id={`quickbooks-${suggestion.id}`}
-                checked={suggestion.upload_to_quickbooks ?? false}
-                disabled={!quickBooksConnected || !quickBooksReceiptUploadEnabled}
-                onChange={(e) => onQuickBooksToggle(suggestion.id, e.target.checked)}
-                className="mt-1 h-4 w-4"
-              />
-              <div>
-                <label htmlFor={`quickbooks-${suggestion.id}`} className="font-medium text-gray-700 dark:text-gray-300">
-                  Upload receipt to QuickBooks
-                </label>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {!quickBooksConnected
-                    ? "Connect QuickBooks in Settings to enable receipt uploads."
-                    : !quickBooksReceiptUploadEnabled
-                      ? "Enable QuickBooks receipt uploads in Settings -> Integrations first."
-                      : "Uploads the Paperless PDF to QuickBooks Receipts for Intuit matching/OCR."}
-                </p>
-              </div>
-            </div>
-
             {(integrationResult?.jobber_applied ||
               integrationResult?.jobber_expense_created ||
               integrationResult?.jobber_error ||
@@ -626,8 +597,6 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               integrationResult?.firefly_matched ||
               integrationResult?.firefly_created ||
               integrationResult?.firefly_error ||
-              integrationResult?.quickbooks_uploaded ||
-              integrationResult?.quickbooks_error ||
               (integrationResult && integrationResult.paperless_updated && integrationResult.jobber_applied === false && !integrationResult.jobber_error)) && (
               <div className="rounded border border-gray-200 p-3 text-sm dark:border-gray-700">
                 <h4 className="font-semibold text-gray-700 dark:text-gray-300">Last apply result</h4>
@@ -700,24 +669,6 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                 {integrationResult?.firefly_error && (
                   <p className="mt-1 text-red-700 dark:text-red-300">
                     Firefly: {integrationResult.firefly_error}
-                  </p>
-                )}
-                {integrationResult?.quickbooks_uploaded && (
-                  <p className="mt-1 text-green-700 dark:text-green-300">
-                    QuickBooks receipt uploaded
-                    {integrationResult.quickbooks_url ? (
-                      <>
-                        {" "}
-                        <a className="underline" href={integrationResult.quickbooks_url} target="_blank" rel="noopener noreferrer">
-                          Open Receipts
-                        </a>
-                      </>
-                    ) : "."}
-                  </p>
-                )}
-                {integrationResult?.quickbooks_error && (
-                  <p className="mt-1 text-red-700 dark:text-red-300">
-                    QuickBooks: {integrationResult.quickbooks_error}
                   </p>
                 )}
               </div>

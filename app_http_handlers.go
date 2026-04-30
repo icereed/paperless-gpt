@@ -374,17 +374,6 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 				result.FireflyURL = fireflyResult.URL
 			}
 		}
-		if document.UploadToQuickBooks {
-			qboResult, err := app.Integrations.UploadQuickBooksReceipt(ctx, app.Client, document, batch.ID)
-			if err != nil {
-				result.QuickBooksError = err.Error()
-			} else {
-				result.QuickBooksUploaded = true
-				result.QuickBooksAttachableID = qboResult.AttachableID
-				result.QuickBooksURL = qboResult.URL
-			}
-		}
-
 		results = append(results, result)
 	}
 
@@ -405,7 +394,6 @@ func (app *App) getIntegrationsStatusHandler(c *gin.Context) {
 	statuses := []IntegrationConnectionStatus{
 		app.Integrations.Status("jobber"),
 		app.Integrations.Status("google_drive"),
-		app.Integrations.Status("quickbooks"),
 		app.Integrations.FireflyStatus(c.Request.Context()),
 	}
 
@@ -1030,8 +1018,6 @@ func mergeSettingsPatch(current Settings, patch map[string]interface{}) (Setting
 	if merged.CustomFieldsWriteMode == "" {
 		merged.CustomFieldsWriteMode = current.CustomFieldsWriteMode
 	}
-	merged.QuickBooksEnvironment = normalizeQuickBooksEnvironment(merged.QuickBooksEnvironment)
-
 	return merged, nil
 }
 

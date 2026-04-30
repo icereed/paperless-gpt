@@ -25,7 +25,6 @@ import (
 const (
 	integrationProviderJobber      = "jobber"
 	integrationProviderGoogleDrive = "google_drive"
-	integrationProviderQuickBooks  = "quickbooks"
 	integrationProviderFirefly     = "firefly"
 
 	integrationStatusConnected    = "connected"
@@ -133,8 +132,6 @@ func getIntegrationProvider(provider string) integrationProvider {
 		return newJobberProvider()
 	case integrationProviderGoogleDrive:
 		return newGoogleDriveProvider()
-	case integrationProviderQuickBooks:
-		return newQuickBooksProvider()
 	default:
 		return nil
 	}
@@ -323,7 +320,6 @@ func (app *App) getIntegrationStatuses(ctx context.Context) ([]IntegrationConnec
 	providers := []string{
 		integrationProviderJobber,
 		integrationProviderGoogleDrive,
-		integrationProviderQuickBooks,
 	}
 
 	statuses := make([]IntegrationConnectionStatus, 0, len(providers)+1)
@@ -1487,9 +1483,6 @@ func configuredOAuthCredentials(provider, clientIDEnv, clientSecretEnv string) (
 	case integrationProviderGoogleDrive:
 		clientID = settings.GoogleDriveClientID
 		encryptedSecret = settings.GoogleDriveClientSecret
-	case integrationProviderQuickBooks:
-		clientID = settings.QuickBooksClientID
-		encryptedSecret = settings.QuickBooksClientSecret
 	}
 	settingsMutex.RUnlock()
 
@@ -1685,66 +1678,6 @@ func (p googleDriveProvider) ensureFreshToken(ctx context.Context, db *gorm.DB, 
 		return nil, err
 	}
 	return updated, nil
-}
-
-type quickBooksProvider struct {
-	oauthProviderBase
-}
-
-func newQuickBooksProvider() quickBooksProvider {
-	clientID, clientSecret := configuredOAuthCredentials(integrationProviderQuickBooks, "QUICKBOOKS_CLIENT_ID", "QUICKBOOKS_CLIENT_SECRET")
-	return quickBooksProvider{
-		oauthProviderBase: oauthProviderBase{
-			name:         integrationProviderQuickBooks,
-			clientID:     clientID,
-			clientSecret: clientSecret,
-			authURL:      "https://appcenter.intuit.com/connect/oauth2",
-			tokenURL:     "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
-			scopes: []string{
-				"com.intuit.quickbooks.accounting",
-			},
-		},
-	}
-}
-
-func (p quickBooksProvider) FetchIdentity(ctx context.Context, conn *IntegrationConnection) (*providerIdentity, error) {
-	metadata := metadataMap(conn)
-	accountID := metadata["realm_id"]
-	if strings.TrimSpace(accountID) == "" {
-		for _, scope := range strings.Fields(conn.Scopes) {
-			if strings.HasPrefix(scope, "realm:") {
-				accountID = strings.TrimSpace(strings.TrimPrefix(scope, "realm:"))
-				break
-			}
-		}
-	}
-	if accountID != "" {
-		metadata["realm_id"] = accountID
-	}
-	accountName := strings.TrimSpace(conn.AccountName)
-	if accountName == "" {
-		accountName = "QuickBooks company"
-	}
-	return &providerIdentity{
-		AccountID:   accountID,
-		AccountName: accountName,
-		Metadata:    metadata,
-	}, nil
-}
-
-func (p quickBooksProvider) ExchangeCode(ctx context.Context, c *gin.Context, code string) (*providerToken, error) {
-	token, err := p.oauthProviderBase.ExchangeCode(ctx, c, code)
-	if err != nil {
-		return nil, err
-	}
-	if realmID := c.Query("realmId"); realmID != "" {
-		token.Scopes = append(token.Scopes, "realm:"+realmID)
-	}
-	return token, nil
-}
-
-func (p quickBooksProvider) RefreshToken(ctx context.Context, conn *IntegrationConnection) (*providerToken, error) {
-	return p.oauthProviderBase.RefreshToken(ctx, conn)
 }
 
 func init() {

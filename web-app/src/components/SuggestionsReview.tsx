@@ -21,7 +21,6 @@ interface SuggestionsReviewProps {
   onFireflyMatchChange: (docId: number, candidateId: string) => void;
   onApplyFireflyToggle: (docId: number, checked: boolean) => void;
   onFireflyCreateToggle: (docId: number, checked: boolean) => void;
-  onQuickBooksToggle: (docId: number, checked: boolean) => void;
   onRegenerateSuggestion: (docId: number) => void;
   regeneratingDocId?: number | null;
   onBack: () => void;
@@ -32,7 +31,6 @@ interface SuggestionsReviewProps {
   jobberEnabled?: boolean;
   jobberExpenseEnabled?: boolean;
   fireflyEnabled?: boolean;
-  quickBooksReceiptUploadEnabled?: boolean;
 }
 
 const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
@@ -54,7 +52,6 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   onFireflyMatchChange,
   onApplyFireflyToggle,
   onFireflyCreateToggle,
-  onQuickBooksToggle,
   onRegenerateSuggestion,
   regeneratingDocId,
   onBack,
@@ -65,7 +62,6 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   jobberEnabled = true,
   jobberExpenseEnabled = true,
   fireflyEnabled = false,
-  quickBooksReceiptUploadEnabled = false,
 }) => {
   const integrationResultMap = useMemo(
     () => new Map(integrationResults.map((r) => [r.document_id, r])),
@@ -125,7 +121,6 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           onFireflyMatchChange={onFireflyMatchChange}
           onApplyFireflyToggle={onApplyFireflyToggle}
           onFireflyCreateToggle={onFireflyCreateToggle}
-          onQuickBooksToggle={onQuickBooksToggle}
           onRegenerateSuggestion={onRegenerateSuggestion}
           regenerating={regeneratingDocId === doc.id}
           jobberConnected={!!integrationStatuses.jobber?.connected}
@@ -133,8 +128,6 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           jobberExpenseEnabled={jobberExpenseEnabled}
           fireflyConnected={!!integrationStatuses.firefly?.connected}
           fireflyEnabled={fireflyEnabled}
-          quickBooksConnected={!!integrationStatuses.quickbooks?.connected}
-          quickBooksReceiptUploadEnabled={quickBooksReceiptUploadEnabled}
           googleDriveConnected={!!integrationStatuses.google_drive?.connected}
           integrationResult={integrationResultMap.get(doc.id)}
           paperlessUrl={paperlessUrl}

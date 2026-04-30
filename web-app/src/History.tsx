@@ -250,8 +250,7 @@ const History: React.FC = () => {
                     <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Integration side effects</p>
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       Undo rewrites Paperless metadata only. Firefly transactions/attachments,
-                      QuickBooks receipts, Jobber expenses, and Google Drive files are not
-                      deleted automatically.
+                      Jobber expenses, and Google Drive files are not deleted automatically.
                     </p>
                     <div className="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-300">
                       {batch.integration_actions.map((action) => (

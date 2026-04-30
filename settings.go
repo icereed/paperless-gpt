@@ -17,9 +17,6 @@ func defaultSettings() Settings {
 		JobberEnabled:                    false,
 		JobberExpenseEnabled:             false,
 		GoogleDriveEnabled:               false,
-		QuickBooksEnabled:                false,
-		QuickBooksEnvironment:            quickBooksEnvironmentProduction,
-		QuickBooksReceiptUploadEnabled:   false,
 		FireflyEnabled:                   false,
 		FireflyDefaultCurrency:           "USD",
 	}
@@ -114,9 +111,6 @@ func loadSettings() {
 	}
 	if settings.JobberExpenseTotalFieldRef == "" && settings.JobberExpenseTotalFieldID > 0 {
 		settings.JobberExpenseTotalFieldRef = customFieldReference(settings.JobberExpenseTotalFieldID)
-	}
-	if settings.QuickBooksEnvironment == "" {
-		settings.QuickBooksEnvironment = defaults.QuickBooksEnvironment
 	}
 
 	log.Info("Successfully loaded settings from settings.json")
