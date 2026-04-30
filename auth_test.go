@@ -438,6 +438,7 @@ func TestFrontendShellReachableWithoutSession(t *testing.T) {
 		r.GET(p, func(c *gin.Context) { c.Status(http.StatusOK) })
 	}
 	r.GET("/assets/*filepath", func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.GET("/api/external/v1/health", func(c *gin.Context) { c.Status(http.StatusOK) })
 	// And a protected API route, which must still return 401
 	r.GET("/api/documents", func(c *gin.Context) { c.Status(http.StatusOK) })
 
@@ -456,6 +457,11 @@ func TestFrontendShellReachableWithoutSession(t *testing.T) {
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code, "path %q must load without a session so LoginPage can render", p)
 	}
+
+	reqExternal := httptest.NewRequest(http.MethodGet, "/api/external/v1/health", nil)
+	wExternal := httptest.NewRecorder()
+	r.ServeHTTP(wExternal, reqExternal)
+	assert.Equal(t, http.StatusOK, wExternal.Code, "external API auth is handled by API-key middleware, not browser sessions")
 
 	// API routes must still require a session
 	reqAPI := httptest.NewRequest(http.MethodGet, "/api/documents", nil)

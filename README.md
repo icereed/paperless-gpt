@@ -592,6 +592,8 @@ For best results with the enhanced OCR features:
 | `PAPERLESS_BASE_URL`                | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                                                                                                        | Yes      |                            |
 | `PAPERLESS_API_TOKEN`               | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                                                                                             | Yes      |                            |
 | `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                            | No       |                            |
+| `PAPERLESS_GPT_API_KEY`             | Optional environment-managed API key for the read-only external API under `/api/external/v1`. You can also generate a key in Settings -> External API. Send it from other self-hosted apps as `X-API-Key: <key>` or `Authorization: Bearer <key>`. | No       |                            |
+| `EXTERNAL_API_KEY`                  | Legacy alias for environment-managed `PAPERLESS_GPT_API_KEY`.                                                                                                                                 | No       |                            |
 | `APP_PUBLIC_URL`                    | Public URL for this paperless-gpt instance. Can also be configured from Settings -> Integrations. Used to build OAuth callback URLs and Jobber receipt links when running behind a reverse proxy. For Jobber, register `${APP_PUBLIC_URL}/api/integrations/jobber/oauth/callback`. | No       |                            |
 | `PAPERLESS_GPT_PUBLIC_URL`          | Legacy alias for `APP_PUBLIC_URL`, kept for backward compatibility with existing deployments. Settings -> Integrations takes precedence when set.                                             | No       |                            |
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
@@ -690,6 +692,30 @@ These are active in addition to user auth when set, and work without any user ac
 | `AUTH_USERNAME`         | Username for HTTP Basic Auth. Must be set together with `AUTH_PASSWORD`.                                                                | No       |                  |
 | `AUTH_PASSWORD`         | Password for HTTP Basic Auth. Must be set together with `AUTH_USERNAME`.                                                                | No       |                  |
 | `AUTH_TOKEN`            | Static bearer token for API authentication. Send as `Authorization: Bearer <token>`. Can be combined with Basic Auth.                  | No       |                  |
+
+##### External API for local apps
+
+Open **Settings -> External API** and generate an API key to enable a read-only API intended for other self-hosted apps such as bricoprohq. The generated key is shown once, stored encrypted, and can be rotated or revoked from Settings. Alternatively, set `PAPERLESS_GPT_API_KEY` in your server/container environment to manage the key outside the UI.
+
+The API bypasses browser session auth, but every route requires the API key in either `X-API-Key` or `Authorization: Bearer`.
+
+Base URL: `http://<local-ip>:<port>/api/external/v1`
+
+Example:
+
+```bash
+curl -H "X-API-Key: your-random-secret-token" \
+  http://192.168.1.25:8080/api/external/v1/summary
+```
+
+Available endpoints:
+
+- `GET /health` - service/version check.
+- `GET /summary` - pending document count, OCR status/job counts, and integration connection statuses.
+- `GET /documents/pending?page_size=25` - documents currently tagged with `MANUAL_TAG` and waiting for review.
+- `GET /documents/{id}` - one Paperless document by ID.
+- `GET /ocr/jobs?status=pending&document_id=123` - in-memory OCR jobs, optionally filtered.
+- `GET /openapi.json` - OpenAPI 3 schema for client generation/discovery.
 
 ##### Network & rate limiting
 

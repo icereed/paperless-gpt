@@ -230,6 +230,7 @@ func sessionAuthMiddleware(db *gorm.DB) gin.HandlerFunc {
 		if isPublicFrontendPath(path) ||
 			publicAuthPaths[path] ||
 			path == "/api/paperless/webhook" ||
+			strings.HasPrefix(path, externalAPIPrefix) ||
 			strings.HasSuffix(path, "/oauth/callback") ||
 			strings.Contains(path, "/integrations/jobber/receipt/") {
 			c.Next()

@@ -31,6 +31,8 @@ type SecurityConfig struct {
 	MaxBodyBytes int64
 }
 
+const externalAPIPrefix = "/api/external/"
+
 // loadSecurityConfig reads security configuration from environment variables.
 func loadSecurityConfig() SecurityConfig {
 	cfg := SecurityConfig{
@@ -77,6 +79,17 @@ func loadSecurityConfig() SecurityConfig {
 	}
 
 	return cfg
+}
+
+func osExternalAPIKey() string {
+	if key := strings.TrimSpace(os.Getenv("PAPERLESS_GPT_API_KEY")); key != "" {
+		return key
+	}
+	return strings.TrimSpace(os.Getenv("EXTERNAL_API_KEY"))
+}
+
+func isExternalAPIPath(path string) bool {
+	return strings.HasPrefix(path, externalAPIPrefix)
 }
 
 // isAuthEnabled reports whether at least one auth mechanism is configured.
@@ -127,6 +140,11 @@ func isExemptFromAuth(path string) bool {
 	// Paperless webhook requests cannot carry the app's browser/session auth;
 	// the webhook handler authenticates them with its own shared secret.
 	if path == "/api/paperless/webhook" {
+		return true
+	}
+	// External API routes use their own API-key middleware so local services can
+	// call them without a browser session.
+	if isExternalAPIPath(path) {
 		return true
 	}
 	// OAuth callbacks from third-party providers
