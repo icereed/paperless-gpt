@@ -28,6 +28,9 @@ const (
 
 	quickBooksProductionAPIBaseURL = "https://quickbooks.api.intuit.com"
 	quickBooksSandboxAPIBaseURL    = "https://sandbox-quickbooks.api.intuit.com"
+
+	quickBooksProductionReceiptsURL = "https://app.qbo.intuit.com/app/receipts"
+	quickBooksSandboxReceiptsURL    = "https://app.sandbox.qbo.intuit.com/app/receipts"
 )
 
 type FireflyConfig struct {
@@ -726,7 +729,7 @@ func (s *IntegrationsService) UploadQuickBooksReceipt(ctx context.Context, clien
 		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{DocumentID: suggestion.ID, BatchID: appliedBatchID, Provider: integrationProviderQuickBooks, ActionType: "receipt_upload", Status: "error", ErrorMessage: err.Error(), ResponseSummary: string(raw)})
 		return nil, err
 	}
-	resultURL := fmt.Sprintf("https://app.qbo.intuit.com/app/receipts?companyId=%s", url.QueryEscape(realmID))
+	resultURL := fmt.Sprintf("%s?companyId=%s", quickBooksReceiptsBaseURL(), url.QueryEscape(realmID))
 	insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{
 		DocumentID:      suggestion.ID,
 		BatchID:         appliedBatchID,
@@ -767,6 +770,16 @@ func normalizeQuickBooksEnvironment(environment string) string {
 		return quickBooksEnvironmentSandbox
 	}
 	return quickBooksEnvironmentProduction
+}
+
+func quickBooksReceiptsBaseURL() string {
+	settingsMutex.RLock()
+	environment := normalizeQuickBooksEnvironment(settings.QuickBooksEnvironment)
+	settingsMutex.RUnlock()
+	if environment == quickBooksEnvironmentSandbox {
+		return quickBooksSandboxReceiptsURL
+	}
+	return quickBooksProductionReceiptsURL
 }
 
 func isQuickBooksAuthorizationFailed(raw []byte) bool {

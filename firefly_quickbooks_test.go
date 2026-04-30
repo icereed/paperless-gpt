@@ -356,6 +356,22 @@ func TestDefaultSettingsUseQuickBooksProduction(t *testing.T) {
 	}
 }
 
+func TestQuickBooksReceiptsBaseURLUsesSandboxWhenConfigured(t *testing.T) {
+	withQuickBooksEnvironment(t, quickBooksEnvironmentSandbox)
+
+	if got := quickBooksReceiptsBaseURL(); got != quickBooksSandboxReceiptsURL {
+		t.Fatalf("expected sandbox receipts URL, got %q", got)
+	}
+}
+
+func TestQuickBooksReceiptsBaseURLDefaultsToProduction(t *testing.T) {
+	withQuickBooksEnvironment(t, "")
+
+	if got := quickBooksReceiptsBaseURL(); got != quickBooksProductionReceiptsURL {
+		t.Fatalf("expected production receipts URL, got %q", got)
+	}
+}
+
 func TestIsQuickBooksFaultResponse(t *testing.T) {
 	if !isQuickBooksFaultResponse([]byte(`{"Fault":{"Error":[{"Message":"bad"}]}}`)) {
 		t.Fatalf("expected fault response detection")
