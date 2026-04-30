@@ -5,6 +5,7 @@ import MetadataRestrictionsEditor from './MetadataRestrictionsEditor';
 import IntegrationsEditor from './IntegrationsEditor';
 import ChangePassword from './ChangePassword';
 import AIProvidersEditor from './AIProvidersEditor';
+import ExternalApiSettings from './ExternalApiSettings';
 
 const Settings: React.FC = () => {
   return (
@@ -24,6 +25,7 @@ const Settings: React.FC = () => {
 
       <div className="space-y-8">
         <AIProvidersEditor />
+        <ExternalApiSettings />
         <PromptsEditor />
         <MetadataRestrictionsEditor />
         <CustomFieldsEditor />

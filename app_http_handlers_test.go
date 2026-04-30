@@ -377,7 +377,7 @@ func TestExternalAPIRequiresAPIKey(t *testing.T) {
 	router := gin.New()
 	app := &App{Client: &updateDocumentsMockClient{}}
 	api := router.Group("/api/external/v1")
-	api.Use(externalAPIMiddleware())
+	api.Use(app.externalAPIMiddleware())
 	app.registerExternalAPIRoutes(api)
 
 	wMissing := httptest.NewRecorder()
@@ -405,7 +405,7 @@ func TestExternalAPIPendingDocuments(t *testing.T) {
 	router := gin.New()
 	app := &App{Client: client}
 	api := router.Group("/api/external/v1")
-	api.Use(externalAPIMiddleware())
+	api.Use(app.externalAPIMiddleware())
 	app.registerExternalAPIRoutes(api)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/external/v1/documents/pending?page_size=250", nil)
@@ -423,4 +423,76 @@ func TestExternalAPIPendingDocuments(t *testing.T) {
 	assert.Equal(t, 100, response.PageSize)
 	require.Len(t, response.Documents, 1)
 	assert.Equal(t, 12, response.Documents[0].ID)
+}
+
+func TestExternalAPIKeyGenerationEnablesExternalAPI(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_API_KEY", "")
+	t.Setenv("EXTERNAL_API_KEY", "")
+	t.Setenv("PAPERLESS_GPT_SECRET_KEY", "test-secret")
+
+	db, err := InitializeTestDB()
+	require.NoError(t, err)
+	client := &updateDocumentsMockClient{
+		documentsByTag: []Document{{ID: 44, Title: "Receipt"}},
+	}
+	app := &App{Client: client, Database: db}
+	router := gin.New()
+	api := router.Group("/api")
+	app.registerExternalAPIKeySettingsRoutes(api)
+	external := router.Group("/api/external/v1")
+	external.Use(app.externalAPIMiddleware())
+	app.registerExternalAPIRoutes(external)
+
+	wGenerate := httptest.NewRecorder()
+	router.ServeHTTP(wGenerate, httptest.NewRequest(http.MethodPost, "/api/external-api-key/generate", nil))
+	require.Equal(t, http.StatusCreated, wGenerate.Code)
+
+	var generated externalAPIKeyStatusResponse
+	require.NoError(t, json.Unmarshal(wGenerate.Body.Bytes(), &generated))
+	require.True(t, generated.Configured)
+	require.Equal(t, "settings", generated.Source)
+	require.NotEmpty(t, generated.GeneratedKey)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/external/v1/documents/pending", nil)
+	req.Header.Set("X-API-Key", generated.GeneratedKey)
+	wPending := httptest.NewRecorder()
+	router.ServeHTTP(wPending, req)
+	require.Equal(t, http.StatusOK, wPending.Code)
+}
+
+func TestExternalAPIKeyGenerationAndRevoke(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_API_KEY", "")
+	t.Setenv("EXTERNAL_API_KEY", "")
+	t.Setenv("PAPERLESS_GPT_SECRET_KEY", "test-secret-2")
+	db, err := InitializeTestDB()
+	require.NoError(t, err)
+	app := &App{Database: db}
+	router := gin.New()
+	api := router.Group("/api")
+	app.registerExternalAPIKeySettingsRoutes(api)
+
+	generateReq := httptest.NewRequest(http.MethodPost, "/api/external-api-key/generate", nil)
+	generateReq.Host = "paperless-gpt.local:8080"
+	wGenerate := httptest.NewRecorder()
+	router.ServeHTTP(wGenerate, generateReq)
+	require.Equal(t, http.StatusCreated, wGenerate.Code)
+
+	var generated externalAPIKeyStatusResponse
+	require.NoError(t, json.Unmarshal(wGenerate.Body.Bytes(), &generated))
+	require.True(t, generated.Configured)
+	require.Equal(t, "settings", generated.Source)
+	require.NotEmpty(t, generated.GeneratedKey)
+	require.Equal(t, "http://paperless-gpt.local:8080/api/external/v1", generated.BaseURL)
+
+	storedKey, err := app.externalAPIKey(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, generated.GeneratedKey, storedKey)
+
+	wRevoke := httptest.NewRecorder()
+	router.ServeHTTP(wRevoke, httptest.NewRequest(http.MethodDelete, "/api/external-api-key", nil))
+	require.Equal(t, http.StatusOK, wRevoke.Code)
+
+	storedKey, err = app.externalAPIKey(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, storedKey)
 }

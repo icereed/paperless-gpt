@@ -477,10 +477,11 @@ func main() {
 
 		// Get version information
 		api.GET("/version", getVersionHandler)
+		app.registerExternalAPIKeySettingsRoutes(api)
 	}
 
 	externalAPI := router.Group("/api/external/v1")
-	externalAPI.Use(externalAPIMiddleware())
+	externalAPI.Use(app.externalAPIMiddleware())
 	app.registerExternalAPIRoutes(externalAPI)
 
 	// Serve frontend files

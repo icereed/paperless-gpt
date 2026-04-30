@@ -1,17 +1,34 @@
 package main
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const externalAPIVersion = "v1"
+const externalAPIKeyName = "default"
+
+type externalAPIKeyStatusResponse struct {
+	Configured   bool   `json:"configured"`
+	Source       string `json:"source,omitempty"`
+	BaseURL      string `json:"base_url"`
+	OpenAPIURL   string `json:"openapi_url"`
+	HeaderName   string `json:"header_name"`
+	GeneratedKey string `json:"api_key,omitempty"`
+}
 
 type externalDocumentListResponse struct {
 	Count     int        `json:"count"`
@@ -49,6 +66,189 @@ func (app *App) registerExternalAPIRoutes(external *gin.RouterGroup) {
 	external.GET("/documents/:id", app.externalDocumentHandler)
 	external.GET("/ocr/jobs", app.externalOCRJobsHandler)
 	external.GET("/openapi.json", externalOpenAPIHandler)
+}
+
+func (app *App) externalAPIMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		expected, err := app.externalAPIKey(c.Request.Context())
+		if err != nil {
+			log.WithError(err).Warn("failed to load external API key")
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to load external API key"})
+			return
+		}
+		if expected == "" {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": "External API is disabled. Generate an API key in Settings or set PAPERLESS_GPT_API_KEY on the Paperless GPT server.",
+			})
+			return
+		}
+
+		provided := strings.TrimSpace(c.GetHeader("X-API-Key"))
+		if provided == "" {
+			authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				provided = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+			}
+		}
+		if provided == "" || !constantTimeStringEqual(provided, expected) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or missing API key"})
+			return
+		}
+		go app.recordExternalAPIKeyUse(context.Background())
+		c.Next()
+	}
+}
+
+func (app *App) registerExternalAPIKeySettingsRoutes(api *gin.RouterGroup) {
+	api.GET("/external-api-key", app.getExternalAPIKeySettingsHandler)
+	api.POST("/external-api-key/generate", app.generateExternalAPIKeyHandler)
+	api.DELETE("/external-api-key", app.revokeExternalAPIKeyHandler)
+}
+
+func (app *App) getExternalAPIKeySettingsHandler(c *gin.Context) {
+	status, err := app.externalAPIKeyStatus(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load external API key status"})
+		return
+	}
+	c.JSON(http.StatusOK, status)
+}
+
+func (app *App) generateExternalAPIKeyHandler(c *gin.Context) {
+	if strings.TrimSpace(envExternalAPIKey()) != "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "PAPERLESS_GPT_API_KEY is configured in the environment. Rotate it in your server/container configuration."})
+		return
+	}
+	key, err := generateExternalAPIKey()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate API key"})
+		return
+	}
+	encrypted, err := EncryptSecret(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to encrypt API key"})
+		return
+	}
+	if err := app.upsertExternalAPIKey(c.Request.Context(), encrypted); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save API key"})
+		return
+	}
+	status, err := app.externalAPIKeyStatus(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "API key saved but status could not be loaded"})
+		return
+	}
+	status.GeneratedKey = key
+	c.JSON(http.StatusCreated, status)
+}
+
+func (app *App) revokeExternalAPIKeyHandler(c *gin.Context) {
+	if strings.TrimSpace(envExternalAPIKey()) != "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "PAPERLESS_GPT_API_KEY is configured in the environment. Remove it from your server/container configuration to disable the external API."})
+		return
+	}
+	if app.Database == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database is not configured"})
+		return
+	}
+	if err := app.Database.WithContext(c.Request.Context()).Where("name = ?", externalAPIKeyName).Delete(&ExternalAPIKey{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke API key"})
+		return
+	}
+	status, err := app.externalAPIKeyStatus(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "API key revoked but status could not be loaded"})
+		return
+	}
+	c.JSON(http.StatusOK, status)
+}
+
+func generateExternalAPIKey() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return "pgpt_" + base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func envExternalAPIKey() string {
+	if key := strings.TrimSpace(os.Getenv("PAPERLESS_GPT_API_KEY")); key != "" {
+		return key
+	}
+	return strings.TrimSpace(os.Getenv("EXTERNAL_API_KEY"))
+}
+
+func constantTimeStringEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+func (app *App) externalAPIKey(ctx context.Context) (string, error) {
+	if key := envExternalAPIKey(); key != "" {
+		return key, nil
+	}
+	if app == nil || app.Database == nil || !app.Database.Migrator().HasTable(&ExternalAPIKey{}) {
+		return "", nil
+	}
+	var record ExternalAPIKey
+	err := app.Database.WithContext(ctx).First(&record, "name = ?", externalAPIKeyName).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return DecryptSecret(record.EncryptedKey)
+}
+
+func (app *App) upsertExternalAPIKey(ctx context.Context, encryptedKey string) error {
+	if app == nil || app.Database == nil {
+		return errors.New("database is not configured")
+	}
+	var record ExternalAPIKey
+	err := app.Database.WithContext(ctx).First(&record, "name = ?", externalAPIKeyName).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		record = ExternalAPIKey{Name: externalAPIKeyName}
+	} else if err != nil {
+		return err
+	}
+	record.EncryptedKey = encryptedKey
+	return app.Database.WithContext(ctx).Save(&record).Error
+}
+
+func (app *App) recordExternalAPIKeyUse(ctx context.Context) {
+	if app == nil || app.Database == nil || envExternalAPIKey() != "" {
+		return
+	}
+	now := time.Now().UTC()
+	if err := app.Database.WithContext(ctx).Model(&ExternalAPIKey{}).Where("name = ?", externalAPIKeyName).Update("last_used_at", &now).Error; err != nil {
+		log.WithError(err).Debug("failed to record external API key usage")
+	}
+}
+
+func (app *App) externalAPIKeyStatus(c *gin.Context) (externalAPIKeyStatusResponse, error) {
+	baseURL := strings.TrimRight(currentBaseURL(c), "/") + "/api/external/v1"
+	status := externalAPIKeyStatusResponse{
+		BaseURL:    baseURL,
+		OpenAPIURL: baseURL + "/openapi.json",
+		HeaderName: "X-API-Key",
+	}
+	if envExternalAPIKey() != "" {
+		status.Configured = true
+		status.Source = "environment"
+		return status, nil
+	}
+	if app == nil || app.Database == nil {
+		return status, nil
+	}
+	var count int64
+	if err := app.Database.WithContext(c.Request.Context()).Model(&ExternalAPIKey{}).Where("name = ?", externalAPIKeyName).Count(&count).Error; err != nil {
+		return status, err
+	}
+	if count > 0 {
+		status.Configured = true
+		status.Source = "settings"
+	}
+	return status, nil
 }
 
 func (app *App) externalHealthHandler(c *gin.Context) {

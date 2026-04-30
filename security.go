@@ -81,7 +81,7 @@ func loadSecurityConfig() SecurityConfig {
 	return cfg
 }
 
-func externalAPIKey() string {
+func osExternalAPIKey() string {
 	if key := strings.TrimSpace(os.Getenv("PAPERLESS_GPT_API_KEY")); key != "" {
 		return key
 	}
@@ -156,33 +156,6 @@ func isExemptFromAuth(path string) bool {
 		return true
 	}
 	return false
-}
-
-func externalAPIMiddleware() gin.HandlerFunc {
-	expected := externalAPIKey()
-	if expected == "" {
-		log.Warn("External API is disabled. Set PAPERLESS_GPT_API_KEY to enable /api/external/v1.")
-		return func(c *gin.Context) {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-				"error": "External API is disabled. Set PAPERLESS_GPT_API_KEY on the Paperless GPT server.",
-			})
-		}
-	}
-
-	return func(c *gin.Context) {
-		provided := strings.TrimSpace(c.GetHeader("X-API-Key"))
-		if provided == "" {
-			authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				provided = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
-			}
-		}
-		if provided == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or missing API key"})
-			return
-		}
-		c.Next()
-	}
 }
 
 // authMiddleware returns a Gin middleware that enforces HTTP authentication.
