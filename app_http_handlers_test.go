@@ -285,11 +285,16 @@ func TestUpdateDocumentsApplyJobberTrueWritesFields(t *testing.T) {
 }
 
 type updateDocumentsMockClient struct {
-	upsertCalled bool
+	upsertCalled   bool
+	documentsByTag []Document
+	lastTag        string
+	lastPageSize   int
 }
 
 func (m *updateDocumentsMockClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
-	return nil, nil
+	m.lastTag = tag
+	m.lastPageSize = pageSize
+	return m.documentsByTag, nil
 }
 func (m *updateDocumentsMockClient) GetDocumentCountByTag(ctx context.Context, tag string) (int, error) {
 	return 0, nil
@@ -365,4 +370,57 @@ func TestGetVersionHandler(t *testing.T) {
 	assert.Equal(t, "devVersion", response["version"])
 	assert.Equal(t, "devCommit", response["commit"])
 	assert.Equal(t, "devBuildDate", response["buildDate"])
+}
+
+func TestExternalAPIRequiresAPIKey(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_API_KEY", "secret-key")
+	router := gin.New()
+	app := &App{Client: &updateDocumentsMockClient{}}
+	api := router.Group("/api/external/v1")
+	api.Use(externalAPIMiddleware())
+	app.registerExternalAPIRoutes(api)
+
+	wMissing := httptest.NewRecorder()
+	router.ServeHTTP(wMissing, httptest.NewRequest(http.MethodGet, "/api/external/v1/health", nil))
+	require.Equal(t, http.StatusUnauthorized, wMissing.Code)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/external/v1/health", nil)
+	req.Header.Set("X-API-Key", "secret-key")
+	wOK := httptest.NewRecorder()
+	router.ServeHTTP(wOK, req)
+	require.Equal(t, http.StatusOK, wOK.Code)
+}
+
+func TestExternalAPIPendingDocuments(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_API_KEY", "secret-key")
+	previousManualTag := manualTag
+	manualTag = "review-me"
+	t.Cleanup(func() { manualTag = previousManualTag })
+
+	client := &updateDocumentsMockClient{
+		documentsByTag: []Document{
+			{ID: 12, Title: "Invoice"},
+		},
+	}
+	router := gin.New()
+	app := &App{Client: client}
+	api := router.Group("/api/external/v1")
+	api.Use(externalAPIMiddleware())
+	app.registerExternalAPIRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/external/v1/documents/pending?page_size=250", nil)
+	req.Header.Set("Authorization", "Bearer secret-key")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "review-me", client.lastTag)
+	assert.Equal(t, 100, client.lastPageSize)
+
+	var response externalDocumentListResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	assert.Equal(t, 1, response.Count)
+	assert.Equal(t, 100, response.PageSize)
+	require.Len(t, response.Documents, 1)
+	assert.Equal(t, 12, response.Documents[0].ID)
 }

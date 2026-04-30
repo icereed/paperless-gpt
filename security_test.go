@@ -421,3 +421,42 @@ func TestLoadSecurityConfig_CustomValues(t *testing.T) {
 	assert.Equal(t, 20, cfg.RateLimitBurst)
 	assert.Equal(t, int64(1048576), cfg.MaxBodyBytes)
 }
+
+func TestExternalAPIMiddleware(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_API_KEY", "secret-key")
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(externalAPIMiddleware())
+	r.GET("/api/external/v1/health", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	wMissing := httptest.NewRecorder()
+	r.ServeHTTP(wMissing, httptest.NewRequest(http.MethodGet, "/api/external/v1/health", nil))
+	assert.Equal(t, http.StatusUnauthorized, wMissing.Code)
+
+	reqKey := httptest.NewRequest(http.MethodGet, "/api/external/v1/health", nil)
+	reqKey.Header.Set("X-API-Key", "secret-key")
+	wKey := httptest.NewRecorder()
+	r.ServeHTTP(wKey, reqKey)
+	assert.Equal(t, http.StatusOK, wKey.Code)
+
+	reqBearer := httptest.NewRequest(http.MethodGet, "/api/external/v1/health", nil)
+	reqBearer.Header.Set("Authorization", "Bearer secret-key")
+	wBearer := httptest.NewRecorder()
+	r.ServeHTTP(wBearer, reqBearer)
+	assert.Equal(t, http.StatusOK, wBearer.Code)
+}
+
+func TestExternalAPIMiddlewareDisabledWithoutKey(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_API_KEY", "")
+	t.Setenv("EXTERNAL_API_KEY", "")
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(externalAPIMiddleware())
+	r.GET("/api/external/v1/health", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/external/v1/health", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}

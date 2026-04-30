@@ -479,6 +479,10 @@ func main() {
 		api.GET("/version", getVersionHandler)
 	}
 
+	externalAPI := router.Group("/api/external/v1")
+	externalAPI.Use(externalAPIMiddleware())
+	app.registerExternalAPIRoutes(externalAPI)
+
 	// Serve frontend files
 	// Check if the web-app/dist directory exists for local development
 	if _, err := os.Stat("web-app/dist"); err == nil {

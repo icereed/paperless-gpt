@@ -31,6 +31,8 @@ type SecurityConfig struct {
 	MaxBodyBytes int64
 }
 
+const externalAPIPrefix = "/api/external/"
+
 // loadSecurityConfig reads security configuration from environment variables.
 func loadSecurityConfig() SecurityConfig {
 	cfg := SecurityConfig{
@@ -77,6 +79,17 @@ func loadSecurityConfig() SecurityConfig {
 	}
 
 	return cfg
+}
+
+func externalAPIKey() string {
+	if key := strings.TrimSpace(os.Getenv("PAPERLESS_GPT_API_KEY")); key != "" {
+		return key
+	}
+	return strings.TrimSpace(os.Getenv("EXTERNAL_API_KEY"))
+}
+
+func isExternalAPIPath(path string) bool {
+	return strings.HasPrefix(path, externalAPIPrefix)
 }
 
 // isAuthEnabled reports whether at least one auth mechanism is configured.
@@ -129,6 +142,11 @@ func isExemptFromAuth(path string) bool {
 	if path == "/api/paperless/webhook" {
 		return true
 	}
+	// External API routes use their own API-key middleware so local services can
+	// call them without a browser session.
+	if isExternalAPIPath(path) {
+		return true
+	}
 	// OAuth callbacks from third-party providers
 	if strings.HasSuffix(path, "/oauth/callback") {
 		return true
@@ -138,6 +156,33 @@ func isExemptFromAuth(path string) bool {
 		return true
 	}
 	return false
+}
+
+func externalAPIMiddleware() gin.HandlerFunc {
+	expected := externalAPIKey()
+	if expected == "" {
+		log.Warn("External API is disabled. Set PAPERLESS_GPT_API_KEY to enable /api/external/v1.")
+		return func(c *gin.Context) {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": "External API is disabled. Set PAPERLESS_GPT_API_KEY on the Paperless GPT server.",
+			})
+		}
+	}
+
+	return func(c *gin.Context) {
+		provided := strings.TrimSpace(c.GetHeader("X-API-Key"))
+		if provided == "" {
+			authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
+			if strings.HasPrefix(authHeader, "Bearer ") {
+				provided = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+			}
+		}
+		if provided == "" || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or missing API key"})
+			return
+		}
+		c.Next()
+	}
 }
 
 // authMiddleware returns a Gin middleware that enforces HTTP authentication.
