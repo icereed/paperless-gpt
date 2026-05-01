@@ -463,7 +463,7 @@ func (m *mockPaperlessClient) GetAllCorrespondents(ctx context.Context) (map[str
 func (m *mockPaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
 	return nil, nil
 }
-func (m *mockPaperlessClient) CreateTag(ctx context.Context, tagName string) (int, error) {
+func (m *mockPaperlessClient) CreateTag(ctx context.Context, tagName string, originalDoc *Document) (int, error) {
 	return 0, nil
 }
 func (m *mockPaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error) {

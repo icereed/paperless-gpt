@@ -507,7 +507,7 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 					tagIDs = append(tagIDs, tagID)
 				} else {
 					// Create the tag if it doesn't exist
-					tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag)
+					tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag, &originalDoc)
 					if err == nil {
 						tagIDs = append(tagIDs, tagID)
 					} else {
@@ -543,7 +543,7 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 				metadata["tags"] = []int{tagID}
 			} else {
 				// Create the tag if it doesn't exist
-				tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag)
+				tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag, &originalDoc)
 				if err == nil {
 					metadata["tags"] = []int{tagID}
 				} else {

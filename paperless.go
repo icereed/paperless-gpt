@@ -36,6 +36,7 @@ type PaperlessClient struct {
 	APIToken    string
 	HTTPClient  *http.Client
 	CacheFolder string
+	UserId      *int
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -157,6 +158,43 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 	}
 
 	return resp, nil
+}
+
+// return the id of the user for the client
+func (client *PaperlessClient) GetUserID(ctx context.Context) (int, error) {
+	if client.UserId == nil {
+		// get client user id
+		resp, err := client.Do(ctx, "GET", "api/ui_settings/", nil)
+		if err != nil {
+			return 0, fmt.Errorf("error obtaining ui_settings: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return 0, fmt.Errorf("error obtaining ui_settings: %d, %s", resp.StatusCode, string(bodyBytes))
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return 0, fmt.Errorf("error parsing response: %w", err)
+		}
+
+		user, ok := result["user"].(map[string]interface{})
+		if !ok {
+			return 0, fmt.Errorf("could not get document user")
+		}
+
+		id, ok := user["id"].(float64)
+		if !ok {
+			return 0, fmt.Errorf("could not get document user id")
+		}
+
+		userid := int(id)
+		client.UserId = &userid
+	}
+
+	return *client.UserId, nil
 }
 
 // GetAllTags retrieves all tags from the Paperless-NGX API
@@ -333,6 +371,7 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 			Content:       result.Content,
 			Correspondent: correspondentName,
 			Tags:          tagNames,
+			Owner:         result.Owner,
 			CreatedDate:   result.CreatedDate,
 		})
 	}
@@ -514,7 +553,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					finalTagIDs = append(finalTagIDs, tagID)
 				} else if createNewTags {
 					// Create the new tag in paperless-ngx
-					newTagID, err := client.CreateTag(ctx, tagName)
+					newTagID, err := client.CreateTag(ctx, tagName, &originalDoc)
 					if err != nil {
 						log.Warnf("Document %d: Failed to create new tag '%s': %v", documentID, tagName, err)
 						continue
@@ -1326,12 +1365,36 @@ func (client *PaperlessClient) GetTaskStatus(ctx context.Context, taskID string)
 }
 
 // CreateTag creates a new tag and returns its ID
-func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (int, error) {
-	type tagRequest struct {
+func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string, originalDoc *Document) (int, error) {
+	type TagRequest struct {
 		Name string `json:"name"`
+		Owner *int `json:"owner"`
 	}
 
-	requestBody, err := json.Marshal(tagRequest{Name: tagName})
+	var tagRequest TagRequest
+	tagRequest.Name = tagName
+
+	userid, err := client.GetUserID(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("error getting user id: %w", err)
+	}
+
+	tagRequest.Owner = &userid
+
+	if tagsOwner == "none" {
+		// go marshals nil to (json) null
+		tagRequest.Owner = nil
+
+	} else if tagsOwner == "document" && originalDoc != nil {
+		if originalDoc.Owner == 0 {
+			// paperless does not accept 0 but requires json null
+			tagRequest.Owner = nil
+		} else {
+			tagRequest.Owner = &originalDoc.Owner
+		}
+	}
+
+	requestBody, err := json.Marshal(tagRequest)
 	if err != nil {
 		return 0, fmt.Errorf("error marshaling tag request: %w", err)
 	}
