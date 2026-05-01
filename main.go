@@ -391,6 +391,7 @@ func main() {
 
 	// Apply global security middleware
 	router.Use(securityHeadersMiddleware())
+	router.Use(externalAPICORSMiddleware(secCfg))
 	router.Use(maxBodySizeMiddleware(secCfg.MaxBodyBytes))
 	router.Use(rateLimitMiddleware(secCfg.RateLimitRPS, secCfg.RateLimitBurst))
 	// Session-based user auth (takes precedence; static credentials are a fallback)

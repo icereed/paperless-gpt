@@ -167,6 +167,83 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	assert.Contains(t, w.Header().Get("Content-Security-Policy"), "frame-ancestors 'none'")
 }
 
+func TestExternalAPICORSMiddlewareAllowsLocalOrigins(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(externalAPICORSMiddleware(SecurityConfig{}))
+	r.OPTIONS("/api/external/v1/health", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+	r.GET("/api/external/v1/health", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	for _, origin := range []string{
+		"http://localhost:3000",
+		"http://127.0.0.1:5173",
+		"http://192.168.1.42:8080",
+		"http://10.0.0.23:8080",
+		"http://172.16.1.12:8080",
+	} {
+		req := httptest.NewRequest(http.MethodOptions, "/api/external/v1/health", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "GET")
+		req.Header.Set("Access-Control-Request-Headers", "X-API-Key")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNoContent, w.Code, "origin %q should pass preflight", origin)
+		assert.Equal(t, origin, w.Header().Get("Access-Control-Allow-Origin"))
+		assert.Contains(t, w.Header().Get("Access-Control-Allow-Headers"), "X-API-Key")
+
+		getReq := httptest.NewRequest(http.MethodGet, "/api/external/v1/health", nil)
+		getReq.Header.Set("Origin", origin)
+		getW := httptest.NewRecorder()
+		r.ServeHTTP(getW, getReq)
+
+		assert.Equal(t, http.StatusOK, getW.Code)
+		assert.Equal(t, origin, getW.Header().Get("Access-Control-Allow-Origin"))
+	}
+}
+
+func TestExternalAPICORSMiddlewareRejectsPublicOriginsByDefault(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(externalAPICORSMiddleware(SecurityConfig{}))
+	r.OPTIONS("/api/external/v1/health", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodOptions, "/api/external/v1/health", nil)
+	req.Header.Set("Origin", "https://example.com")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
+}
+
+func TestExternalAPICORSMiddlewareUsesConfiguredOrigins(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(externalAPICORSMiddleware(SecurityConfig{
+		ExternalAPIAllowedOrigins: []string{"https://example.com"},
+	}))
+	r.OPTIONS("/api/external/v1/health", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodOptions, "/api/external/v1/health", nil)
+	req.Header.Set("Origin", "https://example.com")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.Equal(t, "https://example.com", w.Header().Get("Access-Control-Allow-Origin"))
+}
+
 // ---------------------------------------------------------------------------
 // maxBodySizeMiddleware tests
 // ---------------------------------------------------------------------------
@@ -399,6 +476,7 @@ func TestLoadSecurityConfig_Defaults(t *testing.T) {
 	assert.Equal(t, 30, cfg.RateLimitBurst)
 	assert.Equal(t, int64(10*1024*1024), cfg.MaxBodyBytes)
 	assert.Equal(t, []string{"127.0.0.1", "::1"}, cfg.TrustedProxies)
+	assert.Empty(t, cfg.ExternalAPIAllowedOrigins)
 }
 
 func TestLoadSecurityConfig_CustomValues(t *testing.T) {
@@ -409,6 +487,7 @@ func TestLoadSecurityConfig_CustomValues(t *testing.T) {
 	t.Setenv("HTTP_RATE_LIMIT_RPS", "5.5")
 	t.Setenv("HTTP_RATE_LIMIT_BURST", "20")
 	t.Setenv("MAX_BODY_BYTES", "1048576")
+	t.Setenv("EXTERNAL_API_ALLOWED_ORIGINS", "https://example.com, http://app.local:3000/")
 
 	cfg := loadSecurityConfig()
 
@@ -420,4 +499,5 @@ func TestLoadSecurityConfig_CustomValues(t *testing.T) {
 	assert.Equal(t, 5.5, cfg.RateLimitRPS)
 	assert.Equal(t, 20, cfg.RateLimitBurst)
 	assert.Equal(t, int64(1048576), cfg.MaxBodyBytes)
+	assert.Equal(t, []string{"https://example.com", "http://app.local:3000"}, cfg.ExternalAPIAllowedOrigins)
 }

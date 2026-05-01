@@ -483,6 +483,19 @@ func TestExternalAPIKeyGenerationAndRevoke(t *testing.T) {
 	require.Equal(t, "settings", generated.Source)
 	require.NotEmpty(t, generated.GeneratedKey)
 	require.Equal(t, "http://paperless-gpt.local:8080/api/external/v1", generated.BaseURL)
+	require.Empty(t, generated.LocalBaseURL)
+
+	localReq := httptest.NewRequest(http.MethodGet, "/api/external-api-key", nil)
+	localReq.Host = "paperless-gpt.local:8080"
+	localReq.Header.Set("Origin", "http://192.168.1.25:3000")
+	wLocal := httptest.NewRecorder()
+	router.ServeHTTP(wLocal, localReq)
+	require.Equal(t, http.StatusOK, wLocal.Code)
+
+	var localStatus externalAPIKeyStatusResponse
+	require.NoError(t, json.Unmarshal(wLocal.Body.Bytes(), &localStatus))
+	require.Equal(t, "http://192.168.1.25:8080/api/external/v1", localStatus.LocalBaseURL)
+	require.Equal(t, "http://192.168.1.25:8080/api/external/v1/openapi.json", localStatus.LocalOpenAPIURL)
 
 	storedKey, err := app.externalAPIKey(context.Background())
 	require.NoError(t, err)

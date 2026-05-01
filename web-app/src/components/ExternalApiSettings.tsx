@@ -4,7 +4,9 @@ interface ExternalApiKeyStatus {
   configured: boolean;
   source?: string;
   base_url: string;
+  local_base_url?: string;
   openapi_url: string;
+  local_openapi_url?: string;
   header_name: string;
   api_key?: string;
 }
@@ -12,7 +14,9 @@ interface ExternalApiKeyStatus {
 const emptyStatus: ExternalApiKeyStatus = {
   configured: false,
   base_url: '',
+  local_base_url: '',
   openapi_url: '',
+  local_openapi_url: '',
   header_name: 'X-API-Key',
 };
 
@@ -47,13 +51,14 @@ const ExternalApiSettings: React.FC = () => {
   }, [fetchStatus]);
 
   const hostPortHint = useMemo(() => {
+    const urlForHint = status.local_base_url || status.base_url || window.location.origin;
     try {
-      const url = new URL(status.base_url || window.location.origin);
+      const url = new URL(urlForHint);
       return `${url.hostname}:${url.port || (url.protocol === 'https:' ? '443' : '80')}`;
     } catch {
       return '<local-ip>:8080';
     }
-  }, [status.base_url]);
+  }, [status.base_url, status.local_base_url]);
 
   const generateKey = async () => {
     setIsGenerating(true);
@@ -132,8 +137,8 @@ const ExternalApiSettings: React.FC = () => {
 
       <div className="mt-6 grid gap-4 md:grid-cols-3">
         <InfoBox label="Local IP / port" value={hostPortHint} />
-        <InfoBox label="Base URL" value={status.base_url || 'Loading...'} onCopy={status.base_url ? () => copy(status.base_url, 'Base URL') : undefined} />
-        <InfoBox label="OpenAPI URL" value={status.openapi_url || 'Loading...'} onCopy={status.openapi_url ? () => copy(status.openapi_url, 'OpenAPI URL') : undefined} />
+        <InfoBox label="Local API URL" value={status.local_base_url || status.base_url || 'Loading...'} onCopy={(status.local_base_url || status.base_url) ? () => copy(status.local_base_url || status.base_url, 'Local API URL') : undefined} />
+        <InfoBox label="OpenAPI URL" value={status.local_openapi_url || status.openapi_url || 'Loading...'} onCopy={(status.local_openapi_url || status.openapi_url) ? () => copy(status.local_openapi_url || status.openapi_url, 'OpenAPI URL') : undefined} />
       </div>
 
       {generatedKey && (
@@ -157,7 +162,7 @@ const ExternalApiSettings: React.FC = () => {
           <li>Make sure Paperless GPT listens on your LAN, for example <code>LISTEN_INTERFACE=:8080</code> or <code>0.0.0.0:8080</code>.</li>
           <li>In bricoprohq, enter host/IP and port: <code>{hostPortHint}</code>.</li>
           <li>Paste the generated API key as the API key.</li>
-          <li>Use <code>{status.base_url || '/api/external/v1'}</code> as the API base path if bricoprohq asks for a full URL.</li>
+          <li>Use <code>{status.local_base_url || status.base_url || '/api/external/v1'}</code> as the API base path if bricoprohq asks for a full URL.</li>
         </ol>
       </div>
 

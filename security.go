@@ -2,7 +2,9 @@ package main
 
 import (
 	"crypto/subtle"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -29,6 +31,9 @@ type SecurityConfig struct {
 
 	// Maximum allowed request body size in bytes
 	MaxBodyBytes int64
+
+	// Additional CORS origins allowed to call /api/external/*.
+	ExternalAPIAllowedOrigins []string
 }
 
 const externalAPIPrefix = "/api/external/"
@@ -75,6 +80,14 @@ func loadSecurityConfig() SecurityConfig {
 			cfg.MaxBodyBytes = v
 		} else if err != nil {
 			log.Warnf("Invalid MAX_BODY_BYTES value %q, using default %d", raw, cfg.MaxBodyBytes)
+		}
+	}
+	if raw := os.Getenv("EXTERNAL_API_ALLOWED_ORIGINS"); raw != "" {
+		for _, origin := range strings.Split(raw, ",") {
+			origin = strings.TrimRight(strings.TrimSpace(origin), "/")
+			if origin != "" {
+				cfg.ExternalAPIAllowedOrigins = append(cfg.ExternalAPIAllowedOrigins, origin)
+			}
 		}
 	}
 
@@ -235,6 +248,70 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 				"frame-ancestors 'none'")
 		c.Next()
 	}
+}
+
+func externalAPICORSMiddleware(cfg SecurityConfig) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !isExternalAPIPath(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+
+		origin := strings.TrimRight(strings.TrimSpace(c.GetHeader("Origin")), "/")
+		if origin == "" {
+			c.Next()
+			return
+		}
+		if !isAllowedExternalAPIOrigin(origin, cfg.ExternalAPIAllowedOrigins) {
+			if c.Request.Method == http.MethodOptions {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Origin is not allowed"})
+				return
+			}
+			c.Next()
+			return
+		}
+
+		c.Header("Access-Control-Allow-Origin", origin)
+		c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key")
+		c.Header("Access-Control-Max-Age", "600")
+		c.Header("Vary", "Origin")
+
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	}
+}
+
+func isAllowedExternalAPIOrigin(origin string, configuredOrigins []string) bool {
+	for _, allowed := range configuredOrigins {
+		if allowed == "*" || strings.EqualFold(origin, allowed) {
+			return true
+		}
+	}
+
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+
+	host := parsed.Hostname()
+	if host == "" {
+		return false
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") || strings.HasSuffix(strings.ToLower(host), ".localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+	}
+	return false
 }
 
 // ipVisitor holds a rate limiter and last-seen timestamp for a single client IP.

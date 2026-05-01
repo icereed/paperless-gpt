@@ -22,12 +22,14 @@ const externalAPIVersion = "v1"
 const externalAPIKeyName = "default"
 
 type externalAPIKeyStatusResponse struct {
-	Configured   bool   `json:"configured"`
-	Source       string `json:"source,omitempty"`
-	BaseURL      string `json:"base_url"`
-	OpenAPIURL   string `json:"openapi_url"`
-	HeaderName   string `json:"header_name"`
-	GeneratedKey string `json:"api_key,omitempty"`
+	Configured      bool   `json:"configured"`
+	Source          string `json:"source,omitempty"`
+	BaseURL         string `json:"base_url"`
+	LocalBaseURL    string `json:"local_base_url,omitempty"`
+	OpenAPIURL      string `json:"openapi_url"`
+	LocalOpenAPIURL string `json:"local_openapi_url,omitempty"`
+	HeaderName      string `json:"header_name"`
+	GeneratedKey    string `json:"api_key,omitempty"`
 }
 
 type externalDocumentListResponse struct {
@@ -227,10 +229,16 @@ func (app *App) recordExternalAPIKeyUse(ctx context.Context) {
 
 func (app *App) externalAPIKeyStatus(c *gin.Context) (externalAPIKeyStatusResponse, error) {
 	baseURL := strings.TrimRight(currentBaseURL(c), "/") + "/api/external/v1"
+	localBaseURL := localExternalAPIBaseURL(c)
+	if localBaseURL == "" {
+		localBaseURL = localExternalAPIBaseURLFromOrigin(c)
+	}
 	status := externalAPIKeyStatusResponse{
-		BaseURL:    baseURL,
-		OpenAPIURL: baseURL + "/openapi.json",
-		HeaderName: "X-API-Key",
+		BaseURL:         baseURL,
+		LocalBaseURL:    localBaseURL,
+		OpenAPIURL:      baseURL + "/openapi.json",
+		LocalOpenAPIURL: localBaseURL + "/openapi.json",
+		HeaderName:      "X-API-Key",
 	}
 	if envExternalAPIKey() != "" {
 		status.Configured = true
