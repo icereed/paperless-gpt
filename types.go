@@ -33,7 +33,7 @@ type GetDocumentApiResponseResult struct {
 	// ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
 	// OriginalFileName    string        `json:"original_file_name"`
 	// ArchivedFileName    string        `json:"archived_file_name"`
-	// Owner               int           `json:"owner"`
+	Owner                  int           `json:"owner"`
 	// UserCanChange       bool          `json:"user_can_change"`
 	Notes []interface{} `json:"notes"`
 	// SearchHit struct {
@@ -69,6 +69,7 @@ type GetDocumentApiResponse struct {
 	Tags             []int                 `json:"tags"`
 	CreatedDate      string                `json:"created_date"`
 	OriginalFileName string                `json:"original_file_name"`
+	Owner            int                   `json:"owner"`
 	Notes            []interface{}         `json:"notes"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
 }
@@ -81,6 +82,7 @@ type Document struct {
 	Content          string                `json:"content"`
 	Tags             []string              `json:"tags"`
 	Correspondent    string                `json:"correspondent"`
+	Owner            int                   `json:"owner"`
 	CreatedDate      string                `json:"created_date"`
 	OriginalFileName string                `json:"original_file_name"`
 	DocumentTypeName string                `json:"document_type_name"`
@@ -166,7 +168,7 @@ type ClientInterface interface {
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
 	GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error)
 	GetCustomFields(ctx context.Context) ([]CustomField, error)
-	CreateTag(ctx context.Context, tagName string) (int, error)
+	CreateTag(ctx context.Context, tagName string, originalDoc *Document) (int, error)
 	DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error)
 	DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error)
 	UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error)
