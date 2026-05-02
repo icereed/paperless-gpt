@@ -383,18 +383,26 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 						var pdfData []byte
 						var err error
 
-						// For both "pdf" and "whole_pdf" modes, use ApplyOCR with original PDF data
-						if (processMode == "pdf" || processMode == "whole_pdf") && originalPDFData != nil {
-							docLogger.Debug("Using ApplyOCR with original PDF data")
-							pdfData, err = pdfocr.ApplyOCR(originalPDFData, hocrDoc, pdfConfig)
-						} else if len(imageDataList) > 0 {
-							// Only for "image" mode, use AssembleWithOCR with image data
-							docLogger.Debug("Using AssembleWithOCR with image data")
-							pdfData, err = pdfocr.AssembleWithOCR(hocrDoc, imageDataList, pdfConfig)
-						} else {
-							docLogger.Error("No suitable data available for PDF generation")
-							err = fmt.Errorf("no suitable data available for PDF generation")
+						// For both "pdf" and "whole_pdf" modes, use ApplyOCR with original PDF data.
+						// pdfocr.ApplyOCR transitively calls into gofpdi which can panic on
+						// malformed PDFs (#945). Recover so the worker keeps draining the queue.
+						applyOCR := func() (data []byte, err error) {
+							defer func() {
+								if r := recover(); r != nil {
+									err = fmt.Errorf("apply OCR panicked: %v", r)
+								}
+							}()
+							if (processMode == "pdf" || processMode == "whole_pdf") && originalPDFData != nil {
+								docLogger.Debug("Using ApplyOCR with original PDF data")
+								return pdfocr.ApplyOCR(originalPDFData, hocrDoc, pdfConfig)
+							}
+							if len(imageDataList) > 0 {
+								docLogger.Debug("Using AssembleWithOCR with image data")
+								return pdfocr.AssembleWithOCR(hocrDoc, imageDataList, pdfConfig)
+							}
+							return nil, fmt.Errorf("no suitable data available for PDF generation")
 						}
+						pdfData, err = applyOCR()
 
 						if err != nil {
 							docLogger.WithError(err).Error("Failed to apply OCR to PDF")
