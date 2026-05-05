@@ -712,6 +712,31 @@ curl -i -H "Authorization: Bearer $AUTH_TOKEN" \
   http://192.168.1.25:8080/api/documents
 ```
 
+If you get back `HTTP/1.1 401 Unauthorized` with body `{"error":"Not authenticated", ...}`, the response now includes a `reason` field that tells you exactly why the bearer was rejected — for example `bearer_received_but_auth_token_not_configured_on_server` (the `AUTH_TOKEN` env var is empty in the container) or `bearer_value_does_not_match_configured_auth_token` (typical causes: a trailing newline in your `.env`, the value enclosed in surrounding quotes — both of which paperless-gpt now auto-strips at load time — or the container is running an image that pre-dates the `AUTH_TOKEN` bypass on `/api/*`).
+
+For a definitive sanity check that does not require a session cookie, hit the diagnostic endpoint with the same Authorization header you would send to `/api/documents`:
+
+```bash
+curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
+  http://192.168.1.25:8080/api/auth/bearer-check | jq
+```
+
+The response is JSON like:
+
+```json
+{
+  "auth_token_configured": true,
+  "session_auth_required": true,
+  "authorization_header_seen": true,
+  "is_bearer_scheme": true,
+  "bearer_value_provided": true,
+  "bearer_matches": true,
+  "build": { "version": "v0.16.x", "commit": "abc1234" }
+}
+```
+
+The endpoint never echoes the configured token or the value you sent; the only signal it returns about a wrong bearer is `bearer_matches: false`. If `bearer_matches` is `true` but `/api/documents` still 401s, run `docker compose pull && docker compose up -d` — your container is older than the bearer-bypass change and the displayed `build.commit` will tell you so.
+
 ##### Read-only external API (advanced)
 
 A separate `/api/external/v1/*` namespace exists for custom dashboards or scripts that want a structured view of pending documents, OCR jobs, and integration status. **Bricopro HQ does not use this** — see the section above. Open **Settings -> Advanced** and generate an API key, or set `PAPERLESS_GPT_API_KEY` in the server environment.

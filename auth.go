@@ -223,6 +223,7 @@ var publicAuthPaths = map[string]bool{
 	"/api/auth/logout":       true,
 	"/api/auth/setup":        true,
 	"/api/auth/setup/status": true,
+	"/api/auth/bearer-check": true,
 }
 
 // hasValidAuthTokenBearer reports whether the request carries an
@@ -241,6 +242,50 @@ func hasValidAuthTokenBearer(c *gin.Context, expected string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
+}
+
+// bearerDiagnosticHint returns a short human-readable hint paired with the
+// machine-readable reason from bearerAuthRejectionReason. It is safe to
+// expose in a 401 body because it never references concrete token bytes.
+func bearerDiagnosticHint(reason string) string {
+	switch reason {
+	case "auth_header_present_but_not_bearer":
+		return "Authorization header is present but does not start with 'Bearer '. Use `Authorization: Bearer <AUTH_TOKEN>`."
+	case "bearer_value_empty":
+		return "Authorization: Bearer header is present but the token portion is empty."
+	case "bearer_received_but_auth_token_not_configured_on_server":
+		return "Server has no AUTH_TOKEN env var configured, so no bearer can be accepted. Set AUTH_TOKEN on the Paperless GPT container and restart."
+	case "bearer_value_does_not_match_configured_auth_token":
+		return "Bearer token does not match the AUTH_TOKEN env var on the server. Common causes: trailing newline in your `.env`, surrounding quotes around the value (paperless-gpt auto-strips one matching layer of quotes and trailing whitespace), or the container is running an older image that pre-dates AUTH_TOKEN bypass on /api/*. Run `docker compose pull && docker compose up -d` to upgrade, then verify with GET /api/auth/bearer-check sending the same Authorization header."
+	}
+	return ""
+}
+
+// bearerAuthRejectionReason classifies why a request that *intended* to
+// authenticate via the static AUTH_TOKEN bearer header was rejected.
+// It is used purely to enrich the 401 response body and the server-side
+// log line so that admins debugging a curl-against-/api/documents 401
+// have something better to go on than {"error":"Not authenticated"}.
+//
+// Note: we do NOT reveal the configured token, the provided token, or
+// any byte-level comparison information. The strings here are coarse
+// classifications only.
+func bearerAuthRejectionReason(c *gin.Context, configuredToken string) string {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return "auth_header_present_but_not_bearer"
+	}
+	provided := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	if provided == "" {
+		return "bearer_value_empty"
+	}
+	if configuredToken == "" {
+		return "bearer_received_but_auth_token_not_configured_on_server"
+	}
+	return "bearer_value_does_not_match_configured_auth_token"
 }
 
 func sessionAuthMiddleware(db *gorm.DB, cfg SecurityConfig) gin.HandlerFunc {
@@ -283,6 +328,27 @@ func sessionAuthMiddleware(db *gorm.DB, cfg SecurityConfig) gin.HandlerFunc {
 		// Resolve session from cookie
 		sessionID, err := c.Cookie(sessionCookieName)
 		if err != nil || strings.TrimSpace(sessionID) == "" {
+			// If the caller looked like a machine integration (sent some
+			// Authorization header) but failed the AUTH_TOKEN bypass above,
+			// surface *why* in the response body and the server log so the
+			// admin can self-diagnose a curl 401 without having to read the
+			// source code. Browsers without a session cookie keep getting
+			// the original generic message.
+			if reason := bearerAuthRejectionReason(c, cfg.AuthToken); reason != "" {
+				log.WithFields(map[string]interface{}{
+					"path":                  path,
+					"reason":                reason,
+					"auth_token_configured": cfg.AuthToken != "",
+					"client_ip":             c.ClientIP(),
+				}).Warn("rejected /api/* request that attempted AUTH_TOKEN bearer auth")
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"error":      "Not authenticated",
+					"reason":     reason,
+					"diagnostic": bearerDiagnosticHint(reason),
+					"docs":       "https://github.com/icereed/paperless-gpt#connecting-bricopro-hq-or-any-machine-client-to-apidocuments",
+				})
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
 			return
 		}
@@ -321,6 +387,67 @@ func currentUser(c *gin.Context) *User {
 // ---------------------------------------------------------------------------
 // Auth HTTP handlers
 // ---------------------------------------------------------------------------
+
+// bearerCheckHandler — GET /api/auth/bearer-check
+//
+// Public, unauthenticated diagnostic endpoint that helps an admin debug a
+// 401 from a machine integration (e.g. Bricopro HQ → /api/documents) without
+// having to read source code or bisect Docker images. It accepts the same
+// `Authorization: Bearer <token>` header the caller would send to /api/*
+// and reports back, in plain JSON:
+//
+//   - whether AUTH_TOKEN is configured on this server,
+//   - whether the bearer the caller sent matches it (constant-time compared),
+//   - whether session auth is also required,
+//   - the running paperless-gpt build version + commit, so the admin can
+//     confirm they have an image that includes the bearer bypass at all.
+//
+// This endpoint NEVER returns the configured token, the provided token, or
+// anything that would let an unauthenticated attacker brute-force its
+// value: the only signal a wrong bearer gets is `bearer_matches: false`,
+// which is functionally equivalent to the existing 401.
+func (app *App) bearerCheckHandler(c *gin.Context) {
+	cfg := loadSecurityConfig()
+
+	authHeader := c.GetHeader("Authorization")
+	headerPresent := authHeader != ""
+	headerIsBearer := strings.HasPrefix(authHeader, "Bearer ")
+
+	provided := ""
+	if headerIsBearer {
+		provided = strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	}
+
+	matches := false
+	if cfg.AuthToken != "" && provided != "" {
+		matches = subtle.ConstantTimeCompare([]byte(provided), []byte(cfg.AuthToken)) == 1
+	}
+
+	sessionRequired := false
+	if app != nil && app.Database != nil {
+		sessionRequired = isSessionAuthEnabled(app.Database)
+	} else if strings.EqualFold(os.Getenv("AUTH_USER_ENABLED"), "true") {
+		sessionRequired = true
+	}
+
+	resp := gin.H{
+		"auth_token_configured":     cfg.AuthToken != "",
+		"session_auth_required":     sessionRequired,
+		"authorization_header_seen": headerPresent,
+		"is_bearer_scheme":          headerIsBearer,
+		"bearer_value_provided":     provided != "",
+		"bearer_matches":            matches,
+		"build": gin.H{
+			"version": version,
+			"commit":  commit,
+		},
+	}
+	if !matches {
+		resp["reason"] = bearerAuthRejectionReason(c, cfg.AuthToken)
+		resp["diagnostic"] = bearerDiagnosticHint(bearerAuthRejectionReason(c, cfg.AuthToken))
+	}
+	c.JSON(http.StatusOK, resp)
+}
 
 // setupStatusHandler — GET /api/auth/setup/status
 // Always public: tells the frontend whether first-run setup is still needed.

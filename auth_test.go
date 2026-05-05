@@ -616,3 +616,214 @@ func TestBearerToken_NoBearerNoCookieStill401(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code,
 		"no bearer + no cookie must still 401 when session auth is active")
 }
+
+// ---------------------------------------------------------------------------
+// Diagnostic 401 body for failed /api/* bearer attempts
+// ---------------------------------------------------------------------------
+
+// TestBearerToken_WrongTokenReturnsDiagnosticReason verifies the upgraded
+// 401 body. When AUTH_TOKEN is set on the server but the caller sends a
+// different bearer to /api/*, the server should respond with a 401 whose
+// JSON body includes a `reason` and `diagnostic` field so the admin can
+// debug from curl output without grepping container logs. The contract is
+// what the response body LOOKS LIKE, not the literal English wording.
+func TestBearerToken_WrongTokenReturnsDiagnosticReason(t *testing.T) {
+	db := newTestDB(t)
+	hashed, _ := hashPassword("irrelevant1")
+	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
+
+	r := newBearerTestRouter(t, db, "the-real-token")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
+	req.Header.Set("Authorization", "Bearer not-the-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	var body map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "Not authenticated", body["error"])
+	assert.Equal(t, "bearer_value_does_not_match_configured_auth_token", body["reason"],
+		"server must classify why bearer was rejected so admins can self-diagnose curl 401s")
+	assert.NotEmpty(t, body["diagnostic"], "diagnostic hint must be populated")
+	// Must not leak the configured token, the provided token, or any
+	// substring of either.
+	for _, secret := range []string{"the-real-token", "not-the-token"} {
+		assert.NotContains(t, w.Body.String(), secret,
+			"diagnostic 401 body must not echo any token bytes")
+	}
+}
+
+// TestBearerToken_HeaderButNoServerTokenReturnsDiagnosticReason verifies the
+// case where the *client* sent a bearer but the server has no AUTH_TOKEN
+// configured at all. This was the previously-silent failure mode: a curl
+// with a bearer would 401 without any indication that the cause was
+// "AUTH_TOKEN env var not set on server".
+func TestBearerToken_HeaderButNoServerTokenReturnsDiagnosticReason(t *testing.T) {
+	db := newTestDB(t)
+	hashed, _ := hashPassword("irrelevant1")
+	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
+
+	r := newBearerTestRouter(t, db, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
+	req.Header.Set("Authorization", "Bearer something-anything")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	var body map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "bearer_received_but_auth_token_not_configured_on_server", body["reason"])
+	assert.NotEmpty(t, body["diagnostic"])
+}
+
+// TestBearerToken_NoAuthHeaderKeepsLegacyBody verifies that a request with
+// no Authorization header at all still gets the original generic 401 body,
+// so we don't leak "AUTH_TOKEN feature exists" to anonymous browsers
+// hitting /api/* with no credentials.
+func TestBearerToken_NoAuthHeaderKeepsLegacyBody(t *testing.T) {
+	db := newTestDB(t)
+	hashed, _ := hashPassword("irrelevant1")
+	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
+
+	r := newBearerTestRouter(t, db, "the-token")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	var body map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "Not authenticated", body["error"])
+	_, hasReason := body["reason"]
+	assert.False(t, hasReason, "anonymous /api/* requests with no Authorization header must keep the legacy generic 401")
+}
+
+// ---------------------------------------------------------------------------
+// /api/auth/bearer-check diagnostic endpoint
+// ---------------------------------------------------------------------------
+
+// newBearerCheckTestRouter wires the bearer-check endpoint with the same
+// session middleware as production.
+func newBearerCheckTestRouter(t *testing.T, db *gorm.DB, token string) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	cfg := SecurityConfig{AuthToken: token}
+	r.Use(sessionAuthMiddleware(db, cfg))
+	r.Use(authMiddleware(cfg))
+	app := &App{Database: db}
+	r.GET("/api/auth/bearer-check", app.bearerCheckHandler)
+	return r
+}
+
+func TestBearerCheck_PublicWhenNoCredentials(t *testing.T) {
+	db := newTestDB(t)
+	hashed, _ := hashPassword("irrelevant1")
+	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
+
+	t.Setenv("AUTH_TOKEN", "the-real-token")
+	r := newBearerCheckTestRouter(t, db, "the-real-token")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/bearer-check", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "bearer-check must be reachable without any credentials so admins can debug")
+
+	var body map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, true, body["auth_token_configured"])
+	assert.Equal(t, true, body["session_auth_required"])
+	assert.Equal(t, false, body["authorization_header_seen"])
+	assert.Equal(t, false, body["bearer_matches"])
+}
+
+func TestBearerCheck_ReportsMatchForCorrectBearer(t *testing.T) {
+	db := newTestDB(t)
+	hashed, _ := hashPassword("irrelevant1")
+	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
+
+	const token = "the-real-token-abc123"
+	t.Setenv("AUTH_TOKEN", token)
+	r := newBearerCheckTestRouter(t, db, token)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/bearer-check", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, true, body["bearer_matches"], "matching bearer must report bearer_matches=true")
+	assert.Equal(t, true, body["is_bearer_scheme"])
+	assert.NotContains(t, w.Body.String(), token,
+		"bearer-check response must never echo the configured token")
+}
+
+func TestBearerCheck_ReportsMismatchForWrongBearer(t *testing.T) {
+	db := newTestDB(t)
+	hashed, _ := hashPassword("irrelevant1")
+	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
+
+	t.Setenv("AUTH_TOKEN", "the-real-token")
+	r := newBearerCheckTestRouter(t, db, "the-real-token")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/bearer-check", nil)
+	req.Header.Set("Authorization", "Bearer not-the-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var body map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, false, body["bearer_matches"])
+	assert.Equal(t, "bearer_value_does_not_match_configured_auth_token", body["reason"])
+	assert.NotEmpty(t, body["diagnostic"])
+	assert.NotContains(t, w.Body.String(), "the-real-token",
+		"bearer-check response must never echo the configured token even on mismatch")
+}
+
+// ---------------------------------------------------------------------------
+// AUTH_TOKEN env-var normalisation
+// ---------------------------------------------------------------------------
+
+// TestNormaliseEnvCredential_StripsQuotesAndWhitespace exercises the
+// docker-compose `.env` interaction: when an admin writes
+// `AUTH_TOKEN="hex..."` (or has a trailing newline from `printf`), the
+// container previously got a literal `"hex..."` value that would never
+// byte-match what curl sends. Trimming quotes/whitespace at config-load
+// time eliminates this entire class of silent 401s.
+func TestNormaliseEnvCredential_StripsQuotesAndWhitespace(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want string
+	}{
+		{raw: "abc", want: "abc"},
+		{raw: "  abc  ", want: "abc"},
+		{raw: "abc\n", want: "abc"},
+		{raw: "\"abc\"", want: "abc"},
+		{raw: "'abc'", want: "abc"},
+		{raw: "  \"abc\"  ", want: "abc"},
+		{raw: "  'abc'\n", want: "abc"},
+		{raw: "\"abc'", want: "\"abc'"}, // mismatched quotes preserved
+		{raw: "", want: ""},
+		{raw: "\"\"", want: ""}, // explicit empty-string after strip
+	}
+	for _, tc := range cases {
+		got := normaliseEnvCredential(tc.raw)
+		assert.Equal(t, tc.want, got, "normaliseEnvCredential(%q)", tc.raw)
+	}
+}
+
+// TestLoadSecurityConfig_TrimsAuthToken verifies the integration: if
+// AUTH_TOKEN is set with surrounding quotes (the natural docker-compose
+// shape), the bearer comparison still works.
+func TestLoadSecurityConfig_TrimsAuthToken(t *testing.T) {
+	t.Setenv("AUTH_TOKEN", "\"my-static-token\"\n")
+	cfg := loadSecurityConfig()
+	assert.Equal(t, "my-static-token", cfg.AuthToken,
+		"loadSecurityConfig must strip trailing whitespace and surrounding quotes from AUTH_TOKEN")
+}

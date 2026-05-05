@@ -413,6 +413,12 @@ func main() {
 		authGroup.POST("/logout", app.logoutHandler)
 		authGroup.GET("/me", app.meHandler)
 		authGroup.POST("/change-password", loginRateLimitMiddleware(), app.changePasswordHandler)
+		// Public diagnostic endpoint — returns whether AUTH_TOKEN is configured
+		// and whether the bearer the caller sent matches. Never reveals the
+		// configured token. We apply the strict login rate-limit to deter
+		// any attempt to use bearer_matches as an online brute-force oracle.
+		// See bearerCheckHandler for full rationale.
+		authGroup.GET("/bearer-check", loginRateLimitMiddleware(), app.bearerCheckHandler)
 	}
 
 	// API routes

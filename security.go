@@ -39,11 +39,21 @@ type SecurityConfig struct {
 const externalAPIPrefix = "/api/external/"
 
 // loadSecurityConfig reads security configuration from environment variables.
+//
+// AUTH_TOKEN, AUTH_USERNAME and AUTH_PASSWORD are normalised by stripping
+// surrounding whitespace and a single layer of matching surrounding quotes.
+// docker-compose's `env_file:` parser does NOT strip quotes, so a user who
+// writes `AUTH_TOKEN="hex..."` in their `.env` (which is the natural thing
+// to do, mirroring shell syntax) ends up with a literal `"hex..."` value
+// inside the container. The constant-time bearer comparison would then
+// silently never match what `curl -H "Authorization: Bearer hex..."` sends,
+// surfacing as an opaque {"error":"Not authenticated"} 401 with no clue as
+// to the cause. Trimming here makes the obvious thing work.
 func loadSecurityConfig() SecurityConfig {
 	cfg := SecurityConfig{
-		AuthUsername:   os.Getenv("AUTH_USERNAME"),
-		AuthPassword:   os.Getenv("AUTH_PASSWORD"),
-		AuthToken:      os.Getenv("AUTH_TOKEN"),
+		AuthUsername:   normaliseEnvCredential(os.Getenv("AUTH_USERNAME")),
+		AuthPassword:   normaliseEnvCredential(os.Getenv("AUTH_PASSWORD")),
+		AuthToken:      normaliseEnvCredential(os.Getenv("AUTH_TOKEN")),
 		RateLimitRPS:   10,
 		RateLimitBurst: 30,
 		MaxBodyBytes:   10 * 1024 * 1024, // 10 MiB
@@ -92,6 +102,28 @@ func loadSecurityConfig() SecurityConfig {
 	}
 
 	return cfg
+}
+
+// normaliseEnvCredential trims leading/trailing whitespace (including the
+// trailing newline that `printf` and editors leave at end-of-line) and a
+// single matching pair of surrounding double or single quotes. This makes
+// `AUTH_TOKEN=abc`, `AUTH_TOKEN="abc"`, `AUTH_TOKEN='abc'`, and a value with
+// a stray newline all behave identically — which matches user expectation
+// and prevents an entire class of silent "valid bearer rejected as 401"
+// support tickets.
+//
+// We intentionally only strip ONE layer of quotes; if a user genuinely
+// wants a token whose value is `""` they can set `AUTH_TOKEN='""'` and we
+// will give them the inner `""`.
+func normaliseEnvCredential(raw string) string {
+	v := strings.TrimSpace(raw)
+	if len(v) >= 2 {
+		first, last := v[0], v[len(v)-1]
+		if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+			v = v[1 : len(v)-1]
+		}
+	}
+	return v
 }
 
 func osExternalAPIKey() string {
