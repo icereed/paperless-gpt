@@ -438,7 +438,7 @@ func TestFrontendShellReachableWithoutSession(t *testing.T) {
 		r.GET(p, func(c *gin.Context) { c.Status(http.StatusOK) })
 	}
 	r.GET("/assets/*filepath", func(c *gin.Context) { c.Status(http.StatusOK) })
-	r.GET("/api/external/v1/health", func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.GET("/api/bricoprohq/v1/health", func(c *gin.Context) { c.Status(http.StatusOK) })
 	// And a protected API route, which must still return 401
 	r.GET("/api/documents", func(c *gin.Context) { c.Status(http.StatusOK) })
 
@@ -458,10 +458,10 @@ func TestFrontendShellReachableWithoutSession(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code, "path %q must load without a session so LoginPage can render", p)
 	}
 
-	reqExternal := httptest.NewRequest(http.MethodGet, "/api/external/v1/health", nil)
-	wExternal := httptest.NewRecorder()
-	r.ServeHTTP(wExternal, reqExternal)
-	assert.Equal(t, http.StatusOK, wExternal.Code, "external API auth is handled by API-key middleware, not browser sessions")
+	reqConnector := httptest.NewRequest(http.MethodGet, "/api/bricoprohq/v1/health", nil)
+	wConnector := httptest.NewRecorder()
+	r.ServeHTTP(wConnector, reqConnector)
+	assert.Equal(t, http.StatusOK, wConnector.Code, "BricoproHQ connector auth is handled by API-key middleware, not browser sessions")
 
 	// API routes must still require a session
 	reqAPI := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
@@ -500,15 +500,7 @@ func TestLoginWithBasicAuthConfigured(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code, "/api/auth/login must not require HTTP Basic Auth")
 }
 
-// ---------------------------------------------------------------------------
-// AUTH_TOKEN bearer bypass for machine-to-machine integrations
-// (e.g. the Bricopro HQ paperless-gpt connector).
-// ---------------------------------------------------------------------------
-
-// newBearerTestRouter builds a router that mirrors the real middleware stack
-// (sessionAuthMiddleware first, then authMiddleware) with AUTH_TOKEN set, so
-// we can exercise the static-bearer bypass end-to-end.
-func newBearerTestRouter(t *testing.T, db *gorm.DB, token string) *gin.Engine {
+func newStaticAuthTestRouter(t *testing.T, db *gorm.DB, token string) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -524,65 +516,23 @@ func newBearerTestRouter(t *testing.T, db *gorm.DB, token string) *gin.Engine {
 	return r
 }
 
-// TestBearerToken_AllowsAPIWhenSessionAuthIsActive verifies that a request
-// carrying the configured AUTH_TOKEN as a Bearer header is allowed through
-// /api/* even when at least one user row exists (which would otherwise force
-// session-cookie auth). This is the contract the Bricopro HQ connector
-// depends on.
-func TestBearerToken_AllowsAPIWhenSessionAuthIsActive(t *testing.T) {
-	db := newTestDB(t)
-	hashed, _ := hashPassword("irrelevant1")
-	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
-
-	const token = "test-machine-token-9f3a2b"
-	r := newBearerTestRouter(t, db, token)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code, "valid AUTH_TOKEN bearer must bypass the session cookie gate")
-}
-
-// TestBearerToken_WrongTokenStill401 verifies that a wrong bearer value does
-// NOT bypass either middleware: it should still be rejected with 401.
-func TestBearerToken_WrongTokenStill401(t *testing.T) {
+func TestStaticBearerDoesNotBypassSessionAuth(t *testing.T) {
 	db := newTestDB(t)
 	hashed, _ := hashPassword("irrelevant1")
 	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
 
 	const token = "the-real-token"
-	r := newBearerTestRouter(t, db, token)
+	r := newStaticAuthTestRouter(t, db, token)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
-	req.Header.Set("Authorization", "Bearer not-the-token")
+	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code,
-		"a wrong Bearer value must not bypass session-auth and must not be accepted by authMiddleware")
+		"AUTH_TOKEN should not bypass browser session auth for /api/*")
 }
 
-// TestBearerToken_EmptyTokenIsIgnored verifies that an empty AUTH_TOKEN does
-// not enable a "anyone with `Bearer ` prefix passes" bypass.
-func TestBearerToken_EmptyTokenIsIgnored(t *testing.T) {
-	db := newTestDB(t)
-	hashed, _ := hashPassword("irrelevant1")
-	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
-
-	r := newBearerTestRouter(t, db, "")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
-	req.Header.Set("Authorization", "Bearer anything-at-all")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusUnauthorized, w.Code,
-		"empty AUTH_TOKEN must not enable a wildcard bearer bypass")
-}
-
-// TestBearerToken_DoesNotInterfereWithCookieAuth verifies that a request
-// with NO bearer header but a valid session cookie still works after the
-// bypass change (i.e. browsers continue to function exactly as before).
-func TestBearerToken_DoesNotInterfereWithCookieAuth(t *testing.T) {
+func TestStaticAuthDoesNotInterfereWithCookieAuth(t *testing.T) {
 	db := newTestDB(t)
 	hashed, _ := hashPassword("password123")
 	user := &User{ID: generateUserID(), Username: "browser-user", HashedPassword: hashed}
@@ -590,7 +540,7 @@ func TestBearerToken_DoesNotInterfereWithCookieAuth(t *testing.T) {
 	session := createSession(db, user.ID, "127.0.0.1", "test-agent")
 	require.NotNil(t, session)
 
-	r := newBearerTestRouter(t, db, "some-machine-token")
+	r := newStaticAuthTestRouter(t, db, "some-machine-token")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID})
@@ -600,190 +550,18 @@ func TestBearerToken_DoesNotInterfereWithCookieAuth(t *testing.T) {
 		"a valid session cookie must continue to authenticate /api/* even when AUTH_TOKEN is set")
 }
 
-// TestBearerToken_NoBearerNoCookieStill401 verifies that with AUTH_TOKEN set
-// and a user provisioned, a request with neither header nor cookie is still
-// rejected — the bypass must not weaken the default-deny posture.
-func TestBearerToken_NoBearerNoCookieStill401(t *testing.T) {
+func TestStaticAuthNoBearerNoCookieStill401(t *testing.T) {
 	db := newTestDB(t)
 	hashed, _ := hashPassword("irrelevant1")
 	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
 
-	r := newBearerTestRouter(t, db, "the-token")
+	r := newStaticAuthTestRouter(t, db, "the-token")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code,
 		"no bearer + no cookie must still 401 when session auth is active")
-}
-
-// ---------------------------------------------------------------------------
-// Diagnostic 401 body for failed /api/* bearer attempts
-// ---------------------------------------------------------------------------
-
-// TestBearerToken_WrongTokenReturnsDiagnosticReason verifies the upgraded
-// 401 body. When AUTH_TOKEN is set on the server but the caller sends a
-// different bearer to /api/*, the server should respond with a 401 whose
-// JSON body includes a `reason` and `diagnostic` field so the admin can
-// debug from curl output without grepping container logs. The contract is
-// what the response body LOOKS LIKE, not the literal English wording.
-func TestBearerToken_WrongTokenReturnsDiagnosticReason(t *testing.T) {
-	db := newTestDB(t)
-	hashed, _ := hashPassword("irrelevant1")
-	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
-
-	r := newBearerTestRouter(t, db, "the-real-token")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
-	req.Header.Set("Authorization", "Bearer not-the-token")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "Not authenticated", body["error"])
-	assert.Equal(t, "bearer_value_does_not_match_configured_auth_token", body["reason"],
-		"server must classify why bearer was rejected so admins can self-diagnose curl 401s")
-	assert.NotEmpty(t, body["diagnostic"], "diagnostic hint must be populated")
-	// Must not leak the configured token, the provided token, or any
-	// substring of either.
-	for _, secret := range []string{"the-real-token", "not-the-token"} {
-		assert.NotContains(t, w.Body.String(), secret,
-			"diagnostic 401 body must not echo any token bytes")
-	}
-}
-
-// TestBearerToken_HeaderButNoServerTokenReturnsDiagnosticReason verifies the
-// case where the *client* sent a bearer but the server has no AUTH_TOKEN
-// configured at all. This was the previously-silent failure mode: a curl
-// with a bearer would 401 without any indication that the cause was
-// "AUTH_TOKEN env var not set on server".
-func TestBearerToken_HeaderButNoServerTokenReturnsDiagnosticReason(t *testing.T) {
-	db := newTestDB(t)
-	hashed, _ := hashPassword("irrelevant1")
-	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
-
-	r := newBearerTestRouter(t, db, "")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
-	req.Header.Set("Authorization", "Bearer something-anything")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "bearer_received_but_auth_token_not_configured_on_server", body["reason"])
-	assert.NotEmpty(t, body["diagnostic"])
-}
-
-// TestBearerToken_NoAuthHeaderKeepsLegacyBody verifies that a request with
-// no Authorization header at all still gets the original generic 401 body,
-// so we don't leak "AUTH_TOKEN feature exists" to anonymous browsers
-// hitting /api/* with no credentials.
-func TestBearerToken_NoAuthHeaderKeepsLegacyBody(t *testing.T) {
-	db := newTestDB(t)
-	hashed, _ := hashPassword("irrelevant1")
-	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
-
-	r := newBearerTestRouter(t, db, "the-token")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusUnauthorized, w.Code)
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "Not authenticated", body["error"])
-	_, hasReason := body["reason"]
-	assert.False(t, hasReason, "anonymous /api/* requests with no Authorization header must keep the legacy generic 401")
-}
-
-// ---------------------------------------------------------------------------
-// /api/auth/bearer-check diagnostic endpoint
-// ---------------------------------------------------------------------------
-
-// newBearerCheckTestRouter wires the bearer-check endpoint with the same
-// session middleware as production.
-func newBearerCheckTestRouter(t *testing.T, db *gorm.DB, token string) *gin.Engine {
-	t.Helper()
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	cfg := SecurityConfig{AuthToken: token}
-	r.Use(sessionAuthMiddleware(db, cfg))
-	r.Use(authMiddleware(cfg))
-	app := &App{Database: db}
-	r.GET("/api/auth/bearer-check", app.bearerCheckHandler)
-	return r
-}
-
-func TestBearerCheck_PublicWhenNoCredentials(t *testing.T) {
-	db := newTestDB(t)
-	hashed, _ := hashPassword("irrelevant1")
-	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
-
-	t.Setenv("AUTH_TOKEN", "the-real-token")
-	r := newBearerCheckTestRouter(t, db, "the-real-token")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/auth/bearer-check", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code, "bearer-check must be reachable without any credentials so admins can debug")
-
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, true, body["auth_token_configured"])
-	assert.Equal(t, true, body["session_auth_required"])
-	assert.Equal(t, false, body["authorization_header_seen"])
-	assert.Equal(t, false, body["bearer_matches"])
-}
-
-func TestBearerCheck_ReportsMatchForCorrectBearer(t *testing.T) {
-	db := newTestDB(t)
-	hashed, _ := hashPassword("irrelevant1")
-	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
-
-	const token = "the-real-token-abc123"
-	t.Setenv("AUTH_TOKEN", token)
-	r := newBearerCheckTestRouter(t, db, token)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/auth/bearer-check", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code)
-
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, true, body["bearer_matches"], "matching bearer must report bearer_matches=true")
-	assert.Equal(t, true, body["is_bearer_scheme"])
-	assert.NotContains(t, w.Body.String(), token,
-		"bearer-check response must never echo the configured token")
-}
-
-func TestBearerCheck_ReportsMismatchForWrongBearer(t *testing.T) {
-	db := newTestDB(t)
-	hashed, _ := hashPassword("irrelevant1")
-	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
-
-	t.Setenv("AUTH_TOKEN", "the-real-token")
-	r := newBearerCheckTestRouter(t, db, "the-real-token")
-
-	req := httptest.NewRequest(http.MethodGet, "/api/auth/bearer-check", nil)
-	req.Header.Set("Authorization", "Bearer not-the-token")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code)
-
-	var body map[string]interface{}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, false, body["bearer_matches"])
-	assert.Equal(t, "bearer_value_does_not_match_configured_auth_token", body["reason"])
-	assert.NotEmpty(t, body["diagnostic"])
-	assert.NotContains(t, w.Body.String(), "the-real-token",
-		"bearer-check response must never echo the configured token even on mismatch")
 }
 
 // ---------------------------------------------------------------------------

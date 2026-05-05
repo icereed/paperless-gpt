@@ -391,14 +391,10 @@ func main() {
 
 	// Apply global security middleware
 	router.Use(securityHeadersMiddleware())
-	router.Use(externalAPICORSMiddleware(secCfg))
+	router.Use(bricoproHQCORSMiddleware())
 	router.Use(maxBodySizeMiddleware(secCfg.MaxBodyBytes))
 	router.Use(rateLimitMiddleware(secCfg.RateLimitRPS, secCfg.RateLimitBurst))
 	// Session-based user auth (takes precedence; static credentials are a fallback).
-	// When AUTH_TOKEN is configured the session middleware also lets through any
-	// request carrying `Authorization: Bearer <AUTH_TOKEN>` so machine-to-machine
-	// integrations (e.g. the Bricopro HQ connector) can call /api/* without a
-	// browser cookie. The downstream authMiddleware re-validates that header.
 	router.Use(sessionAuthMiddleware(database, secCfg))
 	router.Use(authMiddleware(secCfg))
 
@@ -413,12 +409,6 @@ func main() {
 		authGroup.POST("/logout", app.logoutHandler)
 		authGroup.GET("/me", app.meHandler)
 		authGroup.POST("/change-password", loginRateLimitMiddleware(), app.changePasswordHandler)
-		// Public diagnostic endpoint — returns whether AUTH_TOKEN is configured
-		// and whether the bearer the caller sent matches. Never reveals the
-		// configured token. We apply the strict login rate-limit to deter
-		// any attempt to use bearer_matches as an online brute-force oracle.
-		// See bearerCheckHandler for full rationale.
-		authGroup.GET("/bearer-check", loginRateLimitMiddleware(), app.bearerCheckHandler)
 	}
 
 	// API routes
@@ -488,12 +478,12 @@ func main() {
 
 		// Get version information
 		api.GET("/version", getVersionHandler)
-		app.registerExternalAPIKeySettingsRoutes(api)
+		app.registerBricoproHQConnectorSettingsRoutes(api)
 	}
 
-	externalAPI := router.Group("/api/external/v1")
-	externalAPI.Use(app.externalAPIMiddleware())
-	app.registerExternalAPIRoutes(externalAPI)
+	bricoproHQAPI := router.Group(bricoproHQAPIPrefix)
+	bricoproHQAPI.Use(app.bricoproHQAPIKeyMiddleware())
+	app.registerBricoproHQAPIRoutes(bricoproHQAPI)
 
 	// Serve frontend files
 	// Check if the web-app/dist directory exists for local development

@@ -287,6 +287,8 @@ func TestUpdateDocumentsApplyJobberTrueWritesFields(t *testing.T) {
 type updateDocumentsMockClient struct {
 	upsertCalled   bool
 	documentsByTag []Document
+	document       Document
+	lastDocumentID int
 	lastTag        string
 	lastPageSize   int
 }
@@ -303,7 +305,11 @@ func (m *updateDocumentsMockClient) UpdateDocuments(ctx context.Context, documen
 	return nil
 }
 func (m *updateDocumentsMockClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
-	return Document{}, nil
+	m.lastDocumentID = documentID
+	if m.document.ID != 0 {
+		return m.document, nil
+	}
+	return Document{ID: documentID}, nil
 }
 func (m *updateDocumentsMockClient) GetAllTags(ctx context.Context) (map[string]int, error) {
 	return nil, nil
@@ -372,44 +378,50 @@ func TestGetVersionHandler(t *testing.T) {
 	assert.Equal(t, "devBuildDate", response["buildDate"])
 }
 
-func TestExternalAPIRequiresAPIKey(t *testing.T) {
-	t.Setenv("PAPERLESS_GPT_API_KEY", "secret-key")
+func TestBricoproHQAPIRequiresAPIKey(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_SECRET_KEY", "test-secret")
+	db, err := InitializeTestDB()
+	require.NoError(t, err)
+	app := &App{Client: &updateDocumentsMockClient{}, Database: db}
 	router := gin.New()
-	app := &App{Client: &updateDocumentsMockClient{}}
-	api := router.Group("/api/external/v1")
-	api.Use(app.externalAPIMiddleware())
-	app.registerExternalAPIRoutes(api)
+	api := router.Group(bricoproHQAPIPrefix)
+	api.Use(app.bricoproHQAPIKeyMiddleware())
+	app.registerBricoproHQAPIRoutes(api)
+	require.NoError(t, app.upsertBricoproHQAPIKey(context.Background(), mustEncryptForTest(t, "secret-key")))
 
 	wMissing := httptest.NewRecorder()
-	router.ServeHTTP(wMissing, httptest.NewRequest(http.MethodGet, "/api/external/v1/health", nil))
+	router.ServeHTTP(wMissing, httptest.NewRequest(http.MethodGet, bricoproHQAPIPrefix+"/health", nil))
 	require.Equal(t, http.StatusUnauthorized, wMissing.Code)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/external/v1/health", nil)
+	req := httptest.NewRequest(http.MethodGet, bricoproHQAPIPrefix+"/health", nil)
 	req.Header.Set("X-API-Key", "secret-key")
 	wOK := httptest.NewRecorder()
 	router.ServeHTTP(wOK, req)
 	require.Equal(t, http.StatusOK, wOK.Code)
 }
 
-func TestExternalAPIPendingDocuments(t *testing.T) {
-	t.Setenv("PAPERLESS_GPT_API_KEY", "secret-key")
+func TestBricoproHQAPIPendingDocuments(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_SECRET_KEY", "test-secret")
 	previousManualTag := manualTag
 	manualTag = "review-me"
 	t.Cleanup(func() { manualTag = previousManualTag })
 
+	db, err := InitializeTestDB()
+	require.NoError(t, err)
 	client := &updateDocumentsMockClient{
 		documentsByTag: []Document{
 			{ID: 12, Title: "Invoice"},
 		},
 	}
 	router := gin.New()
-	app := &App{Client: client}
-	api := router.Group("/api/external/v1")
-	api.Use(app.externalAPIMiddleware())
-	app.registerExternalAPIRoutes(api)
+	app := &App{Client: client, Database: db}
+	require.NoError(t, app.upsertBricoproHQAPIKey(context.Background(), mustEncryptForTest(t, "secret-key")))
+	api := router.Group(bricoproHQAPIPrefix)
+	api.Use(app.bricoproHQAPIKeyMiddleware())
+	app.registerBricoproHQAPIRoutes(api)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/external/v1/documents/pending?page_size=250", nil)
-	req.Header.Set("Authorization", "Bearer secret-key")
+	req := httptest.NewRequest(http.MethodGet, bricoproHQAPIPrefix+"/documents?limit=250", nil)
+	req.Header.Set("X-API-Key", "secret-key")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -417,17 +429,15 @@ func TestExternalAPIPendingDocuments(t *testing.T) {
 	assert.Equal(t, "review-me", client.lastTag)
 	assert.Equal(t, 100, client.lastPageSize)
 
-	var response externalDocumentListResponse
+	var response bricoproHQDocumentListResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 	assert.Equal(t, 1, response.Count)
-	assert.Equal(t, 100, response.PageSize)
+	assert.Equal(t, 100, response.Limit)
 	require.Len(t, response.Documents, 1)
 	assert.Equal(t, 12, response.Documents[0].ID)
 }
 
-func TestExternalAPIKeyGenerationEnablesExternalAPI(t *testing.T) {
-	t.Setenv("PAPERLESS_GPT_API_KEY", "")
-	t.Setenv("EXTERNAL_API_KEY", "")
+func TestBricoproHQAPIKeyGenerationEnablesConnectorAPI(t *testing.T) {
 	t.Setenv("PAPERLESS_GPT_SECRET_KEY", "test-secret")
 
 	db, err := InitializeTestDB()
@@ -438,74 +448,77 @@ func TestExternalAPIKeyGenerationEnablesExternalAPI(t *testing.T) {
 	app := &App{Client: client, Database: db}
 	router := gin.New()
 	api := router.Group("/api")
-	app.registerExternalAPIKeySettingsRoutes(api)
-	external := router.Group("/api/external/v1")
-	external.Use(app.externalAPIMiddleware())
-	app.registerExternalAPIRoutes(external)
+	app.registerBricoproHQConnectorSettingsRoutes(api)
+	connector := router.Group(bricoproHQAPIPrefix)
+	connector.Use(app.bricoproHQAPIKeyMiddleware())
+	app.registerBricoproHQAPIRoutes(connector)
 
 	wGenerate := httptest.NewRecorder()
-	router.ServeHTTP(wGenerate, httptest.NewRequest(http.MethodPost, "/api/external-api-key/generate", nil))
+	router.ServeHTTP(wGenerate, httptest.NewRequest(http.MethodPost, "/api/bricoprohq-connector/key", nil))
 	require.Equal(t, http.StatusCreated, wGenerate.Code)
 
-	var generated externalAPIKeyStatusResponse
+	var generated bricoproHQConnectorStatusResponse
 	require.NoError(t, json.Unmarshal(wGenerate.Body.Bytes(), &generated))
 	require.True(t, generated.Configured)
-	require.Equal(t, "settings", generated.Source)
 	require.NotEmpty(t, generated.GeneratedKey)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/external/v1/documents/pending", nil)
+	req := httptest.NewRequest(http.MethodGet, bricoproHQAPIPrefix+"/documents", nil)
 	req.Header.Set("X-API-Key", generated.GeneratedKey)
 	wPending := httptest.NewRecorder()
 	router.ServeHTTP(wPending, req)
 	require.Equal(t, http.StatusOK, wPending.Code)
 }
 
-func TestExternalAPIKeyGenerationAndRevoke(t *testing.T) {
-	t.Setenv("PAPERLESS_GPT_API_KEY", "")
-	t.Setenv("EXTERNAL_API_KEY", "")
+func TestBricoproHQAPIKeyGenerationAndRevoke(t *testing.T) {
 	t.Setenv("PAPERLESS_GPT_SECRET_KEY", "test-secret-2")
 	db, err := InitializeTestDB()
 	require.NoError(t, err)
 	app := &App{Database: db}
 	router := gin.New()
 	api := router.Group("/api")
-	app.registerExternalAPIKeySettingsRoutes(api)
+	app.registerBricoproHQConnectorSettingsRoutes(api)
 
-	generateReq := httptest.NewRequest(http.MethodPost, "/api/external-api-key/generate", nil)
+	generateReq := httptest.NewRequest(http.MethodPost, "/api/bricoprohq-connector/key", nil)
 	generateReq.Host = "paperless-gpt.local:8080"
 	wGenerate := httptest.NewRecorder()
 	router.ServeHTTP(wGenerate, generateReq)
 	require.Equal(t, http.StatusCreated, wGenerate.Code)
 
-	var generated externalAPIKeyStatusResponse
+	var generated bricoproHQConnectorStatusResponse
 	require.NoError(t, json.Unmarshal(wGenerate.Body.Bytes(), &generated))
 	require.True(t, generated.Configured)
-	require.Equal(t, "settings", generated.Source)
 	require.NotEmpty(t, generated.GeneratedKey)
-	require.Equal(t, "http://paperless-gpt.local:8080/api/external/v1", generated.BaseURL)
+	require.Equal(t, "http://paperless-gpt.local:8080", generated.BaseURL)
 	require.Empty(t, generated.LocalBaseURL)
 
-	localReq := httptest.NewRequest(http.MethodGet, "/api/external-api-key", nil)
+	localReq := httptest.NewRequest(http.MethodGet, "/api/bricoprohq-connector", nil)
 	localReq.Host = "paperless-gpt.local:8080"
 	localReq.Header.Set("Origin", "http://192.168.1.25:3000")
 	wLocal := httptest.NewRecorder()
 	router.ServeHTTP(wLocal, localReq)
 	require.Equal(t, http.StatusOK, wLocal.Code)
 
-	var localStatus externalAPIKeyStatusResponse
+	var localStatus bricoproHQConnectorStatusResponse
 	require.NoError(t, json.Unmarshal(wLocal.Body.Bytes(), &localStatus))
-	require.Equal(t, "http://192.168.1.25:8080/api/external/v1", localStatus.LocalBaseURL)
-	require.Equal(t, "http://192.168.1.25:8080/api/external/v1/openapi.json", localStatus.LocalOpenAPIURL)
+	require.Equal(t, "http://192.168.1.25:8080", localStatus.LocalBaseURL)
+	require.Equal(t, "http://192.168.1.25:8080/api/bricoprohq/v1/health", localStatus.HealthURL)
 
-	storedKey, err := app.externalAPIKey(context.Background())
+	storedKey, err := app.bricoproHQAPIKey(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, generated.GeneratedKey, storedKey)
 
 	wRevoke := httptest.NewRecorder()
-	router.ServeHTTP(wRevoke, httptest.NewRequest(http.MethodDelete, "/api/external-api-key", nil))
+	router.ServeHTTP(wRevoke, httptest.NewRequest(http.MethodDelete, "/api/bricoprohq-connector/key", nil))
 	require.Equal(t, http.StatusOK, wRevoke.Code)
 
-	storedKey, err = app.externalAPIKey(context.Background())
+	storedKey, err = app.bricoproHQAPIKey(context.Background())
 	require.NoError(t, err)
 	require.Empty(t, storedKey)
+}
+
+func mustEncryptForTest(t *testing.T, value string) string {
+	t.Helper()
+	encrypted, err := EncryptSecret(value)
+	require.NoError(t, err)
+	return encrypted
 }

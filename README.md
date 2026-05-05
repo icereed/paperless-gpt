@@ -592,8 +592,6 @@ For best results with the enhanced OCR features:
 | `PAPERLESS_BASE_URL`                | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                                                                                                        | Yes      |                            |
 | `PAPERLESS_API_TOKEN`               | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                                                                                             | Yes      |                            |
 | `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                            | No       |                            |
-| `PAPERLESS_GPT_API_KEY`             | Optional environment-managed API key for the read-only external API under `/api/external/v1`. You can also generate a key in Settings -> External API. Send it from other self-hosted apps as `X-API-Key: <key>` or `Authorization: Bearer <key>`. | No       |                            |
-| `EXTERNAL_API_KEY`                  | Legacy alias for environment-managed `PAPERLESS_GPT_API_KEY`.                                                                                                                                 | No       |                            |
 | `APP_PUBLIC_URL`                    | Public URL for this paperless-gpt instance. Can also be configured from Settings -> Integrations. Used to build OAuth callback URLs and Jobber receipt links when running behind a reverse proxy. For Jobber, register `${APP_PUBLIC_URL}/api/integrations/jobber/oauth/callback`. | No       |                            |
 | `PAPERLESS_GPT_PUBLIC_URL`          | Legacy alias for `APP_PUBLIC_URL`, kept for backward compatibility with existing deployments. Settings -> Integrations takes precedence when set.                                             | No       |                            |
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
@@ -691,75 +689,40 @@ These are active in addition to user auth when set, and work without any user ac
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------- |
 | `AUTH_USERNAME`         | Username for HTTP Basic Auth. Must be set together with `AUTH_PASSWORD`.                                                                | No       |                  |
 | `AUTH_PASSWORD`         | Password for HTTP Basic Auth. Must be set together with `AUTH_USERNAME`.                                                                | No       |                  |
-| `AUTH_TOKEN`            | Static bearer token for API authentication. Send as `Authorization: Bearer <token>`. **Also lets the Bricopro HQ connector and similar machine clients reach `/api/*` even when an admin user has been provisioned** — the session-cookie gate is skipped for requests carrying a matching bearer header. Can be combined with Basic Auth and user accounts. | No       |                  |
+| `AUTH_TOKEN`            | Static bearer token for API authentication when no browser session is used. Send as `Authorization: Bearer <token>`. Can be combined with Basic Auth and user accounts. | No       |                  |
 
-##### Connecting Bricopro HQ (or any machine client) to `/api/documents`
+##### Connecting Bricopro HQ
 
-Bricopro HQ's `PaperlessGptConnector` polls `GET <BASE_URL>/api/documents` and supports four auth modes (`none`, `bearer`, `token`, `x-api-key`). The fork's recommended setup is:
+Bricopro HQ uses a dedicated local connector API. It does not use OAuth, browser login, Basic Auth, bearer tokens, or the normal `/api/documents` app route.
 
-1. On the Paperless GPT container, set `AUTH_TOKEN=<long-random-secret>` and restart it.
-2. In **Bricopro HQ → Settings → Integrations → Paperless-GPT**, set:
-   - **Base URL**: `http://<paperless-gpt-host>:<port>` (no trailing `/api`)
-   - **Auth Mode**: `bearer`
-   - **API Key**: the same value you set for `AUTH_TOKEN`
+1. Open **Paperless GPT -> Settings -> BricoproHQ connector**.
+2. Generate an API key.
+3. Copy the local Paperless GPT URL shown in the card, for example `http://192.168.1.25:8080`.
+4. In **Bricopro HQ -> Settings -> Integrations -> Paperless-GPT**, paste:
+   - **Paperless-GPT URL**: the copied local URL
+   - **API Key**: the generated key
 
-The new **Settings → External integrations** card in the web UI surfaces these values for you and shows live status badges for `AUTH_TOKEN`, the admin-user gate, and the recommended Auth Mode. If no admin user has been created, you can also pick Auth Mode `none` and skip `AUTH_TOKEN` entirely (only safe on a trusted network).
+The key is stored encrypted in Paperless GPT and is only shown once after generation. Rotate it from the same settings card if you lose it.
 
 Quick verification from a terminal:
 
 ```bash
-curl -i -H "Authorization: Bearer $AUTH_TOKEN" \
-  http://192.168.1.25:8080/api/documents
+curl -i -H "X-API-Key: <generated-key>" \
+  http://192.168.1.25:8080/api/bricoprohq/v1/health
 ```
 
-If you get back `HTTP/1.1 401 Unauthorized` with body `{"error":"Not authenticated", ...}`, the response now includes a `reason` field that tells you exactly why the bearer was rejected — for example `bearer_received_but_auth_token_not_configured_on_server` (the `AUTH_TOKEN` env var is empty in the container) or `bearer_value_does_not_match_configured_auth_token` (typical causes: a trailing newline in your `.env`, the value enclosed in surrounding quotes — both of which paperless-gpt now auto-strips at load time — or the container is running an image that pre-dates the `AUTH_TOKEN` bypass on `/api/*`).
-
-For a definitive sanity check that does not require a session cookie, hit the diagnostic endpoint with the same Authorization header you would send to `/api/documents`:
+To fetch pending documents tagged with `MANUAL_TAG`:
 
 ```bash
-curl -s -H "Authorization: Bearer $AUTH_TOKEN" \
-  http://192.168.1.25:8080/api/auth/bearer-check | jq
+curl -H "X-API-Key: <generated-key>" \
+  "http://192.168.1.25:8080/api/bricoprohq/v1/documents?limit=25"
 ```
 
-The response is JSON like:
+Available connector endpoints:
 
-```json
-{
-  "auth_token_configured": true,
-  "session_auth_required": true,
-  "authorization_header_seen": true,
-  "is_bearer_scheme": true,
-  "bearer_value_provided": true,
-  "bearer_matches": true,
-  "build": { "version": "v0.16.x", "commit": "abc1234" }
-}
-```
-
-The endpoint never echoes the configured token or the value you sent; the only signal it returns about a wrong bearer is `bearer_matches: false`. If `bearer_matches` is `true` but `/api/documents` still 401s, run `docker compose pull && docker compose up -d` — your container is older than the bearer-bypass change and the displayed `build.commit` will tell you so.
-
-##### Read-only external API (advanced)
-
-A separate `/api/external/v1/*` namespace exists for custom dashboards or scripts that want a structured view of pending documents, OCR jobs, and integration status. **Bricopro HQ does not use this** — see the section above. Open **Settings -> Advanced** and generate an API key, or set `PAPERLESS_GPT_API_KEY` in the server environment.
-
-Every external-API route requires the key in either `X-API-Key` or `Authorization: Bearer`.
-
-Base URL: `http://<local-ip>:<port>/api/external/v1`
-
-Example:
-
-```bash
-curl -H "X-API-Key: your-random-secret-token" \
-  http://192.168.1.25:8080/api/external/v1/summary
-```
-
-Available endpoints:
-
-- `GET /health` - service/version check.
-- `GET /summary` - pending document count, OCR status/job counts, and integration connection statuses.
-- `GET /documents/pending?page_size=25` - documents currently tagged with `MANUAL_TAG` and waiting for review.
-- `GET /documents/{id}` - one Paperless document by ID.
-- `GET /ocr/jobs?status=pending&document_id=123` - in-memory OCR jobs, optionally filtered.
-- `GET /openapi.json` - OpenAPI 3 schema for client generation/discovery.
+- `GET /api/bricoprohq/v1/health` - service/version check.
+- `GET /api/bricoprohq/v1/documents?limit=25` - documents currently tagged with `MANUAL_TAG` and waiting for review.
+- `GET /api/bricoprohq/v1/documents/{id}` - one Paperless document by ID.
 
 ##### Network & rate limiting
 

@@ -109,7 +109,7 @@ type AIProviderSetting struct {
 	UpdatedAt       time.Time
 }
 
-type ExternalAPIKey struct {
+type BricoproHQAPIKey struct {
 	ID           uint   `gorm:"primaryKey"`
 	Name         string `gorm:"size:255;uniqueIndex;not null;default:'default'"`
 	EncryptedKey string `gorm:"type:TEXT;not null"`
@@ -169,7 +169,7 @@ func InitializeDB() *gorm.DB {
 	}
 
 	// Migrate the schema (create the tables if they don't exist)
-	err = db.AutoMigrate(&ModificationHistory{}, &ApplyBatch{}, &DocumentSuggestionCache{}, &IntegrationCandidateCache{}, &SuggestionJob{}, &WebhookSecret{}, &AIProviderSetting{}, &ExternalAPIKey{}, &OCRPageResult{}, &IntegrationConnection{}, &OAuthStateRecord{}, &IntegrationActionLog{}, &IntegrationReceiptShare{}, &ReceiptAccessToken{}, &User{}, &UserSession{})
+	err = db.AutoMigrate(&ModificationHistory{}, &ApplyBatch{}, &DocumentSuggestionCache{}, &IntegrationCandidateCache{}, &SuggestionJob{}, &WebhookSecret{}, &AIProviderSetting{}, &BricoproHQAPIKey{}, &OCRPageResult{}, &IntegrationConnection{}, &OAuthStateRecord{}, &IntegrationActionLog{}, &IntegrationReceiptShare{}, &ReceiptAccessToken{}, &User{}, &UserSession{})
 	if err != nil {
 		log.Fatalf("Failed to migrate database schema: %v", err)
 	}

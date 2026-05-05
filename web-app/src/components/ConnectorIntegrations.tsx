@@ -1,51 +1,50 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-interface ConnectorAuthStatus {
-  auth_token_configured: boolean;
-  session_auth_required: boolean;
-  basic_auth_configured: boolean;
+interface BricoproHQConnectorStatus {
+  configured: boolean;
   base_url: string;
   local_base_url?: string;
-  header_name: string;
-  header_value_example: string;
+  health_url: string;
   documents_url: string;
-  local_documents_url?: string;
-  recommended_auth_mode: 'none' | 'bearer' | 'token' | 'x-api-key';
-  env_var_name: string;
+  header_name: string;
+  api_key?: string;
+  queue_tag: string;
+  api_version: string;
+  last_used_at?: string;
 }
 
-const emptyStatus: ConnectorAuthStatus = {
-  auth_token_configured: false,
-  session_auth_required: false,
-  basic_auth_configured: false,
+const emptyStatus: BricoproHQConnectorStatus = {
+  configured: false,
   base_url: '',
   local_base_url: '',
-  header_name: 'Authorization',
-  header_value_example: 'Bearer <AUTH_TOKEN>',
+  health_url: '',
   documents_url: '',
-  local_documents_url: '',
-  recommended_auth_mode: 'none',
-  env_var_name: 'AUTH_TOKEN',
+  header_name: 'X-API-Key',
+  queue_tag: '',
+  api_version: 'v1',
 };
 
 const ConnectorIntegrations: React.FC = () => {
-  const [status, setStatus] = useState<ConnectorAuthStatus>(emptyStatus);
+  const [status, setStatus] = useState<BricoproHQConnectorStatus>(emptyStatus);
+  const [generatedKey, setGeneratedKey] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRevoking, setIsRevoking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   const fetchStatus = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch('./api/connector-auth-status');
+      const response = await fetch('./api/bricoprohq-connector');
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || 'Failed to load connector status');
+        throw new Error(payload.error || 'Failed to load BricoproHQ connector status');
       }
       setStatus(payload);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load connector status');
+      setError(err instanceof Error ? err.message : 'Failed to load BricoproHQ connector status');
     } finally {
       setIsLoading(false);
     }
@@ -56,23 +55,69 @@ const ConnectorIntegrations: React.FC = () => {
   }, [fetchStatus]);
 
   const baseURL = status.local_base_url || status.base_url;
-  const documentsURL = status.local_documents_url || status.documents_url;
 
   const copy = async (value: string, label: string) => {
     try {
       await navigator.clipboard.writeText(value);
-      setCopyMessage(`${label} copied.`);
-      window.setTimeout(() => setCopyMessage(null), 2500);
+      setMessage(`${label} copied.`);
+      window.setTimeout(() => setMessage(null), 2500);
     } catch {
       setError(`Could not copy ${label.toLowerCase()}. Select and copy it manually.`);
     }
   };
 
-  const recommendedMode: ConnectorAuthStatus['recommended_auth_mode'] = useMemo(() => {
-    if (status.auth_token_configured) return 'bearer';
-    if (!status.session_auth_required && !status.basic_auth_configured) return 'none';
-    return 'bearer';
-  }, [status.auth_token_configured, status.session_auth_required, status.basic_auth_configured]);
+  const hostPortHint = useMemo(() => {
+    const urlForHint = baseURL || window.location.origin;
+    try {
+      const url = new URL(urlForHint);
+      return `${url.hostname}:${url.port || (url.protocol === 'https:' ? '443' : '80')}`;
+    } catch {
+      return '<local-ip>:8080';
+    }
+  }, [baseURL]);
+
+  const generateKey = async () => {
+    setIsGenerating(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('./api/bricoprohq-connector/key', { method: 'POST' });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to generate API key');
+      }
+      setStatus(payload);
+      setGeneratedKey(payload.api_key || '');
+      setMessage('API key generated. Copy it now; it will not be shown again.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate API key');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const revokeKey = async () => {
+    if (!window.confirm('Revoke the BricoproHQ connector API key? BricoproHQ will stop connecting until you generate and save a new key.')) {
+      return;
+    }
+    setIsRevoking(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('./api/bricoprohq-connector/key', { method: 'DELETE' });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || 'Failed to revoke API key');
+      }
+      setStatus(payload);
+      setGeneratedKey('');
+      setMessage('BricoproHQ connector API key revoked.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke API key');
+    } finally {
+      setIsRevoking(false);
+    }
+  };
 
   return (
     <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
@@ -85,11 +130,14 @@ const ConnectorIntegrations: React.FC = () => {
             Connect Bricopro HQ to Paperless GPT
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600 dark:text-gray-300">
-            Bricopro HQ polls <code className="rounded bg-gray-100 px-1 py-0.5 text-xs dark:bg-gray-800">/api/documents</code> to surface
-            documents waiting for review. The settings below tell you exactly what to enter
-            in <em>Bricopro HQ → Settings → Integrations → Paperless-GPT</em>.
+            Generate one local connector API key, then paste that key and the Paperless GPT URL into
+            <em> Bricopro HQ → Settings → Integrations → Paperless-GPT</em>. No OAuth, admin login,
+            bearer token, or auth mode is required.
           </p>
         </div>
+        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${status.configured ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}`}>
+          {status.configured ? 'Enabled' : 'Disabled'}
+        </span>
       </div>
 
       {error && (
@@ -97,75 +145,42 @@ const ConnectorIntegrations: React.FC = () => {
           {error}
         </div>
       )}
-      {copyMessage && (
+      {message && (
         <div className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-200">
-          {copyMessage}
+          {message}
         </div>
       )}
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div className="mt-6 grid gap-4 md:grid-cols-3">
         <Field
-          label="Base URL"
-          hint="No trailing /api – Bricopro HQ appends that itself."
+          label="Paperless-GPT URL"
+          hint="Paste this URL into BricoproHQ."
           value={baseURL || (isLoading ? 'Loading...' : '')}
-          onCopy={baseURL ? () => copy(baseURL, 'Base URL') : undefined}
+          onCopy={baseURL ? () => copy(baseURL, 'Paperless-GPT URL') : undefined}
         />
         <Field
-          label="Auth Mode"
-          hint={authModeHint(recommendedMode, status)}
-          value={recommendedMode}
+          label="Local IP / port"
+          hint="Use this if BricoproHQ is running on the same LAN."
+          value={hostPortHint}
+        />
+        <Field
+          label="Queue tag"
+          hint="Documents with this Paperless tag are returned to BricoproHQ."
+          value={status.queue_tag || 'paperless-gpt'}
         />
       </div>
 
-      <div className="mt-6 rounded-2xl bg-gray-50 p-4 dark:bg-gray-950">
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100">Current state</h3>
-        <ul className="mt-2 space-y-1 text-sm text-gray-700 dark:text-gray-300">
-          <li>
-            <Badge ok={!status.session_auth_required}>
-              {status.session_auth_required ? 'Admin login is required' : 'Open access (no admin user)'}
-            </Badge>
-            {status.session_auth_required && (
-              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-                — at least one admin account exists, so the API will refuse anonymous calls.
-              </span>
-            )}
-          </li>
-          <li>
-            <Badge ok={status.auth_token_configured}>
-              {status.auth_token_configured ? 'AUTH_TOKEN is set' : 'AUTH_TOKEN is NOT set'}
-            </Badge>
-            {!status.auth_token_configured && status.session_auth_required && (
-              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-                — Bricopro HQ cannot connect until you set <code>AUTH_TOKEN</code> on the container.
-              </span>
-            )}
-          </li>
-          {status.basic_auth_configured && (
-            <li>
-              <Badge ok>HTTP Basic Auth is configured (AUTH_USERNAME/AUTH_PASSWORD)</Badge>
-            </li>
-          )}
-        </ul>
-      </div>
-
-      {status.session_auth_required && !status.auth_token_configured && (
-        <div className="mt-6 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-          <p className="font-semibold">Action required</p>
-          <p className="mt-1">
-            You have an admin account, so <code>/api/documents</code> requires authentication. Bricopro HQ does not
-            sign in with a username/password; it sends a fixed <em>API key</em> in an HTTP header. To let it through:
-          </p>
-          <ol className="mt-2 list-decimal space-y-1 pl-5">
-            <li>
-              On the Paperless GPT container, set the env var{' '}
-              <code className="rounded bg-amber-100 px-1 py-0.5 dark:bg-amber-900/40">AUTH_TOKEN=&lt;long-random-secret&gt;</code>{' '}
-              and restart it.
-            </li>
-            <li>In Bricopro HQ, paste that same value as the API key and pick Auth Mode <strong>bearer</strong>.</li>
-            <li>Use the Base URL shown above.</li>
-          </ol>
+      {generatedKey && (
+        <div className="mt-6 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
+          <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">New API key - copy now</p>
+          <div className="mt-2 flex flex-col gap-2 md:flex-row">
+            <input readOnly value={generatedKey} className="flex-1 rounded border border-amber-300 px-3 py-2 font-mono text-sm dark:border-amber-700 dark:bg-gray-950 dark:text-gray-100" />
+            <button type="button" onClick={() => copy(generatedKey, 'API key')} className="rounded bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700">
+              Copy key
+            </button>
+          </div>
           <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">
-            The token is stored only in your container env – Paperless GPT never displays it back here.
+            For security, Paperless GPT stores only an encrypted copy and will not display this key again.
           </p>
         </div>
       )}
@@ -174,21 +189,34 @@ const ConnectorIntegrations: React.FC = () => {
         <h3 className="font-semibold text-gray-900 dark:text-gray-100">Bricopro HQ settings</h3>
         <table className="mt-3 w-full text-sm">
           <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-            <Row label="Base URL" value={baseURL} onCopy={baseURL ? () => copy(baseURL, 'Base URL') : undefined} />
-            <Row label="Auth Mode" value={recommendedMode} />
-            {recommendedMode === 'bearer' && (
-              <Row
-                label="API Key"
-                value={status.auth_token_configured ? '(value of your AUTH_TOKEN env var)' : '(set AUTH_TOKEN first)'}
-              />
-            )}
+            <Row label="Paperless-GPT URL" value={baseURL} onCopy={baseURL ? () => copy(baseURL, 'Paperless-GPT URL') : undefined} />
+            <Row label="API Key" value={generatedKey || (status.configured ? '(already generated - rotate to show a new key)' : '(generate a key first)')} onCopy={generatedKey ? () => copy(generatedKey, 'API key') : undefined} />
             <Row
               label="Tag for queue"
-              value="paperless-gpt"
+              value={status.queue_tag || 'paperless-gpt'}
               hint="Override with the MANUAL_TAG env var if needed."
             />
           </tbody>
         </table>
+      </div>
+
+      <div className="mt-6 flex flex-wrap gap-3">
+        <button
+          type="button"
+          disabled={isLoading || isGenerating}
+          onClick={generateKey}
+          className="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isGenerating ? 'Generating...' : status.configured ? 'Rotate API key' : 'Generate API key'}
+        </button>
+        <button
+          type="button"
+          disabled={isLoading || isRevoking || !status.configured}
+          onClick={revokeKey}
+          className="rounded border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-800 dark:text-red-200 dark:hover:bg-red-950"
+        >
+          {isRevoking ? 'Revoking...' : 'Revoke key'}
+        </button>
       </div>
 
       <details className="mt-6 rounded-2xl border border-gray-200 p-4 text-sm dark:border-gray-800">
@@ -198,11 +226,11 @@ const ConnectorIntegrations: React.FC = () => {
         <p className="mt-2 text-gray-600 dark:text-gray-300">Run this from any host that can reach Paperless GPT:</p>
         <pre className="mt-2 overflow-x-auto rounded bg-gray-900 p-3 text-xs text-gray-100">
 {`curl -i \\
-  -H "Authorization: Bearer $AUTH_TOKEN" \\
-  ${documentsURL || `${baseURL || '<base-url>'}/api/documents`}`}
+  -H "X-API-Key: <api-key>" \\
+  ${status.health_url || `${baseURL || '<paperless-gpt-url>'}/api/bricoprohq/v1/health`}`}
         </pre>
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          200 OK with a JSON array means Bricopro HQ will be able to connect.
+          200 OK with <code>{'{"ok":true}'}</code> means BricoproHQ can connect.
         </p>
       </details>
     </section>
@@ -260,31 +288,5 @@ const Row: React.FC<{ label: string; value: string; onCopy?: () => void; hint?: 
     </td>
   </tr>
 );
-
-const Badge: React.FC<{ ok: boolean; children: React.ReactNode }> = ({ ok, children }) => (
-  <span
-    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-      ok
-        ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200'
-        : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100'
-    }`}
-  >
-    <span aria-hidden>{ok ? '✓' : '!'}</span>
-    {children}
-  </span>
-);
-
-const authModeHint = (
-  mode: ConnectorAuthStatus['recommended_auth_mode'],
-  status: ConnectorAuthStatus,
-): string => {
-  if (mode === 'none') {
-    return 'No admin user is set up, so the API is open. Use Auth Mode "none" in Bricopro HQ.';
-  }
-  if (status.auth_token_configured) {
-    return 'AUTH_TOKEN is set. Use Auth Mode "bearer" and paste the same value as the API key.';
-  }
-  return 'Set AUTH_TOKEN on the container to enable the bearer-token bypass for machine integrations.';
-};
 
 export default ConnectorIntegrations;

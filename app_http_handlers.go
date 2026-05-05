@@ -925,37 +925,6 @@ func currentBaseURL(c *gin.Context) string {
 	return fmt.Sprintf("%s://%s", scheme, host)
 }
 
-func localExternalAPIBaseURL(c *gin.Context) string {
-	baseURL := strings.TrimRight(currentBaseURL(c), "/")
-	if !isAllowedExternalAPIOrigin(baseURL, nil) {
-		return ""
-	}
-	return baseURL + "/api/external/v1"
-}
-
-func localExternalAPIBaseURLFromOrigin(c *gin.Context) string {
-	origin := strings.TrimRight(strings.TrimSpace(c.GetHeader("Origin")), "/")
-	if !isAllowedExternalAPIOrigin(origin, nil) {
-		return localExternalAPIBaseURL(c)
-	}
-
-	originURL, err := url.Parse(origin)
-	if err != nil || originURL.Scheme == "" || originURL.Hostname() == "" {
-		return localExternalAPIBaseURL(c)
-	}
-
-	serverURL, err := url.Parse(strings.TrimRight(currentBaseURL(c), "/"))
-	if err != nil || serverURL.Port() == "" {
-		return origin + "/api/external/v1"
-	}
-
-	host := originURL.Hostname()
-	if strings.Contains(host, ":") {
-		host = "[" + host + "]"
-	}
-	return fmt.Sprintf("%s://%s:%s/api/external/v1", originURL.Scheme, host, serverURL.Port())
-}
-
 func getSelectedJobberCandidate(document DocumentSuggestion) (JobberMatchCandidate, bool) {
 	if document.SelectedJobberMatchID == "" {
 		return JobberMatchCandidate{}, false

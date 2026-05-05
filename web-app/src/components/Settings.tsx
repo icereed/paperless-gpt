@@ -6,7 +6,6 @@ import IntegrationsEditor from './IntegrationsEditor';
 import ChangePassword from './ChangePassword';
 import AIProvidersEditor from './AIProvidersEditor';
 import ConnectorIntegrations from './ConnectorIntegrations';
-import ExternalApiSettings from './ExternalApiSettings';
 
 const Settings: React.FC = () => {
   return (
@@ -30,7 +29,6 @@ const Settings: React.FC = () => {
         <PromptsEditor />
         <MetadataRestrictionsEditor />
         <CustomFieldsEditor />
-        <ExternalApiSettings />
       </div>
 
       <div className="p-6 bg-gray-100 dark:bg-gray-900">

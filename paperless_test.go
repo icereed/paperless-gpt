@@ -84,7 +84,7 @@ func InitializeTestDB() (*gorm.DB, error) {
 	}
 
 	// Migrate schema
-	err = db.AutoMigrate(&ModificationHistory{}, &ApplyBatch{}, &DocumentSuggestionCache{}, &IntegrationCandidateCache{}, &SuggestionJob{}, &WebhookSecret{}, &AIProviderSetting{}, &ExternalAPIKey{}, &OCRPageResult{}, &OAuthStateRecord{}, &IntegrationConnection{}, &IntegrationActionLog{}, &IntegrationReceiptShare{}, &ReceiptAccessToken{}, &User{}, &UserSession{})
+	err = db.AutoMigrate(&ModificationHistory{}, &ApplyBatch{}, &DocumentSuggestionCache{}, &IntegrationCandidateCache{}, &SuggestionJob{}, &WebhookSecret{}, &AIProviderSetting{}, &BricoproHQAPIKey{}, &OCRPageResult{}, &OAuthStateRecord{}, &IntegrationConnection{}, &IntegrationActionLog{}, &IntegrationReceiptShare{}, &ReceiptAccessToken{}, &User{}, &UserSession{})
 	if err != nil {
 		return nil, err
 	}

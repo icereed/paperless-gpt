@@ -2,9 +2,7 @@ package main
 
 import (
 	"crypto/subtle"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -31,12 +29,7 @@ type SecurityConfig struct {
 
 	// Maximum allowed request body size in bytes
 	MaxBodyBytes int64
-
-	// Additional CORS origins allowed to call /api/external/*.
-	ExternalAPIAllowedOrigins []string
 }
-
-const externalAPIPrefix = "/api/external/"
 
 // loadSecurityConfig reads security configuration from environment variables.
 //
@@ -92,15 +85,6 @@ func loadSecurityConfig() SecurityConfig {
 			log.Warnf("Invalid MAX_BODY_BYTES value %q, using default %d", raw, cfg.MaxBodyBytes)
 		}
 	}
-	if raw := os.Getenv("EXTERNAL_API_ALLOWED_ORIGINS"); raw != "" {
-		for _, origin := range strings.Split(raw, ",") {
-			origin = strings.TrimRight(strings.TrimSpace(origin), "/")
-			if origin != "" {
-				cfg.ExternalAPIAllowedOrigins = append(cfg.ExternalAPIAllowedOrigins, origin)
-			}
-		}
-	}
-
 	return cfg
 }
 
@@ -124,17 +108,6 @@ func normaliseEnvCredential(raw string) string {
 		}
 	}
 	return v
-}
-
-func osExternalAPIKey() string {
-	if key := strings.TrimSpace(os.Getenv("PAPERLESS_GPT_API_KEY")); key != "" {
-		return key
-	}
-	return strings.TrimSpace(os.Getenv("EXTERNAL_API_KEY"))
-}
-
-func isExternalAPIPath(path string) bool {
-	return strings.HasPrefix(path, externalAPIPrefix)
 }
 
 // isAuthEnabled reports whether at least one auth mechanism is configured.
@@ -187,9 +160,9 @@ func isExemptFromAuth(path string) bool {
 	if path == "/api/paperless/webhook" {
 		return true
 	}
-	// External API routes use their own API-key middleware so local services can
-	// call them without a browser session.
-	if isExternalAPIPath(path) {
+	// BricoproHQ connector routes use their own X-API-Key middleware so local
+	// services can call them without a browser session or static app auth.
+	if isBricoproHQAPIPath(path) {
 		return true
 	}
 	// OAuth callbacks from third-party providers
@@ -229,20 +202,12 @@ func authMiddleware(cfg SecurityConfig) gin.HandlerFunc {
 		}
 
 		// If the upstream sessionAuthMiddleware has already authenticated this
-		// request (either via a valid `paperless_gpt_session` cookie or via a
-		// valid AUTH_TOKEN bearer), let it through. Without this short-circuit,
-		// enabling AUTH_TOKEN to support a machine integration would break the
-		// browser UI for any logged-in user, because their cookie does not
-		// satisfy the static Basic/Bearer check below.
+		// request via a valid `paperless_gpt_session` cookie, let it through.
+		// Without this short-circuit, enabling static Basic/Bearer auth would
+		// break the browser UI for any logged-in user.
 		if _, ok := c.Get("currentUser"); ok {
 			c.Next()
 			return
-		}
-		if v, ok := c.Get(machineAuthContextKey); ok {
-			if b, _ := v.(bool); b {
-				c.Next()
-				return
-			}
 		}
 
 		authHeader := c.GetHeader("Authorization")
@@ -297,70 +262,6 @@ func securityHeadersMiddleware() gin.HandlerFunc {
 				"frame-ancestors 'none'")
 		c.Next()
 	}
-}
-
-func externalAPICORSMiddleware(cfg SecurityConfig) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if !isExternalAPIPath(c.Request.URL.Path) {
-			c.Next()
-			return
-		}
-
-		origin := strings.TrimRight(strings.TrimSpace(c.GetHeader("Origin")), "/")
-		if origin == "" {
-			c.Next()
-			return
-		}
-		if !isAllowedExternalAPIOrigin(origin, cfg.ExternalAPIAllowedOrigins) {
-			if c.Request.Method == http.MethodOptions {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Origin is not allowed"})
-				return
-			}
-			c.Next()
-			return
-		}
-
-		c.Header("Access-Control-Allow-Origin", origin)
-		c.Header("Access-Control-Allow-Methods", "GET, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key")
-		c.Header("Access-Control-Max-Age", "600")
-		c.Header("Vary", "Origin")
-
-		if c.Request.Method == http.MethodOptions {
-			c.AbortWithStatus(http.StatusNoContent)
-			return
-		}
-		c.Next()
-	}
-}
-
-func isAllowedExternalAPIOrigin(origin string, configuredOrigins []string) bool {
-	for _, allowed := range configuredOrigins {
-		if allowed == "*" || strings.EqualFold(origin, allowed) {
-			return true
-		}
-	}
-
-	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return false
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return false
-	}
-
-	host := parsed.Hostname()
-	if host == "" {
-		return false
-	}
-	host = strings.Trim(host, "[]")
-	if strings.EqualFold(host, "localhost") || strings.HasSuffix(strings.ToLower(host), ".localhost") {
-		return true
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
-	}
-	return false
 }
 
 // ipVisitor holds a rate limiter and last-seen timestamp for a single client IP.
