@@ -196,6 +196,23 @@ func authMiddleware(cfg SecurityConfig) gin.HandlerFunc {
 			return
 		}
 
+		// If the upstream sessionAuthMiddleware has already authenticated this
+		// request (either via a valid `paperless_gpt_session` cookie or via a
+		// valid AUTH_TOKEN bearer), let it through. Without this short-circuit,
+		// enabling AUTH_TOKEN to support a machine integration would break the
+		// browser UI for any logged-in user, because their cookie does not
+		// satisfy the static Basic/Bearer check below.
+		if _, ok := c.Get("currentUser"); ok {
+			c.Next()
+			return
+		}
+		if v, ok := c.Get(machineAuthContextKey); ok {
+			if b, _ := v.(bool); b {
+				c.Next()
+				return
+			}
+		}
+
 		authHeader := c.GetHeader("Authorization")
 
 		// --- Basic Auth ---

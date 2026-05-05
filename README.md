@@ -691,13 +691,32 @@ These are active in addition to user auth when set, and work without any user ac
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------- |
 | `AUTH_USERNAME`         | Username for HTTP Basic Auth. Must be set together with `AUTH_PASSWORD`.                                                                | No       |                  |
 | `AUTH_PASSWORD`         | Password for HTTP Basic Auth. Must be set together with `AUTH_USERNAME`.                                                                | No       |                  |
-| `AUTH_TOKEN`            | Static bearer token for API authentication. Send as `Authorization: Bearer <token>`. Can be combined with Basic Auth.                  | No       |                  |
+| `AUTH_TOKEN`            | Static bearer token for API authentication. Send as `Authorization: Bearer <token>`. **Also lets the Bricopro HQ connector and similar machine clients reach `/api/*` even when an admin user has been provisioned** — the session-cookie gate is skipped for requests carrying a matching bearer header. Can be combined with Basic Auth and user accounts. | No       |                  |
 
-##### External API for local apps
+##### Connecting Bricopro HQ (or any machine client) to `/api/documents`
 
-Open **Settings -> External API** and generate an API key to enable a read-only API intended for other self-hosted apps such as bricoprohq. The generated key is shown once, stored encrypted, and can be rotated or revoked from Settings. Alternatively, set `PAPERLESS_GPT_API_KEY` in your server/container environment to manage the key outside the UI.
+Bricopro HQ's `PaperlessGptConnector` polls `GET <BASE_URL>/api/documents` and supports four auth modes (`none`, `bearer`, `token`, `x-api-key`). The fork's recommended setup is:
 
-The API bypasses browser session auth, but every route requires the API key in either `X-API-Key` or `Authorization: Bearer`.
+1. On the Paperless GPT container, set `AUTH_TOKEN=<long-random-secret>` and restart it.
+2. In **Bricopro HQ → Settings → Integrations → Paperless-GPT**, set:
+   - **Base URL**: `http://<paperless-gpt-host>:<port>` (no trailing `/api`)
+   - **Auth Mode**: `bearer`
+   - **API Key**: the same value you set for `AUTH_TOKEN`
+
+The new **Settings → External integrations** card in the web UI surfaces these values for you and shows live status badges for `AUTH_TOKEN`, the admin-user gate, and the recommended Auth Mode. If no admin user has been created, you can also pick Auth Mode `none` and skip `AUTH_TOKEN` entirely (only safe on a trusted network).
+
+Quick verification from a terminal:
+
+```bash
+curl -i -H "Authorization: Bearer $AUTH_TOKEN" \
+  http://192.168.1.25:8080/api/documents
+```
+
+##### Read-only external API (advanced)
+
+A separate `/api/external/v1/*` namespace exists for custom dashboards or scripts that want a structured view of pending documents, OCR jobs, and integration status. **Bricopro HQ does not use this** — see the section above. Open **Settings -> Advanced** and generate an API key, or set `PAPERLESS_GPT_API_KEY` in the server environment.
+
+Every external-API route requires the key in either `X-API-Key` or `Authorization: Bearer`.
 
 Base URL: `http://<local-ip>:<port>/api/external/v1`
 

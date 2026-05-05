@@ -5,6 +5,7 @@ import MetadataRestrictionsEditor from './MetadataRestrictionsEditor';
 import IntegrationsEditor from './IntegrationsEditor';
 import ChangePassword from './ChangePassword';
 import AIProvidersEditor from './AIProvidersEditor';
+import ConnectorIntegrations from './ConnectorIntegrations';
 import ExternalApiSettings from './ExternalApiSettings';
 
 const Settings: React.FC = () => {
@@ -15,20 +16,21 @@ const Settings: React.FC = () => {
           Settings
         </p>
         <h1 className="mt-2 text-3xl font-bold text-gray-900 dark:text-gray-100">
-          Configure prompts and metadata behavior
+          Paperless GPT configuration
         </h1>
         <p className="mt-3 max-w-3xl text-sm leading-6 text-gray-600 dark:text-gray-300">
-          Update prompt templates, control which metadata values are allowed,
-          and choose how custom fields should be written back to Paperless.
+          Configure your AI provider, connect external apps such as Bricopro HQ, and
+          tune prompts and metadata behaviour.
         </p>
       </section>
 
       <div className="space-y-8">
         <AIProvidersEditor />
-        <ExternalApiSettings />
+        <ConnectorIntegrations />
         <PromptsEditor />
         <MetadataRestrictionsEditor />
         <CustomFieldsEditor />
+        <ExternalApiSettings />
       </div>
 
       <div className="p-6 bg-gray-100 dark:bg-gray-900">

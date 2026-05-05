@@ -116,15 +116,16 @@ const ExternalApiSettings: React.FC = () => {
     <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400">
-            External API
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-gray-500 dark:text-gray-400">
+            Advanced
           </p>
           <h2 className="mt-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
-            Connect bricoprohq or another local app
+            Read-only external API (<code>/api/external/v1</code>)
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600 dark:text-gray-300">
-            Generate an API key, then give your other self-hosted app the local IP, port, and key.
-            The API is read-only and exposes pending documents plus status information.
+            A separate, read-only namespace for custom dashboards or scripts that want a structured view
+            of pending documents, OCR jobs, and integration status without needing the full <code>/api/*</code>
+            surface. <strong>Bricopro HQ does not use this</strong> – use the “Connect Bricopro HQ” card above instead.
           </p>
         </div>
         <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${status.configured ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}`}>
@@ -157,12 +158,12 @@ const ExternalApiSettings: React.FC = () => {
       )}
 
       <div className="mt-6 rounded-2xl bg-gray-50 p-4 dark:bg-gray-950">
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100">bricoprohq setup</h3>
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">Calling the read-only API</h3>
         <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-300">
-          <li>Make sure Paperless GPT listens on your LAN, for example <code>LISTEN_INTERFACE=:8080</code> or <code>0.0.0.0:8080</code>.</li>
-          <li>In bricoprohq, enter host/IP and port: <code>{hostPortHint}</code>.</li>
-          <li>Paste the generated API key as the API key.</li>
-          <li>Use <code>{status.local_base_url || status.base_url || '/api/external/v1'}</code> as the API base path if bricoprohq asks for a full URL.</li>
+          <li>Send the API key in the <code>X-API-Key</code> header (or <code>Authorization: Bearer …</code>).</li>
+          <li>Base path: <code>{status.local_base_url || status.base_url || '/api/external/v1'}</code></li>
+          <li>OpenAPI spec: <code>{status.local_openapi_url || status.openapi_url || '/api/external/v1/openapi.json'}</code></li>
+          <li>Local listener hint: <code>{hostPortHint}</code></li>
         </ol>
       </div>
 

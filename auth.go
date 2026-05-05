@@ -14,6 +14,13 @@ import (
 	"gorm.io/gorm"
 )
 
+// machineAuthContextKey marks a request that authenticated via the static
+// AUTH_TOKEN bearer header instead of a browser session. Downstream handlers
+// can use this to scope their behaviour (e.g. to skip CSRF checks) but
+// nothing currently relies on it; it exists primarily to make the bypass
+// observable in tests.
+const machineAuthContextKey = "machineAuth"
+
 // ---------------------------------------------------------------------------
 // DB models
 // ---------------------------------------------------------------------------
@@ -218,7 +225,25 @@ var publicAuthPaths = map[string]bool{
 	"/api/auth/setup/status": true,
 }
 
-func sessionAuthMiddleware(db *gorm.DB) gin.HandlerFunc {
+// hasValidAuthTokenBearer reports whether the request carries an
+// `Authorization: Bearer <token>` header that constant-time-equals the
+// provided expected value. The expected value must be non-empty.
+func hasValidAuthTokenBearer(c *gin.Context, expected string) bool {
+	if expected == "" {
+		return false
+	}
+	authHeader := c.GetHeader("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return false
+	}
+	provided := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+	if provided == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
+}
+
+func sessionAuthMiddleware(db *gorm.DB, cfg SecurityConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
@@ -233,6 +258,18 @@ func sessionAuthMiddleware(db *gorm.DB) gin.HandlerFunc {
 			strings.HasPrefix(path, externalAPIPrefix) ||
 			strings.HasSuffix(path, "/oauth/callback") ||
 			strings.Contains(path, "/integrations/jobber/receipt/") {
+			c.Next()
+			return
+		}
+
+		// Machine-to-machine bypass: when AUTH_TOKEN is configured AND the
+		// request carries a matching `Authorization: Bearer <AUTH_TOKEN>` header,
+		// let the request through without a session cookie. The downstream
+		// authMiddleware (security.go) re-validates the same header in
+		// constant time. This is the path used by external integrations such
+		// as the Bricopro HQ paperless-gpt connector.
+		if cfg.AuthToken != "" && hasValidAuthTokenBearer(c, cfg.AuthToken) {
+			c.Set(machineAuthContextKey, true)
 			c.Next()
 			return
 		}

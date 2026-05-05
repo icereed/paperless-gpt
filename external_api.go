@@ -105,6 +105,65 @@ func (app *App) registerExternalAPIKeySettingsRoutes(api *gin.RouterGroup) {
 	api.GET("/external-api-key", app.getExternalAPIKeySettingsHandler)
 	api.POST("/external-api-key/generate", app.generateExternalAPIKeyHandler)
 	api.DELETE("/external-api-key", app.revokeExternalAPIKeyHandler)
+	api.GET("/connector-auth-status", app.getConnectorAuthStatusHandler)
+}
+
+// connectorAuthStatusResponse is consumed by the Settings UI to show the
+// admin whether the static AUTH_TOKEN bearer (used by the Bricopro HQ
+// PaperlessGptConnector and similar machine-to-machine clients) is
+// currently configured. The token value itself is never exposed; the
+// admin sets it via env on the server.
+type connectorAuthStatusResponse struct {
+	AuthTokenConfigured bool   `json:"auth_token_configured"`
+	SessionAuthRequired bool   `json:"session_auth_required"`
+	BasicAuthConfigured bool   `json:"basic_auth_configured"`
+	BaseURL             string `json:"base_url"`
+	LocalBaseURL        string `json:"local_base_url,omitempty"`
+	HeaderName          string `json:"header_name"`
+	HeaderValueExample  string `json:"header_value_example"`
+	DocumentsURL        string `json:"documents_url"`
+	LocalDocumentsURL   string `json:"local_documents_url,omitempty"`
+	RecommendedAuthMode string `json:"recommended_auth_mode"`
+	EnvVarName          string `json:"env_var_name"`
+}
+
+func (app *App) getConnectorAuthStatusHandler(c *gin.Context) {
+	cfg := loadSecurityConfig()
+	apiBase := strings.TrimRight(currentBaseURL(c), "/")
+	localAPIBase := ""
+	if local := localExternalAPIBaseURL(c); local != "" {
+		localAPIBase = strings.TrimSuffix(local, "/api/external/v1")
+	}
+	if localAPIBase == "" {
+		if local := localExternalAPIBaseURLFromOrigin(c); local != "" {
+			localAPIBase = strings.TrimSuffix(local, "/api/external/v1")
+		}
+	}
+
+	sessionRequired := false
+	if app != nil && app.Database != nil {
+		sessionRequired = isSessionAuthEnabled(app.Database)
+	} else if strings.EqualFold(os.Getenv("AUTH_USER_ENABLED"), "true") {
+		sessionRequired = true
+	}
+
+	resp := connectorAuthStatusResponse{
+		AuthTokenConfigured: cfg.AuthToken != "",
+		SessionAuthRequired: sessionRequired,
+		BasicAuthConfigured: cfg.AuthUsername != "" && cfg.AuthPassword != "",
+		BaseURL:             apiBase,
+		LocalBaseURL:        localAPIBase,
+		HeaderName:          "Authorization",
+		HeaderValueExample:  "Bearer <AUTH_TOKEN>",
+		DocumentsURL:        apiBase + "/api/documents",
+		RecommendedAuthMode: "bearer",
+		EnvVarName:          "AUTH_TOKEN",
+	}
+	if localAPIBase != "" {
+		resp.LocalDocumentsURL = localAPIBase + "/api/documents"
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 func (app *App) getExternalAPIKeySettingsHandler(c *gin.Context) {

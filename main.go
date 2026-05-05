@@ -394,8 +394,12 @@ func main() {
 	router.Use(externalAPICORSMiddleware(secCfg))
 	router.Use(maxBodySizeMiddleware(secCfg.MaxBodyBytes))
 	router.Use(rateLimitMiddleware(secCfg.RateLimitRPS, secCfg.RateLimitBurst))
-	// Session-based user auth (takes precedence; static credentials are a fallback)
-	router.Use(sessionAuthMiddleware(database))
+	// Session-based user auth (takes precedence; static credentials are a fallback).
+	// When AUTH_TOKEN is configured the session middleware also lets through any
+	// request carrying `Authorization: Bearer <AUTH_TOKEN>` so machine-to-machine
+	// integrations (e.g. the Bricopro HQ connector) can call /api/* without a
+	// browser cookie. The downstream authMiddleware re-validates that header.
+	router.Use(sessionAuthMiddleware(database, secCfg))
 	router.Use(authMiddleware(secCfg))
 
 	// Authentication routes (always public – handled before session gate inside the middleware)

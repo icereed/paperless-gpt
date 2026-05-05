@@ -32,7 +32,7 @@ func newAuthTestRouter(t *testing.T, db *gorm.DB) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(sessionAuthMiddleware(db))
+	r.Use(sessionAuthMiddleware(db, SecurityConfig{}))
 
 	app := &App{Database: db}
 
@@ -432,7 +432,7 @@ func TestFrontendShellReachableWithoutSession(t *testing.T) {
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(sessionAuthMiddleware(db))
+	r.Use(sessionAuthMiddleware(db, SecurityConfig{}))
 	// Register the same frontend shell routes as main.go
 	for _, p := range []string{"/", "/history", "/settings", "/experimental-ocr", "/favicon.ico"} {
 		r.GET(p, func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -477,9 +477,9 @@ func TestLoginWithBasicAuthConfigured(t *testing.T) {
 	db := newTestDB(t)
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(sessionAuthMiddleware(db))
-	// Simulate AUTH_USERNAME + AUTH_PASSWORD being set
 	staticCfg := SecurityConfig{AuthUsername: "admin", AuthPassword: "hunter2"}
+	r.Use(sessionAuthMiddleware(db, staticCfg))
+	// Simulate AUTH_USERNAME + AUTH_PASSWORD being set
 	r.Use(authMiddleware(staticCfg))
 
 	app := &App{Database: db}
@@ -498,4 +498,121 @@ func TestLoginWithBasicAuthConfigured(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/auth/login",
 		jsonBody(t, gin.H{"username": "julia", "password": "userpass"})))
 	assert.Equal(t, http.StatusOK, w.Code, "/api/auth/login must not require HTTP Basic Auth")
+}
+
+// ---------------------------------------------------------------------------
+// AUTH_TOKEN bearer bypass for machine-to-machine integrations
+// (e.g. the Bricopro HQ paperless-gpt connector).
+// ---------------------------------------------------------------------------
+
+// newBearerTestRouter builds a router that mirrors the real middleware stack
+// (sessionAuthMiddleware first, then authMiddleware) with AUTH_TOKEN set, so
+// we can exercise the static-bearer bypass end-to-end.
+func newBearerTestRouter(t *testing.T, db *gorm.DB, token string) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	cfg := SecurityConfig{AuthToken: token}
+	r.Use(sessionAuthMiddleware(db, cfg))
+	r.Use(authMiddleware(cfg))
+	r.GET("/api/documents", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	r.GET("/api/version", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"version": "test"})
+	})
+	return r
+}
+
+// TestBearerToken_AllowsAPIWhenSessionAuthIsActive verifies that a request
+// carrying the configured AUTH_TOKEN as a Bearer header is allowed through
+// /api/* even when at least one user row exists (which would otherwise force
+// session-cookie auth). This is the contract the Bricopro HQ connector
+// depends on.
+func TestBearerToken_AllowsAPIWhenSessionAuthIsActive(t *testing.T) {
+	db := newTestDB(t)
+	hashed, _ := hashPassword("irrelevant1")
+	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
+
+	const token = "test-machine-token-9f3a2b"
+	r := newBearerTestRouter(t, db, token)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code, "valid AUTH_TOKEN bearer must bypass the session cookie gate")
+}
+
+// TestBearerToken_WrongTokenStill401 verifies that a wrong bearer value does
+// NOT bypass either middleware: it should still be rejected with 401.
+func TestBearerToken_WrongTokenStill401(t *testing.T) {
+	db := newTestDB(t)
+	hashed, _ := hashPassword("irrelevant1")
+	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
+
+	const token = "the-real-token"
+	r := newBearerTestRouter(t, db, token)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
+	req.Header.Set("Authorization", "Bearer not-the-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code,
+		"a wrong Bearer value must not bypass session-auth and must not be accepted by authMiddleware")
+}
+
+// TestBearerToken_EmptyTokenIsIgnored verifies that an empty AUTH_TOKEN does
+// not enable a "anyone with `Bearer ` prefix passes" bypass.
+func TestBearerToken_EmptyTokenIsIgnored(t *testing.T) {
+	db := newTestDB(t)
+	hashed, _ := hashPassword("irrelevant1")
+	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
+
+	r := newBearerTestRouter(t, db, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
+	req.Header.Set("Authorization", "Bearer anything-at-all")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code,
+		"empty AUTH_TOKEN must not enable a wildcard bearer bypass")
+}
+
+// TestBearerToken_DoesNotInterfereWithCookieAuth verifies that a request
+// with NO bearer header but a valid session cookie still works after the
+// bypass change (i.e. browsers continue to function exactly as before).
+func TestBearerToken_DoesNotInterfereWithCookieAuth(t *testing.T) {
+	db := newTestDB(t)
+	hashed, _ := hashPassword("password123")
+	user := &User{ID: generateUserID(), Username: "browser-user", HashedPassword: hashed}
+	require.NoError(t, db.Create(user).Error)
+	session := createSession(db, user.ID, "127.0.0.1", "test-agent")
+	require.NotNil(t, session)
+
+	r := newBearerTestRouter(t, db, "some-machine-token")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code,
+		"a valid session cookie must continue to authenticate /api/* even when AUTH_TOKEN is set")
+}
+
+// TestBearerToken_NoBearerNoCookieStill401 verifies that with AUTH_TOKEN set
+// and a user provisioned, a request with neither header nor cookie is still
+// rejected — the bypass must not weaken the default-deny posture.
+func TestBearerToken_NoBearerNoCookieStill401(t *testing.T) {
+	db := newTestDB(t)
+	hashed, _ := hashPassword("irrelevant1")
+	db.Create(&User{ID: generateUserID(), Username: "owner", HashedPassword: hashed})
+
+	r := newBearerTestRouter(t, db, "the-token")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/documents", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code,
+		"no bearer + no cookie must still 401 when session auth is active")
 }
