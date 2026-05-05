@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -285,26 +286,44 @@ func TestUpdateDocumentsApplyJobberTrueWritesFields(t *testing.T) {
 }
 
 type updateDocumentsMockClient struct {
-	upsertCalled   bool
-	documentsByTag []Document
-	document       Document
-	lastDocumentID int
-	lastTag        string
-	lastPageSize   int
+	upsertCalled        bool
+	paperlessCalled     bool
+	failOnPaperlessCall bool
+	documentsByTag      []Document
+	document            Document
+	lastDocumentID      int
+	lastTag             string
+	lastPageSize        int
 }
 
 func (m *updateDocumentsMockClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	m.lastTag = tag
 	m.lastPageSize = pageSize
 	return m.documentsByTag, nil
 }
 func (m *updateDocumentsMockClient) GetDocumentCountByTag(ctx context.Context, tag string) (int, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return 0, nil
 }
 func (m *updateDocumentsMockClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool, batchID ...uint) error {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return nil
 }
 func (m *updateDocumentsMockClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	m.lastDocumentID = documentID
 	if m.document.ID != 0 {
 		return m.document, nil
@@ -312,44 +331,104 @@ func (m *updateDocumentsMockClient) GetDocument(ctx context.Context, documentID 
 	return Document{ID: documentID}, nil
 }
 func (m *updateDocumentsMockClient) GetAllTags(ctx context.Context) (map[string]int, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return nil, nil
 }
 func (m *updateDocumentsMockClient) GetAllCorrespondents(ctx context.Context) (map[string]int, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return nil, nil
 }
 func (m *updateDocumentsMockClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return nil, nil
 }
 func (m *updateDocumentsMockClient) GetCustomFields(ctx context.Context) ([]CustomField, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return nil, nil
 }
 func (m *updateDocumentsMockClient) CreateTag(ctx context.Context, tagName string) (int, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return 0, nil
 }
 func (m *updateDocumentsMockClient) DownloadPDF(ctx context.Context, document Document) ([]byte, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return nil, nil
 }
 func (m *updateDocumentsMockClient) DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return nil, 0, nil
 }
 func (m *updateDocumentsMockClient) DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return nil, nil, 0, nil
 }
 func (m *updateDocumentsMockClient) UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return "", nil
 }
 func (m *updateDocumentsMockClient) UpsertDocumentCustomFields(ctx context.Context, documentID int, fieldValues map[int]interface{}, db *gorm.DB) error {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	m.upsertCalled = true
 	return nil
 }
 func (m *updateDocumentsMockClient) UpsertDocumentCustomFieldsWithBatch(ctx context.Context, documentID int, fieldValues map[int]interface{}, db *gorm.DB, batchID *uint) error {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	m.upsertCalled = true
 	return nil
 }
+
+func (m *updateDocumentsMockClient) resetCalls() {
+	m.paperlessCalled = false
+	m.lastDocumentID = 0
+	m.lastTag = ""
+	m.lastPageSize = 0
+}
+
 func (m *updateDocumentsMockClient) GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error) {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return nil, nil
 }
 func (m *updateDocumentsMockClient) DeleteDocument(ctx context.Context, documentID int) error {
+	m.paperlessCalled = true
+	if m.failOnPaperlessCall {
+		panic("unexpected paperless-ngx client call")
+	}
 	return nil
 }
 
@@ -382,7 +461,8 @@ func TestBricoproHQAPIRequiresAPIKey(t *testing.T) {
 	t.Setenv("PAPERLESS_GPT_SECRET_KEY", "test-secret")
 	db, err := InitializeTestDB()
 	require.NoError(t, err)
-	app := &App{Client: &updateDocumentsMockClient{}, Database: db}
+	client := &updateDocumentsMockClient{failOnPaperlessCall: true}
+	app := &App{Client: client, Database: db}
 	router := gin.New()
 	api := router.Group(bricoproHQAPIPrefix)
 	api.Use(app.bricoproHQAPIKeyMiddleware())
@@ -400,41 +480,123 @@ func TestBricoproHQAPIRequiresAPIKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, wOK.Code)
 }
 
-func TestBricoproHQAPIPendingDocuments(t *testing.T) {
+func TestBricoproHQAPIStatsUsesLocalPaperlessGPTData(t *testing.T) {
 	t.Setenv("PAPERLESS_GPT_SECRET_KEY", "test-secret")
-	previousManualTag := manualTag
-	manualTag = "review-me"
-	t.Cleanup(func() { manualTag = previousManualTag })
 
 	db, err := InitializeTestDB()
 	require.NoError(t, err)
-	client := &updateDocumentsMockClient{
-		documentsByTag: []Document{
-			{ID: 12, Title: "Invoice"},
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&SuggestionJob{DocumentID: 1, Status: suggestionJobStatusPending, NextAttemptAt: now}).Error)
+	require.NoError(t, db.Create(&SuggestionJob{DocumentID: 2, Status: suggestionJobStatusRunning, NextAttemptAt: now}).Error)
+	require.NoError(t, db.Create(&SuggestionJob{DocumentID: 3, Status: suggestionJobStatusFailed, NextAttemptAt: now}).Error)
+	require.NoError(t, db.Create(&SuggestionJob{DocumentID: 4, Status: suggestionJobStatusSucceeded, NextAttemptAt: now}).Error)
+
+	recentSuggestion := DocumentSuggestion{
+		ID:            12,
+		SuggestedTags: []string{"materials", "urgent", "materials"},
+		SuggestedCustomFields: []CustomFieldSuggestion{
+			{ID: 9, Name: "Total", Value: "123.45"},
 		},
 	}
+	olderSuggestion := DocumentSuggestion{
+		ID:            13,
+		SuggestedTags: []string{"old-tag"},
+		SuggestedCustomFields: []CustomFieldSuggestion{
+			{ID: 9, Name: "Total", Value: "9999.99"},
+		},
+	}
+	highestSuggestion := DocumentSuggestion{
+		ID:            14,
+		SuggestedTags: []string{"urgent"},
+		SuggestedCustomFields: []CustomFieldSuggestion{
+			{ID: 10, Name: "Amount", Value: 500.25},
+		},
+	}
+	recentJSON, err := json.Marshal(recentSuggestion)
+	require.NoError(t, err)
+	olderJSON, err := json.Marshal(olderSuggestion)
+	require.NoError(t, err)
+	highestJSON, err := json.Marshal(highestSuggestion)
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&DocumentSuggestionCache{
+		DocumentID:      12,
+		GeneratedAt:     now.AddDate(0, 0, -5),
+		SourceHash:      "recent-12",
+		SuggestionsJSON: string(recentJSON),
+	}).Error)
+	require.NoError(t, db.Create(&DocumentSuggestionCache{
+		DocumentID:      12,
+		GeneratedAt:     now.AddDate(0, 0, -4),
+		SourceHash:      "recent-12b",
+		SuggestionsJSON: string(recentJSON),
+	}).Error)
+	require.NoError(t, db.Create(&DocumentSuggestionCache{
+		DocumentID:      13,
+		GeneratedAt:     now.AddDate(0, 0, -31),
+		SourceHash:      "old-13",
+		SuggestionsJSON: string(olderJSON),
+	}).Error)
+	require.NoError(t, db.Create(&DocumentSuggestionCache{
+		DocumentID:      14,
+		GeneratedAt:     now.AddDate(0, 0, -2),
+		SourceHash:      "recent-14",
+		SuggestionsJSON: string(highestJSON),
+	}).Error)
+
 	router := gin.New()
+	client := &updateDocumentsMockClient{}
 	app := &App{Client: client, Database: db}
 	require.NoError(t, app.upsertBricoproHQAPIKey(context.Background(), mustEncryptForTest(t, "secret-key")))
 	api := router.Group(bricoproHQAPIPrefix)
 	api.Use(app.bricoproHQAPIKeyMiddleware())
 	app.registerBricoproHQAPIRoutes(api)
 
-	req := httptest.NewRequest(http.MethodGet, bricoproHQAPIPrefix+"/documents?limit=250", nil)
+	req := httptest.NewRequest(http.MethodGet, bricoproHQAPIPrefix+"/stats", nil)
 	req.Header.Set("X-API-Key", "secret-key")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "review-me", client.lastTag)
-	assert.Equal(t, 100, client.lastPageSize)
+	assert.False(t, client.paperlessCalled)
 
-	var response bricoproHQDocumentListResponse
+	var response bricoproHQStatsResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
-	assert.Equal(t, 1, response.Count)
-	assert.Equal(t, 100, response.Limit)
-	require.Len(t, response.Documents, 1)
-	assert.Equal(t, 12, response.Documents[0].ID)
+	assert.Equal(t, bricoproHQAPIVersion, response.APIVersion)
+	assert.Equal(t, 30, response.WindowDays)
+	assert.Equal(t, int64(1), response.Queue.Pending)
+	assert.Equal(t, int64(1), response.Queue.Running)
+	assert.Equal(t, int64(1), response.Queue.Failed)
+	assert.Equal(t, int64(3), response.Queue.Total)
+	assert.Equal(t, int64(2), response.ProcessedDocumentsLast30Days)
+	assert.Equal(t, []bricoproHQTagStat{
+		{Tag: "materials", Count: 4},
+		{Tag: "urgent", Count: 3},
+	}, response.MostUsedTagsLast30Days)
+	require.NotNil(t, response.HighestCustomFieldAmountSuggestionLast30Days)
+	assert.Equal(t, 10, response.HighestCustomFieldAmountSuggestionLast30Days.FieldID)
+	assert.Equal(t, "Amount", response.HighestCustomFieldAmountSuggestionLast30Days.FieldName)
+	assert.Equal(t, 500.25, response.HighestCustomFieldAmountSuggestionLast30Days.Amount)
+	assert.Empty(t, client.lastTag)
+	assert.Zero(t, client.lastDocumentID)
+}
+
+func TestBricoproHQAPIDoesNotExposeDocuments(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_SECRET_KEY", "test-secret")
+	db, err := InitializeTestDB()
+	require.NoError(t, err)
+	app := &App{Database: db}
+	require.NoError(t, app.upsertBricoproHQAPIKey(context.Background(), mustEncryptForTest(t, "secret-key")))
+	router := gin.New()
+	api := router.Group(bricoproHQAPIPrefix)
+	api.Use(app.bricoproHQAPIKeyMiddleware())
+	app.registerBricoproHQAPIRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, bricoproHQAPIPrefix+"/documents", nil)
+	req.Header.Set("X-API-Key", "secret-key")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestBricoproHQAPIKeyGenerationEnablesConnectorAPI(t *testing.T) {
@@ -442,10 +604,7 @@ func TestBricoproHQAPIKeyGenerationEnablesConnectorAPI(t *testing.T) {
 
 	db, err := InitializeTestDB()
 	require.NoError(t, err)
-	client := &updateDocumentsMockClient{
-		documentsByTag: []Document{{ID: 44, Title: "Receipt"}},
-	}
-	app := &App{Client: client, Database: db}
+	app := &App{Database: db}
 	router := gin.New()
 	api := router.Group("/api")
 	app.registerBricoproHQConnectorSettingsRoutes(api)
@@ -462,11 +621,11 @@ func TestBricoproHQAPIKeyGenerationEnablesConnectorAPI(t *testing.T) {
 	require.True(t, generated.Configured)
 	require.NotEmpty(t, generated.GeneratedKey)
 
-	req := httptest.NewRequest(http.MethodGet, bricoproHQAPIPrefix+"/documents", nil)
+	req := httptest.NewRequest(http.MethodGet, bricoproHQAPIPrefix+"/stats", nil)
 	req.Header.Set("X-API-Key", generated.GeneratedKey)
-	wPending := httptest.NewRecorder()
-	router.ServeHTTP(wPending, req)
-	require.Equal(t, http.StatusOK, wPending.Code)
+	wStats := httptest.NewRecorder()
+	router.ServeHTTP(wStats, req)
+	require.Equal(t, http.StatusOK, wStats.Code)
 }
 
 func TestBricoproHQAPIKeyGenerationAndRevoke(t *testing.T) {

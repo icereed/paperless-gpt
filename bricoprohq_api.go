@@ -5,12 +5,13 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,18 +30,41 @@ type bricoproHQConnectorStatusResponse struct {
 	BaseURL      string `json:"base_url"`
 	LocalBaseURL string `json:"local_base_url,omitempty"`
 	HealthURL    string `json:"health_url"`
-	DocumentsURL string `json:"documents_url"`
+	StatsURL     string `json:"stats_url"`
 	HeaderName   string `json:"header_name"`
 	GeneratedKey string `json:"api_key,omitempty"`
-	QueueTag     string `json:"queue_tag"`
 	APIVersion   string `json:"api_version"`
 	LastUsedAt   string `json:"last_used_at,omitempty"`
 }
 
-type bricoproHQDocumentListResponse struct {
-	Count     int        `json:"count"`
-	Limit     int        `json:"limit"`
-	Documents []Document `json:"documents"`
+type bricoproHQStatsResponse struct {
+	APIVersion                                   string                           `json:"api_version"`
+	GeneratedAt                                  string                           `json:"generated_at"`
+	WindowDays                                   int                              `json:"window_days"`
+	Queue                                        bricoproHQQueueStats             `json:"queue"`
+	ProcessedDocumentsLast30Days                 int64                            `json:"processed_documents_last_30_days"`
+	MostUsedTagsLast30Days                       []bricoproHQTagStat              `json:"most_used_tags_last_30_days"`
+	HighestCustomFieldAmountSuggestionLast30Days *bricoproHQCustomFieldAmountStat `json:"highest_custom_field_amount_suggestion_last_30_days"`
+}
+
+type bricoproHQQueueStats struct {
+	Pending int64 `json:"pending"`
+	Running int64 `json:"running"`
+	Failed  int64 `json:"failed"`
+	Total   int64 `json:"total"`
+}
+
+type bricoproHQTagStat struct {
+	Tag   string `json:"tag"`
+	Count int    `json:"count"`
+}
+
+type bricoproHQCustomFieldAmountStat struct {
+	FieldID     int     `json:"field_id,omitempty"`
+	FieldName   string  `json:"field_name,omitempty"`
+	Amount      float64 `json:"amount"`
+	Value       string  `json:"value,omitempty"`
+	GeneratedAt string  `json:"generated_at"`
 }
 
 func (app *App) registerBricoproHQConnectorSettingsRoutes(api *gin.RouterGroup) {
@@ -51,8 +75,7 @@ func (app *App) registerBricoproHQConnectorSettingsRoutes(api *gin.RouterGroup) 
 
 func (app *App) registerBricoproHQAPIRoutes(api *gin.RouterGroup) {
 	api.GET("/health", app.bricoproHQHealthHandler)
-	api.GET("/documents", app.bricoproHQDocumentsHandler)
-	api.GET("/documents/:id", app.bricoproHQDocumentHandler)
+	api.GET("/stats", app.bricoproHQStatsHandler)
 }
 
 func (app *App) bricoproHQAPIKeyMiddleware() gin.HandlerFunc {
@@ -211,14 +234,13 @@ func (app *App) bricoproHQConnectorStatus(c *gin.Context) (bricoproHQConnectorSt
 		BaseURL:      baseURL,
 		LocalBaseURL: localBaseURL,
 		HealthURL:    baseURL + bricoproHQAPIPrefix + "/health",
-		DocumentsURL: baseURL + bricoproHQAPIPrefix + "/documents",
+		StatsURL:     baseURL + bricoproHQAPIPrefix + "/stats",
 		HeaderName:   "X-API-Key",
-		QueueTag:     manualTag,
 		APIVersion:   bricoproHQAPIVersion,
 	}
 	if localBaseURL != "" {
 		status.HealthURL = localBaseURL + bricoproHQAPIPrefix + "/health"
-		status.DocumentsURL = localBaseURL + bricoproHQAPIPrefix + "/documents"
+		status.StatsURL = localBaseURL + bricoproHQAPIPrefix + "/stats"
 	}
 	if app == nil || app.Database == nil || !app.Database.Migrator().HasTable(&BricoproHQAPIKey{}) {
 		return status, nil
@@ -295,43 +317,121 @@ func (app *App) bricoproHQHealthHandler(c *gin.Context) {
 	})
 }
 
-func (app *App) bricoproHQDocumentsHandler(c *gin.Context) {
-	limit := parsePositiveIntQuery(c, "limit", 25, 100)
-	documents, err := app.Client.GetDocumentsByTag(c.Request.Context(), manualTag, limit)
+func (app *App) bricoproHQStatsHandler(c *gin.Context) {
+	stats, err := app.bricoproHQStats(c.Request.Context(), time.Now().UTC())
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Error fetching pending documents: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Error building Paperless GPT stats: %v", err)})
 		return
 	}
-	c.JSON(http.StatusOK, bricoproHQDocumentListResponse{
-		Count:     len(documents),
-		Limit:     limit,
-		Documents: documents,
-	})
+	c.JSON(http.StatusOK, stats)
 }
 
-func (app *App) bricoproHQDocumentHandler(c *gin.Context) {
-	documentID, err := strconv.Atoi(c.Param("id"))
-	if err != nil || documentID <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid document ID"})
-		return
+func (app *App) bricoproHQStats(ctx context.Context, now time.Time) (bricoproHQStatsResponse, error) {
+	if app == nil || app.Database == nil {
+		return bricoproHQStatsResponse{}, errors.New("database is not configured")
 	}
-	document, err := app.Client.GetDocument(c.Request.Context(), documentID)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Error fetching document: %v", err)})
-		return
-	}
-	c.JSON(http.StatusOK, document)
-}
+	windowDays := 30
+	cutoff := now.AddDate(0, 0, -windowDays)
+	db := app.Database.WithContext(ctx)
 
-func parsePositiveIntQuery(c *gin.Context, name string, defaultValue, maxValue int) int {
-	value := defaultValue
-	if raw := strings.TrimSpace(c.Query(name)); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			value = parsed
+	stats := bricoproHQStatsResponse{
+		APIVersion:             bricoproHQAPIVersion,
+		GeneratedAt:            now.Format(time.RFC3339),
+		WindowDays:             windowDays,
+		MostUsedTagsLast30Days: []bricoproHQTagStat{},
+	}
+
+	if err := db.Model(&SuggestionJob{}).
+		Where("status = ?", suggestionJobStatusPending).
+		Count(&stats.Queue.Pending).Error; err != nil {
+		return stats, err
+	}
+	if err := db.Model(&SuggestionJob{}).
+		Where("status = ?", suggestionJobStatusRunning).
+		Count(&stats.Queue.Running).Error; err != nil {
+		return stats, err
+	}
+	if err := db.Model(&SuggestionJob{}).
+		Where("status = ?", suggestionJobStatusFailed).
+		Count(&stats.Queue.Failed).Error; err != nil {
+		return stats, err
+	}
+	stats.Queue.Total = stats.Queue.Pending + stats.Queue.Running + stats.Queue.Failed
+
+	if err := db.Model(&DocumentSuggestionCache{}).
+		Where("generated_at >= ?", cutoff).
+		Distinct("document_id").
+		Count(&stats.ProcessedDocumentsLast30Days).Error; err != nil {
+		return stats, err
+	}
+
+	var cachedSuggestions []DocumentSuggestionCache
+	if err := db.Select("id", "generated_at", "suggestions_json").
+		Where("generated_at >= ?", cutoff).
+		Find(&cachedSuggestions).Error; err != nil {
+		return stats, err
+	}
+
+	tagCounts := map[string]int{}
+	var highest *bricoproHQCustomFieldAmountStat
+	for _, cache := range cachedSuggestions {
+		var suggestion DocumentSuggestion
+		if err := json.Unmarshal([]byte(cache.SuggestionsJSON), &suggestion); err != nil {
+			log.WithError(err).WithField("cache_id", cache.ID).Debug("failed to parse cached suggestion for BricoproHQ stats")
+			continue
+		}
+		for _, tag := range suggestion.SuggestedTags {
+			tag = strings.TrimSpace(tag)
+			if tag != "" {
+				tagCounts[tag]++
+			}
+		}
+		for _, field := range suggestion.SuggestedCustomFields {
+			if !isBricoproHQAmountField(field.Name) {
+				continue
+			}
+			amount, ok := parseNumericValue(field.Value)
+			if !ok {
+				continue
+			}
+			if highest == nil || amount > highest.Amount {
+				highest = &bricoproHQCustomFieldAmountStat{
+					FieldID:     field.ID,
+					FieldName:   strings.TrimSpace(field.Name),
+					Amount:      amount,
+					Value:       stringifyExpenseFieldValue(field.Value),
+					GeneratedAt: cache.GeneratedAt.UTC().Format(time.RFC3339),
+				}
+			}
 		}
 	}
-	if value > maxValue {
-		return maxValue
+	stats.MostUsedTagsLast30Days = topBricoproHQTags(tagCounts, 10)
+	stats.HighestCustomFieldAmountSuggestionLast30Days = highest
+
+	return stats, nil
+}
+
+func topBricoproHQTags(tagCounts map[string]int, limit int) []bricoproHQTagStat {
+	tags := make([]bricoproHQTagStat, 0, len(tagCounts))
+	for tag, count := range tagCounts {
+		tags = append(tags, bricoproHQTagStat{Tag: tag, Count: count})
 	}
-	return value
+	sort.Slice(tags, func(i, j int) bool {
+		if tags[i].Count != tags[j].Count {
+			return tags[i].Count > tags[j].Count
+		}
+		return tags[i].Tag < tags[j].Tag
+	})
+	if limit > 0 && len(tags) > limit {
+		return tags[:limit]
+	}
+	return tags
+}
+
+func isBricoproHQAmountField(name string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	return strings.Contains(normalized, "amount") ||
+		strings.Contains(normalized, "total") ||
+		strings.Contains(normalized, "price") ||
+		strings.Contains(normalized, "cost")
 }

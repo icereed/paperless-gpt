@@ -693,7 +693,7 @@ These are active in addition to user auth when set, and work without any user ac
 
 ##### Connecting Bricopro HQ
 
-Bricopro HQ uses a dedicated local connector API. It does not use OAuth, browser login, Basic Auth, bearer tokens, or the normal `/api/documents` app route.
+Bricopro HQ uses a dedicated local connector API for Paperless GPT stats. It does not use OAuth, browser login, Basic Auth, bearer tokens, or the normal `/api/documents` app route. The connector returns only Paperless GPT local database metrics; it does not proxy paperless-ngx document data.
 
 1. Open **Paperless GPT -> Settings -> BricoproHQ connector**.
 2. Generate an API key.
@@ -711,18 +711,17 @@ curl -i -H "X-API-Key: <generated-key>" \
   http://192.168.1.25:8080/api/bricoprohq/v1/health
 ```
 
-To fetch pending documents tagged with `MANUAL_TAG`:
+To fetch Paperless GPT stats:
 
 ```bash
 curl -H "X-API-Key: <generated-key>" \
-  "http://192.168.1.25:8080/api/bricoprohq/v1/documents?limit=25"
+  "http://192.168.1.25:8080/api/bricoprohq/v1/stats"
 ```
 
 Available connector endpoints:
 
 - `GET /api/bricoprohq/v1/health` - service/version check.
-- `GET /api/bricoprohq/v1/documents?limit=25` - documents currently tagged with `MANUAL_TAG` and waiting for review.
-- `GET /api/bricoprohq/v1/documents/{id}` - one Paperless document by ID.
+- `GET /api/bricoprohq/v1/stats` - local Paperless GPT metrics: suggestion queue counts, documents processed in the last 30 days, most suggested tags in the last 30 days, and highest numeric custom-field suggestion in the last 30 days.
 
 ##### Network & rate limiting
 

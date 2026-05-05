@@ -5,10 +5,9 @@ interface BricoproHQConnectorStatus {
   base_url: string;
   local_base_url?: string;
   health_url: string;
-  documents_url: string;
+  stats_url: string;
   header_name: string;
   api_key?: string;
-  queue_tag: string;
   api_version: string;
   last_used_at?: string;
 }
@@ -18,9 +17,8 @@ const emptyStatus: BricoproHQConnectorStatus = {
   base_url: '',
   local_base_url: '',
   health_url: '',
-  documents_url: '',
+  stats_url: '',
   header_name: 'X-API-Key',
-  queue_tag: '',
   api_version: 'v1',
 };
 
@@ -131,8 +129,8 @@ const ConnectorIntegrations: React.FC = () => {
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600 dark:text-gray-300">
             Generate one local connector API key, then paste that key and the Paperless GPT URL into
-            <em> Bricopro HQ → Settings → Integrations → Paperless-GPT</em>. No OAuth, admin login,
-            bearer token, or auth mode is required.
+            <em> Bricopro HQ → Settings → Integrations → Paperless-GPT</em>. The connector exposes
+            Paperless-GPT stats only, not Paperless document payloads.
           </p>
         </div>
         <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${status.configured ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200' : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}`}>
@@ -164,9 +162,10 @@ const ConnectorIntegrations: React.FC = () => {
           value={hostPortHint}
         />
         <Field
-          label="Queue tag"
-          hint="Documents with this Paperless tag are returned to BricoproHQ."
-          value={status.queue_tag || 'paperless-gpt'}
+          label="Stats endpoint"
+          hint="BricoproHQ reads Paperless-GPT stats from this endpoint."
+          value={status.stats_url || (baseURL ? `${baseURL}/api/bricoprohq/v1/stats` : '')}
+          onCopy={status.stats_url ? () => copy(status.stats_url, 'Stats endpoint') : undefined}
         />
       </div>
 
@@ -192,9 +191,10 @@ const ConnectorIntegrations: React.FC = () => {
             <Row label="Paperless-GPT URL" value={baseURL} onCopy={baseURL ? () => copy(baseURL, 'Paperless-GPT URL') : undefined} />
             <Row label="API Key" value={generatedKey || (status.configured ? '(already generated - rotate to show a new key)' : '(generate a key first)')} onCopy={generatedKey ? () => copy(generatedKey, 'API key') : undefined} />
             <Row
-              label="Tag for queue"
-              value={status.queue_tag || 'paperless-gpt'}
-              hint="Override with the MANUAL_TAG env var if needed."
+              label="Stats endpoint"
+              value={status.stats_url || (baseURL ? `${baseURL}/api/bricoprohq/v1/stats` : '')}
+              hint="Returns local Paperless-GPT metrics only; document payloads are not exposed."
+              onCopy={status.stats_url ? () => copy(status.stats_url, 'Stats endpoint') : undefined}
             />
           </tbody>
         </table>
@@ -227,10 +227,10 @@ const ConnectorIntegrations: React.FC = () => {
         <pre className="mt-2 overflow-x-auto rounded bg-gray-900 p-3 text-xs text-gray-100">
 {`curl -i \\
   -H "X-API-Key: <api-key>" \\
-  ${status.health_url || `${baseURL || '<paperless-gpt-url>'}/api/bricoprohq/v1/health`}`}
+  ${status.stats_url || `${baseURL || '<paperless-gpt-url>'}/api/bricoprohq/v1/stats`}`}
         </pre>
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          200 OK with <code>{'{"ok":true}'}</code> means BricoproHQ can connect.
+          200 OK with a stats payload means BricoproHQ can connect.
         </p>
       </details>
     </section>
