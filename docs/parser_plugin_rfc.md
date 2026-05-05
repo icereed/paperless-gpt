@@ -1,9 +1,10 @@
 # RFC: A Generic LLM-OCR HTTP API (with paperless-ngx as the first consumer)
 
-> **Status:** Draft / Discussion
+> **Status:** Draft / Discussion — **MVP shipped in this PR**
 > **Author:** @icereed (and contributors)
 > **Headline use case:** paperless-ngx 3.0 [parser plugin framework](https://github.com/paperless-ngx/paperless-ngx/pull/12294) ([discussion #12023](https://github.com/paperless-ngx/paperless-ngx/discussions/12023))
 > **Other targeted consumers:** n8n / Zapier / Make, local coding agents (Claude Code, Continue, aider), CLI tools, custom RAG pipelines, anything that struggles with PDFs.
+> **Try it:** see [`examples/parser-plugin/README.md`](examples/parser-plugin/README.md) for `curl` quickstart.
 
 ## TL;DR
 
@@ -294,14 +295,15 @@ We never break existing users. That's a story no Python-only competitor can tell
 
 ## Roadmap (proposed)
 
-| Step | Deliverable |
-|---|---|
-| 1 (this PR) | RFC + stub endpoints (returning 501) to anchor discussion. |
-| 2 | Refactor `ocr.go` so the OCR pipeline can be invoked statelessly. |
-| 3 | Implement `POST /api/v1/parse` end-to-end for image MIME types. |
-| 4 | Add searchable PDF generation to the response. |
-| 5 | New repo `paperless-gpt-parser` with the Python shim + integration tests against `paperless-ngx:dev`. |
-| 6 | Docs, docker-compose example, and announcement back in [discussion #12023](https://github.com/paperless-ngx/paperless-ngx/discussions/12023). |
+| Step | Status | Deliverable |
+|---|---|---|
+| 1 (this PR) | ✅ | RFC + working MVP: text extraction for images and PDFs, capabilities/healthz, optional bearer auth, Python shim skeleton, curl quickstart, docker-compose example. |
+| 2 | 🚧 | Refactor the polling-flow `ProcessDocumentOCR` to share more code with the new stateless path (today they overlap but are not unified). |
+| 3 | 🚧 | Searchable archive PDF in the `/parse` response (hOCR + page images via `gardar/ocrchestra/pkg/pdfocr`). |
+| 4 | 🚧 | Real WebP thumbnail in the `/parse` response. |
+| 5 | 🚧 | Per-request `provider` override + `language_hint` honoring. |
+| 6 | 🚧 | Move `paperless-gpt-parser/` into its own repository, publish to PyPI, integration tests against `paperless-ngx:dev`. |
+| 7 | 🚧 | Announcement back in [discussion #12023](https://github.com/paperless-ngx/paperless-ngx/discussions/12023). |
 
 ---
 
