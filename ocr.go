@@ -507,7 +507,11 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 					tagIDs = append(tagIDs, tagID)
 				} else {
 					// Create the tag if it doesn't exist
-					tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag)
+					objPerms, err := app.Client.GetPermissions(ctx, &originalDoc)
+					if err != nil {
+						logger.WithError(err).Warn("Could not get permissions")
+					}
+					tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag, objPerms)
 					if err == nil {
 						tagIDs = append(tagIDs, tagID)
 					} else {
@@ -543,7 +547,11 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 				metadata["tags"] = []int{tagID}
 			} else {
 				// Create the tag if it doesn't exist
-				tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag)
+				objPerms, err := app.Client.GetPermissions(ctx, &originalDoc)
+				if err != nil {
+					logger.WithError(err).Warn("Could not get permissions")
+				}
+				tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag, objPerms)
 				if err == nil {
 					metadata["tags"] = []int{tagID}
 				} else {

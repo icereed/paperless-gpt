@@ -6,6 +6,33 @@ import (
 	"gorm.io/gorm"
 )
 
+type UiSettingsPermissions struct {
+	Owner      *int  `json:"default_owner"`
+	EditUsers  []int `json:"default_edit_users"`
+	ViewUsers  []int `json:"default_view_users"`
+	EditGroups []int `json:"default_edit_groups"`
+	ViewGroups []int `json:"default_view_groups"`
+}
+
+type Permissions struct {
+	View struct {
+		Users  []int `json:"users"`
+		Groups []int `json:"groups"`
+	} `json:"view"`
+	Change struct {
+		Users  []int `json:"users"`
+		Groups []int `json:"groups"`
+	} `json:"change"`
+}
+type SetPermissions = Permissions
+type DocumentPermissions = Permissions
+type CorrespondentPermissions = Permissions
+
+type ObjPermissions struct {
+	Owner          *int            `json:"owner"`
+	SetPermissions *SetPermissions `json:"set_permissions"`
+}
+
 // GetDocumentsApiResponse is the response payload for /documents endpoint.
 // But we are only interested in a subset of the fields.
 type GetDocumentsApiResponse struct {
@@ -33,7 +60,8 @@ type GetDocumentApiResponseResult struct {
 	// ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
 	// OriginalFileName    string        `json:"original_file_name"`
 	// ArchivedFileName    string        `json:"archived_file_name"`
-	// Owner               int           `json:"owner"`
+	Owner       int                 `json:"owner"`
+	Permissions DocumentPermissions `json:"permissions"`
 	// UserCanChange       bool          `json:"user_can_change"`
 	Notes []interface{} `json:"notes"`
 	// SearchHit struct {
@@ -69,6 +97,8 @@ type GetDocumentApiResponse struct {
 	Tags             []int                 `json:"tags"`
 	CreatedDate      string                `json:"created_date"`
 	OriginalFileName string                `json:"original_file_name"`
+	Owner            int                   `json:"owner"`
+	Permissions      DocumentPermissions   `json:"permissions"`
 	Notes            []interface{}         `json:"notes"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
 }
@@ -81,6 +111,8 @@ type Document struct {
 	Content          string                `json:"content"`
 	Tags             []string              `json:"tags"`
 	Correspondent    string                `json:"correspondent"`
+	Owner            int                   `json:"owner"`
+	Permissions      DocumentPermissions   `json:"permissions"`
 	CreatedDate      string                `json:"created_date"`
 	OriginalFileName string                `json:"original_file_name"`
 	DocumentTypeName string                `json:"document_type_name"`
@@ -111,6 +143,23 @@ type Settings struct {
 	CustomFieldsWriteMode   string `json:"custom_fields_write_mode"` // "append" or "replace"
 }
 
+type UiSettingsUser struct {
+	Id          int    `json:"id"`
+	Username    string `json:"username"`
+	IsStaff     bool   `json:"is_staff"`
+	IsSuperuser bool   `json:"is_superuser"`
+	Groups      []int  `json:"groups"`
+}
+
+type UiSettingsSettings struct {
+	Permissions UiSettingsPermissions `json:"permissions"`
+}
+
+type UiSettings struct {
+	User     UiSettingsUser     `json:"user"`
+	Settings UiSettingsSettings `json:"settings"`
+}
+
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
 type DocumentSuggestion struct {
 	ID                     int                     `json:"id"`
@@ -130,21 +179,12 @@ type DocumentSuggestion struct {
 }
 
 type Correspondent struct {
-	Name              string `json:"name"`
-	MatchingAlgorithm int    `json:"matching_algorithm"`
-	Match             string `json:"match"`
-	IsInsensitive     bool   `json:"is_insensitive"`
-	Owner             *int   `json:"owner"`
-	SetPermissions    struct {
-		View struct {
-			Users  []int `json:"users"`
-			Groups []int `json:"groups"`
-		} `json:"view"`
-		Change struct {
-			Users  []int `json:"users"`
-			Groups []int `json:"groups"`
-		} `json:"change"`
-	} `json:"set_permissions"`
+	Name              string          `json:"name"`
+	MatchingAlgorithm int             `json:"matching_algorithm"`
+	Match             string          `json:"match"`
+	IsInsensitive     bool            `json:"is_insensitive"`
+	Owner             *int            `json:"owner"`
+	SetPermissions    *SetPermissions `json:"set_permissions,omitempty"`
 }
 
 // OCROptions contains options for the OCR processing
@@ -166,12 +206,14 @@ type ClientInterface interface {
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
 	GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error)
 	GetCustomFields(ctx context.Context) ([]CustomField, error)
-	CreateTag(ctx context.Context, tagName string) (int, error)
+	CreateTag(ctx context.Context, tagName string, objPerms *ObjPermissions) (int, error)
 	DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error)
 	DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error)
 	UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error)
 	GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error)
 	DeleteDocument(ctx context.Context, documentID int) error
+	GetUiSettings(ctx context.Context) (*UiSettings, error)
+	GetPermissions(ctx context.Context, doc *Document) (*ObjPermissions, error)
 }
 
 // DocumentProcessor defines the interface for processing documents with OCR
