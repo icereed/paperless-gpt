@@ -224,14 +224,15 @@ func (client *PaperlessClient) UpdatePermissions(ctx context.Context, doc *Docum
 		}
 
 	} else if objPermissions == "client" {
-		if client.ObjPermissions.Owner == nil || client.ObjPermissions.SetPermissions == nil {
-			uiSettings, err := client.GetUiSettings(ctx)
-			if err != nil {
-				return fmt.Errorf("error getting permissions: %w", err)
-			}
-			client.ObjPermissions.Owner = uiSettings.Settings.Permissions.Owner
-			client.ObjPermissions.SetPermissions = mapPermissions(&uiSettings.Settings.Permissions)
+		// Although unlikely, client permissions may change during runtime
+		// As long as paperless does not provide a callback / event mechanism for
+		// these type of changes we need to check every time
+		uiSettings, err := client.GetUiSettings(ctx)
+		if err != nil {
+			return fmt.Errorf("error getting permissions: %w", err)
 		}
+		client.ObjPermissions.Owner = uiSettings.Settings.Permissions.Owner
+		client.ObjPermissions.SetPermissions = mapPermissions(&uiSettings.Settings.Permissions)
 
 		return nil
 	}
