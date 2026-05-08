@@ -241,8 +241,8 @@ func (client *PaperlessClient) UpdatePermissions(ctx context.Context, doc *Docum
 }
 
 // get object permissions
-func (client *PaperlessClient) GetPermissions(ctx context.Context) (*ObjPermissions, error) {
-	return &client.ObjPermissions, nil
+func (client *PaperlessClient) GetPermissions(ctx context.Context) ObjPermissions {
+	return client.ObjPermissions
 }
 
 // GetAllTags retrieves all tags from the Paperless-NGX API
@@ -1242,11 +1242,7 @@ func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, cor
 		return id, nil
 	}
 
-	objperms, err := client.GetPermissions(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("error getting permissions for new correspondent: %w", err)
-	}
-
+	objperms := client.GetPermissions(ctx)
 	correspondent.Owner = objperms.Owner
 	correspondent.SetPermissions = objperms.SetPermissions
 
@@ -1434,11 +1430,7 @@ func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (i
 	var tagRequest TagRequest
 	tagRequest.Name = tagName
 
-	objperms, err := client.GetPermissions(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("error getting permissions for new tag: %w", err)
-	}
-
+	objperms := client.GetPermissions(ctx)
 	tagRequest.Owner = objperms.Owner
 	tagRequest.SetPermissions = objperms.SetPermissions
 

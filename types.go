@@ -214,7 +214,7 @@ type ClientInterface interface {
 	DeleteDocument(ctx context.Context, documentID int) error
 	GetUiSettings(ctx context.Context) (*UiSettings, error)
 	UpdatePermissions(ctx context.Context, doc *Document) error
-	GetPermissions(ctx context.Context) (*ObjPermissions, error)
+	GetPermissions(ctx context.Context) ObjPermissions
 }
 
 // DocumentProcessor defines the interface for processing documents with OCR
