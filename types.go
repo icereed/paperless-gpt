@@ -7,20 +7,20 @@ import (
 )
 
 type UiSettingsPermissions struct {
-	Owner *int `json:"default_owner"`
-	EditUsers []int `json:"default_edit_users"`
-	ViewUsers []int `json:"default_view_users"`
+	Owner      *int  `json:"default_owner"`
+	EditUsers  []int `json:"default_edit_users"`
+	ViewUsers  []int `json:"default_view_users"`
 	EditGroups []int `json:"default_edit_groups"`
 	ViewGroups []int `json:"default_view_groups"`
 }
 
 type Permissions struct {
 	View struct {
-		Users []int `json:"users"`
+		Users  []int `json:"users"`
 		Groups []int `json:"groups"`
 	} `json:"view"`
 	Change struct {
-		Users []int `json:"users"`
+		Users  []int `json:"users"`
 		Groups []int `json:"groups"`
 	} `json:"change"`
 }
@@ -29,7 +29,7 @@ type DocumentPermissions = Permissions
 type CorrespondentPermissions = Permissions
 
 type ObjPermissions struct {
-	Owner *int `json:"owner"`
+	Owner          *int            `json:"owner"`
 	SetPermissions *SetPermissions `json:"set_permissions"`
 }
 
@@ -60,8 +60,8 @@ type GetDocumentApiResponseResult struct {
 	// ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
 	// OriginalFileName    string        `json:"original_file_name"`
 	// ArchivedFileName    string        `json:"archived_file_name"`
-	Owner                  int           `json:"owner"`
-	Permissions            DocumentPermissions `json:"permissions"`
+	Owner       int                 `json:"owner"`
+	Permissions DocumentPermissions `json:"permissions"`
 	// UserCanChange       bool          `json:"user_can_change"`
 	Notes []interface{} `json:"notes"`
 	// SearchHit struct {
@@ -144,11 +144,11 @@ type Settings struct {
 }
 
 type UiSettingsUser struct {
-	Id int `json:"id"`
-	Username string `json:"username"`
-	IsStaff bool `json:"is_staff"`
-	IsSuperuser bool `json:"is_superuser"`
-	Groups []int `json:"groups"`
+	Id          int    `json:"id"`
+	Username    string `json:"username"`
+	IsStaff     bool   `json:"is_staff"`
+	IsSuperuser bool   `json:"is_superuser"`
+	Groups      []int  `json:"groups"`
 }
 
 type UiSettingsSettings struct {
@@ -156,7 +156,7 @@ type UiSettingsSettings struct {
 }
 
 type UiSettings struct {
-	User UiSettingsUser `json:"user"`
+	User     UiSettingsUser     `json:"user"`
 	Settings UiSettingsSettings `json:"settings"`
 }
 

@@ -32,11 +32,11 @@ import (
 
 // PaperlessClient struct to interact with the Paperless-NGX API
 type PaperlessClient struct {
-	BaseURL        string
-	APIToken       string
-	HTTPClient     *http.Client
-	CacheFolder    string
-	UserId         *int
+	BaseURL     string
+	APIToken    string
+	HTTPClient  *http.Client
+	CacheFolder string
+	UserId      *int
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -53,8 +53,8 @@ type DocumentType struct {
 }
 
 type TagRequest struct {
-	Name string `json:"name"`
-	Owner *int `json:"owner"`
+	Name           string          `json:"name"`
+	Owner          *int            `json:"owner"`
 	SetPermissions *SetPermissions `json:"set_permissions,omitempty"`
 }
 
