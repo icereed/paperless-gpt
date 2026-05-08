@@ -779,7 +779,7 @@ func validateOrDefaultEnvVars() {
 	if objPermissions == "" {
 		objPermissions = "client"
 		log.Infof("OBJ_PERMISSIONS not set, defaulting to %s", objPermissions)
-	} else if objPermissions != "client" && ocrProcessMode != "document" && ocrProcessMode != "none" {
+	} else if objPermissions != "client" && objPermissions != "document" && objPermissions != "none" {
 		log.Warnf("Invalid OBJ_PERMISSIONS value: %s, defaulting to client", objPermissions)
 		objPermissions = "client"
 	}
