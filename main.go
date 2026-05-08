@@ -774,6 +774,15 @@ func validateOrDefaultEnvVars() {
 	if pdfOCRTagging {
 		log.Infof("OCR complete tagging enabled with tag: %s", pdfOCRCompleteTag)
 	}
+
+	// set default value for objPermissions
+	if objPermissions == "" {
+		objPermissions = "client"
+		log.Infof("OBJ_PERMISSIONS not set, defaulting to %s", objPermissions)
+	} else if objPermissions != "client" && ocrProcessMode != "document" && ocrProcessMode != "none" {
+		log.Warnf("Invalid OBJ_PERMISSIONS value: %s, defaulting to client", objPermissions)
+		objPermissions = "client"
+	}
 }
 
 // documentLogger creates a logger with document context
