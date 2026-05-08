@@ -481,7 +481,7 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 		return fmt.Errorf("error fetching original document: %w", err)
 	}
 
-	app.Client.UpdatePermissions(ctx, &originalDoc)
+	err := app.Client.UpdatePermissions(ctx, &originalDoc)
 	if err != nil {
 		return fmt.Errorf("error updating permissions: %w", err)
 	}
