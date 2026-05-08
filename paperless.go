@@ -1241,8 +1241,10 @@ func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, cor
 		return id, nil
 	}
 
-	correspondent.Owner = objPerms.Owner
-	correspondent.SetPermissions = objPerms.SetPermissions
+	if objPerms != nil {
+		correspondent.Owner = objPerms.Owner
+		correspondent.SetPermissions = objPerms.SetPermissions
+	}
 
 	// If not found, create new correspondent
 	url := "api/correspondents/"
@@ -1428,8 +1430,10 @@ func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string, ob
 	var tagRequest TagRequest
 	tagRequest.Name = tagName
 
-	tagRequest.Owner = objPerms.Owner
-	tagRequest.SetPermissions = objPerms.SetPermissions
+	if objPerms != nil {
+		tagRequest.Owner = objPerms.Owner
+		tagRequest.SetPermissions = objPerms.SetPermissions
+	}
 
 	requestBody, err := json.Marshal(tagRequest)
 	if err != nil {
