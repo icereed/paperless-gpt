@@ -37,7 +37,6 @@ type PaperlessClient struct {
 	HTTPClient     *http.Client
 	CacheFolder    string
 	UserId         *int
-	ObjPermissions ObjPermissions
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -198,29 +197,31 @@ func (client *PaperlessClient) GetUiSettings(ctx context.Context) (*UiSettings, 
 	return &uiSettings, nil
 }
 
-// update object permissions
-func (client *PaperlessClient) UpdatePermissions(ctx context.Context, doc *Document) error {
-	if objPermissions == "none" {
-		client.ObjPermissions.Owner = nil
-		client.ObjPermissions.SetPermissions = nil
+// retrieve object permissions
+func (client *PaperlessClient) GetPermissions(ctx context.Context, doc *Document) (*ObjPermissions, error) {
+	var objPerms ObjPermissions
 
-		return nil
+	if objPermissions == "none" {
+		objPerms.Owner = nil
+		objPerms.SetPermissions = nil
+
+		return &objPerms, nil
 
 	} else if objPermissions == "document" {
 		if doc == nil {
-			return fmt.Errorf("error: no document for updating permissions")
+			return nil, fmt.Errorf("error: no document for updating permissions")
 
 		} else {
 
 			// paperless does not accept 0 but requires json null
 			if doc.Owner == 0 {
-				client.ObjPermissions.Owner = nil
+				objPerms.Owner = nil
 			} else {
-				client.ObjPermissions.Owner = &doc.Owner
+				objPerms.Owner = &doc.Owner
 			}
-			client.ObjPermissions.SetPermissions = &doc.Permissions
+			objPerms.SetPermissions = &doc.Permissions
 
-			return nil
+			return &objPerms, nil
 		}
 
 	} else if objPermissions == "client" {
@@ -229,20 +230,15 @@ func (client *PaperlessClient) UpdatePermissions(ctx context.Context, doc *Docum
 		// these type of changes we need to check every time
 		uiSettings, err := client.GetUiSettings(ctx)
 		if err != nil {
-			return fmt.Errorf("error getting permissions: %w", err)
+			return nil, fmt.Errorf("error getting permissions: %w", err)
 		}
-		client.ObjPermissions.Owner = uiSettings.Settings.Permissions.Owner
-		client.ObjPermissions.SetPermissions = mapPermissions(&uiSettings.Settings.Permissions)
+		objPerms.Owner = uiSettings.Settings.Permissions.Owner
+		objPerms.SetPermissions = mapPermissions(&uiSettings.Settings.Permissions)
 
-		return nil
+		return &objPerms, nil
 	}
 
-	return fmt.Errorf("error updating permissions: invalid value for OBJ_PERMISSIONS (%s)", objPermissions)
-}
-
-// get object permissions
-func (client *PaperlessClient) GetPermissions(ctx context.Context) ObjPermissions {
-	return client.ObjPermissions
+	return nil, fmt.Errorf("error updating permissions: invalid value for OBJ_PERMISSIONS (%s)", objPermissions)
 }
 
 // GetAllTags retrieves all tags from the Paperless-NGX API
@@ -567,11 +563,6 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		updatedFields := make(map[string]interface{})
 		originalFields := make(map[string]interface{})
 
-		client.UpdatePermissions(ctx, &originalDoc)
-		if err != nil {
-			return fmt.Errorf("error updating permissions: %w", err)
-		}
-
 		// --- TAGS ---
 		finalTagNames := originalDoc.Tags
 		if len(document.SuggestedTags) > 0 {
@@ -609,7 +600,11 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					finalTagIDs = append(finalTagIDs, tagID)
 				} else if createNewTags {
 					// Create the new tag in paperless-ngx
-					newTagID, err := client.CreateTag(ctx, tagName)
+					objPerms, err := client.GetPermissions(ctx, &originalDoc)
+					if err != nil {
+						logger.WithError(err).Warn("Could not get permissions")
+					}
+					newTagID, err := client.CreateTag(ctx, tagName, objPerms)
 					if err != nil {
 						log.Warnf("Document %d: Failed to create new tag '%s': %v", documentID, tagName, err)
 						continue
@@ -638,8 +633,12 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			if corrID, exists := availableCorrespondents[document.SuggestedCorrespondent]; exists {
 				updatedFields["correspondent"] = corrID
 			} else {
+				objPerms, err := client.GetPermissions(ctx, &originalDoc)
+				if err != nil {
+					logger.WithError(err).Warn("Could not get permissions")
+				}
 				newCorr := instantiateCorrespondent(document.SuggestedCorrespondent)
-				newCorrID, err := client.CreateOrGetCorrespondent(ctx, newCorr)
+				newCorrID, err := client.CreateOrGetCorrespondent(ctx, newCorr, objPerms)
 				if err != nil {
 					return fmt.Errorf("error creating correspondent '%s': %w", document.SuggestedCorrespondent, err)
 				}
@@ -1229,7 +1228,7 @@ func instantiateCorrespondent(name string) Correspondent {
 }
 
 // CreateOrGetCorrespondent creates a new correspondent or returns existing one if name already exists
-func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, correspondent Correspondent) (int, error) {
+func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, correspondent Correspondent, objPerms *ObjPermissions) (int, error) {
 	// First try to find existing correspondent
 	correspondents, err := client.GetAllCorrespondents(ctx)
 	if err != nil {
@@ -1242,9 +1241,8 @@ func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, cor
 		return id, nil
 	}
 
-	objperms := client.GetPermissions(ctx)
-	correspondent.Owner = objperms.Owner
-	correspondent.SetPermissions = objperms.SetPermissions
+	correspondent.Owner = objPerms.Owner
+	correspondent.SetPermissions = objPerms.SetPermissions
 
 	// If not found, create new correspondent
 	url := "api/correspondents/"
@@ -1426,13 +1424,12 @@ func (client *PaperlessClient) GetTaskStatus(ctx context.Context, taskID string)
 }
 
 // CreateTag creates a new tag and returns its ID
-func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (int, error) {
+func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string, objPerms *ObjPermissions) (int, error) {
 	var tagRequest TagRequest
 	tagRequest.Name = tagName
 
-	objperms := client.GetPermissions(ctx)
-	tagRequest.Owner = objperms.Owner
-	tagRequest.SetPermissions = objperms.SetPermissions
+	tagRequest.Owner = objPerms.Owner
+	tagRequest.SetPermissions = objPerms.SetPermissions
 
 	requestBody, err := json.Marshal(tagRequest)
 	if err != nil {

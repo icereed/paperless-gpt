@@ -481,11 +481,6 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 		return fmt.Errorf("error fetching original document: %w", err)
 	}
 
-	err := app.Client.UpdatePermissions(ctx, &originalDoc)
-	if err != nil {
-		return fmt.Errorf("error updating permissions: %w", err)
-	}
-
 	// Always use PDF extension for generated PDFs
 	filename := fmt.Sprintf("%08d_paperless-gpt_ocr.pdf", documentID)
 
@@ -512,7 +507,11 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 					tagIDs = append(tagIDs, tagID)
 				} else {
 					// Create the tag if it doesn't exist
-					tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag)
+					objPerms, err := app.Client.GetPermissions(ctx, &originalDoc)
+					if err != nil {
+						logger.WithError(err).Warn("Could not get permissions")
+					}
+					tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag, objPerms)
 					if err == nil {
 						tagIDs = append(tagIDs, tagID)
 					} else {
@@ -548,7 +547,11 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 				metadata["tags"] = []int{tagID}
 			} else {
 				// Create the tag if it doesn't exist
-				tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag)
+				objPerms, err := app.Client.GetPermissions(ctx, &originalDoc)
+				if err != nil {
+					logger.WithError(err).Warn("Could not get permissions")
+				}
+				tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag, objPerms)
 				if err == nil {
 					metadata["tags"] = []int{tagID}
 				} else {

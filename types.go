@@ -206,15 +206,14 @@ type ClientInterface interface {
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
 	GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error)
 	GetCustomFields(ctx context.Context) ([]CustomField, error)
-	CreateTag(ctx context.Context, tagName string) (int, error)
+	CreateTag(ctx context.Context, tagName string, objPerms *ObjPermissions) (int, error)
 	DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error)
 	DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error)
 	UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error)
 	GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error)
 	DeleteDocument(ctx context.Context, documentID int) error
 	GetUiSettings(ctx context.Context) (*UiSettings, error)
-	UpdatePermissions(ctx context.Context, doc *Document) error
-	GetPermissions(ctx context.Context) ObjPermissions
+	GetPermissions(ctx context.Context, doc *Document) (*ObjPermissions, error)
 }
 
 // DocumentProcessor defines the interface for processing documents with OCR
