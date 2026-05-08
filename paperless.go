@@ -602,7 +602,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					// Create the new tag in paperless-ngx
 					objPerms, err := client.GetPermissions(ctx, &originalDoc)
 					if err != nil {
-						logger.WithError(err).Warn("Could not get permissions")
+						log.Warnf("Document %d: Failed to get permissions: %v", documentID, err)
 					}
 					newTagID, err := client.CreateTag(ctx, tagName, objPerms)
 					if err != nil {
@@ -635,7 +635,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			} else {
 				objPerms, err := client.GetPermissions(ctx, &originalDoc)
 				if err != nil {
-					logger.WithError(err).Warn("Could not get permissions")
+					log.Warnf("Correspondent %s: Failed to get permissions: %v", document.SuggestedCorrespondent, err)
 				}
 				newCorr := instantiateCorrespondent(document.SuggestedCorrespondent)
 				newCorrID, err := client.CreateOrGetCorrespondent(ctx, newCorr, objPerms)
