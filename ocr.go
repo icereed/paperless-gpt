@@ -246,7 +246,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		}
 	} else {
 		// Process pages as images
-		imagePaths, imgPageCount, err := app.Client.DownloadDocumentAsImages(ctx, documentID, pageLimit)
+		var imgPageCount int
+		var err error
+		imagePaths, imgPageCount, err = app.Client.DownloadDocumentAsImages(ctx, documentID, pageLimit)
 		defer func() {
 			for _, imagePath := range imagePaths {
 				if err := os.Remove(imagePath); err != nil {
