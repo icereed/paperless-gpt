@@ -78,6 +78,10 @@ type Config struct {
 	DoclingOCRPipeline     string // Optional, defaults to "vlm"
 	DoclingOCREngine       string // Optional, defaults to "easyocr", if DoclingOCRPipeline == "standard"
 
+	// iOS OCR Server settings
+	IosOcrServerURL     string
+	IosOcrServerTimeout int // seconds, default 60
+
 	// OCR output options
 	EnableHOCR     bool   // Whether to generate hOCR data if supported by the provider
 	HOCROutputPath string // Where to save hOCR output files
@@ -141,6 +145,13 @@ func NewProvider(config Config) (Provider, error) {
 			"model": config.MistralModel,
 		}).Info("Using Mistral OCR provider")
 		return newMistralOCRProvider(config)
+
+	case "ios_ocr":
+		if config.IosOcrServerURL == "" {
+			return nil, fmt.Errorf("missing required iOS OCR Server URL (IOS_OCR_SERVER_URL)")
+		}
+		log.WithField("url", config.IosOcrServerURL).Info("Using iOS OCR Server provider")
+		return newIosOcrProvider(config)
 
 	default:
 		return nil, fmt.Errorf("unsupported OCR provider: %s", config.Provider)
