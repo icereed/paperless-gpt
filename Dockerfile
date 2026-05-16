@@ -30,13 +30,24 @@ FROM docker.io/golang:1.25.5-alpine3.21 AS builder
 # Set the working directory inside the container
 WORKDIR /app
 
-# Install necessary packages
+# renovate: datasource=repology depName=alpine_3_21/gcc versioning=loose
+ENV GCC_VERSION="14.2.0-r4"
+# renovate: datasource=repology depName=alpine_3_21/musl-dev versioning=loose
+ENV MUSL_DEV_VERSION="1.2.5-r11"
+# renovate: datasource=repology depName=alpine_3_21/mupdf versioning=loose
+ENV MUPDF_VERSION="1.24.10-r1"
+# renovate: datasource=repology depName=alpine_3_21/mupdf-dev versioning=loose
+ENV MUPDF_DEV_VERSION="1.24.10-r1"
+# renovate: datasource=repology depName=alpine_3_21/sed versioning=loose
+ENV SED_VERSION="4.9-r2"
+
+# Install necessary packages with pinned versions
 RUN apk add --no-cache \
-    gcc \
-    musl-dev \
-    mupdf \
-    mupdf-dev \
-    sed
+    "gcc=${GCC_VERSION}" \
+    "musl-dev=${MUSL_DEV_VERSION}" \
+    "mupdf=${MUPDF_VERSION}" \
+    "mupdf-dev=${MUPDF_DEV_VERSION}" \
+    "sed=${SED_VERSION}"
 
 # Copy go.mod and go.sum files
 COPY go.mod go.sum ./
