@@ -83,6 +83,8 @@ var (
 	doclingImageExportMode        = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
 	doclingOCRPipeline            = os.Getenv("DOCLING_OCR_PIPELINE")
 	doclingOCREngine              = os.Getenv("DOCLING_OCR_ENGINE")
+	iosOcrServerURL               = os.Getenv("IOS_OCR_SERVER_URL")
+	iosOcrServerTimeout           = os.Getenv("IOS_OCR_SERVER_TIMEOUT")
 	googleThinkingBudget          *int32 // Will be parsed from GOOGLEAI_THINKING_BUDGET
 
 	// Templates
@@ -281,6 +283,7 @@ func main() {
 		DoclingImageExportMode:   doclingImageExportMode,
 		DoclingOCRPipeline:       doclingOCRPipeline,
 		DoclingOCREngine:         doclingOCREngine,
+		IosOcrServerURL:         iosOcrServerURL,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 		VisionLLMMaxTokens:       visionLlmMaxTokens,
 		VisionLLMTemperature:     visionLlmTemperature,
@@ -296,6 +299,15 @@ func main() {
 			ocrConfig.AzureTimeout = timeout
 		} else {
 			log.Warnf("Invalid AZURE_DOCAI_TIMEOUT_SECONDS value: %v, using default", err)
+		}
+	}
+
+	// Parse iOS OCR Server timeout if set
+	if iosOcrServerTimeout != "" {
+		if timeout, err := strconv.Atoi(iosOcrServerTimeout); err == nil {
+			ocrConfig.IosOcrServerTimeout = timeout
+		} else {
+			log.Warnf("Invalid IOS_OCR_SERVER_TIMEOUT value: %v, using default (60)", err)
 		}
 	}
 
@@ -537,6 +549,7 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
 		"docling":      {"image", "pdf", "whole_pdf"}, // Docling supports image and PDF modes
+		"ios_ocr":      {"image"},                     // iOS OCR Server supports image mode only
 	}
 
 	// Google Gemini API natively handles PDF documents
@@ -636,6 +649,12 @@ func validateOrDefaultEnvVars() {
 		if doclingOCRPipeline == "standard" && doclingOCREngine == "" {
 			doclingOCREngine = "easyocr"
 			log.Infof("DOCLING_OCR_ENGINE not set, defaulting to %s", doclingOCREngine)
+		}
+	}
+
+	if ocrProvider == "ios_ocr" {
+		if iosOcrServerURL == "" {
+			log.Fatal("Please set the IOS_OCR_SERVER_URL environment variable for iOS OCR Server provider")
 		}
 	}
 
