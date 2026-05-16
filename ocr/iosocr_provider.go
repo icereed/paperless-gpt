@@ -17,6 +17,7 @@ import (
 
 const (
 	defaultIosOcrTimeout = 60
+	maxResponseSize      = 1 * 1024 * 1024 // 1MB
 )
 
 // IosOcrProvider implements OCR using the iOS OCR Server app
@@ -120,24 +121,28 @@ func (p *IosOcrProvider) ProcessImage(ctx context.Context, imageContent []byte, 
 	}
 	defer resp.Body.Close()
 
-	respBodyBytes, err := io.ReadAll(resp.Body)
+	respBodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		logger.WithError(err).Error("Failed to read response body")
 		return nil, fmt.Errorf("error reading iOS OCR response body: %w", err)
 	}
+	respSize := len(respBodyBytes)
 
 	if resp.StatusCode != http.StatusOK {
 		logger.WithFields(logrus.Fields{
-			"status_code": resp.StatusCode,
-			"response":    string(respBodyBytes),
+			"status_code":   resp.StatusCode,
+			"response_size": respSize,
 		}).Error("Received non-OK status from iOS OCR Server")
-		return nil, fmt.Errorf("iOS OCR Server returned status %d: %s", resp.StatusCode, string(respBodyBytes))
+		return nil, fmt.Errorf("iOS OCR Server returned status %d (response size: %d bytes)", resp.StatusCode, respSize)
 	}
 
 	var ocrResp IosOcrUploadResponse
 	if err := json.Unmarshal(respBodyBytes, &ocrResp); err != nil {
-		logger.WithError(err).WithField("response", string(respBodyBytes)).Error("Failed to parse iOS OCR JSON response")
-		return nil, fmt.Errorf("error parsing iOS OCR JSON response: %w", err)
+		logger.WithError(err).WithFields(logrus.Fields{
+			"status_code":   resp.StatusCode,
+			"response_size": respSize,
+		}).Error("Failed to parse iOS OCR JSON response")
+		return nil, fmt.Errorf("error parsing iOS OCR JSON response (status: %d, size: %d bytes): %w", resp.StatusCode, respSize, err)
 	}
 
 	if !ocrResp.Success {
