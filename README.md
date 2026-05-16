@@ -403,6 +403,8 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
 
 ### 5. iOS OCR Server
 
+Uses the [OCR Server](https://apps.apple.com/ch/app/ocr-server/id6749533041) iOS app to perform OCR using Apple's Vision Framework.
+
 - **Key Features**:
   - Uses Apple's Vision Framework via an iPhone for on-device OCR
   - 100% local processing, no cloud dependencies, full privacy
