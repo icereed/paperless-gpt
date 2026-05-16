@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,7 +22,7 @@ const (
 // IosOcrProvider implements OCR using the iOS OCR Server app
 type IosOcrProvider struct {
 	serverURL  string
-	httpClient *retryablehttp.Client
+	httpClient *http.Client
 }
 
 // IosOcrUploadResponse mirrors the JSON response from the iOS OCR Server
@@ -36,6 +35,7 @@ type IosOcrUploadResponse struct {
 	OcrBoxes    interface{} `json:"ocr_boxes"`
 }
 
+// newIosOcrProvider creates a new IosOcrProvider with the given configuration.
 func newIosOcrProvider(config Config) (*IosOcrProvider, error) {
 	logger := log.WithFields(logrus.Fields{
 		"server_url": config.IosOcrServerURL,
@@ -51,12 +51,9 @@ func newIosOcrProvider(config Config) (*IosOcrProvider, error) {
 		timeout = config.IosOcrServerTimeout
 	}
 
-	client := retryablehttp.NewClient()
-	client.RetryMax = 3
-	client.RetryWaitMin = 1 * time.Second
-	client.RetryWaitMax = 10 * time.Second
-	client.HTTPClient.Timeout = time.Duration(timeout) * time.Second
-	client.Logger = logger
+	client := &http.Client{
+		Timeout: time.Duration(timeout) * time.Second,
+	}
 
 	// Normalize server URL: strip trailing slash for consistent URL building
 	serverURL := strings.TrimRight(config.IosOcrServerURL, "/")
@@ -103,7 +100,7 @@ func (p *IosOcrProvider) ProcessImage(ctx context.Context, imageContent []byte, 
 	}
 
 	// Create HTTP request
-	req, err := retryablehttp.NewRequestWithContext(ctx, "POST", uploadURL, &requestBody)
+	req, err := http.NewRequestWithContext(ctx, "POST", uploadURL, &requestBody)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create HTTP request")
 		return nil, fmt.Errorf("error creating iOS OCR request: %w", err)
