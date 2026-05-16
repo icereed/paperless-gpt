@@ -394,6 +394,7 @@ Uses the [OCR Server](https://apps.apple.com/ch/app/ocr-server/id6749533041) iOS
   - 100% local processing, no cloud dependencies, full privacy
   - Supports multiple languages with automatic detection
   - No API keys or external accounts needed
+  - **hOCR support for searchable PDF generation** (see [Enhanced OCR Features](#enhanced-ocr-features))
 - **Best For**:
   - Users with an iOS device on the same network
   - Privacy-sensitive environments
@@ -459,14 +460,14 @@ environment:
 
 paperless-gpt includes powerful OCR enhancements that go beyond basic text extraction:
 
-> **Important Note**: The PDF text layer generation and hOCR features are currently **only supported with Google Document AI** as the OCR provider. These features are not available when using LLM-based OCR or Azure Document Intelligence.
+> **Important Note**: The PDF text layer generation and hOCR features are currently only supported with **Google Document AI** and **iOS OCR Server** as OCR providers. These features are not available when using LLM-based OCR, Azure Document Intelligence, Mistral OCR, or Docling Server.
 
 ### PDF Text Layer Generation
 
 - **Searchable & Selectable PDFs**: Creates PDFs with transparent text overlays accurately positioned over each word in the document
 - **hOCR Integration**: Utilizes hOCR format (HTML-based OCR representation) to maintain precise text positioning
 - **Document Quality Improvement**: Makes documents both searchable and selectable while preserving the original appearance
-- **Google Document AI Required**: These features rely on Google Document AI's ability to generate hOCR data with accurate word positions
+- **Google Document AI or iOS OCR Server Required**: These features rely on the provider's ability to generate hOCR data with accurate word positions
 
 ### Local File Saving
 
