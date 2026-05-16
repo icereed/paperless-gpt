@@ -326,7 +326,11 @@ func main() {
 	// Parse iOS OCR Server timeout if set
 	if iosOcrServerTimeout != "" {
 		if timeout, err := strconv.Atoi(iosOcrServerTimeout); err == nil {
-			ocrConfig.IosOcrServerTimeout = timeout
+			if timeout > 0 {
+				ocrConfig.IosOcrServerTimeout = timeout
+			} else {
+				log.Warnf("Invalid IOS_OCR_SERVER_TIMEOUT value: %d, must be positive, using default (60)", timeout)
+			}
 		} else {
 			log.Warnf("Invalid IOS_OCR_SERVER_TIMEOUT value: %v, using default (60)", err)
 		}
