@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,13 +17,9 @@ func setupIosOcrTestServer(t *testing.T, handler http.HandlerFunc) *httptest.Ser
 }
 
 func newTestIosOcrProvider(serverURL string) *IosOcrProvider {
-	client := retryablehttp.NewClient()
-	client.RetryMax = 0
-	client.Logger = nil
-
 	return &IosOcrProvider{
 		serverURL:  serverURL,
-		httpClient: client,
+		httpClient: &http.Client{},
 	}
 }
 
