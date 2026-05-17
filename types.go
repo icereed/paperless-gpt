@@ -71,6 +71,7 @@ type GetDocumentApiResponse struct {
 	OriginalFileName string                `json:"original_file_name"`
 	Notes            []interface{}         `json:"notes"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
+	Owner            *int                  `json:"owner"`
 }
 
 // Document is a stripped down version of the document object from paperless-ngx.
@@ -84,7 +85,9 @@ type Document struct {
 	CreatedDate      string                `json:"created_date"`
 	OriginalFileName string                `json:"original_file_name"`
 	DocumentTypeName string                `json:"document_type_name"`
+	DocumentType     int                   `json:"document_type"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
+	Owner            *int                  `json:"owner"`
 }
 
 // GenerateSuggestionsRequest is the request payload for generating suggestions for /generate-suggestions endpoint
