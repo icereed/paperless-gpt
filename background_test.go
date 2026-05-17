@@ -81,6 +81,10 @@ func (m *mockClient) GetDocument(ctx context.Context, documentID int) (Document,
 	return Document{}, fmt.Errorf("document %d not found", documentID)
 }
 
+func (m *mockClient) PatchDocument(ctx context.Context, documentID int, fields map[string]interface{}) error {
+	return nil
+}
+
 func (m *mockClient) AddDocument(doc Document, tags []string) {
 	m.documents[doc.ID] = doc
 

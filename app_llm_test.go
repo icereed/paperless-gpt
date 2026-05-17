@@ -479,6 +479,7 @@ func (m *mockPaperlessClient) GetTaskStatus(ctx context.Context, taskID string) 
 	return nil, nil
 }
 func (m *mockPaperlessClient) DeleteDocument(ctx context.Context, documentID int) error { return nil }
+func (m *mockPaperlessClient) PatchDocument(ctx context.Context, documentID int, fields map[string]interface{}) error { return nil }
 
 func TestGetSuggestedCustomFields(t *testing.T) {
 	// 1. Setup
