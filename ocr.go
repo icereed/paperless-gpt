@@ -507,6 +507,10 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 		"title": originalDoc.Title,
 	}
 
+	if originalDoc.Owner != nil {
+		metadata["owner"] = *originalDoc.Owner
+	}
+
 	// Copy metadata from original document if requested
 	if options.CopyMetadata {
 		// Get tag IDs
@@ -552,6 +556,11 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 		// Set created date if available
 		if originalDoc.CreatedDate != "" {
 			metadata["created"] = originalDoc.CreatedDate
+		}
+
+		// Set document type if available
+		if originalDoc.DocumentType != 0 {
+			metadata["document_type"] = originalDoc.DocumentType
 		}
 	} else if app.pdfOCRTagging {
 		// Even if not copying all metadata, still add the OCR complete tag if tagging is enabled

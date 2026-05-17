@@ -456,6 +456,8 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 		OriginalFileName: documentResponse.OriginalFileName,
 		CustomFields:     documentResponse.CustomFields,
 		DocumentTypeName: documentTypeName,
+		DocumentType:     documentResponse.DocumentType,
+		Owner:            documentResponse.Owner,
 	}, nil
 }
 
