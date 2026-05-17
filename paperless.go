@@ -360,7 +360,7 @@ func (client *PaperlessClient) DownloadPDF(ctx context.Context, document Documen
 func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
 	// TODO: This function can be optimized by caching the results of GetAllTags, GetAllCorrespondents, and GetCustomFields.
 	// A simple time-based cache could be implemented in the PaperlessClient to avoid fetching this data on every call.
-	path := fmt.Sprintf("api/documents/%d/", documentID)
+	path := fmt.Sprintf("api/documents/%d/?full_perms=true", documentID)
 	resp, err := client.Do(ctx, "GET", path, nil)
 	if err != nil {
 		return Document{}, err
@@ -448,7 +448,30 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 		DocumentTypeName: documentTypeName,
 		DocumentType:     documentResponse.DocumentType,
 		Owner:            documentResponse.Owner,
+		Permissions:      documentResponse.Permissions,
 	}, nil
+}
+
+// PatchDocument patches a document with the given fields
+func (client *PaperlessClient) PatchDocument(ctx context.Context, documentID int, fields map[string]interface{}) error {
+	jsonData, err := json.Marshal(fields)
+	if err != nil {
+		return fmt.Errorf("error marshalling JSON: %w", err)
+	}
+
+	path := fmt.Sprintf("api/documents/%d/", documentID)
+	resp, err := client.Do(ctx, "PATCH", path, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("error patching document %d: %w", documentID, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("error patching document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
 }
 
 // UpdateDocuments updates the specified documents with suggested changes
