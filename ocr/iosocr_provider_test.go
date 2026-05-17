@@ -136,7 +136,7 @@ func TestIosOcrProvider_ProcessImage(t *testing.T) {
 			name: "Server Connection Error",
 			mockHandler: func(w http.ResponseWriter, r *http.Request) {
 			},
-			expectedErrStr: "connection refused",
+			expectedErrStr: "error sending request to iOS OCR Server",
 		},
 	}
 
