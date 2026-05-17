@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -612,23 +613,35 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 				logger.Info("Document processing completed successfully")
 
 				// Restore owner and permissions on the new document
-				if resultMap, ok := taskStatus["result"].(map[string]interface{}); ok {
-					if newDocIDFloat, ok := resultMap["document_id"].(float64); ok {
-						newDocID := int(newDocIDFloat)
-						logger.WithField("new_doc_id", newDocID).Info("Restoring owner and permissions on new document")
+				var newDocID int
+				found := false
+				if relatedDocStr, ok := taskStatus["related_document"].(string); ok {
+					if id, err := strconv.Atoi(relatedDocStr); err == nil {
+						newDocID = id
+						found = true
+					}
+				}
+				if !found {
+					if idFloat, ok := taskStatus["id"].(float64); ok {
+						newDocID = int(idFloat)
+						found = true
+					}
+				}
 
-						patchFields := make(map[string]interface{})
-						if originalDoc.Owner != nil {
-							patchFields["owner"] = *originalDoc.Owner
-						}
-						if originalDoc.Permissions != nil {
-							patchFields["set_permissions"] = originalDoc.Permissions
-						}
+				if found {
+					logger.WithField("new_doc_id", newDocID).Info("Restoring owner and permissions on new document")
 
-						if len(patchFields) > 0 {
-							if err := app.Client.PatchDocument(ctx, newDocID, patchFields); err != nil {
-								logger.WithError(err).Warn("Failed to patch owner/permissions on new document, continuing")
-							}
+					patchFields := make(map[string]interface{})
+					if originalDoc.Owner != nil {
+						patchFields["owner"] = *originalDoc.Owner
+					}
+					if originalDoc.Permissions != nil {
+						patchFields["set_permissions"] = originalDoc.Permissions
+					}
+
+					if len(patchFields) > 0 {
+						if err := app.Client.PatchDocument(ctx, newDocID, patchFields); err != nil {
+							logger.WithError(err).Warn("Failed to patch owner/permissions on new document, continuing")
 						}
 					}
 				}
