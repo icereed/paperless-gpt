@@ -346,8 +346,8 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   - Strong form field detection
   - Multi-language support
   - High accuracy on structured documents
-  - **Exclusive hOCR generation** for creating searchable PDFs with text layers
-  - **Only provider that supports** enhanced PDF generation features
+  - **hOCR generation** for creating searchable PDFs with text layers
+  - **One of the providers that support** enhanced PDF generation features
 - **Best For**:
   - Forms and structured documents
   - Documents with tables

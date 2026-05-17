@@ -264,6 +264,10 @@ func (p *IosOcrProvider) ResetHOCR() {
 
 // parseOcrBoxes attempts to parse the raw ocr_boxes field into a typed slice
 func parseOcrBoxes(raw interface{}) ([]IosOcrBox, error) {
+	if raw == nil {
+		return nil, fmt.Errorf("ocr_boxes is null")
+	}
+
 	jsonData, err := json.Marshal(raw)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal ocr_boxes: %w", err)
