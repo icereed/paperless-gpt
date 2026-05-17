@@ -1342,12 +1342,21 @@ func (client *PaperlessClient) GetTaskStatus(ctx context.Context, taskID string)
 		return nil, fmt.Errorf("error checking task status: %d, %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("error parsing response: %w", err)
+	var bodyBytes []byte
+	bodyBytes, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading task status response: %w", err)
 	}
 
-	return result, nil
+	var tasks []map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &tasks); err != nil {
+		return nil, fmt.Errorf("error parsing task status response: %w", err)
+	}
+	if len(tasks) == 0 {
+		return nil, fmt.Errorf("empty task status response")
+	}
+
+	return tasks[0], nil
 }
 
 // CreateTag creates a new tag and returns its ID

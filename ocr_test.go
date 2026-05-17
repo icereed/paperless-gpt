@@ -197,11 +197,13 @@ func TestUploadProcessedPDF(t *testing.T) {
 		require.Equal(t, mockTaskID, taskID, "Unexpected task ID in status request")
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":  "SUCCESS",
-			"task_id": taskID,
-			"result": map[string]interface{}{
-				"document_id": documentID,
+		json.NewEncoder(w).Encode([]map[string]interface{}{
+			{
+				"id":                documentID,
+				"status":            "SUCCESS",
+				"task_id":           taskID,
+				"related_document":  fmt.Sprintf("%d", documentID),
+				"result":            fmt.Sprintf("Success. New document id %d created", documentID),
 			},
 		})
 	})
