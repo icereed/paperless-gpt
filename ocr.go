@@ -507,10 +507,6 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 		"title": originalDoc.Title,
 	}
 
-	if originalDoc.Owner != nil {
-		metadata["owner"] = *originalDoc.Owner
-	}
-
 	// Copy metadata from original document if requested
 	if options.CopyMetadata {
 		// Get tag IDs
@@ -612,6 +608,28 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 
 			if status == "SUCCESS" {
 				logger.Info("Document processing completed successfully")
+
+				// Restore owner and permissions on the new document
+				if resultMap, ok := taskStatus["result"].(map[string]interface{}); ok {
+					if newDocIDFloat, ok := resultMap["document_id"].(float64); ok {
+						newDocID := int(newDocIDFloat)
+						logger.WithField("new_doc_id", newDocID).Info("Restoring owner and permissions on new document")
+
+						patchFields := make(map[string]interface{})
+						if originalDoc.Owner != nil {
+							patchFields["owner"] = *originalDoc.Owner
+						}
+						if originalDoc.Permissions != nil {
+							patchFields["set_permissions"] = originalDoc.Permissions
+						}
+
+						if len(patchFields) > 0 {
+							if err := app.Client.PatchDocument(ctx, newDocID, patchFields); err != nil {
+								logger.WithError(err).Warn("Failed to patch owner/permissions on new document, continuing")
+							}
+						}
+					}
+				}
 				break
 			}
 

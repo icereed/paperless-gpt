@@ -59,6 +59,18 @@ type CustomFieldSuggestion struct {
 	Value interface{} `json:"value"`
 }
 
+// PermissionSet defines view/change permissions for users and groups
+type PermissionSet struct {
+	Users  []int `json:"users"`
+	Groups []int `json:"groups"`
+}
+
+// Permissions holds the full permission structure for a document
+type Permissions struct {
+	View   PermissionSet `json:"view"`
+	Change PermissionSet `json:"change"`
+}
+
 // GetDocumentApiResponse is the response payload for /documents/{id} endpoint.
 // But we are only interested in a subset of the fields.
 type GetDocumentApiResponse struct {
@@ -73,6 +85,7 @@ type GetDocumentApiResponse struct {
 	Notes            []interface{}         `json:"notes"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
 	Owner            *int                  `json:"owner"`
+	Permissions      *Permissions          `json:"permissions,omitempty"`
 }
 
 // Document is a stripped down version of the document object from paperless-ngx.
@@ -89,6 +102,7 @@ type Document struct {
 	DocumentType     int                   `json:"document_type"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
 	Owner            *int                  `json:"owner"`
+	Permissions      *Permissions          `json:"permissions,omitempty"`
 }
 
 // GenerateSuggestionsRequest is the request payload for generating suggestions for /generate-suggestions endpoint
