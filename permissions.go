@@ -74,6 +74,7 @@ func (app *App) processPendingPermissionRestores(ctx context.Context) (int, erro
 				"original_doc": entry.OriginalDocID,
 			})
 			app.patchNewDocumentPermissions(ctx, taskStatus, entry.Owner, entry.Permissions, logger)
+			logger.Info("Permission restore completed successfully")
 			processed++
 
 		case "FAILURE":
