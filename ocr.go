@@ -601,7 +601,7 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 	// If replacing the original is requested, poll for completion and delete
 	if options.ReplaceOriginal {
 		// Poll for task completion
-		maxRetries := 12
+		maxRetries := 720
 		waitTime := 5 * time.Second
 
 		logger.Info("Waiting for document processing to complete before deletion...")
