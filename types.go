@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -170,7 +171,7 @@ type PendingPermissionRestore struct {
 	TaskID        string
 	OriginalDocID int
 	Owner         *int
-	Permissions   *PermissionSet
+	Permissions   *Permissions
 	CreatedAt     time.Time
 }
 
