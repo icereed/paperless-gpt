@@ -79,6 +79,7 @@ var (
 	pdfUpload                     = os.Getenv("PDF_UPLOAD") == "true"
 	pdfReplace                    = os.Getenv("PDF_REPLACE") == "true"
 	pdfCopyMetadata               = os.Getenv("PDF_COPY_METADATA") == "true"
+	pdfPreserveOwnerPermissions   = os.Getenv("PDF_PRESERVE_OWNER_PERMISSIONS") == "true"
 	pdfOCRCompleteTag             = os.Getenv("PDF_OCR_COMPLETE_TAG")
 	pdfOCRTagging                 = os.Getenv("PDF_OCR_TAGGING") == "true"
 	pdfSkipExistingOCR            = os.Getenv("PDF_SKIP_EXISTING_OCR") == "true"
@@ -138,6 +139,7 @@ type App struct {
 	pdfUpload          bool              // Whether to upload processed PDFs to paperless-ngx
 	pdfReplace         bool              // Whether to replace original document after upload
 	pdfCopyMetadata    bool              // Whether to copy metadata from original to uploaded PDF
+	pdfPreserveOwnerPermissions bool    // Whether to restore owner and permissions on the uploaded document
 	pdfOCRCompleteTag  string            // Tag to add to documents that have been OCR processed
 	pdfOCRTagging      bool              // Whether to add the OCR complete tag to processed PDFs
 	pdfSkipExistingOCR bool              // Whether to skip processing PDFs that already have OCR detected
@@ -369,6 +371,7 @@ func main() {
 		pdfUpload:          pdfUpload,
 		pdfReplace:         pdfReplace,
 		pdfCopyMetadata:    pdfCopyMetadata,
+		pdfPreserveOwnerPermissions: pdfPreserveOwnerPermissions,
 		pdfOCRCompleteTag:  pdfOCRCompleteTag,
 		pdfOCRTagging:      pdfOCRTagging,
 		pdfSkipExistingOCR: pdfSkipExistingOCR,

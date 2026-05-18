@@ -89,7 +89,7 @@ func TestProcessDocumentOCR_SafetyFeature(t *testing.T) {
 			},
 		}
 
-		for _, tc := range testCases {
+	for _, tc := range tc {
 			t.Run(tc.name, func(t *testing.T) {
 				// Set global limitOcrPages
 				limitOcrPages = tc.limitPages
@@ -228,7 +228,7 @@ func TestUploadProcessedPDF(t *testing.T) {
 	})
 
 	// Test cases
-	testCases := []struct {
+	tc := []struct {
 		name               string
 		options            OCROptions
 		expectReplacement  bool
@@ -238,10 +238,11 @@ func TestUploadProcessedPDF(t *testing.T) {
 		{
 			name: "Upload with metadata copy, no replacement",
 			options: OCROptions{
-				UploadPDF:       true,
-				ReplaceOriginal: false,
-				CopyMetadata:    true,
-				LimitPages:      0,
+				UploadPDF:                true,
+				ReplaceOriginal:          false,
+				CopyMetadata:             true,
+				PreserveOwnerPermissions: false,
+				LimitPages:               0,
 			},
 			expectReplacement:  false,
 			expectTagging:      true,
@@ -250,14 +251,28 @@ func TestUploadProcessedPDF(t *testing.T) {
 		{
 			name: "Upload with replacement",
 			options: OCROptions{
-				UploadPDF:       true,
-				ReplaceOriginal: true,
-				CopyMetadata:    true,
-				LimitPages:      0,
+				UploadPDF:                true,
+				ReplaceOriginal:          true,
+				CopyMetadata:             true,
+				PreserveOwnerPermissions: false,
+				LimitPages:               0,
 			},
 			expectReplacement:  true,
 			expectTagging:      true,
 			expectMetadataCopy: true,
+		},
+		{
+			name: "Upload with owner permissions preservation, no replacement",
+			options: OCROptions{
+				UploadPDF:                true,
+				ReplaceOriginal:          false,
+				CopyMetadata:             false,
+				PreserveOwnerPermissions: true,
+				LimitPages:               0,
+			},
+			expectReplacement:  false,
+			expectTagging:      false,
+			expectMetadataCopy: false,
 		},
 	}
 
@@ -292,6 +307,9 @@ func TestOCROptionsValidation(t *testing.T) {
 	validateOptions := func(opts OCROptions) error {
 		if !opts.UploadPDF && opts.ReplaceOriginal {
 			return fmt.Errorf("invalid OCROptions: cannot set ReplaceOriginal=true when UploadPDF=false")
+		}
+		if !opts.UploadPDF && opts.PreserveOwnerPermissions {
+			return fmt.Errorf("invalid OCROptions: cannot set PreserveOwnerPermissions=true when UploadPDF=false")
 		}
 		return nil
 	}
@@ -330,6 +348,22 @@ func TestOCROptionsValidation(t *testing.T) {
 			options: OCROptions{
 				UploadPDF:       false,
 				ReplaceOriginal: true,
+			},
+			expectError: true,
+		},
+		{
+			name: "Safe: preserve permissions with upload",
+			options: OCROptions{
+				UploadPDF:                true,
+				PreserveOwnerPermissions: true,
+			},
+			expectError: false,
+		},
+		{
+			name: "Unsafe: preserve permissions without upload",
+			options: OCROptions{
+				UploadPDF:                false,
+				PreserveOwnerPermissions: true,
 			},
 			expectError: true,
 		},

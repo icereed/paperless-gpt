@@ -153,10 +153,11 @@ func processJob(app *App, job *Job) {
 	if (options == OCROptions{}) {
 		// Use app defaults if job options are not set
 		options = OCROptions{
-			UploadPDF:       app.pdfUpload,
-			ReplaceOriginal: app.pdfReplace,
-			CopyMetadata:    app.pdfCopyMetadata,
-			LimitPages:      limitOcrPages,
+			UploadPDF:                app.pdfUpload,
+			ReplaceOriginal:          app.pdfReplace,
+			CopyMetadata:             app.pdfCopyMetadata,
+			PreserveOwnerPermissions: app.pdfPreserveOwnerPermissions,
+			LimitPages:               limitOcrPages,
 		}
 	}
 

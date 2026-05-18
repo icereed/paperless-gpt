@@ -308,12 +308,13 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		}
 
 		options := OCROptions{
-			UploadPDF:       app.pdfUpload,
-			ReplaceOriginal: app.pdfReplace,
-			CopyMetadata:    app.pdfCopyMetadata,
-			LimitPages:      limitOcrPages,
-			ProcessMode:     app.ocrProcessMode,
-			ExistingContent: document.Content,
+			UploadPDF:                app.pdfUpload,
+			ReplaceOriginal:          app.pdfReplace,
+			CopyMetadata:             app.pdfCopyMetadata,
+			PreserveOwnerPermissions: app.pdfPreserveOwnerPermissions,
+			LimitPages:               limitOcrPages,
+			ProcessMode:              app.ocrProcessMode,
+			ExistingContent:          document.Content,
 		}
 
 		// Use the DocumentProcessor interface instead of calling the method directly
