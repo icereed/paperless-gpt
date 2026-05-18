@@ -172,6 +172,16 @@ type Correspondent struct {
 	} `json:"set_permissions"`
 }
 
+// PendingPermissionRestore represents a queued request to restore owner and permissions
+// on a newly uploaded document after its consumption task completes.
+type PendingPermissionRestore struct {
+	TaskID        string
+	OriginalDocID int
+	Owner         *int
+	Permissions   *PermissionSet
+	CreatedAt     time.Time
+}
+
 // OCROptions contains options for the OCR processing
 type OCROptions struct {
 	UploadPDF                  bool   // Whether to upload the generated PDF

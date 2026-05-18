@@ -47,6 +47,15 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 					count += ocrCount
 				}
 
+				// Process pending permission restores
+				if a, ok := app.(*App); ok {
+					permCount, err := a.processPendingPermissionRestores(ctx)
+					if err != nil {
+						return 0, fmt.Errorf("error in processPendingPermissionRestores: %w", err)
+					}
+					count += permCount
+				}
+
 				// Run auto-tagging after OCR
 				autoCount, err := app.processAutoTagDocuments(ctx)
 				if err != nil {
