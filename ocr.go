@@ -588,21 +588,23 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 
 		logger.Info("Waiting for document processing to complete before deletion...")
 
+		deleteOriginal := false
 		for i := 0; i < maxRetries; i++ {
 			taskStatus, err := app.Client.GetTaskStatus(ctx, taskID)
 			if err != nil {
-				logger.WithError(err).Warn("Failed to check task status, proceeding with deletion anyway")
+				logger.WithError(err).Warn("Failed to check task status, keeping original document")
 				break
 			}
 
 			status, ok := taskStatus["status"].(string)
 			if !ok {
-				logger.Warn("Could not determine task status, proceeding with deletion anyway")
+				logger.Warn("Could not determine task status, keeping original document")
 				break
 			}
 
 			if status == "SUCCESS" {
 				logger.Info("Document processing completed successfully")
+				deleteOriginal = true
 
 				if options.PreserveOwnerPermissions {
 					_ = app.patchNewDocumentPermissions(ctx, taskStatus, originalDoc.Owner, originalDoc.Permissions, logger)
@@ -621,7 +623,9 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 			}
 		}
 
-		// Delete original document (even if poll timed out — upload was successful)
+		if !deleteOriginal {
+			return fmt.Errorf("document %d was not deleted: processing did not reach SUCCESS", documentID)
+		}
 		if err := app.Client.DeleteDocument(ctx, documentID); err != nil {
 			return fmt.Errorf("error deleting original document: %w", err)
 		}
