@@ -48,6 +48,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	if !options.UploadPDF && options.ReplaceOriginal {
 		return nil, fmt.Errorf("invalid OCROptions: cannot set ReplaceOriginal=true when UploadPDF=false")
 	}
+	if !options.UploadPDF && options.PreserveOwnerPermissions {
+		return nil, fmt.Errorf("invalid OCROptions: cannot set PreserveOwnerPermissions=true when UploadPDF=false")
+	}
 
 	docLogger := documentLogger(documentID)
 	if jobID != "" {
@@ -570,68 +573,86 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 
 	logger.WithField("task_id", taskID).Info("PDF uploaded successfully")
 
-	// If replacing the original is requested, delete it after upload
-	if options.ReplaceOriginal {
+	// Determine if we need to wait for document processing to complete
+	// (needed for both deletion and owner/permissions restoration)
+	needPoll := options.ReplaceOriginal || options.PreserveOwnerPermissions
+
+	if needPoll {
 		// Poll for task completion
 		maxRetries := 12
 		waitTime := 5 * time.Second
 
-		logger.Info("Waiting for document processing to complete before deletion...")
+		logger.Info("Waiting for document processing to complete...")
 
 		for i := 0; i < maxRetries; i++ {
 			taskStatus, err := app.Client.GetTaskStatus(ctx, taskID)
 			if err != nil {
-				logger.WithError(err).Warn("Failed to check task status, proceeding with deletion anyway")
+				logger.WithError(err).Warn("Failed to check task status")
 				break
 			}
 
 			status, ok := taskStatus["status"].(string)
 			if !ok {
-				logger.Warn("Could not determine task status, proceeding with deletion anyway")
+				logger.Warn("Could not determine task status")
 				break
 			}
 
 			if status == "SUCCESS" {
 				logger.Info("Document processing completed successfully")
 
-				// Restore owner and permissions on the new document
-				var newDocID int
-				found := false
-				if relatedDocStr, ok := taskStatus["related_document"].(string); ok {
-					if id, err := strconv.Atoi(relatedDocStr); err == nil {
-						newDocID = id
-						found = true
+				// Restore owner and permissions on the new document if requested
+				if options.PreserveOwnerPermissions || options.ReplaceOriginal {
+					var newDocID int
+					found := false
+					if relatedDocStr, ok := taskStatus["related_document"].(string); ok {
+						if id, err := strconv.Atoi(relatedDocStr); err == nil {
+							newDocID = id
+							found = true
+						}
 					}
-				}
-				if !found {
-					if idFloat, ok := taskStatus["id"].(float64); ok {
-						newDocID = int(idFloat)
-						found = true
-					}
-				}
-
-				if found {
-					logger.WithField("new_doc_id", newDocID).Info("Restoring owner and permissions on new document")
-
-					patchFields := make(map[string]interface{})
-					if originalDoc.Owner != nil {
-						patchFields["owner"] = *originalDoc.Owner
-					}
-					if originalDoc.Permissions != nil {
-						patchFields["set_permissions"] = originalDoc.Permissions
+					if !found {
+						if idFloat, ok := taskStatus["id"].(float64); ok {
+							newDocID = int(idFloat)
+							found = true
+						}
 					}
 
-					if len(patchFields) > 0 {
-						if err := app.Client.PatchDocument(ctx, newDocID, patchFields); err != nil {
-							logger.WithError(err).Warn("Failed to patch owner/permissions on new document, continuing")
+					if found {
+						logger.WithField("new_doc_id", newDocID).Info("Restoring owner and permissions on new document")
+
+						patchFields := make(map[string]interface{})
+						if originalDoc.Owner != nil {
+							patchFields["owner"] = *originalDoc.Owner
+						}
+						if originalDoc.Permissions != nil {
+							patchFields["set_permissions"] = originalDoc.Permissions
+						}
+
+						if len(patchFields) > 0 {
+							if err := app.Client.PatchDocument(ctx, newDocID, patchFields); err != nil {
+								logger.WithError(err).Warn("Failed to patch owner/permissions on new document, continuing")
+							}
 						}
 					}
 				}
+
+				// Delete original document if replacing
+				if options.ReplaceOriginal {
+					if err := app.Client.DeleteDocument(ctx, documentID); err != nil {
+						return fmt.Errorf("error deleting original document: %w", err)
+					}
+					logger.Info("Original document deleted successfully")
+				}
+
 				break
 			}
 
 			if status == "FAILURE" {
-				return fmt.Errorf("document processing failed, not deleting original document")
+				if options.ReplaceOriginal {
+					return fmt.Errorf("document processing failed, not deleting original document")
+				}
+				logger.Warn("Document processing failed, owner/permissions not restored")
+				break
 			}
 
 			if i < maxRetries-1 {
@@ -639,12 +660,6 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 				time.Sleep(waitTime)
 			}
 		}
-
-		// Delete original document
-		if err := app.Client.DeleteDocument(ctx, documentID); err != nil {
-			return fmt.Errorf("error deleting original document: %w", err)
-		}
-		logger.Info("Original document deleted successfully")
 	}
 
 	return nil

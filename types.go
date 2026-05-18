@@ -166,9 +166,10 @@ type Correspondent struct {
 
 // OCROptions contains options for the OCR processing
 type OCROptions struct {
-	UploadPDF       bool   // Whether to upload the generated PDF
-	ReplaceOriginal bool   // Whether to delete the original document after uploading
-	CopyMetadata    bool   // Whether to copy metadata from the original document
+	UploadPDF                  bool   // Whether to upload the generated PDF
+	ReplaceOriginal            bool   // Whether to delete the original document after uploading
+	CopyMetadata               bool   // Whether to copy metadata from the original document
+	PreserveOwnerPermissions   bool   // Whether to restore owner and permissions on the uploaded document
 	LimitPages      int    // Limit on the number of pages to process (0 = no limit)
 	ProcessMode     string // OCR processing mode: "image" (default) or "pdf"
 }
