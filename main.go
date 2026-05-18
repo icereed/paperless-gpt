@@ -125,25 +125,25 @@ func refreshCustomFieldsCache(client ClientInterface) {
 
 // App struct to hold dependencies
 type App struct {
-	Client             ClientInterface
-	Database           *gorm.DB
-	LLM                llms.Model
-	VisionLLM          llms.Model
-	ocrProvider        ocr.Provider      // OCR provider interface
-	ocrProcessMode     string            // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
-	docProcessor       DocumentProcessor // Optional: Can be used for mocking
-	localHOCRPath      string            // Path for saving hOCR files locally
-	localPDFPath       string            // Path for saving PDF files locally
-	createLocalHOCR    bool              // Whether to save hOCR files locally
-	createLocalPDF     bool              // Whether to create PDF files locally
-	pdfUpload          bool              // Whether to upload processed PDFs to paperless-ngx
-	pdfReplace         bool              // Whether to replace original document after upload
-	pdfCopyMetadata    bool              // Whether to copy metadata from original to uploaded PDF
-	pdfPreserveOwnerPermissions bool    // Whether to restore owner and permissions on the uploaded document
-	pdfOCRCompleteTag  string            // Tag to add to documents that have been OCR processed
-	pdfOCRTagging      bool              // Whether to add the OCR complete tag to processed PDFs
-	pdfSkipExistingOCR bool              // Whether to skip processing PDFs that already have OCR detected
-	autoTagComplete    string            // Tag to add to documents after auto-processing is complete
+	Client                      ClientInterface
+	Database                    *gorm.DB
+	LLM                         llms.Model
+	VisionLLM                   llms.Model
+	ocrProvider                 ocr.Provider      // OCR provider interface
+	ocrProcessMode              string            // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
+	docProcessor                DocumentProcessor // Optional: Can be used for mocking
+	localHOCRPath               string            // Path for saving hOCR files locally
+	localPDFPath                string            // Path for saving PDF files locally
+	createLocalHOCR             bool              // Whether to save hOCR files locally
+	createLocalPDF              bool              // Whether to create PDF files locally
+	pdfUpload                   bool              // Whether to upload processed PDFs to paperless-ngx
+	pdfReplace                  bool              // Whether to replace original document after upload
+	pdfCopyMetadata             bool              // Whether to copy metadata from original to uploaded PDF
+	pdfPreserveOwnerPermissions bool              // Whether to restore owner and permissions on the uploaded document
+	pdfOCRCompleteTag           string            // Tag to add to documents that have been OCR processed
+	pdfOCRTagging               bool              // Whether to add the OCR complete tag to processed PDFs
+	pdfSkipExistingOCR          bool              // Whether to skip processing PDFs that already have OCR detected
+	autoTagComplete             string            // Tag to add to documents after auto-processing is complete
 
 	pendingRestores   []PendingPermissionRestore
 	pendingRestoresMu sync.Mutex
@@ -309,7 +309,7 @@ func main() {
 		DoclingImageExportMode:   doclingImageExportMode,
 		DoclingOCRPipeline:       doclingOCRPipeline,
 		DoclingOCREngine:         doclingOCREngine,
-		IosOcrServerURL:         iosOcrServerURL,
+		IosOcrServerURL:          iosOcrServerURL,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 		VisionLLMMaxTokens:       visionLlmMaxTokens,
 		VisionLLMTemperature:     visionLlmTemperature,
@@ -360,25 +360,25 @@ func main() {
 
 	// Initialize App with dependencies
 	app := &App{
-		Client:             client,
-		Database:           database,
-		LLM:                llm,
-		VisionLLM:          visionLlm,
-		ocrProvider:        ocrProvider,
-		ocrProcessMode:     ocrProcessMode,
-		docProcessor:       nil, // App itself implements DocumentProcessor
-		localHOCRPath:      localHOCRPath,
-		localPDFPath:       localPDFPath,
-		createLocalHOCR:    createLocalHOCR,
-		createLocalPDF:     createLocalPDF,
-		pdfUpload:          pdfUpload,
-		pdfReplace:         pdfReplace,
-		pdfCopyMetadata:    pdfCopyMetadata,
+		Client:                      client,
+		Database:                    database,
+		LLM:                         llm,
+		VisionLLM:                   visionLlm,
+		ocrProvider:                 ocrProvider,
+		ocrProcessMode:              ocrProcessMode,
+		docProcessor:                nil, // App itself implements DocumentProcessor
+		localHOCRPath:               localHOCRPath,
+		localPDFPath:                localPDFPath,
+		createLocalHOCR:             createLocalHOCR,
+		createLocalPDF:              createLocalPDF,
+		pdfUpload:                   pdfUpload,
+		pdfReplace:                  pdfReplace,
+		pdfCopyMetadata:             pdfCopyMetadata,
 		pdfPreserveOwnerPermissions: pdfPreserveOwnerPermissions,
-		pdfOCRCompleteTag:  pdfOCRCompleteTag,
-		pdfOCRTagging:      pdfOCRTagging,
-		pdfSkipExistingOCR: pdfSkipExistingOCR,
-		autoTagComplete:    autoTagComplete,
+		pdfOCRCompleteTag:           pdfOCRCompleteTag,
+		pdfOCRTagging:               pdfOCRTagging,
+		pdfSkipExistingOCR:          pdfSkipExistingOCR,
+		autoTagComplete:             autoTagComplete,
 	}
 
 	if app.isOcrEnabled() {

@@ -89,7 +89,7 @@ func TestProcessDocumentOCR_SafetyFeature(t *testing.T) {
 			},
 		}
 
-	for _, tc := range tc {
+		for _, tc := range tc {
 			t.Run(tc.name, func(t *testing.T) {
 				// Set global limitOcrPages
 				limitOcrPages = tc.limitPages
@@ -199,11 +199,11 @@ func TestUploadProcessedPDF(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode([]map[string]interface{}{
 			{
-				"id":                documentID,
-				"status":            "SUCCESS",
-				"task_id":           taskID,
-				"related_document":  fmt.Sprintf("%d", documentID),
-				"result":            fmt.Sprintf("Success. New document id %d created", documentID),
+				"id":               documentID,
+				"status":           "SUCCESS",
+				"task_id":          taskID,
+				"related_document": fmt.Sprintf("%d", documentID),
+				"result":           fmt.Sprintf("Success. New document id %d created", documentID),
 			},
 		})
 	})
@@ -432,8 +432,8 @@ func TestOCRDetectionBehavior(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create a test environment with controlled PDF processing
 			mockApp := &App{
-			    ocrProcessMode:     tc.ocrMode,
-			    pdfSkipExistingOCR: tc.pdfSkipExistingOCR,
+				ocrProcessMode:     tc.ocrMode,
+				pdfSkipExistingOCR: tc.pdfSkipExistingOCR,
 			}
 
 			// Mock the pdfocr.DetectOCR function using monkey patching or a test stub
@@ -442,21 +442,21 @@ func TestOCRDetectionBehavior(t *testing.T) {
 			// Override the relevant conditional check to track if OCR detection would be performed
 			// This is a simplified way to test the behavior without actually processing PDFs
 			shouldCheck := false
-			
+
 			if mockApp.pdfSkipExistingOCR && (tc.ocrMode == "pdf" || tc.ocrMode == "whole_pdf") {
-			    shouldCheck = true
-			    ocrDetectionCalled = true
+				shouldCheck = true
+				ocrDetectionCalled = true
 			}
 
 			// Verify the OCR detection behavior
-			assert.Equal(t, tc.shouldCheckOCR, shouldCheck, 
-			    "OCR detection behavior doesn't match expected for mode=%s, skipExistingOCR=%v", 
-			    tc.ocrMode, tc.pdfSkipExistingOCR)
-			
+			assert.Equal(t, tc.shouldCheckOCR, shouldCheck,
+				"OCR detection behavior doesn't match expected for mode=%s, skipExistingOCR=%v",
+				tc.ocrMode, tc.pdfSkipExistingOCR)
+
 			if tc.shouldCheckOCR {
-			    assert.True(t, ocrDetectionCalled, "OCR detection should be performed")
+				assert.True(t, ocrDetectionCalled, "OCR detection should be performed")
 			} else {
-			    assert.False(t, ocrDetectionCalled, "OCR detection should not be performed")
+				assert.False(t, ocrDetectionCalled, "OCR detection should not be performed")
 			}
 		})
 	}
