@@ -199,7 +199,7 @@ func TestUploadProcessedPDF(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode([]map[string]interface{}{
 			{
-				"id":               documentID,
+				"id":               mockTaskID,
 				"status":           "SUCCESS",
 				"task_id":          taskID,
 				"related_document": fmt.Sprintf("%d", documentID),
