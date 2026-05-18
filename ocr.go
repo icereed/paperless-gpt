@@ -604,9 +604,9 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 			if status == "SUCCESS" {
 				logger.Info("Document processing completed successfully")
 
-				// Restore owner and permissions on the new document
-				// Error is logged by patchNewDocumentPermissions — still proceed with deletion
-				_ = app.patchNewDocumentPermissions(ctx, taskStatus, originalDoc.Owner, originalDoc.Permissions, logger)
+				if options.PreserveOwnerPermissions {
+					_ = app.patchNewDocumentPermissions(ctx, taskStatus, originalDoc.Owner, originalDoc.Permissions, logger)
+				}
 
 				break
 			}
