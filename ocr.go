@@ -605,7 +605,8 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 				logger.Info("Document processing completed successfully")
 
 				// Restore owner and permissions on the new document
-				app.patchNewDocumentPermissions(ctx, taskStatus, originalDoc.Owner, originalDoc.Permissions, logger)
+				// Error is logged by patchNewDocumentPermissions — still proceed with deletion
+				_ = app.patchNewDocumentPermissions(ctx, taskStatus, originalDoc.Owner, originalDoc.Permissions, logger)
 
 				break
 			}
@@ -631,14 +632,17 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 }
 
 // extractDocIDFromTask extracts the new document ID from a task status response.
+// Only related_document is a valid source — taskStatus["id"] is the task UUID, not a document ID.
 func extractDocIDFromTask(taskStatus map[string]interface{}) (int, bool) {
-	if relatedDocStr, ok := taskStatus["related_document"].(string); ok {
-		if id, err := strconv.Atoi(relatedDocStr); err == nil {
-			return id, true
+	if relatedDoc, ok := taskStatus["related_document"]; ok {
+		switch v := relatedDoc.(type) {
+		case string:
+			if id, err := strconv.Atoi(v); err == nil {
+				return id, true
+			}
+		case float64:
+			return int(v), true
 		}
-	}
-	if idFloat, ok := taskStatus["id"].(float64); ok {
-		return int(idFloat), true
 	}
 	return 0, false
 }
@@ -656,22 +660,25 @@ func buildPatchFields(owner *int, permissions *Permissions) map[string]interface
 }
 
 // patchNewDocumentPermissions extracts the new document ID from a task status
-// and patches it with the given owner and permissions.
-func (app *App) patchNewDocumentPermissions(ctx context.Context, taskStatus map[string]interface{}, owner *int, permissions *Permissions, logger *logrus.Entry) {
+// and patches it with the given owner and permissions. Returns an error if the
+// patch fails so callers can decide whether to retry.
+func (app *App) patchNewDocumentPermissions(ctx context.Context, taskStatus map[string]interface{}, owner *int, permissions *Permissions, logger *logrus.Entry) error {
 	newDocID, found := extractDocIDFromTask(taskStatus)
 	if !found {
 		logger.Warn("Could not determine new document ID from task status")
-		return
+		return fmt.Errorf("could not determine new document ID from task status")
 	}
 
 	logger.WithField("new_doc_id", newDocID).Info("Restoring owner and permissions on new document")
 
 	patchFields := buildPatchFields(owner, permissions)
 	if len(patchFields) == 0 {
-		return
+		return nil
 	}
 
 	if err := app.Client.PatchDocument(ctx, newDocID, patchFields); err != nil {
 		logger.WithError(err).Warn("Failed to patch owner/permissions on new document, continuing")
+		return err
 	}
+	return nil
 }

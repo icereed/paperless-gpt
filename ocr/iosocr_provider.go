@@ -236,6 +236,10 @@ func (p *IosOcrProvider) GetHOCRDocument() (*hocr.HOCR, error) {
 	copy(pages, p.hocrPages)
 	p.mu.Unlock()
 
+	sort.Slice(pages, func(i, j int) bool {
+		return pages[i].PageNumber < pages[j].PageNumber
+	})
+
 	if len(pages) == 0 {
 		return nil, fmt.Errorf("no hOCR pages collected")
 	}

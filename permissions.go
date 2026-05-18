@@ -73,9 +73,13 @@ func (app *App) processPendingPermissionRestores(ctx context.Context) (int, erro
 				"task_id":      entry.TaskID,
 				"original_doc": entry.OriginalDocID,
 			})
-			app.patchNewDocumentPermissions(ctx, taskStatus, entry.Owner, entry.Permissions, logger)
-			logger.Info("Permission restore completed successfully")
-			processed++
+			if err := app.patchNewDocumentPermissions(ctx, taskStatus, entry.Owner, entry.Permissions, logger); err != nil {
+				logger.WithError(err).Warn("Permission restore failed, will retry")
+				remaining = append(remaining, entry)
+			} else {
+				logger.Info("Permission restore completed successfully")
+				processed++
+			}
 
 		case "FAILURE":
 			logrus.WithFields(logrus.Fields{
