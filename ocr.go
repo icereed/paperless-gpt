@@ -662,7 +662,7 @@ func extractDocIDFromTask(taskStatus map[string]interface{}) (int, bool) {
 }
 
 // buildPatchFields creates the PATCH payload for owner and permissions.
-func buildPatchFields(owner *int, permissions *PermissionSet) map[string]interface{} {
+func buildPatchFields(owner *int, permissions *Permissions) map[string]interface{} {
 	fields := make(map[string]interface{})
 	if owner != nil {
 		fields["owner"] = *owner
@@ -675,7 +675,7 @@ func buildPatchFields(owner *int, permissions *PermissionSet) map[string]interfa
 
 // patchNewDocumentPermissions extracts the new document ID from a task status
 // and patches it with the given owner and permissions.
-func (app *App) patchNewDocumentPermissions(ctx context.Context, taskStatus map[string]interface{}, owner *int, permissions *PermissionSet, logger *logrus.Entry) {
+func (app *App) patchNewDocumentPermissions(ctx context.Context, taskStatus map[string]interface{}, owner *int, permissions *Permissions, logger *logrus.Entry) {
 	newDocID, found := extractDocIDFromTask(taskStatus)
 	if !found {
 		logger.Warn("Could not determine new document ID from task status")

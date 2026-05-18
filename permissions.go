@@ -8,7 +8,7 @@ import (
 )
 
 // enqueuePermissionRestore adds a pending permission restore request to the queue.
-func (app *App) enqueuePermissionRestore(taskID string, originalDocID int, owner *int, permissions *PermissionSet) {
+func (app *App) enqueuePermissionRestore(taskID string, originalDocID int, owner *int, permissions *Permissions) {
 	app.pendingRestoresMu.Lock()
 	defer app.pendingRestoresMu.Unlock()
 
