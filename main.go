@@ -140,6 +140,9 @@ type App struct {
 	pdfOCRCompleteTag  string            // Tag to add to documents that have been OCR processed
 	pdfOCRTagging      bool              // Whether to add the OCR complete tag to processed PDFs
 	pdfSkipExistingOCR bool              // Whether to skip processing PDFs that already have OCR detected
+
+	pendingRestores   []PendingPermissionRestore
+	pendingRestoresMu sync.Mutex
 }
 
 func main() {

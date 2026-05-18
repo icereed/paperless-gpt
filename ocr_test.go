@@ -276,7 +276,7 @@ func TestUploadProcessedPDF(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
+	for _, tc := range tc {
 		t.Run(tc.name, func(t *testing.T) {
 			// Reset tracking variables
 			deleteDocCalled = false
