@@ -543,6 +543,11 @@ However, some metadata **cannot** be copied due to paperless-ngx API limitations
 - Custom fields that might be added by other paperless-ngx plugins
 - Notes and annotations
 
+> **⚠️ Trade-off: Owner & Permissions Restoration**  
+> When `PDF_PRESERVE_OWNER_PERMISSIONS` is enabled, paperless-gpt uses an **in-memory queue** to restore the original document's owner and permissions after paperless-ngx finishes processing the upload.  
+> **If paperless-gpt crashes or restarts** between the upload and the restore, the queue is lost. The new document will retain paperless-ngx's default permissions, which may be less restrictive than the original.  
+> This is acceptable because the API token holder already has access to all documents, and a future update may add persistent queue storage.
+
 ### Safety Features
 
 To prevent accidental creation of incomplete documents, paperless-gpt includes several safety features:
@@ -638,6 +643,7 @@ For best results with the enhanced OCR features:
 | `PDF_UPLOAD`                        | Whether to upload enhanced PDFs to paperless-ngx.                                                                                                                                             | No       | false                      |
 | `PDF_REPLACE`                       | Whether to delete the original document after uploading the enhanced version (DANGEROUS).                                                                                                     | No       | false                      |
 | `PDF_COPY_METADATA`                 | Whether to copy metadata from the original document to the uploaded PDF. Only applicable when using PDF_UPLOAD.                                                                               | No       | true                       |
+| `PDF_PRESERVE_OWNER_PERMISSIONS`    | Whether to restore the original document's owner and permissions on the uploaded PDF. Uses an async background queue that retries until paperless-ngx consumption completes. In-memory; lost on pod restart during the upload-to-restore window. | No       | false                      |
 | `PDF_OCR_TAGGING`                   | Whether to add a tag to mark documents as OCR-processed.                                                                                                                                      | No       | true                       |
 | `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed.                                                                                                                                                  | No       | paperless-gpt-ocr-complete |
 | `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                        | No       | false                      |
