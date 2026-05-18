@@ -89,7 +89,7 @@ func TestProcessDocumentOCR_SafetyFeature(t *testing.T) {
 			},
 		}
 
-		for _, tc := range tc {
+		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				// Set global limitOcrPages
 				limitOcrPages = tc.limitPages
@@ -228,7 +228,7 @@ func TestUploadProcessedPDF(t *testing.T) {
 	})
 
 	// Test cases
-	tc := []struct {
+	testCases := []struct {
 		name               string
 		options            OCROptions
 		expectReplacement  bool
@@ -276,7 +276,7 @@ func TestUploadProcessedPDF(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tc {
+	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Reset tracking variables
 			deleteDocCalled = false
