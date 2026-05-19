@@ -50,6 +50,7 @@ var (
 	autoTag                       = os.Getenv("AUTO_TAG")
 	manualOcrTag                  = os.Getenv("MANUAL_OCR_TAG") // Not used yet
 	autoOcrTag                    = os.Getenv("AUTO_OCR_TAG")
+	failTag                       = os.Getenv("FAIL_TAG")
 	ocrProcessMode                = os.Getenv("OCR_PROCESS_MODE")
 	llmProvider                   = os.Getenv("LLM_PROVIDER")
 	llmModel                      = os.Getenv("LLM_MODEL")
@@ -161,6 +162,15 @@ func main() {
 
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
+
+	// Ensure the fail tag exists in paperless-ngx. paperless-gpt applies this
+	// tag mechanically when document processing fails (see processAutoTagDocuments),
+	// so it must be available regardless of the CREATE_NEW_TAGS setting.
+	// A failure here is logged but non-fatal: the loop-break path still removes
+	// the auto tag, the fail tag is just not applied.
+	if err := client.EnsureTagExists(ctx, failTag); err != nil {
+		log.Warnf("Failed to ensure fail tag %q exists: %v. Recovery from a failed document update will still remove the auto tag (loop break works), but the fail tag will not be added.", failTag, err)
+	}
 
 	// Initial fetch of custom fields
 	refreshCustomFieldsCache(client)
@@ -580,6 +590,11 @@ func validateOrDefaultEnvVars() {
 	if autoOcrTag == "" {
 		autoOcrTag = "paperless-gpt-ocr-auto"
 	}
+
+	if failTag == "" {
+		failTag = "paperless-gpt-failed"
+	}
+	fmt.Printf("Using %s as fail tag\n", failTag)
 
 	if pdfOCRCompleteTag == "" {
 		pdfOCRCompleteTag = "paperless-gpt-ocr-complete"

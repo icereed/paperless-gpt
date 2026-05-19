@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"gorm.io/gorm"
 )
@@ -154,6 +155,21 @@ type OCROptions struct {
 	CopyMetadata    bool   // Whether to copy metadata from the original document
 	LimitPages      int    // Limit on the number of pages to process (0 = no limit)
 	ProcessMode     string // OCR processing mode: "image" (default) or "pdf"
+}
+
+// PartialUpdateError signals that a document update succeeded only after
+// paperless-gpt had to drop one or more fields that paperless-ngx rejected as
+// invalid. The PATCH eventually succeeded with the surviving fields; the
+// document has been written but is incomplete relative to what the LLM
+// suggested. Callers should treat this as a successful update but apply the
+// fail tag so the user knows the document needs review.
+type PartialUpdateError struct {
+	DocumentID    int
+	DroppedFields []string
+}
+
+func (e *PartialUpdateError) Error() string {
+	return fmt.Sprintf("document %d updated with %d field(s) dropped due to paperless-ngx validation errors: %v", e.DocumentID, len(e.DroppedFields), e.DroppedFields)
 }
 
 // ClientInterface defines the interface for PaperlessClient operations

@@ -756,3 +756,130 @@ func TestDownloadDocumentAsPDF(t *testing.T) {
 
 	// Testing with splitting=true would be more complex so we'll skip that for simplicity
 }
+
+func TestParsePaperlessValidationErrors(t *testing.T) {
+	t.Run("real-world response with created_date + one custom_field", func(t *testing.T) {
+		body := []byte(`{"created_date":["Date has wrong format. Use one of these formats instead: YYYY-MM-DD."],"custom_fields":[{},{},{},{},{},{},{},{"non_field_errors":["Date has wrong format. Use one of these formats instead: YYYY-MM-DD."]}]}`)
+		scalars, cfIdx, unrecoverable := parsePaperlessValidationErrors(body)
+		require.False(t, unrecoverable)
+		assert.True(t, scalars["created_date"], "created_date must be reported")
+		assert.Equal(t, []int{7}, cfIdx, "custom_fields[7] is the only failing entry")
+	})
+
+	t.Run("only custom_field failure", func(t *testing.T) {
+		body := []byte(`{"custom_fields":[{},{"non_field_errors":["bad"]},{}]}`)
+		scalars, cfIdx, unrecoverable := parsePaperlessValidationErrors(body)
+		require.False(t, unrecoverable)
+		assert.Empty(t, scalars)
+		assert.Equal(t, []int{1}, cfIdx)
+	})
+
+	t.Run("only scalar failure", func(t *testing.T) {
+		body := []byte(`{"title":["This field may not be blank."]}`)
+		scalars, cfIdx, unrecoverable := parsePaperlessValidationErrors(body)
+		require.False(t, unrecoverable)
+		assert.True(t, scalars["title"])
+		assert.Empty(t, cfIdx)
+	})
+
+	t.Run("tags failure is unrecoverable", func(t *testing.T) {
+		// Tag updates carry the loop-break (auto-tag removal). We must not
+		// silently drop them.
+		body := []byte(`{"tags":["Invalid pk \"99\" - object does not exist."]}`)
+		_, _, unrecoverable := parsePaperlessValidationErrors(body)
+		assert.True(t, unrecoverable, "tag errors must be classified as unrecoverable")
+	})
+
+	t.Run("garbage body returns nothing-to-strip", func(t *testing.T) {
+		scalars, cfIdx, unrecoverable := parsePaperlessValidationErrors([]byte("not json"))
+		assert.Nil(t, scalars)
+		assert.Nil(t, cfIdx)
+		assert.False(t, unrecoverable)
+	})
+
+	t.Run("empty response with no errors returns nothing-to-strip", func(t *testing.T) {
+		scalars, cfIdx, unrecoverable := parsePaperlessValidationErrors([]byte(`{}`))
+		assert.Nil(t, scalars)
+		assert.Nil(t, cfIdx)
+		assert.False(t, unrecoverable)
+	})
+}
+
+func TestStripFailedFields(t *testing.T) {
+	t.Run("strips scalar field", func(t *testing.T) {
+		uf := map[string]interface{}{
+			"title":        "BARMER letter",
+			"created_date": "2023-01-79",
+		}
+		dropped := stripFailedFields(uf, map[string]bool{"created_date": true}, nil)
+		assert.Equal(t, []string{"created_date"}, dropped)
+		_, present := uf["created_date"]
+		assert.False(t, present)
+		assert.Equal(t, "BARMER letter", uf["title"])
+	})
+
+	t.Run("strips custom_fields entries by index, preserves the rest", func(t *testing.T) {
+		uf := map[string]interface{}{
+			"custom_fields": []CustomFieldResponse{
+				{Field: 6, Value: "Adresse"},
+				{Field: 7, Value: "2023-01-79"},
+				{Field: 8, Value: "M976605823"},
+			},
+		}
+		dropped := stripFailedFields(uf, nil, []int{1})
+		require.Len(t, dropped, 1)
+		assert.Contains(t, dropped[0], "field_id=7")
+		cf := uf["custom_fields"].([]CustomFieldResponse)
+		require.Len(t, cf, 2)
+		assert.Equal(t, 6, cf[0].Field)
+		assert.Equal(t, 8, cf[1].Field, "field 8 must remain after deleting index 1")
+	})
+
+	t.Run("strips multiple custom_fields entries (descending order is safe)", func(t *testing.T) {
+		uf := map[string]interface{}{
+			"custom_fields": []CustomFieldResponse{
+				{Field: 1, Value: "a"},
+				{Field: 2, Value: "b"},
+				{Field: 3, Value: "c"},
+				{Field: 4, Value: "d"},
+			},
+		}
+		dropped := stripFailedFields(uf, nil, []int{0, 2})
+		require.Len(t, dropped, 2)
+		cf := uf["custom_fields"].([]CustomFieldResponse)
+		require.Len(t, cf, 2)
+		assert.Equal(t, 2, cf[0].Field, "field 2 must remain after deleting indices 0 and 2")
+		assert.Equal(t, 4, cf[1].Field, "field 4 must remain after deleting indices 0 and 2")
+	})
+
+	t.Run("removes custom_fields key entirely if all entries fail", func(t *testing.T) {
+		uf := map[string]interface{}{
+			"title": "Letter",
+			"custom_fields": []CustomFieldResponse{
+				{Field: 7, Value: "2023-01-79"},
+			},
+		}
+		dropped := stripFailedFields(uf, nil, []int{0})
+		require.Len(t, dropped, 1)
+		_, present := uf["custom_fields"]
+		assert.False(t, present, "custom_fields key should be removed when empty")
+		assert.Equal(t, "Letter", uf["title"])
+	})
+
+	t.Run("ignores out-of-range custom_field indices", func(t *testing.T) {
+		uf := map[string]interface{}{
+			"custom_fields": []CustomFieldResponse{{Field: 1, Value: "a"}},
+		}
+		dropped := stripFailedFields(uf, nil, []int{5})
+		assert.Empty(t, dropped)
+		cf := uf["custom_fields"].([]CustomFieldResponse)
+		assert.Len(t, cf, 1, "original entry must remain when index is out of range")
+	})
+
+	t.Run("returns empty when scalar field is not in payload", func(t *testing.T) {
+		uf := map[string]interface{}{"title": "x"}
+		dropped := stripFailedFields(uf, map[string]bool{"created_date": true}, nil)
+		assert.Empty(t, dropped, "must not report a drop for a field that was not in the payload")
+		assert.Equal(t, "x", uf["title"])
+	})
+}

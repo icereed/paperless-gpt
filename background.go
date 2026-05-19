@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // This is our interface, allowing us to enable proper testing
@@ -78,6 +80,84 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 	}()
 }
 
+// applyFailTagAfterPartialSuccess applies the fail tag to a document whose
+// update succeeded only after paperless-gpt had to drop one or more fields
+// rejected by paperless-ngx (see UpdateDocuments' strip-and-retry path).
+//
+// The document's tags in paperless-ngx have already been updated by the
+// successful retry to whatever the LLM suggested (the auto tag is no longer
+// present). To avoid clobbering those LLM-suggested tags, this function
+// re-fetches the document's current state, then PATCHes only the tags field
+// to append the fail tag.
+//
+// This is best-effort: if the re-fetch or the PATCH fails, the dropped-field
+// information is logged but the document is left with no fail tag. The loop
+// is still broken (the successful retry removed the auto tag) — only the
+// user-visible marker is missing.
+func applyFailTagAfterPartialSuccess(ctx context.Context, client ClientInterface, db *gorm.DB, documentID int, droppedFields []string) {
+	docLogger := documentLogger(documentID)
+	if failTag == "" {
+		docLogger.Warnf("Document %d update succeeded after paperless-ngx rejected fields %v; no FAIL_TAG is configured, so the document is not marked for review.", documentID, droppedFields)
+		return
+	}
+	currentDoc, err := client.GetDocument(ctx, documentID)
+	if err != nil {
+		docLogger.Errorf("Document %d update succeeded after dropping fields %v, but fetching current state to apply fail tag failed: %v", documentID, droppedFields, err)
+		return
+	}
+	if slices.Contains(currentDoc.Tags, failTag) {
+		docLogger.Warnf("Document %d update succeeded after dropping fields %v; fail tag %q is already present.", documentID, droppedFields, failTag)
+		return
+	}
+	suggestion := DocumentSuggestion{
+		ID:               documentID,
+		OriginalDocument: currentDoc,
+		SuggestedTags:    []string{failTag},
+		KeepOriginalTags: true,
+	}
+	if err := client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, db, false); err != nil {
+		docLogger.Errorf("Document %d update succeeded after dropping fields %v, but applying fail tag %q failed: %v", documentID, droppedFields, failTag, err)
+		return
+	}
+	docLogger.Warnf("Document %d update succeeded after paperless-ngx rejected fields %v; fail tag %q applied for user review.", documentID, droppedFields, failTag)
+}
+
+// recoverFromFailedUpdate is called when an UpdateDocuments call has failed for
+// a document picked up by the auto-tagging or auto-OCR poll. It performs a
+// minimal tag-only PATCH that removes the auto-tag the document was picked up by
+// (so the document is not re-processed on every poll cycle, which can cost
+// real money on paid LLM providers) and, if failTag is configured, adds it as
+// a marker so the user can find and review failed documents.
+//
+// The recovery PATCH only manipulates tags and therefore should succeed even
+// when the original PATCH was rejected for a field-validation reason (e.g.
+// an LLM-suggested date that is not a real calendar date).
+//
+// On its own failure, this function logs at error level but does not return
+// the error to the caller — the caller has already recorded the original
+// update failure and the recovery is best-effort.
+func recoverFromFailedUpdate(ctx context.Context, client ClientInterface, db *gorm.DB, document Document, removeTag string) {
+	docLogger := documentLogger(document.ID)
+	recoveryFields := DocumentSuggestion{
+		ID:               document.ID,
+		OriginalDocument: document,
+		RemoveTags:       []string{removeTag},
+	}
+	if failTag != "" {
+		recoveryFields.SuggestedTags = []string{failTag}
+		recoveryFields.KeepOriginalTags = true
+	}
+	if err := client.UpdateDocuments(ctx, []DocumentSuggestion{recoveryFields}, db, false); err != nil {
+		docLogger.Errorf("Recovery update for failed document %d also failed: %v. The %q tag may still be present and the document may be re-processed on the next poll cycle.", document.ID, err, removeTag)
+		return
+	}
+	if failTag != "" {
+		docLogger.Warnf("Document %d update failed; %q tag removed and %q tag applied to break the processing loop.", document.ID, removeTag, failTag)
+	} else {
+		docLogger.Warnf("Document %d update failed; %q tag removed to break the processing loop (no failTag configured).", document.ID, removeTag)
+	}
+}
+
 // processAutoTagDocuments handles the background auto-tagging of documents
 func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 	documents, err := app.Client.GetDocumentsByTag(ctx, autoTag, 25)
@@ -137,9 +217,21 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 
 		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 		if err != nil {
+			var partial *PartialUpdateError
+			if errors.As(err, &partial) {
+				// Update went through but paperless-ngx rejected some fields,
+				// which UpdateDocuments dropped in order to land the rest.
+				// The auto tag is already gone (it was part of the successful
+				// retry's tag update). Apply the fail tag so the user sees
+				// that this document needs review.
+				applyFailTagAfterPartialSuccess(ctx, app.Client, app.Database, partial.DocumentID, partial.DroppedFields)
+				processedCount++
+				continue
+			}
 			err = fmt.Errorf("error updating document %d: %w", document.ID, err)
 			docLogger.Error(err.Error())
 			errs = append(errs, err)
+			recoverFromFailedUpdate(ctx, app.Client, app.Database, document, autoTag)
 			continue
 		}
 
@@ -270,8 +362,17 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 				documentSuggestion,
 			}, app.Database, false)
 			if err != nil {
+				var partial *PartialUpdateError
+				if errors.As(err, &partial) {
+					applyFailTagAfterPartialSuccess(ctx, app.Client, app.Database, partial.DocumentID, partial.DroppedFields)
+					// Treat as a (partial) success: tag was removed, fail tag applied.
+					docLogger.Info("Successfully processed document OCR (with partial-update fail-tag marker)")
+					successCount++
+					continue
+				}
 				docLogger.Errorf("Update after OCR failed: %v", err)
 				errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
+				recoverFromFailedUpdate(ctx, app.Client, app.Database, document, autoOcrTag)
 				continue
 			}
 		}

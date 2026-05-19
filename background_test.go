@@ -541,3 +541,82 @@ func TestProcessAutoOcrTagDocuments(t *testing.T) {
 		})
 	}
 }
+
+// recordingClient is a stub ClientInterface used to verify the loop-break
+// recovery PATCH built by recoverFromFailedUpdate.
+type recordingClient struct {
+	*PaperlessClient
+	calls           []DocumentSuggestion
+	updateErr       error // returned by UpdateDocuments while non-nil
+	failAfterNCalls int   // 0 = always succeed, N>0 = fail first N calls then succeed
+}
+
+func (r *recordingClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
+	for _, d := range documents {
+		r.calls = append(r.calls, d)
+	}
+	if r.failAfterNCalls > 0 {
+		r.failAfterNCalls--
+		return r.updateErr
+	}
+	return nil
+}
+
+// TestRecoverFromFailedUpdate verifies that the recovery PATCH built by
+// recoverFromFailedUpdate removes the auto tag (so the document is not
+// re-processed on the next poll) and adds the fail tag (so the user can find
+// the document later in the UI). This is the loop-break behaviour relied upon
+// by both processAutoTagDocuments and processAutoOcrTagDocuments.
+func TestRecoverFromFailedUpdate(t *testing.T) {
+	prevFailTag := failTag
+	t.Cleanup(func() { failTag = prevFailTag })
+
+	doc := Document{ID: 42, Title: "Failing Doc", Tags: []string{"paperless-gpt-auto", "Eingang"}}
+
+	t.Run("removes auto tag and adds fail tag", func(t *testing.T) {
+		failTag = "paperless-gpt-failed"
+		client := &recordingClient{}
+
+		recoverFromFailedUpdate(context.Background(), client, nil, doc, "paperless-gpt-auto")
+
+		require.Len(t, client.calls, 1, "recovery should issue exactly one UpdateDocuments call")
+		got := client.calls[0]
+		assert.Equal(t, 42, got.ID)
+		assert.Equal(t, []string{"paperless-gpt-auto"}, got.RemoveTags, "auto tag must be removed to break the loop")
+		assert.Equal(t, []string{"paperless-gpt-failed"}, got.SuggestedTags, "fail tag must be added as a marker")
+		assert.True(t, got.KeepOriginalTags, "must keep original tags so we only add the fail tag, not replace all tags")
+	})
+
+	t.Run("works without fail tag — still removes auto tag", func(t *testing.T) {
+		failTag = ""
+		client := &recordingClient{}
+
+		recoverFromFailedUpdate(context.Background(), client, nil, doc, "paperless-gpt-auto")
+
+		require.Len(t, client.calls, 1)
+		got := client.calls[0]
+		assert.Equal(t, []string{"paperless-gpt-auto"}, got.RemoveTags, "auto tag must be removed even when fail tag is disabled")
+		assert.Empty(t, got.SuggestedTags, "no fail tag should be added when failTag is empty")
+		assert.False(t, got.KeepOriginalTags, "KeepOriginalTags is only meaningful when adding suggested tags")
+	})
+
+	t.Run("logs but does not panic when recovery itself fails", func(t *testing.T) {
+		failTag = "paperless-gpt-failed"
+		client := &recordingClient{updateErr: errors.New("paperless unreachable"), failAfterNCalls: 1}
+
+		// Should not panic; recovery is best-effort.
+		recoverFromFailedUpdate(context.Background(), client, nil, doc, "paperless-gpt-auto")
+
+		require.Len(t, client.calls, 1, "recovery call should have been attempted")
+	})
+
+	t.Run("works for OCR auto tag too", func(t *testing.T) {
+		failTag = "paperless-gpt-failed"
+		client := &recordingClient{}
+
+		recoverFromFailedUpdate(context.Background(), client, nil, doc, "paperless-gpt-ocr-auto")
+
+		require.Len(t, client.calls, 1)
+		assert.Equal(t, []string{"paperless-gpt-ocr-auto"}, client.calls[0].RemoveTags)
+	})
+}
