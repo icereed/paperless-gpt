@@ -15,12 +15,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/disintegration/imaging"
 	"github.com/gen2brain/go-fitz"
@@ -506,6 +506,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		originalDoc := document.OriginalDocument
 		updatedFields := make(map[string]interface{})
 		originalFields := make(map[string]interface{})
+		var partialDroppedFields []string
 
 		// --- TAGS ---
 		finalTagNames := originalDoc.Tags
@@ -606,12 +607,18 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// --- CREATED DATE ---
 		suggestedCreatedDate := document.SuggestedCreatedDate
 		if suggestedCreatedDate != "" {
-			// Validate format YYYY-MM-DD
-			if matched := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`).MatchString(suggestedCreatedDate); matched {
+			// Validate that the date is a real Gregorian calendar date, not just
+			// a correctly-formatted string. time.Parse rejects impossible dates
+			// like "2023-01-79" (day 79) that the regex `^\d{4}-\d{2}-\d{2}$`
+			// would accept. Dropped pre-flight rather than after a 400 to avoid
+			// an unnecessary round-trip, but the effect on the user is the same:
+			// the field is skipped and the fail tag is applied.
+			if _, err := time.Parse("2006-01-02", suggestedCreatedDate); err == nil {
 				originalFields["created_date"] = document.OriginalDocument.CreatedDate
 				updatedFields["created_date"] = suggestedCreatedDate
 			} else {
-				log.Warnf("Invalid created_date format for document %d: %s. Expected YYYY-MM-DD, skipping.", documentID, suggestedCreatedDate)
+				log.Warnf("Document %d: created_date %q is not a valid calendar date, skipping. (%v)", documentID, suggestedCreatedDate, err)
+				partialDroppedFields = append(partialDroppedFields, "created_date")
 			}
 		}
 
@@ -712,7 +719,6 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// tag, add fail tag).
 		const maxRetries = 3
 		patchPath := fmt.Sprintf("api/documents/%d/", documentID)
-		var partialDroppedFields []string
 		patchSucceeded := false
 
 		for attempt := 0; attempt <= maxRetries; attempt++ {
