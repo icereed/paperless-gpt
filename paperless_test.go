@@ -883,3 +883,58 @@ func TestStripFailedFields(t *testing.T) {
 		assert.Equal(t, "x", uf["title"])
 	})
 }
+
+func TestCreatedDatePreValidation(t *testing.T) {
+	// Verify that UpdateDocuments rejects impossible dates like "2023-01-79"
+	// before sending the PATCH, so the bad date never reaches paperless-ngx.
+	// The field should appear in partialDroppedFields so the caller applies
+	// the fail tag.
+	env := setupTest(t)
+	defer env.teardown()
+
+	ctx := context.Background()
+
+	setupTestCase(TestCase{
+		name: "pre-validate created_date",
+		documents: []TestDocument{
+			{ID: 1, Title: "Test Doc", Tags: []string{autoTag}},
+		},
+	}, env)
+
+	patchCalled := false
+	var receivedPatch map[string]interface{}
+	env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			json.NewEncoder(w).Encode(GetDocumentApiResponse{
+				ID: 1, Title: "Test Doc", Tags: []int{1}, Content: "content",
+			})
+			return
+		}
+		if r.Method == "PATCH" {
+			patchCalled = true
+			json.NewDecoder(r.Body).Decode(&receivedPatch)
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id": 1, "title": "Test Doc", "tags": []int{1},
+			})
+		}
+	})
+
+	suggestion := DocumentSuggestion{
+		ID:                   1,
+		OriginalDocument:     Document{ID: 1, Title: "Test Doc", Tags: []string{autoTag}},
+		SuggestedTitle:       "Better Title",
+		SuggestedCreatedDate: "2023-01-79", // impossible date
+	}
+
+	err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, env.db, false)
+
+	var partial *PartialUpdateError
+	require.ErrorAs(t, err, &partial, "UpdateDocuments must return PartialUpdateError when created_date is invalid")
+	assert.Contains(t, partial.DroppedFields, "created_date", "created_date must be in DroppedFields")
+	require.True(t, patchCalled, "PATCH must still be sent (with the valid fields)")
+	if created, ok := receivedPatch["created_date"]; ok {
+		t.Errorf("PATCH must not include invalid created_date, but got %v", created)
+	}
+	assert.Equal(t, "Better Title", receivedPatch["title"], "valid fields must still be sent")
+}
