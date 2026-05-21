@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"text/template"
@@ -88,11 +89,16 @@ func updatePromptsHandler(c *gin.Context) {
 		return
 	}
 
-	// Write the updated prompt file
-	err = os.WriteFile(promptPath, []byte(req.Content), 0644)
+	// Write the updated prompt file with owner-only permissions; prompts may contain deployment-specific instructions.
+	err = os.WriteFile(promptPath, []byte(req.Content), 0600)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write prompt file"})
 		log.Errorf("Failed to write prompt file %s: %v", req.Filename, err)
+		return
+	}
+	if err := os.Chmod(promptPath, 0600); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to secure prompt file permissions"})
+		log.Errorf("Failed to chmod prompt file %s: %v", req.Filename, err)
 		return
 	}
 
@@ -991,6 +997,9 @@ func (app *App) applyJobberSelection(ctx context.Context, documentID int, candid
 }
 
 func mergeSettingsPatch(current Settings, patch map[string]interface{}) (Settings, error) {
+	if err := validateSettingsPatchKeys(patch); err != nil {
+		return Settings{}, err
+	}
 	rawCurrent, err := json.Marshal(current)
 	if err != nil {
 		return Settings{}, err
@@ -1018,7 +1027,75 @@ func mergeSettingsPatch(current Settings, patch map[string]interface{}) (Setting
 	if merged.CustomFieldsWriteMode == "" {
 		merged.CustomFieldsWriteMode = current.CustomFieldsWriteMode
 	}
+	if err := validateSettingsValues(merged); err != nil {
+		return Settings{}, err
+	}
 	return merged, nil
+}
+
+func validateSettingsPatchKeys(patch map[string]interface{}) error {
+	allowed := settingsJSONFields()
+	for key := range patch {
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("unknown settings field %q", key)
+		}
+	}
+	return nil
+}
+
+func settingsJSONFields() map[string]reflect.StructField {
+	fields := map[string]reflect.StructField{}
+	typeOfSettings := reflect.TypeOf(Settings{})
+	for i := 0; i < typeOfSettings.NumField(); i++ {
+		field := typeOfSettings.Field(i)
+		jsonName := strings.Split(field.Tag.Get("json"), ",")[0]
+		if jsonName == "" || jsonName == "-" {
+			continue
+		}
+		fields[jsonName] = field
+	}
+	return fields
+}
+
+func validateSettingsValues(s Settings) error {
+	switch s.CustomFieldsWriteMode {
+	case "append", "update", "replace":
+	default:
+		return fmt.Errorf("custom_fields_write_mode must be one of append, update, or replace")
+	}
+
+	valueOfSettings := reflect.ValueOf(s)
+	typeOfSettings := reflect.TypeOf(s)
+	for i := 0; i < typeOfSettings.NumField(); i++ {
+		field := typeOfSettings.Field(i)
+		if field.Type.Kind() == reflect.Int && valueOfSettings.Field(i).Int() < 0 {
+			jsonName := strings.Split(field.Tag.Get("json"), ",")[0]
+			return fmt.Errorf("%s must be non-negative", jsonName)
+		}
+	}
+
+	if err := validateOptionalHTTPURL("firefly_instance_url", s.FireflyInstanceURL); err != nil {
+		return err
+	}
+	if err := validateOptionalHTTPURL("integration_public_url", s.IntegrationPublicURL); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateOptionalHTTPURL(fieldName, rawURL string) error {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return nil
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("%s must be a valid absolute URL", fieldName)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("%s must use http or https", fieldName)
+	}
+	return nil
 }
 
 func (app *App) submitOCRJobHandler(c *gin.Context) {

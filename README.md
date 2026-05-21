@@ -675,7 +675,7 @@ paperless-gpt ships with a built-in user system. On first boot, the web UI shows
 3. Enter a username and a strong password (minimum 8 characters).
 4. You are logged in and the wizard will not appear again.
 
-Users can change their password at any time from the **Settings → Account** section. The session cookie is `HttpOnly`, `SameSite=Strict`, and `Secure` when TLS is detected or `X-Forwarded-Proto: https` is set by the reverse proxy.
+Users can change their password at any time from **Settings → General → Change password**. The session cookie is `HttpOnly`, `SameSite=Strict`, and `Secure` when TLS is detected or `X-Forwarded-Proto: https` is set by the reverse proxy.
 
 | Variable | Description | Required | Default |
 | --- | --- | --- | --- |
@@ -689,7 +689,7 @@ These are active in addition to user auth when set, and work without any user ac
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------- | ---------------- |
 | `AUTH_USERNAME`         | Username for HTTP Basic Auth. Must be set together with `AUTH_PASSWORD`.                                                                | No       |                  |
 | `AUTH_PASSWORD`         | Password for HTTP Basic Auth. Must be set together with `AUTH_USERNAME`.                                                                | No       |                  |
-| `AUTH_TOKEN`            | Static bearer token for API authentication when no browser session is used. Send as `Authorization: Bearer <token>`. Can be combined with Basic Auth and user accounts. | No       |                  |
+| `AUTH_TOKEN`            | Static bearer token for API authentication when user-account session auth is not active. Send as `Authorization: Bearer <token>`. Once local users exist, browser/API routes require a session cookie except self-authenticating integration endpoints. | No       |                  |
 
 ##### Connecting Bricopro HQ
 

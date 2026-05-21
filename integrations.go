@@ -34,6 +34,7 @@ const (
 	// request via the X-JOBBER-GRAPHQL-VERSION header, which is required by
 	// Jobber for all apps.
 	jobberGraphQLVersion = "2025-04-16"
+	oauthStateTTL        = 10 * time.Minute
 )
 
 const (
@@ -204,7 +205,49 @@ func getOptionalConnectionByProvider(db *gorm.DB, provider string) (*Integration
 	if err == gorm.ErrRecordNotFound {
 		return nil, nil
 	}
+	if err := decryptIntegrationConnectionSecrets(db, conn); err != nil {
+		return nil, err
+	}
 	return conn, nil
+}
+
+func decryptIntegrationConnectionSecrets(db *gorm.DB, conn *IntegrationConnection) error {
+	if conn == nil {
+		return nil
+	}
+	accessToken, legacyAccess, err := DecryptSecretFromStorage(conn.AccessToken)
+	if err != nil {
+		return fmt.Errorf("decrypt %s access token: %w", conn.Provider, err)
+	}
+	refreshToken, legacyRefresh, err := DecryptSecretFromStorage(conn.RefreshToken)
+	if err != nil {
+		return fmt.Errorf("decrypt %s refresh token: %w", conn.Provider, err)
+	}
+	if legacyAccess || legacyRefresh {
+		updates := map[string]interface{}{}
+		if legacyAccess && accessToken != "" {
+			encrypted, err := EncryptSecretForStorage(accessToken)
+			if err != nil {
+				return err
+			}
+			updates["access_token"] = encrypted
+		}
+		if legacyRefresh && refreshToken != "" {
+			encrypted, err := EncryptSecretForStorage(refreshToken)
+			if err != nil {
+				return err
+			}
+			updates["refresh_token"] = encrypted
+		}
+		if len(updates) > 0 {
+			if err := db.Model(&IntegrationConnection{}).Where("id = ?", conn.ID).Updates(updates).Error; err != nil {
+				return err
+			}
+		}
+	}
+	conn.AccessToken = accessToken
+	conn.RefreshToken = refreshToken
+	return nil
 }
 
 func upsertIntegrationConnection(db *gorm.DB, provider string, token *providerToken, identity *providerIdentity) (*IntegrationConnection, error) {
@@ -217,10 +260,21 @@ func upsertIntegrationConnection(db *gorm.DB, provider string, token *providerTo
 	}
 
 	conn.Status = integrationStatusConnected
-	conn.AccessToken = token.AccessToken
+	accessToken := token.AccessToken
+	refreshToken := conn.RefreshToken
 	if token.RefreshToken != "" {
-		conn.RefreshToken = token.RefreshToken
+		refreshToken = token.RefreshToken
 	}
+	encryptedAccessToken, err := EncryptSecretForStorage(accessToken)
+	if err != nil {
+		return nil, err
+	}
+	encryptedRefreshToken, err := EncryptSecretForStorage(refreshToken)
+	if err != nil {
+		return nil, err
+	}
+	conn.AccessToken = encryptedAccessToken
+	conn.RefreshToken = encryptedRefreshToken
 	conn.AccessTokenExpiresAt = token.ExpiresAt
 	if len(token.Scopes) > 0 {
 		conn.Scopes = strings.Join(token.Scopes, " ")
@@ -249,6 +303,8 @@ func upsertIntegrationConnection(db *gorm.DB, provider string, token *providerTo
 		}
 	}
 
+	conn.AccessToken = accessToken
+	conn.RefreshToken = refreshToken
 	return conn, nil
 }
 
@@ -270,6 +326,7 @@ func disconnectIntegrationConnection(db *gorm.DB, provider string) error {
 }
 
 func saveOAuthState(db *gorm.DB, provider, state, returnPath string) error {
+	_ = db.Where("created_at < ?", time.Now().Add(-oauthStateTTL)).Delete(&OAuthStateRecord{}).Error
 	record := OAuthStateRecord{
 		Provider:   provider,
 		State:      state,
@@ -282,6 +339,10 @@ func consumeOAuthState(db *gorm.DB, provider, state string) (*OAuthStateRecord, 
 	var record OAuthStateRecord
 	if err := db.Where("provider = ? AND state = ?", provider, state).First(&record).Error; err != nil {
 		return nil, err
+	}
+	if record.CreatedAt.Before(time.Now().Add(-oauthStateTTL)) {
+		_ = db.Delete(&record).Error
+		return nil, fmt.Errorf("oauth state expired")
 	}
 	if err := db.Delete(&record).Error; err != nil {
 		return nil, err
@@ -1461,11 +1522,8 @@ func providerTokenFromOAuthToken(token *oauth2.Token) *providerToken {
 	}
 }
 
-func decryptedSettingsSecret(encrypted string) string {
-	if strings.TrimSpace(encrypted) == "" {
-		return ""
-	}
-	secret, err := DecryptSecret(encrypted)
+func decryptedSettingsSecret(stored string) string {
+	secret, _, err := DecryptSecretFromStorage(stored)
 	if err != nil {
 		log.WithError(err).Warn("Failed to decrypt integration secret")
 		return ""

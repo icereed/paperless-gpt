@@ -121,7 +121,7 @@ func fireflyConfigFromSettings() (FireflyConfig, bool, string) {
 		DestinationAccountFieldRef: strings.TrimSpace(settings.FireflyDestinationAccountFieldRef),
 	}
 	if settings.FireflyAPIToken != "" {
-		token, err := DecryptSecret(settings.FireflyAPIToken)
+		token, _, err := DecryptSecretFromStorage(settings.FireflyAPIToken)
 		if err != nil {
 			return cfg, false, "Firefly token could not be decrypted"
 		}
@@ -169,10 +169,7 @@ func mergeSecretSettings(current Settings, merged *Settings) error {
 			*secret.merged = *secret.current
 			continue
 		}
-		if IsEncryptedSecret(*secret.merged) {
-			continue
-		}
-		encrypted, err := EncryptSecret(strings.TrimSpace(*secret.merged))
+		encrypted, err := EncryptSecretForStorage(strings.TrimSpace(*secret.merged))
 		if err != nil {
 			return err
 		}

@@ -125,7 +125,20 @@ func (app *App) getWebhookSecret(ctx context.Context, provider string) (string, 
 	if err != nil {
 		return "", err
 	}
-	return record.Secret, nil
+	secret, legacyPlaintext, err := DecryptSecretFromStorage(record.Secret)
+	if err != nil {
+		return "", err
+	}
+	if legacyPlaintext {
+		encrypted, err := EncryptSecretForStorage(secret)
+		if err != nil {
+			return "", err
+		}
+		if err := app.Database.WithContext(ctx).Model(&WebhookSecret{}).Where("id = ?", record.ID).Update("secret", encrypted).Error; err != nil {
+			return "", err
+		}
+	}
+	return secret, nil
 }
 
 func (app *App) upsertWebhookSecret(ctx context.Context, provider, secret string) error {
@@ -138,7 +151,11 @@ func (app *App) upsertWebhookSecret(ctx context.Context, provider, secret string
 	if err == gorm.ErrRecordNotFound {
 		record = WebhookSecret{Provider: provider}
 	}
-	record.Secret = secret
+	encryptedSecret, err := EncryptSecretForStorage(secret)
+	if err != nil {
+		return err
+	}
+	record.Secret = encryptedSecret
 	record.Enabled = true
 	if record.ID == 0 {
 		return db.Create(&record).Error

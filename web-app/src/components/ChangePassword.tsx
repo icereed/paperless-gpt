@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 
-const ChangePassword: React.FC = () => {
-  const { user } = useAuth();
+interface ChangePasswordProps {
+  compact?: boolean;
+  force?: boolean;
+}
+
+const ChangePassword: React.FC<ChangePasswordProps> = ({ compact = false, force = false }) => {
+  const { user, refresh } = useAuth();
   const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
@@ -24,6 +29,10 @@ const ChangePassword: React.FC = () => {
       setError('New password must be at least 8 characters');
       return;
     }
+    if (currentPw === newPw) {
+      setError('New password must be different from the current password');
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch('./api/auth/change-password', {
@@ -40,6 +49,7 @@ const ChangePassword: React.FC = () => {
       setCurrentPw('');
       setNewPw('');
       setConfirmPw('');
+      await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to change password');
     } finally {
@@ -47,17 +57,14 @@ const ChangePassword: React.FC = () => {
     }
   };
 
-  return (
-    <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400">
-        Account
-      </p>
-      <h2 className="mt-2 text-xl font-bold text-gray-900 dark:text-gray-100">Change password</h2>
-      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-        Signed in as <span className="font-medium text-gray-700 dark:text-gray-300">{user.username}</span>
-      </p>
-
-      <form onSubmit={(e) => { void handleSubmit(e); }} className="mt-6 max-w-sm space-y-4">
+  const form = (
+    <>
+      {force && (
+        <p className="mb-4 rounded-lg bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+          You must change your password before continuing.
+        </p>
+      )}
+      <form onSubmit={(e) => { void handleSubmit(e); }} className="max-w-sm space-y-4">
         <div>
           <label
             htmlFor="cp-current"
@@ -129,9 +136,26 @@ const ChangePassword: React.FC = () => {
           disabled={loading}
           className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-600"
         >
-          {loading ? 'Saving…' : 'Update password'}
+          {loading ? 'Saving...' : 'Update password'}
         </button>
       </form>
+    </>
+  );
+
+  if (compact) {
+    return form;
+  }
+
+  return (
+    <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400">
+        Account
+      </p>
+      <h2 className="mt-2 text-xl font-bold text-gray-900 dark:text-gray-100">Change password</h2>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        Signed in as <span className="font-medium text-gray-700 dark:text-gray-300">{user.username}</span>
+      </p>
+      <div className="mt-6">{form}</div>
     </section>
   );
 };

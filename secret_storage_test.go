@@ -66,6 +66,31 @@ func TestEmptySecret(t *testing.T) {
 	}
 }
 
+func TestSecretStorageLegacyPlaintextFallback(t *testing.T) {
+	plaintext, legacy, err := DecryptSecretFromStorage(" legacy-secret ")
+	if err != nil {
+		t.Fatalf("DecryptSecretFromStorage() error = %v", err)
+	}
+	if plaintext != "legacy-secret" || !legacy {
+		t.Fatalf("got plaintext=%q legacy=%v, want legacy-secret true", plaintext, legacy)
+	}
+}
+
+func TestEncryptSecretForStoragePreservesEncryptedValue(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_SECRET_KEY", strings.Repeat("a", 32))
+	encrypted, err := EncryptSecret("super-secret")
+	if err != nil {
+		t.Fatalf("EncryptSecret() error = %v", err)
+	}
+	stored, err := EncryptSecretForStorage(encrypted)
+	if err != nil {
+		t.Fatalf("EncryptSecretForStorage() error = %v", err)
+	}
+	if stored != encrypted {
+		t.Fatalf("encrypted value was changed")
+	}
+}
+
 func TestLocalSecretKeyIsPersistedOwnerOnly(t *testing.T) {
 	t.Setenv("PAPERLESS_GPT_SECRET_KEY", "")
 	tmp := t.TempDir()

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -347,17 +348,144 @@ func TestChangePassword_WrongCurrentPassword(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, wCP.Code)
 }
 
-// ---------------------------------------------------------------------------
-// No-users mode: protected route is open
-// ---------------------------------------------------------------------------
-
-func TestProtectedRoute_OpenWhenNoUsers(t *testing.T) {
+func TestChangePassword_RejectsReuse(t *testing.T) {
 	db := newTestDB(t)
 	r := newAuthTestRouter(t, db)
 
-	// No users → middleware is transparent
+	hashed, _ := hashPassword("samepass123")
+	db.Create(&User{ID: generateUserID(), Username: "reuse", HashedPassword: hashed})
+
+	wLogin := httptest.NewRecorder()
+	r.ServeHTTP(wLogin, httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		jsonBody(t, gin.H{"username": "reuse", "password": "samepass123"})))
+	require.Equal(t, http.StatusOK, wLogin.Code)
+	cookie := wLogin.Result().Cookies()[0]
+
+	wCP := httptest.NewRecorder()
+	reqCP := httptest.NewRequest(http.MethodPost, "/api/auth/change-password",
+		jsonBody(t, gin.H{"current_password": "samepass123", "new_password": "samepass123"}))
+	reqCP.AddCookie(cookie)
+	r.ServeHTTP(wCP, reqCP)
+	assert.Equal(t, http.StatusBadRequest, wCP.Code)
+}
+
+func TestChangePassword_InvalidatesOtherSessions(t *testing.T) {
+	db := newTestDB(t)
+	r := newAuthTestRouter(t, db)
+
+	hashed, _ := hashPassword("oldpass123")
+	user := &User{ID: generateUserID(), Username: "multi", HashedPassword: hashed}
+	require.NoError(t, db.Create(user).Error)
+
+	wLogin := httptest.NewRecorder()
+	r.ServeHTTP(wLogin, httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		jsonBody(t, gin.H{"username": "multi", "password": "oldpass123"})))
+	require.Equal(t, http.StatusOK, wLogin.Code)
+	currentCookie := wLogin.Result().Cookies()[0]
+	otherSession := createSession(db, user.ID, "127.0.0.1", "test-agent")
+	require.NotNil(t, otherSession)
+
+	wCP := httptest.NewRecorder()
+	reqCP := httptest.NewRequest(http.MethodPost, "/api/auth/change-password",
+		jsonBody(t, gin.H{"current_password": "oldpass123", "new_password": "newpass456"}))
+	reqCP.AddCookie(currentCookie)
+	r.ServeHTTP(wCP, reqCP)
+	require.Equal(t, http.StatusOK, wCP.Code)
+
+	wOther := httptest.NewRecorder()
+	reqOther := httptest.NewRequest(http.MethodGet, "/api/protected", nil)
+	reqOther.AddCookie(&http.Cookie{Name: sessionCookieName, Value: otherSession.ID})
+	r.ServeHTTP(wOther, reqOther)
+	assert.Equal(t, http.StatusUnauthorized, wOther.Code)
+}
+
+func TestForcePasswordChangeRestrictsProtectedAPI(t *testing.T) {
+	db := newTestDB(t)
+	r := newAuthTestRouter(t, db)
+
+	hashed, _ := hashPassword("oldpass123")
+	user := &User{ID: generateUserID(), Username: "forced", HashedPassword: hashed, ForcePasswordChange: true}
+	require.NoError(t, db.Create(user).Error)
+	session := createSession(db, user.ID, "127.0.0.1", "test-agent")
+	require.NotNil(t, session)
+
+	wProtected := httptest.NewRecorder()
+	reqProtected := httptest.NewRequest(http.MethodGet, "/api/protected", nil)
+	reqProtected.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID})
+	r.ServeHTTP(wProtected, reqProtected)
+	assert.Equal(t, http.StatusForbidden, wProtected.Code)
+
+	wCP := httptest.NewRecorder()
+	reqCP := httptest.NewRequest(http.MethodPost, "/api/auth/change-password",
+		jsonBody(t, gin.H{"current_password": "oldpass123", "new_password": "newpass456"}))
+	reqCP.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID})
+	r.ServeHTTP(wCP, reqCP)
+	require.Equal(t, http.StatusOK, wCP.Code)
+
+	var updated User
+	require.NoError(t, db.First(&updated, "id = ?", user.ID).Error)
+	assert.False(t, updated.ForcePasswordChange)
+}
+
+func TestSessionCookieSecureEnvOverride(t *testing.T) {
+	db := newTestDB(t)
+	r := newAuthTestRouter(t, db)
+	hashed, _ := hashPassword("password123")
+	db.Create(&User{ID: generateUserID(), Username: "cookie", HashedPassword: hashed})
+
+	t.Setenv("SESSION_COOKIE_SECURE", "true")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		jsonBody(t, gin.H{"username": "cookie", "password": "password123"})))
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, w.Result().Cookies()[0].Secure)
+
+	t.Setenv("SESSION_COOKIE_SECURE", "false")
+	w = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login",
+		jsonBody(t, gin.H{"username": "cookie", "password": "password123"}))
+	req.Header.Set("X-Forwarded-Proto", "https")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.False(t, w.Result().Cookies()[0].Secure)
+}
+
+func TestGetSessionThrottlesSlidingExpiry(t *testing.T) {
+	db := newTestDB(t)
+	user := &User{ID: generateUserID(), Username: "session", HashedPassword: "hash"}
+	require.NoError(t, db.Create(user).Error)
+	session := createSession(db, user.ID, "127.0.0.1", "test-agent")
+	require.NotNil(t, session)
+
+	fresh, refreshed := getSession(db, session.ID)
+	require.NotNil(t, fresh)
+	assert.False(t, refreshed)
+
+	staleLastSeen := time.Now().UTC().Add(-2 * sessionTouchInterval)
+	require.NoError(t, db.Model(&UserSession{}).Where("id = ?", session.ID).Update("last_seen_at", staleLastSeen).Error)
+	_, refreshed = getSession(db, session.ID)
+	assert.True(t, refreshed)
+}
+
+// ---------------------------------------------------------------------------
+// No-users mode: protected routes are closed until setup or static auth
+// ---------------------------------------------------------------------------
+
+func TestProtectedRoute_BlockedWhenNoUsersAndNoStaticAuth(t *testing.T) {
+	db := newTestDB(t)
+	r := newAuthTestRouter(t, db)
+
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/protected", nil))
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestSetupRoutes_OpenWhenNoUsers(t *testing.T) {
+	db := newTestDB(t)
+	r := newAuthTestRouter(t, db)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/auth/setup/status", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 

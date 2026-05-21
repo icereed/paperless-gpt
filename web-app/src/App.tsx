@@ -8,6 +8,7 @@ import History from './History';
 import Settings from './components/Settings';
 import LoginPage from './pages/LoginPage';
 import SetupPage from './pages/SetupPage';
+import ChangePassword from './components/ChangePassword';
 
 interface VersionInfo {
   version: string;
@@ -74,6 +75,16 @@ const AppShell: React.FC = () => {
   // Not logged in
   if (!user) {
     return <LoginPage />;
+  }
+
+  if (user.force_password_change) {
+    return (
+      <div className="min-h-screen bg-gray-50 px-6 py-10 dark:bg-gray-950">
+        <div className="mx-auto max-w-xl">
+          <ChangePassword force />
+        </div>
+      </div>
+    );
   }
 
   return (

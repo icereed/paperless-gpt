@@ -110,6 +110,9 @@ func TestUpdatePromptsHandler(t *testing.T) {
 		fileContent, err := os.ReadFile(filepath.Join("prompts", "update_prompt.tmpl"))
 		assert.NoError(t, err)
 		assert.Equal(t, newContent, string(fileContent))
+		info, err := os.Stat(filepath.Join("prompts", "update_prompt.tmpl"))
+		assert.NoError(t, err)
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 	})
 
 	t.Run("Invalid template content", func(t *testing.T) {
@@ -191,6 +194,34 @@ func TestUpdatePromptsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
+}
+
+func TestMergeSettingsPatchValidation(t *testing.T) {
+	current := defaultSettings()
+
+	_, err := mergeSettingsPatch(current, map[string]interface{}{"unknown": true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown settings field")
+
+	_, err = mergeSettingsPatch(current, map[string]interface{}{"custom_fields_write_mode": "invalid"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "custom_fields_write_mode")
+
+	_, err = mergeSettingsPatch(current, map[string]interface{}{"jobber_job_id_field_id": -1})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "jobber_job_id_field_id")
+
+	_, err = mergeSettingsPatch(current, map[string]interface{}{"integration_public_url": "not a url"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "integration_public_url")
+
+	merged, err := mergeSettingsPatch(current, map[string]interface{}{
+		"custom_fields_write_mode": "replace",
+		"integration_public_url":   "https://paperless-gpt.example.com",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "replace", merged.CustomFieldsWriteMode)
+	assert.Equal(t, "https://paperless-gpt.example.com", merged.IntegrationPublicURL)
 }
 
 func TestUpdateDocumentsApplyJobberFalseSkipsJobberActions(t *testing.T) {

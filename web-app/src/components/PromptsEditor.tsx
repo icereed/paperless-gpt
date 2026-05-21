@@ -29,7 +29,6 @@ const PromptsEditor: React.FC = () => {
         setIsLoading(false);
       });
     return () => controller.abort();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedPromptContent = useMemo(

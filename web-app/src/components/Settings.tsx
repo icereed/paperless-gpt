@@ -3,7 +3,7 @@ import PromptsEditor from './PromptsEditor';
 import CustomFieldsEditor from './CustomFieldsEditor';
 import MetadataRestrictionsEditor from './MetadataRestrictionsEditor';
 import IntegrationsEditor from './IntegrationsEditor';
-import ChangePassword from './ChangePassword';
+import GeneralSettings from './GeneralSettings';
 import AIProvidersEditor from './AIProvidersEditor';
 import ConnectorIntegrations from './ConnectorIntegrations';
 
@@ -24,6 +24,7 @@ const Settings: React.FC = () => {
       </section>
 
       <div className="space-y-8">
+        <GeneralSettings />
         <AIProvidersEditor />
         <ConnectorIntegrations />
         <PromptsEditor />
@@ -35,9 +36,6 @@ const Settings: React.FC = () => {
         <IntegrationsEditor />
       </div>
 
-      <div className="mt-8">
-        <ChangePassword />
-      </div>
     </main>
   );
 };

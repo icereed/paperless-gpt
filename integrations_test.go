@@ -503,6 +503,96 @@ func resetJobberConnectionRow(t *testing.T, db *gorm.DB) {
 	}
 }
 
+func TestUpsertIntegrationConnectionEncryptsTokensAndReadsPlaintext(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_SECRET_KEY", strings.Repeat("c", 32))
+	db, err := InitializeTestDB()
+	if err != nil {
+		t.Fatalf("InitializeTestDB() error = %v", err)
+	}
+	resetJobberConnectionRow(t, db)
+
+	_, err = upsertIntegrationConnection(db, integrationProviderJobber, &providerToken{
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+		ExpiresAt:    nil,
+	}, &providerIdentity{AccountID: "acct", AccountName: "Account"})
+	if err != nil {
+		t.Fatalf("upsert connection: %v", err)
+	}
+
+	raw, err := getConnectionByProvider(db, integrationProviderJobber)
+	if err != nil {
+		t.Fatalf("get raw conn: %v", err)
+	}
+	if raw.AccessToken == "access-token" || raw.RefreshToken == "refresh-token" {
+		t.Fatalf("tokens were stored in plaintext")
+	}
+	if !IsEncryptedSecret(raw.AccessToken) || !IsEncryptedSecret(raw.RefreshToken) {
+		t.Fatalf("expected encrypted token storage")
+	}
+
+	conn, err := getOptionalConnectionByProvider(db, integrationProviderJobber)
+	if err != nil {
+		t.Fatalf("get optional conn: %v", err)
+	}
+	if conn.AccessToken != "access-token" || conn.RefreshToken != "refresh-token" {
+		t.Fatalf("decrypted tokens = %q/%q", conn.AccessToken, conn.RefreshToken)
+	}
+}
+
+func TestIntegrationConnectionLegacyPlaintextTokensUpgrade(t *testing.T) {
+	t.Setenv("PAPERLESS_GPT_SECRET_KEY", strings.Repeat("d", 32))
+	db, err := InitializeTestDB()
+	if err != nil {
+		t.Fatalf("InitializeTestDB() error = %v", err)
+	}
+	resetJobberConnectionRow(t, db)
+
+	if err := db.Create(&IntegrationConnection{
+		Provider:     integrationProviderJobber,
+		Status:       integrationStatusConnected,
+		AccessToken:  "legacy-access",
+		RefreshToken: "legacy-refresh",
+	}).Error; err != nil {
+		t.Fatalf("seed legacy conn: %v", err)
+	}
+
+	conn, err := getOptionalConnectionByProvider(db, integrationProviderJobber)
+	if err != nil {
+		t.Fatalf("get optional conn: %v", err)
+	}
+	if conn.AccessToken != "legacy-access" || conn.RefreshToken != "legacy-refresh" {
+		t.Fatalf("legacy tokens not returned as plaintext")
+	}
+
+	raw, err := getConnectionByProvider(db, integrationProviderJobber)
+	if err != nil {
+		t.Fatalf("get raw conn: %v", err)
+	}
+	if !IsEncryptedSecret(raw.AccessToken) || !IsEncryptedSecret(raw.RefreshToken) {
+		t.Fatalf("legacy tokens were not upgraded")
+	}
+}
+
+func TestOAuthStateExpires(t *testing.T) {
+	db, err := InitializeTestDB()
+	if err != nil {
+		t.Fatalf("InitializeTestDB() error = %v", err)
+	}
+	if err := db.Where("provider = ?", integrationProviderJobber).Delete(&OAuthStateRecord{}).Error; err != nil {
+		t.Fatalf("reset oauth states: %v", err)
+	}
+	if err := saveOAuthState(db, integrationProviderJobber, "state-token", "/settings"); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+	if err := db.Model(&OAuthStateRecord{}).Where("state = ?", "state-token").Update("created_at", time.Now().Add(-2*oauthStateTTL)).Error; err != nil {
+		t.Fatalf("age state: %v", err)
+	}
+	if _, err := consumeOAuthState(db, integrationProviderJobber, "state-token"); err == nil {
+		t.Fatal("expected expired state to fail")
+	}
+}
+
 func TestFetchAllJobberCandidatesReturnsNotConnectedWhenNoRow(t *testing.T) {
 	db, err := InitializeTestDB()
 	if err != nil {

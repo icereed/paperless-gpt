@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 	"os"
@@ -59,7 +58,16 @@ func verifyPassword(plain, hashed string) bool {
 const (
 	sessionIdleSeconds    = 24 * 60 * 60     // 24 h sliding window
 	sessionHardMaxSeconds = 7 * 24 * 60 * 60 // 7-day absolute ceiling
+	sessionTouchInterval  = 5 * time.Minute
 )
+
+var dummyPasswordHash = func() []byte {
+	hash, err := bcrypt.GenerateFromPassword([]byte("paperless-gpt-dummy-password"), bcrypt.DefaultCost)
+	if err != nil {
+		panic(err)
+	}
+	return hash
+}()
 
 func generateSessionID() string {
 	b := make([]byte, 32)
@@ -95,27 +103,31 @@ func createSession(db *gorm.DB, userID, ip, ua string) *UserSession {
 	return s
 }
 
-func getSession(db *gorm.DB, id string) *UserSession {
+func getSession(db *gorm.DB, id string) (*UserSession, bool) {
 	now := time.Now().UTC()
 	var s UserSession
 	if err := db.First(&s, "id = ?", id).Error; err != nil {
-		return nil
+		return nil, false
 	}
 	if s.ExpiresAt.Before(now) {
 		db.Delete(&s)
-		return nil
+		return nil, false
 	}
 	if now.Sub(s.CreatedAt) > sessionHardMaxSeconds*time.Second {
 		db.Delete(&s)
-		return nil
+		return nil, false
 	}
-	// Slide the window
+	if now.Sub(s.LastSeenAt) < sessionTouchInterval && s.ExpiresAt.Sub(now) > sessionTouchInterval {
+		return &s, false
+	}
+	// Slide the window, but throttle writes to avoid updating SQLite on every request.
 	s.ExpiresAt = now.Add(sessionIdleSeconds * time.Second)
 	s.LastSeenAt = now
 	if err := db.Save(&s).Error; err != nil {
 		log.Errorf("getSession: failed to slide session expiry for %s: %v", id, err)
+		return &s, false
 	}
-	return &s
+	return &s, true
 }
 
 func deleteSession(db *gorm.DB, id string) {
@@ -128,13 +140,36 @@ func deleteSession(db *gorm.DB, id string) {
 
 const sessionCookieName = "paperless_gpt_session"
 
-func setSessionCookie(c *gin.Context, sessionID string, secure bool) {
+func explicitSessionCookieSecure() (bool, bool) {
+	raw := strings.TrimSpace(os.Getenv("SESSION_COOKIE_SECURE"))
+	if raw == "" {
+		return false, false
+	}
+	switch strings.ToLower(raw) {
+	case "1", "t", "true", "yes", "y", "on":
+		return true, true
+	case "0", "f", "false", "no", "n", "off":
+		return false, true
+	default:
+		log.Warnf("Invalid SESSION_COOKIE_SECURE value %q; falling back to auto-detection", raw)
+		return false, false
+	}
+}
+
+func shouldUseSecureSessionCookie(c *gin.Context) bool {
+	if secure, ok := explicitSessionCookieSecure(); ok {
+		return secure
+	}
+	return c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
+}
+
+func setSessionCookie(c *gin.Context, sessionID string) {
 	cookie := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    sessionID,
 		MaxAge:   sessionIdleSeconds,
 		Path:     "/",
-		Secure:   secure,
+		Secure:   shouldUseSecureSessionCookie(c),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	}
@@ -142,13 +177,12 @@ func setSessionCookie(c *gin.Context, sessionID string, secure bool) {
 }
 
 func clearSessionCookie(c *gin.Context) {
-	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
 	cookie := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
 		MaxAge:   -1,
 		Path:     "/",
-		Secure:   secure,
+		Secure:   shouldUseSecureSessionCookie(c),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
 	}
@@ -218,6 +252,12 @@ var publicAuthPaths = map[string]bool{
 	"/api/auth/setup/status": true,
 }
 
+var forcePasswordChangeAllowedPaths = map[string]bool{
+	"/api/auth/logout":          true,
+	"/api/auth/me":              true,
+	"/api/auth/change-password": true,
+}
+
 func sessionAuthMiddleware(db *gorm.DB, cfg SecurityConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
@@ -237,8 +277,14 @@ func sessionAuthMiddleware(db *gorm.DB, cfg SecurityConfig) gin.HandlerFunc {
 			return
 		}
 
-		// No users yet → no auth required (first-run mode)
+		// No users yet: only first-run setup and self-authenticating routes are public.
+		// If static Basic/Bearer auth is configured, let the static auth middleware
+		// decide whether protected API requests may proceed before setup.
 		if !isSessionAuthEnabled(db) {
+			if strings.HasPrefix(path, "/api/") && !cfg.isAuthEnabled() {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Setup required before using the API"})
+				return
+			}
 			c.Next()
 			return
 		}
@@ -250,11 +296,14 @@ func sessionAuthMiddleware(db *gorm.DB, cfg SecurityConfig) gin.HandlerFunc {
 			return
 		}
 
-		session := getSession(db, sessionID)
+		session, refreshed := getSession(db, sessionID)
 		if session == nil {
 			clearSessionCookie(c)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Session expired or invalid"})
 			return
+		}
+		if refreshed {
+			setSessionCookie(c, session.ID)
 		}
 
 		// Load user
@@ -267,6 +316,10 @@ func sessionAuthMiddleware(db *gorm.DB, cfg SecurityConfig) gin.HandlerFunc {
 
 		c.Set("currentUser", &user)
 		c.Set("currentSession", session)
+		if user.ForcePasswordChange && strings.HasPrefix(path, "/api/") && !forcePasswordChangeAllowedPaths[path] {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Password change required"})
+			return
+		}
 		c.Next()
 	}
 }
@@ -353,8 +406,7 @@ func (app *App) createFirstAdminHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Account created but failed to start session — please log in"})
 		return
 	}
-	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
-	setSessionCookie(c, session.ID, secure)
+	setSessionCookie(c, session.ID)
 
 	c.JSON(http.StatusCreated, userOut{
 		ID:                  user.ID,
@@ -374,8 +426,8 @@ func (app *App) loginHandler(c *gin.Context) {
 	var user User
 	needle := strings.TrimSpace(req.Username)
 	if err := app.Database.First(&user, "username = ?", needle).Error; err != nil {
-		// Use constant-time comparison placeholder to prevent timing leaks
-		_ = subtle.ConstantTimeCompare([]byte("x"), []byte("y"))
+		// Run comparable bcrypt work to reduce username-enumeration timing signals.
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(req.Password))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 		return
 	}
@@ -391,8 +443,7 @@ func (app *App) loginHandler(c *gin.Context) {
 		return
 	}
 
-	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
-	setSessionCookie(c, session.ID, secure)
+	setSessionCookie(c, session.ID)
 
 	c.JSON(http.StatusOK, userOut{
 		ID:                  user.ID,
@@ -445,6 +496,10 @@ func (app *App) changePasswordHandler(c *gin.Context) {
 	}
 	if len(req.NewPassword) < 8 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "New password must be at least 8 characters"})
+		return
+	}
+	if req.CurrentPassword == req.NewPassword {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "New password must be different from the current password"})
 		return
 	}
 

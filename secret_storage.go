@@ -119,3 +119,25 @@ func DecryptSecret(ciphertext string) (string, error) {
 func IsEncryptedSecret(value string) bool {
 	return strings.HasPrefix(value, encryptedSecretPrefix)
 }
+
+func EncryptSecretForStorage(value string) (string, error) {
+	if strings.TrimSpace(value) == "" {
+		return "", nil
+	}
+	if IsEncryptedSecret(value) {
+		return value, nil
+	}
+	return EncryptSecret(value)
+}
+
+func DecryptSecretFromStorage(value string) (plaintext string, legacyPlaintext bool, err error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", false, nil
+	}
+	if !IsEncryptedSecret(value) {
+		return value, true, nil
+	}
+	plaintext, err = DecryptSecret(value)
+	return plaintext, false, err
+}
