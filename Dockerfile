@@ -44,11 +44,11 @@ ENV SED_VERSION="4.9-r2"
 
 # Install necessary packages with pinned versions
 RUN apk add --no-cache \
-    "gcc=${GCC_VERSION}" \
-    "musl-dev=${MUSL_DEV_VERSION}" \
-    "mupdf=${MUPDF_VERSION}" \
-    "mupdf-dev=${MUPDF_DEV_VERSION}" \
-    "sed=${SED_VERSION}"
+    gcc \
+    musl-dev \
+    mupdf \
+    mupdf-dev \
+    sed
 
 # Copy go.mod and go.sum files
 COPY go.mod go.sum ./
