@@ -992,6 +992,16 @@ func createLLM() (llms.Model, error) {
 				log.Warnf("Invalid OLLAMA_CONTEXT_LENGTH value: %v, ignoring", err)
 			}
 		}
+		if thinkStr := os.Getenv("OLLAMA_THINK"); thinkStr != "" {
+			// Allow disabling Ollama reasoning mode for tasks where format
+			// compliance matters more than chain-of-thought (closed-list
+			// classification, strict JSON). Unset = upstream default behavior.
+			if parsed, err := strconv.ParseBool(thinkStr); err == nil {
+				opts = append(opts, ollama.WithThink(parsed))
+			} else {
+				log.Warnf("Invalid OLLAMA_THINK value: %v, ignoring (must be true/false)", err)
+			}
+		}
 		llm, err := ollama.New(opts...)
 		if err != nil {
 			return nil, err
