@@ -312,9 +312,13 @@ func withFireflySettings(t *testing.T, cfg FireflyConfig) {
 		settings = Settings{}
 		settingsMutex.Unlock()
 	})
-	encrypted, err := EncryptSecret(cfg.Token)
-	if err != nil {
-		t.Fatalf("failed to encrypt test token: %v", err)
+	var encrypted string
+	if strings.TrimSpace(cfg.Token) != "" {
+		enc, err := EncryptSecret(cfg.Token)
+		if err != nil {
+			t.Fatalf("failed to encrypt test token: %v", err)
+		}
+		encrypted = enc
 	}
 	settingsMutex.Lock()
 	settings = Settings{
