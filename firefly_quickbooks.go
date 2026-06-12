@@ -641,6 +641,10 @@ func resolveMappedString(suggestion DocumentSuggestion, fieldRef string) string 
 }
 
 func resolveMappedFieldValue(suggestion DocumentSuggestion, fieldRef string) (interface{}, bool) {
+	return resolveFireflyFieldValue(suggestion, fieldRef)
+}
+
+func resolveFireflyFieldValue(suggestion DocumentSuggestion, fieldRef string) (interface{}, bool) {
 	return resolveJobberExpenseFieldValue(suggestion, fieldRef)
 }
 
