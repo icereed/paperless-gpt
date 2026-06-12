@@ -342,7 +342,7 @@ Paperless GPT 0.7.0 adds explicit, per-document finance actions under **Settings
 
 ### History and undo
 
-Integration actions are recorded in apply batch history and the integration action log with provider, action type, external ID, external URL when available, and per-document errors. Undo rewrites Paperless metadata only; it does not delete Firefly transactions, Firefly attachments, Jobber expenses, or Google Drive uploads.
+Integration actions are recorded in apply batch history and the integration action log with provider, action type, external ID, external URL when available, and per-document errors. Undo rewrites Paperless metadata only; it does not delete Firefly transactions or attachments, Jobber expenses, or Google Drive uploads.
 
 Set `APP_PUBLIC_URL` or the Settings -> Integrations public URL when OAuth providers are enabled so callback URLs and external deep-links use the public host.
 
