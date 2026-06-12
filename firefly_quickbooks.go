@@ -102,7 +102,7 @@ func fireflyConfigFromSettings() (FireflyConfig, bool, string) {
 	defer settingsMutex.RUnlock()
 	cfg := FireflyConfig{
 		Enabled:                    settings.FireflyEnabled,
-		InstanceURL:                strings.TrimRight(strings.TrimSpace(settings.FireflyInstanceURL), "/"),
+		InstanceURL:                normalizeFireflyInstanceURL(settings.FireflyInstanceURL),
 		DefaultSourceAccount:       strings.TrimSpace(settings.FireflyDefaultSourceAccount),
 		DefaultDestinationAccount:  strings.TrimSpace(settings.FireflyDefaultDestinationAccount),
 		DefaultCurrency:            strings.TrimSpace(settings.FireflyDefaultCurrency),
@@ -123,9 +123,9 @@ func fireflyConfigFromSettings() (FireflyConfig, bool, string) {
 	if settings.FireflyAPIToken != "" {
 		token, _, err := DecryptSecretFromStorage(settings.FireflyAPIToken)
 		if err != nil {
-			return cfg, false, "Firefly token could not be decrypted"
+			return cfg, false, "Firefly API token could not be decrypted"
 		}
-		cfg.Token = token
+		cfg.Token = strings.TrimSpace(token)
 	}
 	switch {
 	case cfg.InstanceURL == "":
@@ -135,6 +135,28 @@ func fireflyConfigFromSettings() (FireflyConfig, bool, string) {
 	default:
 		return cfg, true, ""
 	}
+}
+
+func normalizeFireflyInstanceURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	return strings.TrimRight(raw, "/")
+}
+
+func probeFireflyHealth(ctx context.Context, cfg FireflyConfig) error {
+	if cfg.InstanceURL == "" {
+		return fmt.Errorf("firefly instance url is required")
+	}
+	if cfg.Token == "" {
+		return fmt.Errorf("firefly api token is required")
+	}
+	_, err := fireflyGET(ctx, cfg, "/api/v1/about")
+	if err != nil {
+		return fmt.Errorf("firefly health check failed: %w", err)
+	}
+	return nil
 }
 
 func sanitizeSettingsForResponse(s Settings) Settings {
