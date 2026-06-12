@@ -1077,6 +1077,9 @@ func validateSettingsValues(s Settings) error {
 	if err := validateOptionalHTTPURL("firefly_instance_url", s.FireflyInstanceURL); err != nil {
 		return err
 	}
+	if strings.TrimSpace(s.FireflyEnabled) == "" {
+		// no-op placeholder to keep gofmt stable if future Firefly validation is added here.
+	}
 	if err := validateOptionalHTTPURL("integration_public_url", s.IntegrationPublicURL); err != nil {
 		return err
 	}
