@@ -1,3 +1,16 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"gorm.io/gorm"
+)
 
 func TestFireflyConfigNormalizesInstanceURL(t *testing.T) {
 	settingsMutex.Lock()
@@ -5,7 +18,6 @@ func TestFireflyConfigNormalizesInstanceURL(t *testing.T) {
 	settings = Settings{
 		FireflyEnabled:     true,
 		FireflyInstanceURL: " https://firefly.example.com/ ",
-		FireflyAPIToken:    "encrypted-token-placeholder",
 	}
 	settingsMutex.Unlock()
 	defer func() {
@@ -19,9 +31,7 @@ func TestFireflyConfigNormalizesInstanceURL(t *testing.T) {
 	}
 	defer func() { secretKeyMaterialOverride = nil }()
 
-	// Simulate a decryptable token by using the helper with the same key.
-	token := "pat"
-	encrypted, err := EncryptSecret(token)
+	encrypted, err := EncryptSecret("pat")
 	if err != nil {
 		t.Fatalf("failed to encrypt token: %v", err)
 	}
@@ -71,19 +81,6 @@ func TestProbeFireflyHealthReportsHTTPFailure(t *testing.T) {
 		t.Fatalf("expected health probe failure, got %v", err)
 	}
 }
-package main
-
-import (
-	"context"
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"testing"
-
-	"gorm.io/gorm"
-)
 
 func TestRankFireflyCandidatesAutoSelectsUniqueExactMatch(t *testing.T) {
 	derived := fireflyDerivedTransaction{
@@ -351,7 +348,6 @@ func TestApplyFireflyDuplicateCandidatePreventsSilentCreate(t *testing.T) {
 		t.Fatalf("duplicate protection must block create, created %d", createdTransactions)
 	}
 }
-
 
 func readAllString(t *testing.T, reader io.Reader) string {
 	t.Helper()
