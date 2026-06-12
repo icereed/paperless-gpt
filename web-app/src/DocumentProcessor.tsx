@@ -1,5 +1,5 @@
 import axios from "axios";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import "react-tag-autocomplete/example/src/styles.css"; // Ensure styles are loaded
 import DocumentsToProcess from "./components/DocumentsToProcess";
 import NoDocuments from "./components/NoDocuments";
@@ -29,7 +29,7 @@ export interface GenerateSuggestionsRequest {
 
 export interface CustomFieldSuggestion {
   id: number;
-  value: any;
+  value: unknown;
   name: string;
   isSelected: boolean;
 }
@@ -51,19 +51,38 @@ export interface TagOption {
   name: string;
 }
 
+interface SuggestionJobResponse {
+  job_id: string;
+  status: "pending" | "in_progress" | "completed" | "failed" | "cancelled";
+  documents_done: number;
+  total_documents: number;
+  current_document_id?: number;
+  result?: DocumentSuggestion[];
+  error?: string;
+}
+
 interface CustomField {
   id: number;
   name: string;
   data_type: string;
 }
 
+const activeSuggestionJobStorageKey = "paperless-gpt-active-suggestion-job-id";
+const suggestionJobPollIntervalMs = 1500;
+
 const DocumentProcessor: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [selectedDocuments, setSelectedDocuments] = useState<number[]>([]);
   const [suggestions, setSuggestions] = useState<DocumentSuggestion[]>([]);
   const [availableTags, setAvailableTags] = useState<TagOption[]>([]);
   const [allCustomFields, setAllCustomFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [suggestionJobId, setSuggestionJobId] = useState<string>(() => localStorage.getItem(activeSuggestionJobStorageKey) || "");
+  const [suggestionJobStatus, setSuggestionJobStatus] = useState<SuggestionJobResponse["status"] | "idle">("idle");
+  const [documentsDone, setDocumentsDone] = useState(0);
+  const [totalDocuments, setTotalDocuments] = useState(0);
+  const [currentDocumentId, setCurrentDocumentId] = useState<number | null>(null);
   const [updating, setUpdating] = useState(false);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [filterTag, setFilterTag] = useState<string | null>(null);
@@ -74,6 +93,32 @@ const DocumentProcessor: React.FC = () => {
   const [generateCreatedDate, setGenerateCreatedDate] = useState(true);
   const [generateCustomFields, setGenerateCustomFields] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const processSuggestionResults = useCallback((data: DocumentSuggestion[]) => {
+    const customFieldMap = new Map((allCustomFields || []).map(cf => [cf.id, cf.name]));
+    const processedSuggestions = data.map(suggestion => ({
+      ...suggestion,
+      suggested_custom_fields: suggestion.suggested_custom_fields?.map(cf => ({
+        ...cf,
+        name: customFieldMap.get(cf.id) ?? cf.name ?? 'Unknown Field',
+        isSelected: true,
+      })),
+    }));
+
+    setSuggestions(processedSuggestions);
+  }, [allCustomFields]);
+
+  const clearActiveSuggestionJob = useCallback(() => {
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
+    }
+    localStorage.removeItem(activeSuggestionJobStorageKey);
+    setSuggestionJobId("");
+    setProcessing(false);
+    setCurrentDocumentId(null);
+  }, []);
 
   // Custom hook to fetch initial data
   const fetchInitialData = useCallback(async () => {
@@ -88,6 +133,7 @@ const DocumentProcessor: React.FC = () => {
       setFilterTag(filterTagRes.data.tag);
       setAllCustomFields(customFieldsRes.data || []);
       setDocuments(documentsRes.data);
+      setSelectedDocuments(documentsRes.data.map((doc) => doc.id));
       const tags = Object.keys(tagsRes.data).map((tag) => ({
         id: tag,
         name: tag,
@@ -105,12 +151,80 @@ const DocumentProcessor: React.FC = () => {
     fetchInitialData();
   }, [fetchInitialData]);
 
+  const pollSuggestionJob = useCallback(async (jobId: string) => {
+    if (!jobId) return;
+
+    try {
+      const { data } = await axios.get<SuggestionJobResponse>(`./api/jobs/suggestions/${jobId}`);
+      setSuggestionJobStatus(data.status);
+      setDocumentsDone(data.documents_done || 0);
+      setTotalDocuments(data.total_documents || 0);
+      setCurrentDocumentId(data.current_document_id || null);
+
+      if (data.status === "completed") {
+        processSuggestionResults(data.result || []);
+        clearActiveSuggestionJob();
+      } else if (data.status === "failed" || data.status === "cancelled") {
+        setError(data.error || `Suggestion job ${data.status}.`);
+        clearActiveSuggestionJob();
+      } else {
+        setProcessing(true);
+        pollTimeoutRef.current = setTimeout(() => pollSuggestionJob(jobId), suggestionJobPollIntervalMs);
+      }
+    } catch (err) {
+      console.error("Error checking suggestion job status:", err);
+      if (axios.isAxiosError(err) && (err.response?.status === 404 || err.response?.status === 410)) {
+        setError("Suggestion job is no longer available.");
+        clearActiveSuggestionJob();
+        return;
+      }
+      setError("Failed to check suggestion job status. Retrying...");
+      setProcessing(true);
+      pollTimeoutRef.current = setTimeout(() => pollSuggestionJob(jobId), suggestionJobPollIntervalMs);
+    }
+  }, [clearActiveSuggestionJob, processSuggestionResults]);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    if (suggestionJobId) {
+      setProcessing(true);
+      pollSuggestionJob(suggestionJobId);
+    }
+
+    return () => {
+      if (pollTimeoutRef.current) {
+        clearTimeout(pollTimeoutRef.current);
+        pollTimeoutRef.current = null;
+      }
+    };
+  }, [loading, pollSuggestionJob, suggestionJobId]);
+
+  const handleSelectDocument = (documentId: number) => {
+    setSelectedDocuments((previous) =>
+      previous.includes(documentId)
+        ? previous.filter((id) => id !== documentId)
+        : [...previous, documentId]
+    );
+  };
+
   const handleProcessDocuments = async () => {
+    const documentsToProcess = documents.filter((doc) => selectedDocuments.includes(doc.id));
+    if (documentsToProcess.length === 0) {
+      setError("Select at least one document to process.");
+      return;
+    }
+
     setProcessing(true);
     setError(null);
+    setDocumentsDone(0);
+    setTotalDocuments(documentsToProcess.length);
+    setCurrentDocumentId(null);
     try {
       const requestPayload: GenerateSuggestionsRequest = {
-        documents,
+        documents: documentsToProcess,
         generate_titles: generateTitles,
         generate_tags: generateTags,
         generate_correspondents: generateCorrespondents,
@@ -119,28 +233,32 @@ const DocumentProcessor: React.FC = () => {
         generate_custom_fields: generateCustomFields,
       };
 
-      const { data } = await axios.post<DocumentSuggestion[]>(
-        "./api/generate-suggestions",
+      const { data } = await axios.post<{ job_id: string }>(
+        "./api/jobs/suggestions",
         requestPayload
       );
 
-      // Post-process suggestions to add names and isSelected flag
-      const customFieldMap = new Map((allCustomFields || []).map(cf => [cf.id, cf.name]));
-      const processedSuggestions = data.map(suggestion => ({
-        ...suggestion,
-        suggested_custom_fields: suggestion.suggested_custom_fields?.map(cf => ({
-          ...cf,
-          name: customFieldMap.get(cf.id) || 'Unknown Field',
-          isSelected: true,
-        })),
-      }));
-
-      setSuggestions(processedSuggestions);
+      localStorage.setItem(activeSuggestionJobStorageKey, data.job_id);
+      setSuggestionJobId(data.job_id);
+      setSuggestionJobStatus("pending");
     } catch (err) {
       console.error("Error generating suggestions:", err);
-      setError("Failed to generate suggestions.");
-    } finally {
+      setError("Failed to submit suggestion job.");
       setProcessing(false);
+    }
+  };
+
+  const handleStopSuggestionJob = async () => {
+    if (!suggestionJobId) return;
+
+    try {
+      await axios.post(`./api/jobs/suggestions/${suggestionJobId}/stop`);
+      setSuggestionJobStatus("cancelled");
+      setError("Suggestion job cancelled.");
+      clearActiveSuggestionJob();
+    } catch (err) {
+      console.error("Error stopping suggestion job:", err);
+      setError("Failed to stop suggestion job.");
     }
   };
 
@@ -252,6 +370,7 @@ const DocumentProcessor: React.FC = () => {
     try {
       const { data } = await axios.get<Document[]>("./api/documents");
       setDocuments(data);
+      setSelectedDocuments(data.map((doc) => doc.id));
     } catch (err) {
       console.error("Error reloading documents:", err);
       setError("Failed to reload documents.");
@@ -267,6 +386,7 @@ const DocumentProcessor: React.FC = () => {
         try {
           const { data } = await axios.get<Document[]>("./api/documents");
           setDocuments(data);
+          setSelectedDocuments(data.map((doc) => doc.id));
         } catch (err) {
           console.error("Error reloading documents:", err);
           setError("Failed to reload documents.");
@@ -305,7 +425,11 @@ const DocumentProcessor: React.FC = () => {
           processing={processing}
         />
       ) : suggestions.length === 0 ? (
-        <DocumentsToProcess documents={documents}>
+        <DocumentsToProcess
+          documents={documents}
+          selectedDocuments={selectedDocuments}
+          onSelectDocument={handleSelectDocument}
+        >
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-200">Documents to Process</h2>
             <div className="flex space-x-2">
@@ -318,13 +442,28 @@ const DocumentProcessor: React.FC = () => {
               </button>
               <button
                 onClick={handleProcessDocuments}
-                disabled={processing}
+                disabled={processing || selectedDocuments.length === 0 || !(generateTitles || generateTags || generateCorrespondents || generateDocumentTypes || generateCreatedDate || generateCustomFields)}
                 className="bg-blue-600 text-white dark:bg-blue-800 dark:text-gray-200 px-4 py-2 rounded hover:bg-blue-700 dark:hover:bg-blue-900 focus:outline-none"
               >
                 {processing ? "Processing..." : "Generate Suggestions"}
               </button>
+              {processing && suggestionJobId && (
+                <button
+                  onClick={handleStopSuggestionJob}
+                  className="bg-red-600 text-white dark:bg-red-800 dark:text-gray-200 px-4 py-2 rounded hover:bg-red-700 dark:hover:bg-red-900 focus:outline-none"
+                >
+                  Stop
+                </button>
+              )}
             </div>
           </div>
+
+          {processing && (
+            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950 text-blue-800 dark:text-blue-200 rounded">
+              Suggestion job {suggestionJobStatus}: {documentsDone} / {totalDocuments} documents processed
+              {currentDocumentId ? `, current document ${currentDocumentId}` : ""}
+            </div>
+          )}
 
           <div className="flex space-x-4 mb-6">
             <label className="flex items-center space-x-2">

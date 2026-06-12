@@ -365,6 +365,10 @@ func main() {
 		// http://localhost:8080/api/documents/544
 		api.GET("/documents/:id", app.getDocumentHandler())
 		api.POST("/generate-suggestions", app.generateSuggestionsHandler)
+		api.POST("/jobs/suggestions", app.submitSuggestionJobHandler)
+		api.GET("/jobs/suggestions/:job_id", app.getSuggestionJobStatusHandler)
+		api.GET("/jobs/suggestions", app.getAllSuggestionJobsHandler)
+		api.POST("/jobs/suggestions/:job_id/stop", app.stopSuggestionJobHandler)
 		api.PATCH("/update-documents", app.updateDocumentsHandler)
 		api.GET("/filter-tag", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"tag": manualTag})
@@ -469,6 +473,7 @@ func main() {
 	// Start OCR worker pool
 	numWorkers := 1 // Number of workers to start
 	startWorkerPool(app, numWorkers)
+	startSuggestionWorkerPool(app, suggestionWorkerCount())
 
 	if listenInterface == "" {
 		listenInterface = ":8080"
