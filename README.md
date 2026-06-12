@@ -61,6 +61,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
    - **Manual Review**: Approve or tweak AI's suggestions.
    - **Explicit Integrations**: Review per-document Jobber, Firefly III, and Google Drive side effects before anything leaves Paperless GPT.
+- Firefly III uses its own dedicated settings section and field mappings; Jobber settings are separate and do not affect Firefly transactions.
 
 ## Table of Contents
 
