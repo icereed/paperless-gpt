@@ -357,7 +357,10 @@ func rankFireflyCandidates(derived fireflyDerivedTransaction, suggestion Documen
 		scoredCandidates = append(scoredCandidates, scored{candidate: c, score: score})
 	}
 	sort.SliceStable(scoredCandidates, func(i, j int) bool {
-		return scoredCandidates[i].score > scoredCandidates[j].score
+		if scoredCandidates[i].score != scoredCandidates[j].score {
+			return scoredCandidates[i].score > scoredCandidates[j].score
+		}
+		return strings.Compare(scoredCandidates[i].candidate.ID, scoredCandidates[j].candidate.ID) < 0
 	})
 	ranked := make([]FireflyTransactionCandidate, 0, len(scoredCandidates))
 	for _, item := range scoredCandidates {
