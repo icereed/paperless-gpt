@@ -349,6 +349,41 @@ func TestApplyFireflyDuplicateCandidatePreventsSilentCreate(t *testing.T) {
 	}
 }
 
+func TestApplyFireflyAttachmentFailureReturnsDocumentContext(t *testing.T) {
+	db, err := InitializeTestDB()
+	if err != nil {
+		t.Fatalf("failed to initialize test db: %v", err)
+	}
+	service := NewIntegrationsService(db)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/transactions":
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/transactions":
+			_, _ = w.Write([]byte(`{"data":{"id":"tx-new"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/attachments":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"attachment failed"}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	withFireflySettings(t, FireflyConfig{Enabled: true, InstanceURL: server.URL, Token: "pat", DefaultCurrency: "USD"})
+	suggestion := fireflySuggestion()
+	suggestion.ApplyFirefly = true
+	suggestion.CreateFireflyTransaction = true
+
+	result, err := service.ApplyFirefly(context.Background(), &fireflyTestClient{}, suggestion, 7)
+	if err == nil || !strings.Contains(err.Error(), "firefly receipt attachment failed for document 42") {
+		t.Fatalf("expected attachment error with document context, got result=%#v err=%v", result, err)
+	}
+	if result == nil || !result.Created || result.TransactionID != "tx-new" {
+		t.Fatalf("expected created transaction result preserved, got %#v", result)
+	}
+}
+
 func readAllString(t *testing.T, reader io.Reader) string {
 	t.Helper()
 	body, err := io.ReadAll(reader)
