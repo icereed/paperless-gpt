@@ -126,6 +126,27 @@ func TestRankFireflyCandidatesDoesNotAutoSelectAmbiguousExactMatches(t *testing.
 	}
 }
 
+func TestResolveFireflyFieldValueUsesSharedDocumentHelpers(t *testing.T) {
+	suggestion := DocumentSuggestion{
+		SuggestedTitle:       "Firefly receipt",
+		SuggestedCreatedDate: "2026-04-20",
+		OriginalDocument: Document{
+			Title:       "Original title",
+			CreatedDate: "2026-01-01",
+		},
+	}
+
+	value, ok := resolveFireflyFieldValue(suggestion, paperlessFieldRefDocumentTitle)
+	if !ok || value != "Firefly receipt" {
+		t.Fatalf("expected suggested title, got %#v (ok=%v)", value, ok)
+	}
+
+	value, ok = resolveFireflyFieldValue(suggestion, paperlessFieldRefDocumentCreatedDate)
+	if !ok || value != "2026-04-20" {
+		t.Fatalf("expected suggested created date, got %#v (ok=%v)", value, ok)
+	}
+}
+
 func TestRankFireflyCandidatesNearDateRanksBelowExact(t *testing.T) {
 	derived := fireflyDerivedTransaction{
 		Description:  "Vendor receipt",
