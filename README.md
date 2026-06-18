@@ -61,6 +61,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
    - **Manual Review**: Approve or tweak AI's suggestions.
    - **Explicit Integrations**: Review per-document Jobber, Firefly III, and Google Drive side effects before anything leaves Paperless GPT.
+- Firefly III uses its own dedicated settings section and field mappings; Jobber settings are separate and do not affect Firefly transactions.
 
 ## Table of Contents
 
@@ -341,7 +342,7 @@ Paperless GPT 0.7.0 adds explicit, per-document finance actions under **Settings
 
 ### History and undo
 
-Integration actions are recorded in apply batch history and the integration action log with provider, action type, external ID, external URL when available, and per-document errors. Undo rewrites Paperless metadata only; it does not delete Firefly transactions, Firefly attachments, Jobber expenses, or Google Drive uploads.
+Integration actions are recorded in apply batch history and the integration action log with provider, action type, external ID, external URL when available, and per-document errors. Undo rewrites Paperless metadata only; it does not delete Firefly transactions or attachments, Jobber expenses, or Google Drive uploads.
 
 Set `APP_PUBLIC_URL` or the Settings -> Integrations public URL when OAuth providers are enabled so callback URLs and external deep-links use the public host.
 
@@ -592,7 +593,7 @@ For best results with the enhanced OCR features:
 | `PAPERLESS_BASE_URL`                | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                                                                                                        | Yes      |                            |
 | `PAPERLESS_API_TOKEN`               | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                                                                                             | Yes      |                            |
 | `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                            | No       |                            |
-| `APP_PUBLIC_URL`                    | Public URL for this paperless-gpt instance. Can also be configured from Settings -> Integrations. Used to build OAuth callback URLs and Jobber receipt links when running behind a reverse proxy. For Jobber, register `${APP_PUBLIC_URL}/api/integrations/jobber/oauth/callback`. | No       |                            |
+| `APP_PUBLIC_URL`                    | Public URL for this paperless-gpt instance. Can also be configured from Settings -> Integrations. Used to build OAuth callback URLs and provider-specific external links when running behind a reverse proxy. For Jobber, register `${APP_PUBLIC_URL}/api/integrations/jobber/oauth/callback`. | No       |                            |
 | `PAPERLESS_GPT_PUBLIC_URL`          | Legacy alias for `APP_PUBLIC_URL`, kept for backward compatibility with existing deployments. Settings -> Integrations takes precedence when set.                                             | No       |                            |
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
 | `AUTO_TAG`                          | Ignored legacy tag. Automatic metadata writes from tag-only processing were removed in 0.7.0; use manual review or Paperless webhook pre-processing instead.                                 | No       | paperless-gpt-auto         |
