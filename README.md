@@ -340,6 +340,7 @@ Paperless GPT 0.7.0 adds explicit, per-document finance actions under **Settings
 - If no match is selected, Paperless GPT does nothing unless **Create Firefly transaction if no match** is checked for that document.
 - Selected or newly created Firefly transactions receive the Paperless archive PDF as an attachment using Firefly's attachment API for the transaction journal.
 - Re-applying a document is duplicate-protected by searching for likely existing transactions before creating.
+- If the Firefly attachment upload fails, the apply result preserves the created or matched transaction ID so the document can be retried without ambiguity.
 
 ### History and undo
 
