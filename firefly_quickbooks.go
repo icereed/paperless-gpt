@@ -530,7 +530,7 @@ func (s *IntegrationsService) ApplyFirefly(ctx context.Context, client ClientInt
 	result.TransactionID = transactionID
 	result.URL = fireflyTransactionURL(cfg.InstanceURL, transactionID, "")
 	if err := s.attachFireflyPDF(ctx, cfg, client, suggestion.ID, transactionID, appliedBatchID); err != nil {
-		return result, err
+		return result, fmt.Errorf("firefly receipt attachment failed for document %d: %w", suggestion.ID, err)
 	}
 	result.AttachmentUploaded = true
 	return result, nil
@@ -586,11 +586,11 @@ func (s *IntegrationsService) createFireflyTransaction(ctx context.Context, cfg 
 func (s *IntegrationsService) attachFireflyPDF(ctx context.Context, cfg FireflyConfig, client ClientInterface, documentID int, transactionID string, batchID *uint) error {
 	document, err := client.GetDocument(ctx, documentID)
 	if err != nil {
-		return err
+		return fmt.Errorf("load document %d for Firefly attachment: %w", documentID, err)
 	}
 	content, err := client.DownloadPDF(ctx, document)
 	if err != nil {
-		return err
+		return fmt.Errorf("download document %d PDF for Firefly attachment: %w", documentID, err)
 	}
 	filename := safePDFFilename(document, documentID)
 	body, contentType, err := buildFireflyAttachmentUpload(transactionID, filename, content)
