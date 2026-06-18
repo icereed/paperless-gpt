@@ -527,7 +527,7 @@ func (s *IntegrationsService) ApplyFirefly(ctx context.Context, client ClientInt
 	result.TransactionID = transactionID
 	result.URL = fireflyTransactionURL(cfg.InstanceURL, transactionID, "")
 	if err := s.attachFireflyPDF(ctx, cfg, client, suggestion.ID, transactionID, appliedBatchID); err != nil {
-		return result, err
+		return result, fmt.Errorf("firefly receipt attachment failed for document %d: %w", suggestion.ID, err)
 	}
 	result.AttachmentUploaded = true
 	return result, nil
