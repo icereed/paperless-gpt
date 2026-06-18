@@ -12,6 +12,76 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestFireflyConfigNormalizesInstanceURL(t *testing.T) {
+	settingsMutex.Lock()
+	previous := settings
+	settings = Settings{
+		FireflyEnabled:     true,
+		FireflyInstanceURL: " https://firefly.example.com/ ",
+	}
+	settingsMutex.Unlock()
+	defer func() {
+		settingsMutex.Lock()
+		settings = previous
+		settingsMutex.Unlock()
+	}()
+
+	secretKeyMaterialOverride = func() ([]byte, error) {
+		return []byte("12345678901234567890123456789012"), nil
+	}
+	defer func() { secretKeyMaterialOverride = nil }()
+
+	encrypted, err := EncryptSecret("pat")
+	if err != nil {
+		t.Fatalf("failed to encrypt token: %v", err)
+	}
+	settingsMutex.Lock()
+	settings.FireflyAPIToken = encrypted
+	settingsMutex.Unlock()
+
+	cfg, configured, reason := fireflyConfigFromSettings()
+	if !configured || reason != "" {
+		t.Fatalf("expected configured firefly settings, got configured=%v reason=%q", configured, reason)
+	}
+	if cfg.InstanceURL != "https://firefly.example.com" {
+		t.Fatalf("expected normalized instance URL, got %q", cfg.InstanceURL)
+	}
+}
+
+func TestFireflyConfigRejectsMissingToken(t *testing.T) {
+	settingsMutex.Lock()
+	previous := settings
+	settings = Settings{FireflyEnabled: true, FireflyInstanceURL: "https://firefly.example.com"}
+	settingsMutex.Unlock()
+	defer func() {
+		settingsMutex.Lock()
+		settings = previous
+		settingsMutex.Unlock()
+	}()
+
+	cfg, configured, reason := fireflyConfigFromSettings()
+	if configured {
+		t.Fatalf("expected unconfigured without token, got cfg=%#v reason=%q", cfg, reason)
+	}
+	if !strings.Contains(reason, "API token is required") {
+		t.Fatalf("expected token error, got %q", reason)
+	}
+}
+
+func TestProbeFireflyHealthReportsHTTPFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
+	}))
+	defer server.Close()
+
+	cfg := FireflyConfig{InstanceURL: server.URL, Token: "pat"}
+	err := probeFireflyHealth(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), "firefly health check failed") {
+		t.Fatalf("expected health probe failure, got %v", err)
+	}
+}
+
 func TestRankFireflyCandidatesAutoSelectsUniqueExactMatch(t *testing.T) {
 	derived := fireflyDerivedTransaction{
 		Description:  "Vendor receipt",
@@ -279,7 +349,6 @@ func TestApplyFireflyDuplicateCandidatePreventsSilentCreate(t *testing.T) {
 	}
 }
 
-
 func readAllString(t *testing.T, reader io.Reader) string {
 	t.Helper()
 	body, err := io.ReadAll(reader)
@@ -312,9 +381,13 @@ func withFireflySettings(t *testing.T, cfg FireflyConfig) {
 		settings = Settings{}
 		settingsMutex.Unlock()
 	})
-	encrypted, err := EncryptSecret(cfg.Token)
-	if err != nil {
-		t.Fatalf("failed to encrypt test token: %v", err)
+	var encrypted string
+	if strings.TrimSpace(cfg.Token) != "" {
+		enc, err := EncryptSecret(cfg.Token)
+		if err != nil {
+			t.Fatalf("failed to encrypt test token: %v", err)
+		}
+		encrypted = enc
 	}
 	settingsMutex.Lock()
 	settings = Settings{
