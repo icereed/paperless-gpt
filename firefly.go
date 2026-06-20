@@ -66,6 +66,26 @@ type FireflyApplyResult struct {
 	URL                string
 }
 
+type fireflyCandidateSignals struct {
+	amountMatch        bool
+	currencyMatch      bool
+	exactDateMatch     bool
+	dateDiffDays       int
+	descriptionOverlap bool
+}
+
+type scoredFireflyCandidate struct {
+	candidate FireflyTransactionCandidate
+	score     int
+	signals   fireflyCandidateSignals
+}
+
+type fireflyCandidateEvaluation struct {
+	Ranked          []FireflyTransactionCandidate
+	AutoSelectedID  string
+	StrongDuplicate bool
+}
+
 func (s *IntegrationsService) FireflyStatus(ctx context.Context) IntegrationConnectionStatus {
 	cfg, configured, reason := fireflyConfigFromSettings()
 	status := IntegrationConnectionStatus{
@@ -265,12 +285,24 @@ func (s *IntegrationsService) FetchFireflyTransactionCandidates(ctx context.Cont
 		return nil, "", fmt.Errorf("Firefly requires an amount; map an amount field or add a suggested custom field containing total, amount, or price")
 	}
 
-	candidates, err := s.searchFireflyTransactions(ctx, cfg, derived)
+	evaluation, err := s.evaluateFireflyCandidates(ctx, cfg, suggestion, derived)
 	if err != nil {
 		return nil, "", err
 	}
-	ranked, auto := rankFireflyCandidates(derived, suggestion, candidates)
-	return ranked, auto, nil
+	return evaluation.Ranked, evaluation.AutoSelectedID, nil
+}
+
+func (s *IntegrationsService) evaluateFireflyCandidates(ctx context.Context, cfg FireflyConfig, suggestion DocumentSuggestion, derived fireflyDerivedTransaction) (fireflyCandidateEvaluation, error) {
+	candidates, err := s.searchFireflyTransactions(ctx, cfg, derived)
+	if err != nil {
+		return fireflyCandidateEvaluation{}, err
+	}
+	scored := scoreFireflyCandidates(derived, suggestion, candidates)
+	return fireflyCandidateEvaluation{
+		Ranked:          rankedFireflyCandidates(scored),
+		AutoSelectedID:  autoSelectFireflyCandidate(scored),
+		StrongDuplicate: hasStrongFireflyDuplicate(scored),
+	}, nil
 }
 
 func (s *IntegrationsService) searchFireflyTransactions(ctx context.Context, cfg FireflyConfig, derived fireflyDerivedTransaction) ([]FireflyTransactionCandidate, error) {
@@ -332,10 +364,11 @@ func (s *IntegrationsService) searchFireflyTransactions(ctx context.Context, cfg
 }
 
 func rankFireflyCandidates(derived fireflyDerivedTransaction, suggestion DocumentSuggestion, candidates []FireflyTransactionCandidate) ([]FireflyTransactionCandidate, string) {
-	type scored struct {
-		candidate FireflyTransactionCandidate
-		score     int
-	}
+	scoredCandidates := scoreFireflyCandidates(derived, suggestion, candidates)
+	return rankedFireflyCandidates(scoredCandidates), autoSelectFireflyCandidate(scoredCandidates)
+}
+
+func scoreFireflyCandidates(derived fireflyDerivedTransaction, suggestion DocumentSuggestion, candidates []FireflyTransactionCandidate) []scoredFireflyCandidate {
 	docDate, hasDate := parseFireflyDate(derived.Date)
 	text := strings.ToLower(strings.Join([]string{
 		derived.Description,
@@ -344,22 +377,27 @@ func rankFireflyCandidates(derived fireflyDerivedTransaction, suggestion Documen
 		suggestion.OriginalDocument.Correspondent,
 		suggestion.SuggestedCorrespondent,
 	}, " "))
-	scoredCandidates := make([]scored, 0, len(candidates))
+	scoredCandidates := make([]scoredFireflyCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		score := 0
 		reasons := []string{}
+		signals := fireflyCandidateSignals{dateDiffDays: -1}
 		candidateAmount, amountOK := parseNumericValue(candidate.Amount)
 		if amountOK && amountsEqual(candidateAmount, derived.Amount) {
+			signals.amountMatch = true
 			score += 70
 			reasons = append(reasons, "same amount")
 		}
 		if strings.EqualFold(strings.TrimSpace(candidate.CurrencyCode), strings.TrimSpace(derived.CurrencyCode)) && strings.TrimSpace(derived.CurrencyCode) != "" {
+			signals.currencyMatch = true
 			score += 15
 			reasons = append(reasons, "same currency")
 		}
 		if candidateDate, ok := parseFireflyDate(candidate.Date); ok && hasDate {
 			diff := absDays(candidateDate.Sub(docDate))
+			signals.dateDiffDays = diff
 			if diff == 0 {
+				signals.exactDateMatch = true
 				score += 45
 				reasons = append(reasons, "same date")
 			} else if diff <= fireflyDateWindowDays {
@@ -369,6 +407,7 @@ func rankFireflyCandidates(derived fireflyDerivedTransaction, suggestion Documen
 		}
 		desc := strings.ToLower(strings.TrimSpace(candidate.Description))
 		if desc != "" && (strings.Contains(text, desc) || strings.Contains(desc, strings.ToLower(strings.TrimSpace(derived.Description)))) {
+			signals.descriptionOverlap = true
 			score += 10
 			reasons = append(reasons, "description overlap")
 		}
@@ -376,7 +415,7 @@ func rankFireflyCandidates(derived fireflyDerivedTransaction, suggestion Documen
 		if len(reasons) > 0 {
 			c.MatchReason = "Matched on " + strings.Join(reasons, ", ")
 		}
-		scoredCandidates = append(scoredCandidates, scored{candidate: c, score: score})
+		scoredCandidates = append(scoredCandidates, scoredFireflyCandidate{candidate: c, score: score, signals: signals})
 	}
 	sort.SliceStable(scoredCandidates, func(i, j int) bool {
 		if scoredCandidates[i].score != scoredCandidates[j].score {
@@ -384,19 +423,46 @@ func rankFireflyCandidates(derived fireflyDerivedTransaction, suggestion Documen
 		}
 		return strings.Compare(scoredCandidates[i].candidate.ID, scoredCandidates[j].candidate.ID) < 0
 	})
+	return scoredCandidates
+}
+
+func rankedFireflyCandidates(scoredCandidates []scoredFireflyCandidate) []FireflyTransactionCandidate {
 	ranked := make([]FireflyTransactionCandidate, 0, len(scoredCandidates))
 	for _, item := range scoredCandidates {
 		if item.score > 0 {
 			ranked = append(ranked, item.candidate)
 		}
 	}
-	auto := ""
-	if len(scoredCandidates) > 0 && scoredCandidates[0].score >= 120 {
-		if len(scoredCandidates) == 1 || scoredCandidates[0].score > scoredCandidates[1].score {
-			auto = scoredCandidates[0].candidate.ID
+	return ranked
+}
+
+func autoSelectFireflyCandidate(scoredCandidates []scoredFireflyCandidate) string {
+	if len(scoredCandidates) == 0 {
+		return ""
+	}
+	top := scoredCandidates[0]
+	if top.score <= 0 || !top.signals.amountMatch || !top.signals.currencyMatch || !top.signals.exactDateMatch {
+		return ""
+	}
+	if len(scoredCandidates) > 1 && top.score-scoredCandidates[1].score < 10 {
+		return ""
+	}
+	return top.candidate.ID
+}
+
+func hasStrongFireflyDuplicate(scoredCandidates []scoredFireflyCandidate) bool {
+	for _, item := range scoredCandidates {
+		if item.score <= 0 || !item.signals.amountMatch || !item.signals.currencyMatch {
+			continue
+		}
+		if item.signals.exactDateMatch {
+			return true
+		}
+		if item.signals.dateDiffDays >= 0 && item.signals.dateDiffDays <= 3 {
+			return true
 		}
 	}
-	return ranked, auto
+	return false
 }
 
 func deriveFireflyTransaction(suggestion DocumentSuggestion, cfg FireflyConfig) (fireflyDerivedTransaction, error) {
@@ -526,11 +592,11 @@ func (s *IntegrationsService) ApplyFirefly(ctx context.Context, client ClientInt
 	if err != nil {
 		return nil, err
 	}
-	dupes, _, err := s.FetchFireflyTransactionCandidates(ctx, suggestion)
+	evaluation, err := s.evaluateFireflyCandidates(ctx, cfg, suggestion, derived)
 	if err != nil {
 		return nil, fmt.Errorf("firefly duplicate check failed before create: %w", err)
 	}
-	if len(dupes) > 0 {
+	if evaluation.StrongDuplicate {
 		return nil, fmt.Errorf("possible Firefly duplicate found; select the existing transaction instead of creating a new one")
 	}
 	transactionID, err := s.createFireflyTransaction(ctx, cfg, suggestion.ID, derived, appliedBatchID)
