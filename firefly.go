@@ -597,7 +597,7 @@ func (s *IntegrationsService) ApplyFirefly(ctx context.Context, client ClientInt
 		return nil, fmt.Errorf("firefly duplicate check failed before create: %w", err)
 	}
 	if evaluation.StrongDuplicate {
-		return nil, fmt.Errorf("possible Firefly duplicate found; select the existing transaction instead of creating a new one")
+		return nil, fmt.Errorf("possible Firefly duplicate found; review suggested transactions and select an existing one instead of creating a new transaction")
 	}
 	transactionID, err := s.createFireflyTransaction(ctx, cfg, suggestion.ID, derived, appliedBatchID)
 	if err != nil {
