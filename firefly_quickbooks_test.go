@@ -136,12 +136,12 @@ func TestResolveFireflyFieldValueUsesSharedDocumentHelpers(t *testing.T) {
 		},
 	}
 
-	value, ok := resolveFireflyFieldValue(suggestion, paperlessFieldRefDocumentTitle)
+	value, ok := resolveSuggestionFieldValue(suggestion, paperlessFieldRefDocumentTitle)
 	if !ok || value != "Firefly receipt" {
 		t.Fatalf("expected suggested title, got %#v (ok=%v)", value, ok)
 	}
 
-	value, ok = resolveFireflyFieldValue(suggestion, paperlessFieldRefDocumentCreatedDate)
+	value, ok = resolveSuggestionFieldValue(suggestion, paperlessFieldRefDocumentCreatedDate)
 	if !ok || value != "2026-04-20" {
 		t.Fatalf("expected suggested created date, got %#v (ok=%v)", value, ok)
 	}
@@ -213,6 +213,21 @@ func TestDeriveFireflyTransactionRequiresAmount(t *testing.T) {
 	}
 }
 
+func TestDeriveFireflyTransactionRejectsInvalidDate(t *testing.T) {
+	_, err := deriveFireflyTransaction(DocumentSuggestion{
+		ID:                   123,
+		SuggestedTitle:       "Vendor receipt",
+		SuggestedCreatedDate: "04/20/2026",
+		SuggestedCustomFields: []CustomFieldSuggestion{
+			{Name: "Grand Total", Value: "$42.15"},
+		},
+	}, FireflyConfig{DefaultCurrency: "USD"})
+
+	if err == nil || !strings.Contains(err.Error(), "YYYY-MM-DD or RFC3339") {
+		t.Fatalf("expected invalid date error, got %v", err)
+	}
+}
+
 func TestApplyFireflyNoMatchCheckboxFalseSkipsWithoutSideEffects(t *testing.T) {
 	db, err := InitializeTestDB()
 	if err != nil {
@@ -266,9 +281,7 @@ func TestApplyFireflySelectedExistingAttachesOnly(t *testing.T) {
 
 	withFireflySettings(t, FireflyConfig{Enabled: true, InstanceURL: server.URL, Token: "pat", DefaultCurrency: "USD"})
 	client := &fireflyTestClient{document: Document{ID: 42, Title: "Vendor", ArchivedFileName: "vendor.pdf"}, pdf: []byte("%PDF-1.4")}
-	suggestion := fireflySuggestion()
-	suggestion.ApplyFirefly = true
-	suggestion.SelectedFireflyTransactionID = "tx-existing"
+	suggestion := DocumentSuggestion{ID: 42, ApplyFirefly: true, SelectedFireflyTransactionID: "tx-existing"}
 
 	result, err := service.ApplyFirefly(context.Background(), client, suggestion, 7)
 	if err != nil {
@@ -367,6 +380,42 @@ func TestApplyFireflyDuplicateCandidatePreventsSilentCreate(t *testing.T) {
 	}
 	if createdTransactions != 0 {
 		t.Fatalf("duplicate protection must block create, created %d", createdTransactions)
+	}
+}
+
+func TestApplyFireflyDuplicateCheckFailureBlocksCreate(t *testing.T) {
+	db, err := InitializeTestDB()
+	if err != nil {
+		t.Fatalf("failed to initialize test db: %v", err)
+	}
+	service := NewIntegrationsService(db)
+	var createdTransactions int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/transactions":
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"message":"temporary outage"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/transactions":
+			createdTransactions++
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"data":{"id":"created"}}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	withFireflySettings(t, FireflyConfig{Enabled: true, InstanceURL: server.URL, Token: "pat", DefaultCurrency: "USD"})
+	suggestion := fireflySuggestion()
+	suggestion.ApplyFirefly = true
+	suggestion.CreateFireflyTransaction = true
+
+	_, err = service.ApplyFirefly(context.Background(), &fireflyTestClient{}, suggestion, 7)
+	if err == nil || !strings.Contains(err.Error(), "duplicate check failed before create") {
+		t.Fatalf("expected duplicate check failure, got %v", err)
+	}
+	if createdTransactions != 0 {
+		t.Fatalf("create must not run when duplicate check fails, created %d", createdTransactions)
 	}
 }
 

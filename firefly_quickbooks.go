@@ -400,7 +400,7 @@ func rankFireflyCandidates(derived fireflyDerivedTransaction, suggestion Documen
 }
 
 func deriveFireflyTransaction(suggestion DocumentSuggestion, cfg FireflyConfig) (fireflyDerivedTransaction, error) {
-	description := resolveMappedString(suggestion, cfg.DescriptionFieldRef)
+	description := resolveFireflyMappedString(suggestion, cfg.DescriptionFieldRef)
 	if description == "" {
 		description = strings.TrimSpace(suggestion.SuggestedTitle)
 	}
@@ -410,7 +410,7 @@ func deriveFireflyTransaction(suggestion DocumentSuggestion, cfg FireflyConfig) 
 	if description == "" {
 		description = fmt.Sprintf("Paperless document %d", suggestion.ID)
 	}
-	dateValue := resolveMappedString(suggestion, cfg.DateFieldRef)
+	dateValue := resolveFireflyMappedString(suggestion, cfg.DateFieldRef)
 	if dateValue == "" {
 		dateValue = strings.TrimSpace(suggestion.SuggestedCreatedDate)
 	}
@@ -419,25 +419,27 @@ func deriveFireflyTransaction(suggestion DocumentSuggestion, cfg FireflyConfig) 
 	}
 	if parsed, ok := parseFireflyDate(dateValue); ok {
 		dateValue = parsed.Format("2006-01-02")
+	} else if dateValue != "" {
+		return fireflyDerivedTransaction{}, fmt.Errorf("Firefly requires a transaction date in YYYY-MM-DD or RFC3339 format")
 	}
 	amount, amountString, hasAmount := deriveFireflyAmount(suggestion, cfg.AmountFieldRef)
-	currency := resolveMappedString(suggestion, cfg.CurrencyFieldRef)
+	currency := resolveFireflyMappedString(suggestion, cfg.CurrencyFieldRef)
 	if currency == "" {
 		currency = cfg.DefaultCurrency
 	}
 	if currency == "" {
 		currency = "USD"
 	}
-	category := firstNonEmpty(resolveMappedString(suggestion, cfg.CategoryFieldRef), cfg.DefaultCategory)
-	budget := firstNonEmpty(resolveMappedString(suggestion, cfg.BudgetFieldRef), cfg.DefaultBudget)
-	notes := firstNonEmpty(resolveMappedString(suggestion, cfg.NotesFieldRef), cfg.NotesTemplate)
+	category := firstNonEmpty(resolveFireflyMappedString(suggestion, cfg.CategoryFieldRef), cfg.DefaultCategory)
+	budget := firstNonEmpty(resolveFireflyMappedString(suggestion, cfg.BudgetFieldRef), cfg.DefaultBudget)
+	notes := firstNonEmpty(resolveFireflyMappedString(suggestion, cfg.NotesFieldRef), cfg.NotesTemplate)
 	marker := fireflyExternalIDPrefix + strconv.Itoa(suggestion.ID)
 	if notes == "" {
 		notes = marker
 	} else if !strings.Contains(notes, marker) {
 		notes = notes + "\n" + marker
 	}
-	externalRef := firstNonEmpty(resolveMappedString(suggestion, cfg.ExternalRefFieldRef), marker)
+	externalRef := firstNonEmpty(resolveFireflyMappedString(suggestion, cfg.ExternalRefFieldRef), marker)
 	return fireflyDerivedTransaction{
 			Description:        description,
 			Date:               dateValue,
@@ -448,8 +450,8 @@ func deriveFireflyTransaction(suggestion DocumentSuggestion, cfg FireflyConfig) 
 			Budget:             budget,
 			Notes:              notes,
 			ExternalReference:  externalRef,
-			SourceAccount:      firstNonEmpty(resolveMappedString(suggestion, cfg.SourceAccountFieldRef), cfg.DefaultSourceAccount),
-			DestinationAccount: firstNonEmpty(resolveMappedString(suggestion, cfg.DestinationAccountFieldRef), cfg.DefaultDestinationAccount),
+			SourceAccount:      firstNonEmpty(resolveFireflyMappedString(suggestion, cfg.SourceAccountFieldRef), cfg.DefaultSourceAccount),
+			DestinationAccount: firstNonEmpty(resolveFireflyMappedString(suggestion, cfg.DestinationAccountFieldRef), cfg.DefaultDestinationAccount),
 		}, func() error {
 			if !hasAmount {
 				return fmt.Errorf("Firefly requires an amount; map an amount field or add a suggested custom field containing total, amount, or price")
@@ -462,7 +464,7 @@ func deriveFireflyTransaction(suggestion DocumentSuggestion, cfg FireflyConfig) 
 }
 
 func deriveFireflyAmount(suggestion DocumentSuggestion, fieldRef string) (float64, string, bool) {
-	if value, ok := resolveMappedFieldValue(suggestion, fieldRef); ok {
+	if value, ok := resolveSuggestionFieldValue(suggestion, fieldRef); ok {
 		if parsed, ok := parseNumericValue(value); ok {
 			return parsed, strconv.FormatFloat(parsed, 'f', 2, 64), true
 		}
@@ -494,41 +496,52 @@ func (s *IntegrationsService) ApplyFirefly(ctx context.Context, client ClientInt
 		appliedBatchID = &batchID[0]
 	}
 	selectedID := strings.TrimSpace(suggestion.SelectedFireflyTransactionID)
-	if selectedID == "" && !suggestion.CreateFireflyTransaction {
-		return nil, nil
-	}
-	derived, err := deriveFireflyTransaction(suggestion, cfg)
-	if err != nil {
-		return nil, err
-	}
-	result := &FireflyApplyResult{}
-	transactionID := selectedID
-	if transactionID != "" {
-		result.Matched = true
+	if selectedID != "" {
+		result := &FireflyApplyResult{
+			Matched:       true,
+			TransactionID: selectedID,
+			URL:           fireflyTransactionURL(cfg.InstanceURL, selectedID, ""),
+		}
 		insertIntegrationActionLog(s.DB.WithContext(ctx), &IntegrationActionLog{
 			DocumentID:      suggestion.ID,
 			BatchID:         appliedBatchID,
 			Provider:        integrationProviderFirefly,
 			ActionType:      "transaction_match",
 			Status:          "success",
-			ExternalID:      transactionID,
-			ExternalURL:     fireflyTransactionURL(cfg.InstanceURL, transactionID, ""),
+			ExternalID:      selectedID,
+			ExternalURL:     result.URL,
 			RequestSummary:  "user selected existing transaction",
-			ResponseSummary: transactionID,
+			ResponseSummary: selectedID,
 		})
-	} else {
-		dupes, _, err := s.FetchFireflyTransactionCandidates(ctx, suggestion)
-		if err == nil && len(dupes) > 0 {
-			return nil, fmt.Errorf("possible Firefly duplicate found; select the existing transaction instead of creating a new one")
+		if err := s.attachFireflyPDF(ctx, cfg, client, suggestion.ID, selectedID, appliedBatchID); err != nil {
+			return result, fmt.Errorf("firefly receipt attachment failed for document %d: %w", suggestion.ID, err)
 		}
-		transactionID, err = s.createFireflyTransaction(ctx, cfg, suggestion.ID, derived, appliedBatchID)
-		if err != nil {
-			return nil, err
-		}
-		result.Created = true
+		result.AttachmentUploaded = true
+		return result, nil
 	}
-	result.TransactionID = transactionID
-	result.URL = fireflyTransactionURL(cfg.InstanceURL, transactionID, "")
+	if !suggestion.CreateFireflyTransaction {
+		return nil, nil
+	}
+	derived, err := deriveFireflyTransaction(suggestion, cfg)
+	if err != nil {
+		return nil, err
+	}
+	dupes, _, err := s.FetchFireflyTransactionCandidates(ctx, suggestion)
+	if err != nil {
+		return nil, fmt.Errorf("firefly duplicate check failed before create: %w", err)
+	}
+	if len(dupes) > 0 {
+		return nil, fmt.Errorf("possible Firefly duplicate found; select the existing transaction instead of creating a new one")
+	}
+	transactionID, err := s.createFireflyTransaction(ctx, cfg, suggestion.ID, derived, appliedBatchID)
+	if err != nil {
+		return nil, err
+	}
+	result := &FireflyApplyResult{
+		Created:       true,
+		TransactionID: transactionID,
+		URL:           fireflyTransactionURL(cfg.InstanceURL, transactionID, ""),
+	}
 	if err := s.attachFireflyPDF(ctx, cfg, client, suggestion.ID, transactionID, appliedBatchID); err != nil {
 		return result, fmt.Errorf("firefly receipt attachment failed for document %d: %w", suggestion.ID, err)
 	}
@@ -657,20 +670,12 @@ func buildFireflyAttachmentUpload(transactionID, filename string, content []byte
 	return bytes.NewReader(body.Bytes()), writer.FormDataContentType(), nil
 }
 
-func resolveMappedString(suggestion DocumentSuggestion, fieldRef string) string {
-	value, ok := resolveMappedFieldValue(suggestion, fieldRef)
+func resolveFireflyMappedString(suggestion DocumentSuggestion, fieldRef string) string {
+	value, ok := resolveSuggestionFieldValue(suggestion, fieldRef)
 	if !ok {
 		return ""
 	}
 	return stringifyExpenseFieldValue(value)
-}
-
-func resolveMappedFieldValue(suggestion DocumentSuggestion, fieldRef string) (interface{}, bool) {
-	return resolveFireflyFieldValue(suggestion, fieldRef)
-}
-
-func resolveFireflyFieldValue(suggestion DocumentSuggestion, fieldRef string) (interface{}, bool) {
-	return resolveJobberExpenseFieldValue(suggestion, fieldRef)
 }
 
 func parseFireflyDate(value string) (time.Time, bool) {
