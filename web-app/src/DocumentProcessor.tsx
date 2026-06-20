@@ -279,7 +279,7 @@ const DocumentProcessor: React.FC = () => {
         } finally {
           pollingDocumentsRef.current = false;
         }
-      }, 30000);
+      }, 5000);
       return () => clearInterval(interval);
     }
   }, [documents]);
