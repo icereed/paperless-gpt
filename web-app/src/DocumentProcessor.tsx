@@ -1,5 +1,5 @@
 import axios from "axios";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import "react-tag-autocomplete/example/src/styles.css"; // Ensure styles are loaded
 import DocumentsToProcess from "./components/DocumentsToProcess";
 import NoDocuments from "./components/NoDocuments";
@@ -74,6 +74,7 @@ const DocumentProcessor: React.FC = () => {
   const [generateCreatedDate, setGenerateCreatedDate] = useState(true);
   const [generateCustomFields, setGenerateCustomFields] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const pollingDocumentsRef = useRef(false);
 
   // Custom hook to fetch initial data
   const fetchInitialData = useCallback(async () => {
@@ -263,6 +264,11 @@ const DocumentProcessor: React.FC = () => {
   useEffect(() => {
     if (documents.length === 0) {
       const interval = setInterval(async () => {
+        if (pollingDocumentsRef.current) {
+          return;
+        }
+
+        pollingDocumentsRef.current = true;
         setError(null);
         try {
           const { data } = await axios.get<Document[]>("./api/documents");
@@ -270,8 +276,10 @@ const DocumentProcessor: React.FC = () => {
         } catch (err) {
           console.error("Error reloading documents:", err);
           setError("Failed to reload documents.");
+        } finally {
+          pollingDocumentsRef.current = false;
         }
-      }, 500);
+      }, 30000);
       return () => clearInterval(interval);
     }
   }, [documents]);
