@@ -429,9 +429,11 @@ func scoreFireflyCandidates(derived fireflyDerivedTransaction, suggestion Docume
 func rankedFireflyCandidates(scoredCandidates []scoredFireflyCandidate) []FireflyTransactionCandidate {
 	ranked := make([]FireflyTransactionCandidate, 0, len(scoredCandidates))
 	for _, item := range scoredCandidates {
-		if item.score > 0 {
-			ranked = append(ranked, item.candidate)
+		candidate := item.candidate
+		if item.score <= 0 && strings.TrimSpace(candidate.MatchReason) == "" {
+			candidate.MatchReason = "Shown for manual review because it falls within the Firefly date window."
 		}
+		ranked = append(ranked, candidate)
 	}
 	return ranked
 }
