@@ -336,10 +336,11 @@ Paperless GPT 0.7.0 adds explicit, per-document finance actions under **Settings
 - Firefly transaction creation uses the existing Firefly transaction journal create API shape, with explicit external reference, notes, source/destination account, currency, category, and budget mapping when configured.
 - Map transaction fields from Paperless document data, suggestion data, or custom fields. Amount is required. If no amount mapping is set, Paperless GPT falls back to suggested custom fields whose names include `total`, `amount`, or `price`.
 - Matching is performed before creation. Existing transactions around the document/suggested date are scored by amount, currency, date proximity, and description overlap.
-- A strong unique match is auto-selected. Ambiguous matches require a user choice.
+- Auto-selection is intentionally conservative: it only happens on a strong unique exact match, while near matches remain suggestions for manual review.
 - If no match is selected, Paperless GPT does nothing unless **Create Firefly transaction if no match** is checked for that document.
+- Selecting an existing Firefly transaction is an upload-only path: Paperless GPT attaches the PDF to that transaction and does not require create-only fields such as amount/date mappings.
 - Selected or newly created Firefly transactions receive the Paperless archive PDF as an attachment using Firefly's attachment API for the transaction journal.
-- Re-applying a document is duplicate-protected by searching for likely existing transactions before creating.
+- Re-applying a document is duplicate-protected by searching for strong likely existing transactions before creating; if that duplicate check cannot be completed, Paperless GPT aborts the create instead of risking a duplicate.
 - If the Firefly attachment upload fails, the apply result preserves the created or matched transaction ID so the document can be retried without ambiguity.
 
 ### History and undo

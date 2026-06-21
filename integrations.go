@@ -1085,15 +1085,15 @@ func customFieldReference(fieldID int) string {
 	return fmt.Sprintf("%s%d", paperlessFieldRefCustomPrefix, fieldID)
 }
 
-func resolveJobberExpenseString(suggestion DocumentSuggestion, fieldRef string) string {
-	value, ok := resolveJobberExpenseFieldValue(suggestion, fieldRef)
+func resolveSuggestionString(suggestion DocumentSuggestion, fieldRef string) string {
+	value, ok := resolveSuggestionFieldValue(suggestion, fieldRef)
 	if !ok {
 		return ""
 	}
 	return stringifyExpenseFieldValue(value)
 }
 
-func resolveJobberExpenseFieldValue(suggestion DocumentSuggestion, fieldRef string) (interface{}, bool) {
+func resolveSuggestionFieldValue(suggestion DocumentSuggestion, fieldRef string) (interface{}, bool) {
 	switch strings.TrimSpace(fieldRef) {
 	case "":
 		return nil, false
@@ -1161,6 +1161,14 @@ func resolveJobberExpenseFieldValue(suggestion DocumentSuggestion, fieldRef stri
 	}
 
 	return nil, false
+}
+
+func resolveJobberExpenseString(suggestion DocumentSuggestion, fieldRef string) string {
+	return resolveSuggestionString(suggestion, fieldRef)
+}
+
+func resolveJobberExpenseFieldValue(suggestion DocumentSuggestion, fieldRef string) (interface{}, bool) {
+	return resolveSuggestionFieldValue(suggestion, fieldRef)
 }
 
 func stringifyExpenseFieldValue(value interface{}) string {

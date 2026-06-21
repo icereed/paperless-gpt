@@ -103,6 +103,11 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
     [suggestion.firefly_candidates, suggestion.selected_firefly_transaction_id]
   );
   const applyFireflyEnabled = !!suggestion.apply_firefly;
+  const topFireflyCandidate = suggestion.firefly_candidates?.[0];
+  const fireflyAutoSelected = !!suggestion.firefly_auto_selected && !!selectedFireflyCandidate;
+  const fireflyDuplicateBlocked =
+    !!integrationResult?.firefly_error &&
+    integrationResult.firefly_error.toLowerCase().includes("possible firefly duplicate");
 
   const handleJobberSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setJobberSearch(e.target.value);
@@ -521,14 +526,14 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                       ? "Configure and test Firefly in Settings to enable transaction matching."
                       : !fireflyEnabled
                         ? "Enable Firefly in Settings -> Integrations first."
-                        : "Attach the Paperless archive PDF to a selected or newly created transaction."}
+                        : "Link this document to an existing Firefly III transaction, or create a new one if no safe match exists."}
                   </p>
                 </div>
               </div>
 
               <div className="mt-3">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Firefly transaction match
+                  Suggested Firefly III transaction
                   {fireflyCandidatesAvailable && (
                     <span className="ml-1.5 text-xs font-normal text-gray-400 dark:text-gray-500">
                       ({suggestion.firefly_candidates!.length} candidates)
@@ -545,10 +550,10 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                     {!applyFireflyEnabled
                       ? "Firefly is disabled for this document"
                       : !fireflyConnected
-                        ? "Configure Firefly in Settings"
+                        ? "Configure Firefly III in Settings"
                         : fireflyCandidatesAvailable
-                          ? "-- No match --"
-                          : "No existing transaction candidates"}
+                          ? "-- No transaction selected --"
+                          : "No likely existing transactions found"}
                   </option>
                   {(suggestion.firefly_candidates ?? []).map((candidate) => (
                     <option key={candidate.id} value={candidate.id}>
@@ -556,9 +561,24 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                     </option>
                   ))}
                 </select>
+                {fireflyAutoSelected && (
+                  <p className="mt-1.5 text-xs text-green-700 dark:text-green-300">
+                    Automatically selected because it is the only strong exact match. You can still review or change it before applying.
+                  </p>
+                )}
+                {!selectedFireflyCandidate && applyFireflyEnabled && fireflyCandidatesAvailable && (
+                  <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">
+                    Likely matches are listed for review. Nothing was selected automatically because there was no single strong exact match.
+                  </p>
+                )}
                 {selectedFireflyCandidate?.match_reason && (
                   <p className="mt-1.5 text-xs text-blue-700 dark:text-blue-300">
-                    {selectedFireflyCandidate.match_reason}
+                    {fireflyAutoSelected ? `Auto-selected: ${selectedFireflyCandidate.match_reason}` : selectedFireflyCandidate.match_reason}
+                  </p>
+                )}
+                {!selectedFireflyCandidate && topFireflyCandidate?.match_reason && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Best candidate: {topFireflyCandidate.match_reason}
                   </p>
                 )}
                 {selectedFireflyCandidate?.url && (
@@ -579,7 +599,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                 <span>
                   <span className="font-medium text-gray-700 dark:text-gray-300">Create Firefly transaction if no match</span>
                   <span className="block text-gray-500 dark:text-gray-400">
-                    New withdrawal creation only runs when this box is checked.
+                    A new withdrawal is created only when this is checked. If a strong likely duplicate is found, creation is blocked so you can choose the existing transaction instead.
                   </span>
                 </span>
               </label>
@@ -667,9 +687,15 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
                   </p>
                 )}
                 {integrationResult?.firefly_error && (
-                  <p className="mt-1 text-red-700 dark:text-red-300">
-                    Firefly: {integrationResult.firefly_error}
-                  </p>
+                  fireflyDuplicateBlocked ? (
+                    <p className="mt-1 text-amber-700 dark:text-amber-300">
+                      Firefly creation was blocked because a strong likely duplicate was found. Review the suggested matches above and choose the existing transaction instead of creating another one.
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-red-700 dark:text-red-300">
+                      Firefly: {integrationResult.firefly_error}
+                    </p>
+                  )
                 )}
               </div>
             )}

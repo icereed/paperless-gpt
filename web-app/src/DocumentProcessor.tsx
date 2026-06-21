@@ -120,6 +120,7 @@ export interface DocumentSuggestion {
   apply_firefly?: boolean;
   firefly_candidates?: FireflyTransactionCandidate[];
   selected_firefly_transaction_id?: string;
+  firefly_auto_selected?: boolean;
   create_firefly_transaction?: boolean;
   cached?: boolean;
   generated_at?: string;
@@ -231,6 +232,7 @@ const DocumentProcessor: React.FC = () => {
       upload_to_google_drive: !!suggestion.upload_to_google_drive,
       firefly_candidates: suggestion.firefly_candidates || [],
       selected_firefly_transaction_id: suggestion.selected_firefly_transaction_id || "",
+      firefly_auto_selected: !!suggestion.firefly_auto_selected,
       apply_firefly: !!suggestion.apply_firefly,
       create_firefly_transaction: !!suggestion.create_firefly_transaction,
     }));
@@ -256,11 +258,14 @@ const DocumentProcessor: React.FC = () => {
         const candidates = fireflyResponse.data.candidates?.[String(suggestion.id)];
         if (!candidates) return suggestion;
         const autoSelected = fireflyResponse.data.auto_selected?.[String(suggestion.id)] || "";
+        const hadSelection = !!suggestion.selected_firefly_transaction_id;
+        const nextSelected = suggestion.selected_firefly_transaction_id || autoSelected;
         return {
           ...suggestion,
           firefly_candidates: candidates,
-          selected_firefly_transaction_id: suggestion.selected_firefly_transaction_id || autoSelected,
-          apply_firefly: suggestion.apply_firefly ?? !!autoSelected,
+          selected_firefly_transaction_id: nextSelected,
+          firefly_auto_selected: hadSelection ? !!suggestion.firefly_auto_selected : !!autoSelected,
+          apply_firefly: suggestion.apply_firefly ?? !!nextSelected,
         };
       })
     );
@@ -523,6 +528,7 @@ const DocumentProcessor: React.FC = () => {
           ? {
               ...doc,
               selected_firefly_transaction_id: selectedTransactionId,
+              firefly_auto_selected: false,
               apply_firefly: selectedTransactionId ? true : doc.apply_firefly,
               create_firefly_transaction: selectedTransactionId ? false : doc.create_firefly_transaction,
             }

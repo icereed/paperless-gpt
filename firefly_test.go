@@ -136,12 +136,12 @@ func TestResolveFireflyFieldValueUsesSharedDocumentHelpers(t *testing.T) {
 		},
 	}
 
-	value, ok := resolveFireflyFieldValue(suggestion, paperlessFieldRefDocumentTitle)
+	value, ok := resolveSuggestionFieldValue(suggestion, paperlessFieldRefDocumentTitle)
 	if !ok || value != "Firefly receipt" {
 		t.Fatalf("expected suggested title, got %#v (ok=%v)", value, ok)
 	}
 
-	value, ok = resolveFireflyFieldValue(suggestion, paperlessFieldRefDocumentCreatedDate)
+	value, ok = resolveSuggestionFieldValue(suggestion, paperlessFieldRefDocumentCreatedDate)
 	if !ok || value != "2026-04-20" {
 		t.Fatalf("expected suggested created date, got %#v (ok=%v)", value, ok)
 	}
@@ -166,6 +166,46 @@ func TestRankFireflyCandidatesNearDateRanksBelowExact(t *testing.T) {
 	}
 	if len(ranked) < 2 || ranked[0].ID != "exact" || ranked[1].ID != "near" {
 		t.Fatalf("expected exact before near match, got %#v", ranked)
+	}
+}
+
+func TestRankFireflyCandidatesNearDateOnlyDoesNotAutoSelect(t *testing.T) {
+	derived := fireflyDerivedTransaction{
+		Description:  "Vendor receipt",
+		Date:         "2026-04-20",
+		Amount:       42.15,
+		CurrencyCode: "USD",
+	}
+
+	ranked, auto := rankFireflyCandidates(derived, DocumentSuggestion{}, []FireflyTransactionCandidate{
+		{ID: "near", Description: "Vendor receipt", Date: "2026-04-21", Amount: "42.15", CurrencyCode: "USD"},
+	})
+
+	if auto != "" {
+		t.Fatalf("near-date match must not auto-select, got %q", auto)
+	}
+	if len(ranked) != 1 || ranked[0].ID != "near" {
+		t.Fatalf("expected near-date candidate to remain ranked, got %#v", ranked)
+	}
+}
+
+func TestRankFireflyCandidatesWrongCurrencyDoesNotAutoSelect(t *testing.T) {
+	derived := fireflyDerivedTransaction{
+		Description:  "Vendor receipt",
+		Date:         "2026-04-20",
+		Amount:       42.15,
+		CurrencyCode: "USD",
+	}
+
+	ranked, auto := rankFireflyCandidates(derived, DocumentSuggestion{}, []FireflyTransactionCandidate{
+		{ID: "wrong-currency", Description: "Vendor receipt", Date: "2026-04-20", Amount: "42.15", CurrencyCode: "EUR"},
+	})
+
+	if auto != "" {
+		t.Fatalf("wrong-currency match must not auto-select, got %q", auto)
+	}
+	if len(ranked) != 1 || ranked[0].ID != "wrong-currency" {
+		t.Fatalf("expected wrong-currency candidate to remain ranked for manual review, got %#v", ranked)
 	}
 }
 
@@ -210,6 +250,21 @@ func TestDeriveFireflyTransactionRequiresAmount(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "requires an amount") {
 		t.Fatalf("expected missing amount error, got %v", err)
+	}
+}
+
+func TestDeriveFireflyTransactionRejectsInvalidDate(t *testing.T) {
+	_, err := deriveFireflyTransaction(DocumentSuggestion{
+		ID:                   123,
+		SuggestedTitle:       "Vendor receipt",
+		SuggestedCreatedDate: "04/20/2026",
+		SuggestedCustomFields: []CustomFieldSuggestion{
+			{Name: "Grand Total", Value: "$42.15"},
+		},
+	}, FireflyConfig{DefaultCurrency: "USD"})
+
+	if err == nil || !strings.Contains(err.Error(), "YYYY-MM-DD or RFC3339") {
+		t.Fatalf("expected invalid date error, got %v", err)
 	}
 }
 
@@ -266,9 +321,7 @@ func TestApplyFireflySelectedExistingAttachesOnly(t *testing.T) {
 
 	withFireflySettings(t, FireflyConfig{Enabled: true, InstanceURL: server.URL, Token: "pat", DefaultCurrency: "USD"})
 	client := &fireflyTestClient{document: Document{ID: 42, Title: "Vendor", ArchivedFileName: "vendor.pdf"}, pdf: []byte("%PDF-1.4")}
-	suggestion := fireflySuggestion()
-	suggestion.ApplyFirefly = true
-	suggestion.SelectedFireflyTransactionID = "tx-existing"
+	suggestion := DocumentSuggestion{ID: 42, ApplyFirefly: true, SelectedFireflyTransactionID: "tx-existing"}
 
 	result, err := service.ApplyFirefly(context.Background(), client, suggestion, 7)
 	if err != nil {
@@ -367,6 +420,122 @@ func TestApplyFireflyDuplicateCandidatePreventsSilentCreate(t *testing.T) {
 	}
 	if createdTransactions != 0 {
 		t.Fatalf("duplicate protection must block create, created %d", createdTransactions)
+	}
+}
+
+func TestApplyFireflyNearDateDuplicateCandidatePreventsCreate(t *testing.T) {
+	db, err := InitializeTestDB()
+	if err != nil {
+		t.Fatalf("failed to initialize test db: %v", err)
+	}
+	service := NewIntegrationsService(db)
+	var createdTransactions int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/transactions":
+			_, _ = w.Write([]byte(`{"data":[{"id":"tx-existing","attributes":{"transactions":[{"description":"Vendor receipt","date":"2026-04-21T00:00:00+00:00","amount":"42.15","currency_code":"USD"}]}}]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/transactions":
+			createdTransactions++
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"data":{"id":"created"}}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	withFireflySettings(t, FireflyConfig{Enabled: true, InstanceURL: server.URL, Token: "pat", DefaultCurrency: "USD"})
+	suggestion := fireflySuggestion()
+	suggestion.ApplyFirefly = true
+	suggestion.CreateFireflyTransaction = true
+
+	_, err = service.ApplyFirefly(context.Background(), &fireflyTestClient{}, suggestion, 7)
+	if err == nil || !strings.Contains(err.Error(), "possible Firefly duplicate") {
+		t.Fatalf("expected near-date duplicate error, got %v", err)
+	}
+	if createdTransactions != 0 {
+		t.Fatalf("near-date duplicate protection must block create, created %d", createdTransactions)
+	}
+}
+
+func TestApplyFireflyWeakCandidateDoesNotBlockCreate(t *testing.T) {
+	db, err := InitializeTestDB()
+	if err != nil {
+		t.Fatalf("failed to initialize test db: %v", err)
+	}
+	service := NewIntegrationsService(db)
+	var createdTransactions int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/transactions":
+			_, _ = w.Write([]byte(`{"data":[{"id":"tx-existing","attributes":{"transactions":[{"description":"Vendor receipt","date":"2026-04-20T00:00:00+00:00","amount":"42.15","currency_code":"EUR"}]}}]}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/transactions":
+			createdTransactions++
+			_, _ = w.Write([]byte(`{"data":{"id":"tx-new"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/attachments":
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Fatalf("failed to parse attachment multipart: %v", err)
+			}
+			if got := r.FormValue("attachable_id"); got != "tx-new" {
+				t.Fatalf("expected created transaction id, got %q", got)
+			}
+			_, _ = w.Write([]byte(`{"data":{"id":"att-1"}}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	withFireflySettings(t, FireflyConfig{Enabled: true, InstanceURL: server.URL, Token: "pat", DefaultCurrency: "USD"})
+	suggestion := fireflySuggestion()
+	suggestion.ApplyFirefly = true
+	suggestion.CreateFireflyTransaction = true
+
+	result, err := service.ApplyFirefly(context.Background(), &fireflyTestClient{}, suggestion, 7)
+	if err != nil {
+		t.Fatalf("expected create to proceed when only weak candidates exist, got %v", err)
+	}
+	if result == nil || !result.Created || result.TransactionID != "tx-new" || !result.AttachmentUploaded {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if createdTransactions != 1 {
+		t.Fatalf("expected weak candidate path to create exactly one transaction, got %d", createdTransactions)
+	}
+}
+
+func TestApplyFireflyDuplicateCheckFailureBlocksCreate(t *testing.T) {
+	db, err := InitializeTestDB()
+	if err != nil {
+		t.Fatalf("failed to initialize test db: %v", err)
+	}
+	service := NewIntegrationsService(db)
+	var createdTransactions int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/transactions":
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"message":"temporary outage"}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/transactions":
+			createdTransactions++
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"data":{"id":"created"}}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	withFireflySettings(t, FireflyConfig{Enabled: true, InstanceURL: server.URL, Token: "pat", DefaultCurrency: "USD"})
+	suggestion := fireflySuggestion()
+	suggestion.ApplyFirefly = true
+	suggestion.CreateFireflyTransaction = true
+
+	_, err = service.ApplyFirefly(context.Background(), &fireflyTestClient{}, suggestion, 7)
+	if err == nil || !strings.Contains(err.Error(), "duplicate check failed before create") {
+		t.Fatalf("expected duplicate check failure, got %v", err)
+	}
+	if createdTransactions != 0 {
+		t.Fatalf("create must not run when duplicate check fails, created %d", createdTransactions)
 	}
 }
 

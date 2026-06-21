@@ -362,7 +362,7 @@ func TestGetExternalBaseURLFallsBackToForwardedHeaders(t *testing.T) {
 	}
 }
 
-func TestResolveJobberExpenseFieldValuePrefersSuggestedBuiltInFields(t *testing.T) {
+func TestResolveSuggestionFieldValuePrefersSuggestedBuiltInFields(t *testing.T) {
 	suggestion := DocumentSuggestion{
 		SuggestedTitle:         "Approved receipt title",
 		SuggestedCorrespondent: "Approved vendor",
@@ -374,23 +374,23 @@ func TestResolveJobberExpenseFieldValuePrefersSuggestedBuiltInFields(t *testing.
 		},
 	}
 
-	title, ok := resolveJobberExpenseFieldValue(suggestion, paperlessFieldRefDocumentTitle)
+	title, ok := resolveSuggestionFieldValue(suggestion, paperlessFieldRefDocumentTitle)
 	if !ok || title != "Approved receipt title" {
 		t.Fatalf("expected suggested title, got %#v (ok=%v)", title, ok)
 	}
 
-	correspondent, ok := resolveJobberExpenseFieldValue(suggestion, paperlessFieldRefDocumentCorrespondent)
+	correspondent, ok := resolveSuggestionFieldValue(suggestion, paperlessFieldRefDocumentCorrespondent)
 	if !ok || correspondent != "Approved vendor" {
 		t.Fatalf("expected suggested correspondent, got %#v (ok=%v)", correspondent, ok)
 	}
 
-	documentType, ok := resolveJobberExpenseFieldValue(suggestion, paperlessFieldRefDocumentType)
+	documentType, ok := resolveSuggestionFieldValue(suggestion, paperlessFieldRefDocumentType)
 	if !ok || documentType != "Receipt" {
 		t.Fatalf("expected suggested document type, got %#v (ok=%v)", documentType, ok)
 	}
 }
 
-func TestResolveJobberExpenseFieldValueSupportsCustomFieldReferences(t *testing.T) {
+func TestResolveSuggestionFieldValueSupportsCustomFieldReferences(t *testing.T) {
 	suggestion := DocumentSuggestion{
 		SuggestedCustomFields: []CustomFieldSuggestion{
 			{ID: 17, Name: "Total", Value: "123.45"},
@@ -402,12 +402,12 @@ func TestResolveJobberExpenseFieldValueSupportsCustomFieldReferences(t *testing.
 		},
 	}
 
-	value, ok := resolveJobberExpenseFieldValue(suggestion, customFieldReference(17))
+	value, ok := resolveSuggestionFieldValue(suggestion, customFieldReference(17))
 	if !ok || value != "123.45" {
 		t.Fatalf("expected suggested custom field value, got %#v (ok=%v)", value, ok)
 	}
 
-	value, ok = resolveJobberExpenseFieldValue(suggestion, customFieldReference(19))
+	value, ok = resolveSuggestionFieldValue(suggestion, customFieldReference(19))
 	if !ok || value != "fallback" {
 		t.Fatalf("expected original custom field fallback, got %#v (ok=%v)", value, ok)
 	}
