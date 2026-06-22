@@ -209,6 +209,29 @@ func TestRankFireflyCandidatesWrongCurrencyDoesNotAutoSelect(t *testing.T) {
 	}
 }
 
+func TestRankFireflyCandidatesKeepsZeroScoreCandidatesForManualReview(t *testing.T) {
+	derived := fireflyDerivedTransaction{
+		Description:  "Vendor receipt",
+		Date:         "2026-04-20",
+		Amount:       42.15,
+		CurrencyCode: "USD",
+	}
+
+	ranked, auto := rankFireflyCandidates(derived, DocumentSuggestion{}, []FireflyTransactionCandidate{
+		{ID: "manual-review", Description: "Different merchant", Date: "not-a-date", Amount: "99.99", CurrencyCode: "EUR"},
+	})
+
+	if auto != "" {
+		t.Fatalf("zero-score candidate must not auto-select, got %q", auto)
+	}
+	if len(ranked) != 1 || ranked[0].ID != "manual-review" {
+		t.Fatalf("expected zero-score candidate to remain available for manual review, got %#v", ranked)
+	}
+	if !strings.Contains(ranked[0].MatchReason, "manual review") {
+		t.Fatalf("expected manual-review fallback reason, got %q", ranked[0].MatchReason)
+	}
+}
+
 func TestRankFireflyCandidatesDescriptionOnlyDoesNotAutoSelect(t *testing.T) {
 	derived := fireflyDerivedTransaction{
 		Description:  "Vendor receipt",
