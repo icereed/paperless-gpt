@@ -265,38 +265,60 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 		return []Document{}, nil
 	}
 
+	if pageSize <= 0 {
+		pageSize = documentCount
+	}
+
 	path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=%d", url.QueryEscape(tag), pageSize)
+	allResults := make([]GetDocumentApiResponseResult, 0, documentCount)
+	for path != "" {
+		resp, err := client.Do(ctx, "GET", path, nil)
+		if err != nil {
+			return nil, fmt.Errorf("HTTP request failed in GetDocumentsByTag: %w", err)
+		}
 
-	resp, err := client.Do(ctx, "GET", path, nil)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed in GetDocumentsByTag: %w", err)
-	}
-	defer resp.Body.Close()
+		bodyBytes, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %w", err)
+		}
 
-	// Read the response body
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
+		if resp.StatusCode != http.StatusOK {
+			log.WithFields(logrus.Fields{
+				"status_code": resp.StatusCode,
+				"path":        path,
+				"response":    string(bodyBytes),
+				"headers":     resp.Header,
+			}).Error("Error response from server in GetDocumentsByTag")
+			return nil, fmt.Errorf("error searching documents: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		log.WithFields(logrus.Fields{
-			"status_code": resp.StatusCode,
-			"path":        path,
-			"response":    string(bodyBytes),
-			"headers":     resp.Header,
-		}).Error("Error response from server in GetDocumentsByTag")
-		return nil, fmt.Errorf("error searching documents: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
-	}
+		var documentsResponse GetDocumentsApiResponse
+		err = json.Unmarshal(bodyBytes, &documentsResponse)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"response_body": string(bodyBytes),
+				"error":         err,
+			}).Error("Failed to parse JSON response in GetDocumentsByTag")
+			return nil, fmt.Errorf("failed to parse JSON response: %w", err)
+		}
 
-	var documentsResponse GetDocumentsApiResponse
-	err = json.Unmarshal(bodyBytes, &documentsResponse)
-	if err != nil {
-		log.WithFields(logrus.Fields{
-			"response_body": string(bodyBytes),
-			"error":         err,
-		}).Error("Failed to parse JSON response in GetDocumentsByTag")
-		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
+		allResults = append(allResults, documentsResponse.Results...)
+
+		if documentsResponse.Next == "" {
+			path = ""
+			continue
+		}
+
+		nextURL, err := url.Parse(documentsResponse.Next)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse next URL in GetDocumentsByTag: %w", err)
+		}
+
+		path = nextURL.Path
+		if nextURL.RawQuery != "" {
+			path += "?" + nextURL.RawQuery
+		}
 	}
 
 	allTags, err := client.GetAllTags(ctx)
@@ -328,8 +350,8 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 		corrIDToName[id] = name
 	}
 
-	documents := make([]Document, 0, len(documentsResponse.Results))
-	for _, result := range documentsResponse.Results {
+	documents := make([]Document, 0, len(allResults))
+	for _, result := range allResults {
 		tagNames := make([]string, len(result.Tags))
 		for i, resultTagID := range result.Tags {
 			tagNames[i] = tagIDToName[resultTagID]

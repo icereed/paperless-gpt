@@ -10,8 +10,8 @@ import (
 // GetDocumentsApiResponse is the response payload for /documents endpoint.
 // But we are only interested in a subset of the fields.
 type GetDocumentsApiResponse struct {
-	Count int `json:"count"`
-	// Next     interface{} `json:"next"`
+	Count int    `json:"count"`
+	Next  string `json:"next"`
 	// Previous interface{} `json:"previous"`
 	All     []int                          `json:"all"`
 	Results []GetDocumentApiResponseResult `json:"results"`

@@ -398,6 +398,91 @@ func TestGetDocumentsByTagWithEmoji(t *testing.T) {
 	assert.Equal(t, expectedDocuments, documents)
 }
 
+func TestGetDocumentsByTagFollowsPagination(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	firstPageResults := make([]GetDocumentApiResponseResult, 0, 25)
+	secondPageResults := make([]GetDocumentApiResponseResult, 0, 1)
+	expectedDocuments := make([]Document, 0, 26)
+
+	for i := 1; i <= 26; i++ {
+		result := GetDocumentApiResponseResult{
+			ID:            i,
+			Title:         fmt.Sprintf("Document %d", i),
+			Content:       fmt.Sprintf("Content %d", i),
+			Tags:          []int{2},
+			Correspondent: 1,
+			CreatedDate:   fmt.Sprintf("1999-09-%02d", i),
+		}
+
+		if i <= 25 {
+			firstPageResults = append(firstPageResults, result)
+		} else {
+			secondPageResults = append(secondPageResults, result)
+		}
+
+		expectedDocuments = append(expectedDocuments, Document{
+			ID:            i,
+			Title:         fmt.Sprintf("Document %d", i),
+			Content:       fmt.Sprintf("Content %d", i),
+			Tags:          []string{"queue"},
+			Correspondent: "Alpha",
+			CreatedDate:   fmt.Sprintf("1999-09-%02d", i),
+			CustomFields:  []CustomFieldResponse{},
+		})
+	}
+
+	tagsResponse := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"id": 2, "name": "queue"},
+		},
+		"next": nil,
+	}
+
+	tagsExactResponse := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"document_count": 26},
+		},
+		"count": 1,
+	}
+
+	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "queue", r.URL.Query().Get("tags__name__iexact"))
+		assert.Equal(t, "25", r.URL.Query().Get("page_size"))
+
+		w.WriteHeader(http.StatusOK)
+		if r.URL.Query().Get("page") == "2" {
+			json.NewEncoder(w).Encode(GetDocumentsApiResponse{
+				Count:   26,
+				Results: secondPageResults,
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(GetDocumentsApiResponse{
+			Count:   26,
+			Next:    env.server.URL + "/api/documents/?tags__name__iexact=queue&page=2&page_size=25",
+			Results: firstPageResults,
+		})
+	})
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		if nameFilter := r.URL.Query().Get("name__iexact"); nameFilter != "" {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(tagsExactResponse)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(tagsResponse)
+	})
+
+	documents, err := env.client.GetDocumentsByTag(context.Background(), "queue", 25)
+	require.NoError(t, err)
+	assert.Equal(t, expectedDocuments, documents)
+}
+
 // TestDownloadPDF tests the DownloadPDF method
 func TestDownloadPDF(t *testing.T) {
 	env := newTestEnv(t)
