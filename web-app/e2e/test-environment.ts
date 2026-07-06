@@ -23,145 +23,163 @@ export interface TestEnvironmentConfig {
   processMode?: string;
 }
 
+// Stoppable is anything started so far that setupTestEnvironment needs to
+// tear down (in reverse order) if a later step fails, so a mid-setup failure
+// never leaks containers/networks on the runner.
+interface Stoppable {
+  stop: () => Promise<unknown>;
+}
+
+async function stopAll(started: Stoppable[]): Promise<void> {
+  for (const resource of started.reverse()) {
+    try {
+      await resource.stop();
+    } catch (stopError) {
+      console.error('Error stopping resource during cleanup:', stopError);
+    }
+  }
+}
+
 export async function setupTestEnvironment(config?: TestEnvironmentConfig): Promise<TestEnvironment> {
   console.log('Setting up test environment...');
   const paperlessPort = PORTS.paperlessNgx;
   const gptPort = PORTS.paperlessGpt;
-
-  // Create a network for the containers
-  const network = await new Network().start();
-
-  console.log('Starting Redis container...');
-  const redis = await new GenericContainer('redis:7')
-    .withNetwork(network)
-    .withNetworkAliases('redis')
-    .start();
-
-  console.log('Starting Postgres container...');
-  const postgres = await new GenericContainer('postgres:15')
-    .withNetwork(network)
-    .withNetworkAliases('postgres')
-    .withEnvironment({
-      POSTGRES_DB: 'paperless',
-      POSTGRES_USER: 'paperless',
-      POSTGRES_PASSWORD: 'paperless'
-    })
-    .start();
-
-  console.log('Starting Paperless-ngx container...');
-  const paperlessNgx = await new GenericContainer('ghcr.io/paperless-ngx/paperless-ngx:latest')
-    .withNetwork(network)
-    .withNetworkAliases('paperless-ngx')
-    .withEnvironment({
-      PAPERLESS_URL: `http://localhost:${paperlessPort}`,
-      PAPERLESS_SECRET_KEY: 'change-me',
-      PAPERLESS_ADMIN_USER: 'admin',
-      PAPERLESS_ADMIN_PASSWORD: 'admin',
-      PAPERLESS_TIME_ZONE: 'Europe/Berlin',
-      PAPERLESS_OCR_LANGUAGE: 'eng',
-      PAPERLESS_REDIS: 'redis://redis:6379',
-      PAPERLESS_DBHOST: 'postgres',
-      PAPERLESS_DBNAME: 'paperless',
-      PAPERLESS_DBUSER: 'paperless',
-      PAPERLESS_DBPASS: 'paperless'
-    })
-    .withExposedPorts(paperlessPort)
-    .withWaitStrategy(Wait.forHttp('/api/', paperlessPort))
-    .start();
-
-  const mappedPort = paperlessNgx.getMappedPort(paperlessPort);
-  console.log(`Paperless-ngx container started, mapped port: ${mappedPort}`);
-  // Create required tag before starting paperless-gpt
-  const baseUrl = `http://localhost:${mappedPort}`;
-  const credentials = { username: 'admin', password: 'admin' };
+  const started: Stoppable[] = [];
 
   try {
+    // Create a network for the containers
+    const network = await new Network().start();
+    started.push(network);
+
+    console.log('Starting Redis container...');
+    const redis = await new GenericContainer('redis:7')
+      .withNetwork(network)
+      .withNetworkAliases('redis')
+      .start();
+    started.push(redis);
+
+    console.log('Starting Postgres container...');
+    const postgres = await new GenericContainer('postgres:15')
+      .withNetwork(network)
+      .withNetworkAliases('postgres')
+      .withEnvironment({
+        POSTGRES_DB: 'paperless',
+        POSTGRES_USER: 'paperless',
+        POSTGRES_PASSWORD: 'paperless'
+      })
+      .start();
+    started.push(postgres);
+
+    console.log('Starting Paperless-ngx container...');
+    const paperlessNgx = await new GenericContainer('ghcr.io/paperless-ngx/paperless-ngx:latest')
+      .withNetwork(network)
+      .withNetworkAliases('paperless-ngx')
+      .withEnvironment({
+        PAPERLESS_URL: `http://localhost:${paperlessPort}`,
+        PAPERLESS_SECRET_KEY: 'change-me',
+        PAPERLESS_ADMIN_USER: 'admin',
+        PAPERLESS_ADMIN_PASSWORD: 'admin',
+        PAPERLESS_TIME_ZONE: 'Europe/Berlin',
+        PAPERLESS_OCR_LANGUAGE: 'eng',
+        PAPERLESS_REDIS: 'redis://redis:6379',
+        PAPERLESS_DBHOST: 'postgres',
+        PAPERLESS_DBNAME: 'paperless',
+        PAPERLESS_DBUSER: 'paperless',
+        PAPERLESS_DBPASS: 'paperless'
+      })
+      .withExposedPorts(paperlessPort)
+      .withWaitStrategy(Wait.forHttp('/api/', paperlessPort))
+      .start();
+    started.push(paperlessNgx);
+
+    const mappedPort = paperlessNgx.getMappedPort(paperlessPort);
+    console.log(`Paperless-ngx container started, mapped port: ${mappedPort}`);
+    // Create required tag before starting paperless-gpt
+    const baseUrl = `http://localhost:${mappedPort}`;
+    const credentials = { username: 'admin', password: 'admin' };
+
     console.log('Creating predefined tags...');
-    // Create predefined tags
     for (const tag of PREDEFINED_TAGS) {
       await createTag(baseUrl, tag, credentials);
     }
+
+    console.log('Starting Paperless-gpt container...');
+    const paperlessGptImage = process.env.PAPERLESS_GPT_IMAGE || 'icereed/paperless-gpt:e2e';
+    console.log(`Using image: ${paperlessGptImage}`);
+
+    // Build environment configuration based on provided config
+    const baseEnvironment = {
+      PAPERLESS_BASE_URL: `http://paperless-ngx:${paperlessPort}`,
+      PAPERLESS_API_TOKEN: await getApiToken(baseUrl, credentials),
+      LLM_PROVIDER: "openai",
+      LLM_MODEL: "gpt-4o-mini",
+      LLM_LANGUAGE: "english",
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+      PDF_OCR_TAGGING: "true",
+      PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete",
+    };
+
+    // Configure OCR provider and processing mode based on config
+    if (config?.ocrProvider === 'mistral_ocr') {
+      Object.assign(baseEnvironment, {
+        OCR_PROVIDER: "mistral_ocr",
+        MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
+        MISTRAL_MODEL: "mistral-ocr-latest",
+        OCR_PROCESS_MODE: config.processMode || "whole_pdf",
+      });
+      console.log('Configured for Mistral OCR with process mode:', config.processMode || "whole_pdf");
+    } else if (config?.ocrProvider === 'anthropic') {
+      // Anthropic configuration for both OCR and classification
+      Object.assign(baseEnvironment, {
+        // LLM provider for document classification
+        LLM_PROVIDER: "anthropic",
+        LLM_MODEL: "claude-sonnet-4-5",
+        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+
+        // Vision LLM provider for OCR
+        OCR_PROVIDER: "llm",
+        VISION_LLM_PROVIDER: "anthropic",
+        VISION_LLM_MODEL: "claude-sonnet-4-5",
+        OCR_PROCESS_MODE: config.processMode || "image",
+      });
+      console.log('Configured for Anthropic OCR with process mode:', config.processMode || "image");
+    } else {
+      // Default LLM OCR configuration
+      Object.assign(baseEnvironment, {
+        OCR_PROVIDER: "llm",
+        VISION_LLM_PROVIDER: "openai",
+        VISION_LLM_MODEL: "gpt-4o-mini",
+        OCR_PROCESS_MODE: config?.processMode || "image",
+      });
+      console.log('Configured for LLM OCR with process mode:', config?.processMode || "image");
+    }
+
+    const paperlessGpt = await new GenericContainer(paperlessGptImage)
+      .withNetwork(network)
+      .withEnvironment(baseEnvironment)
+      .withExposedPorts(gptPort)
+      .withWaitStrategy(Wait.forHttp('/', gptPort))
+      .start();
+    started.push(paperlessGpt);
+    console.log('Paperless-gpt container started');
+
+    const cleanup = async () => {
+      console.log('Cleaning up test environment...');
+      await stopAll(started);
+      console.log('Test environment cleanup completed');
+    };
+
+    console.log('Test environment setup completed');
+    return {
+      paperlessNgx,
+      paperlessGpt,
+      cleanup,
+    };
   } catch (error) {
-    console.error('Failed to create tag:', error);
-    await paperlessNgx.stop();
+    console.error('Failed to set up test environment, cleaning up already-started resources:', error);
+    await stopAll(started);
     throw error;
   }
-
-  console.log('Starting Paperless-gpt container...');
-  const paperlessGptImage = process.env.PAPERLESS_GPT_IMAGE || 'icereed/paperless-gpt:e2e';
-  console.log(`Using image: ${paperlessGptImage}`);
-
-  // Build environment configuration based on provided config
-  const baseEnvironment = {
-    PAPERLESS_BASE_URL: `http://paperless-ngx:${paperlessPort}`,
-    PAPERLESS_API_TOKEN: await getApiToken(baseUrl, credentials),
-    LLM_PROVIDER: "openai",
-    LLM_MODEL: "gpt-4o-mini",
-    LLM_LANGUAGE: "english",
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
-    PDF_OCR_TAGGING: "true",
-    PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete",
-  };
-
-  // Configure OCR provider and processing mode based on config
-  if (config?.ocrProvider === 'mistral_ocr') {
-    Object.assign(baseEnvironment, {
-      OCR_PROVIDER: "mistral_ocr",
-      MISTRAL_API_KEY: process.env.MISTRAL_API_KEY || '',
-      MISTRAL_MODEL: "mistral-ocr-latest",
-      OCR_PROCESS_MODE: config.processMode || "whole_pdf",
-    });
-    console.log('Configured for Mistral OCR with process mode:', config.processMode || "whole_pdf");
-  } else if (config?.ocrProvider === 'anthropic') {
-    // Anthropic configuration for both OCR and classification
-    Object.assign(baseEnvironment, {
-      // LLM provider for document classification
-      LLM_PROVIDER: "anthropic",
-      LLM_MODEL: "claude-sonnet-4-5",
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
-
-      // Vision LLM provider for OCR
-      OCR_PROVIDER: "llm",
-      VISION_LLM_PROVIDER: "anthropic",
-      VISION_LLM_MODEL: "claude-sonnet-4-5",
-      OCR_PROCESS_MODE: config.processMode || "image",
-    });
-    console.log('Configured for Anthropic OCR with process mode:', config.processMode || "image");
-  } else {
-    // Default LLM OCR configuration
-    Object.assign(baseEnvironment, {
-      OCR_PROVIDER: "llm",
-      VISION_LLM_PROVIDER: "openai",
-      VISION_LLM_MODEL: "gpt-4o-mini",
-      OCR_PROCESS_MODE: config?.processMode || "image",
-    });
-    console.log('Configured for LLM OCR with process mode:', config?.processMode || "image");
-  }
-
-  const paperlessGpt = await new GenericContainer(paperlessGptImage)
-    .withNetwork(network)
-    .withEnvironment(baseEnvironment)
-    .withExposedPorts(gptPort)
-    .withWaitStrategy(Wait.forHttp('/', gptPort))
-    .start();
-  console.log('Paperless-gpt container started');
-
-  const cleanup = async () => {
-    console.log('Cleaning up test environment...');
-    await paperlessGpt.stop();
-    await paperlessNgx.stop();
-    await redis.stop();
-    await postgres.stop();
-    await network.stop();
-    console.log('Test environment cleanup completed');
-  };
-
-  console.log('Test environment setup completed');
-  return {
-    paperlessNgx,
-    paperlessGpt,
-    cleanup,
-  };
 }
 
 export interface PaperlessDocument {
