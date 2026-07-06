@@ -22,6 +22,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Untrusted fork checkout: pull_request_target fires on ANY label, not just
+    # safe-to-test, so gate this job on the specific label that was just applied.
+    # Without this, any maintainer triage label (e.g. "bug") would run
+    # attacker-controlled code from the fork with repo secrets in scope.
+    if: github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test'
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -115,6 +120,8 @@ jobs:
   build-amd64:
     runs-on: ubuntu-latest
     needs: test
+    # Same untrusted-checkout gate as the test job — see comment there.
+    if: github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test'
     outputs:
       digest: ${{ steps.build_amd64.outputs.digest }}
       image_tag: ${{ steps.set_image_tag.outputs.image_tag }}
@@ -194,6 +201,8 @@ jobs:
   build-arm64:
     runs-on: ubuntu-24.04-arm
     needs: test
+    # Same untrusted-checkout gate as the test job — see comment there.
+    if: github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test'
     outputs:
       digest: ${{ steps.build_arm64.outputs.digest }}
     steps:
@@ -266,7 +275,8 @@ jobs:
   merge-manifests:
     needs: [build-amd64, build-arm64]
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
+    # Same untrusted-checkout gate as the test job — see comment there.
+    if: github.event_name != 'pull_request' && (github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test')
     env:
       DOCKERHUB_REPO: icereed/paperless-gpt
       GHCR_REPO: ghcr.io/${{ github.repository }}
