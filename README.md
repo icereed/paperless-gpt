@@ -128,7 +128,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 ### Prerequisites
 
 - [Docker][docker-install] installed.
-- A running instance of [paperless-ngx][paperless-ngx].
+- A running instance of [paperless-ngx][paperless-ngx] — tested against the 2.20.x release series and the 3.0.0 beta (`v3.0.0-beta.rc1`). paperless-gpt only uses the stable `api/documents/`, `api/tags/`, `api/correspondents/`, `api/custom_fields/` and `api/document_types/` endpoints, none of which have documented breaking changes in the v3 migration guide.
 - Access to an LLM provider:
   - **OpenAI**: An API key with models like `gpt-4o` or `gpt-3.5-turbo`.
   - **Ollama**: A running Ollama server with models like `qwen3:8b`.
