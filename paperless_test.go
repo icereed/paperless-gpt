@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"testing"
 
@@ -184,8 +185,48 @@ func TestGetAllTags(t *testing.T) {
 	assert.Equal(t, expectedTags, tags)
 }
 
-// TestGetDocumentsByTags tests the GetDocumentsByTags method
-func TestGetDocumentsByTags(t *testing.T) {
+// TestGetDocumentCountByTag tests the GetDocumentCountByTag method
+func TestGetDocumentCountByTag(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	// Mock data for paginated responses
+	data1 := map[string]interface{}{
+		"count": 1,
+		"results": []map[string]interface{}{
+			{"document_count": 5},
+		},
+	}
+
+	data2 := map[string]interface{}{
+		"count":   0,
+		"results": []map[string]interface{}{},
+	}
+
+	// Set mock responses for pagination
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query().Get("name__iexact")
+		if query == "available" {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(data1)
+		} else {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(data2)
+		}
+	})
+
+	ctx := context.Background()
+	countAvailable, err := env.client.GetDocumentCountByTag(ctx, "available")
+	require.NoError(t, err)
+	assert.Equal(t, 5, countAvailable)
+
+	countNotAvailable, err := env.client.GetDocumentCountByTag(ctx, "notavailable")
+	require.NoError(t, err)
+	assert.Equal(t, 0, countNotAvailable)
+}
+
+// TestGetDocumentsByTag tests the GetDocumentsByTag method
+func TestGetDocumentsByTag(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()
 
@@ -221,23 +262,38 @@ func TestGetDocumentsByTags(t *testing.T) {
 		"next": nil,
 	}
 
+	// Mock data for tags
+	tagsExactResponse := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"document_count": 2},
+		},
+		"count": 1,
+	}
+
 	// Set mock responses
 	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
 		// Verify query parameters
-		expectedQuery := "tags__name__iexact=tag1&tags__name__iexact=tag2&page_size=25"
+		expectedQuery := "tags__name__iexact=tag2&page_size=25"
 		assert.Equal(t, expectedQuery, r.URL.RawQuery)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(documentsResponse)
 	})
 
 	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(tagsResponse)
+		// Handle GetDocumentCountByTag call
+		if nameFilter := r.URL.Query().Get("name__iexact"); nameFilter != "" {
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(tagsExactResponse)
+		} else {
+			// Handle GetAllTags call
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(tagsResponse)
+		}
 	})
 
 	ctx := context.Background()
-	tags := []string{"tag1", "tag2"}
-	documents, err := env.client.GetDocumentsByTags(ctx, tags, 25)
+	tag := "tag2"
+	documents, err := env.client.GetDocumentsByTag(ctx, tag, 25)
 	require.NoError(t, err)
 
 	expectedDocuments := []Document{
@@ -256,6 +312,83 @@ func TestGetDocumentsByTags(t *testing.T) {
 			Tags:          []string{"tag2", "tag3"},
 			Correspondent: "Beta",
 			CreatedDate:   "1999-09-02",
+		},
+	}
+
+	assert.Equal(t, expectedDocuments, documents)
+}
+
+// TestGetDocumentsByTagWithEmoji tests the GetDocumentsByTag method with emoji and special characters
+func TestGetDocumentsByTagWithEmoji(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	// Mock data for documents
+	documentsResponse := GetDocumentsApiResponse{
+		Results: []GetDocumentApiResponseResult{
+			{
+				ID:            1,
+				Title:         "AI Document",
+				Content:       "Content about AI",
+				Tags:          []int{1},
+				Correspondent: 1,
+				CreatedDate:   "2024-01-01",
+			},
+		},
+	}
+
+	// Mock data for tags
+	tagsResponse := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"id": 1, "name": "🤖 AI-Queue"},
+		},
+		"next": nil,
+	}
+
+	// Mock data for exact tag match
+	tagsExactResponse := map[string]interface{}{
+		"results": []map[string]interface{}{
+			{"document_count": 1},
+		},
+		"count": 1,
+	}
+
+	// Set mock responses
+	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		// Verify query parameters - the tag should be URL-encoded
+		expectedQuery := fmt.Sprintf("tags__name__iexact=%s&page_size=25", url.QueryEscape("🤖 AI-Queue"))
+		assert.Equal(t, expectedQuery, r.URL.RawQuery)
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(documentsResponse)
+	})
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		// Handle GetDocumentCountByTag call
+		if nameFilter := r.URL.Query().Get("name__iexact"); nameFilter != "" {
+			// Verify the decoded value matches our emoji tag
+			assert.Equal(t, "🤖 AI-Queue", nameFilter)
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(tagsExactResponse)
+		} else {
+			// Handle GetAllTags call
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(tagsResponse)
+		}
+	})
+
+	ctx := context.Background()
+	tag := "🤖 AI-Queue"
+	documents, err := env.client.GetDocumentsByTag(ctx, tag, 25)
+	require.NoError(t, err)
+
+	expectedDocuments := []Document{
+		{
+			ID:            1,
+			Title:         "AI Document",
+			Content:       "Content about AI",
+			Tags:          []string{"🤖 AI-Queue"},
+			Correspondent: "Alpha",
+			CreatedDate:   "2024-01-01",
 		},
 	}
 
@@ -364,6 +497,147 @@ func TestUpdateDocuments(t *testing.T) {
 	ctx := context.Background()
 	err := env.client.UpdateDocuments(ctx, documents, env.db, false)
 	require.NoError(t, err)
+}
+
+// TestUpdateDocuments_RemovingLastTag tests the behavior when removing the last remaining tag
+// from a document, which Paperless-NGX REST API does not allow (empty tags array is rejected).
+// The test covers two scenarios:
+//  1. Document has only the manual tag with other field changes (title) - should update title first,
+//     then remove the manual tag in a separate call
+//  2. Document has only the manual tag with NO other changes - should skip the update entirely
+func TestUpdateDocuments_RemovingLastTag(t *testing.T) {
+	// in this scenario, the manualTag is set, but the
+	// document processing sends both the auto and manual
+	// versions of the tag to be removed. this is why you'll
+	// see the autoTag included in the RemoveTags but not in the original document.
+	manualTag = "paperless-gpt"
+	autoTag = "paperless-gpt-auto"
+
+	tests := []struct {
+		name              string
+		document          DocumentSuggestion
+		expectUpdateCalls int
+		validateCalls     func(t *testing.T, calls []map[string]interface{})
+	}{
+		{
+			name: "with_other_field_changes",
+			document: DocumentSuggestion{
+				ID: 1,
+				OriginalDocument: Document{
+					ID:          1,
+					Title:       "Old Title",
+					Tags:        []string{manualTag},
+					CreatedDate: "1999-09-01",
+				},
+				SuggestedTitle: "New Title",
+				SuggestedTags:  []string{},
+				RemoveTags:     []string{manualTag, autoTag},
+			},
+			expectUpdateCalls: 2,
+			validateCalls: func(t *testing.T, calls []map[string]interface{}) {
+				// First call: should update title but NOT tags
+				assert.Equal(t, map[string]interface{}{"title": "New Title"}, calls[0],
+					"First call should only update title, not tags")
+
+				// Second call: should remove the manual tag with empty array
+				tagsValue, tagsPresent := calls[1]["tags"]
+				require.True(t, tagsPresent, "Second call must include tags field")
+				tagSlice, ok := tagsValue.([]interface{})
+				require.True(t, ok, "tags should be an array")
+				assert.Empty(t, tagSlice, "tags array should be empty to remove manual tag")
+			},
+		},
+		{
+			name: "no_other_changes",
+			document: DocumentSuggestion{
+				ID: 2,
+				OriginalDocument: Document{
+					ID:          2,
+					Title:       "Same Title",
+					Tags:        []string{manualTag},
+					CreatedDate: "1999-09-01",
+				},
+				SuggestedTitle: "",
+				SuggestedTags:  []string{},
+				RemoveTags:     []string{manualTag, autoTag},
+			},
+			expectUpdateCalls: 1,
+			validateCalls: func(t *testing.T, calls []map[string]interface{}) {
+				// Should make one call to remove the manual tag with empty array
+				// Even though there are no other field changes, the manual tag MUST be removed
+				tagsValue, tagsPresent := calls[0]["tags"]
+				require.True(t, tagsPresent, "Must include tags field to remove manual tag")
+				tagSlice, ok := tagsValue.([]interface{})
+				require.True(t, ok, "tags should be an array")
+				assert.Empty(t, tagSlice, "tags array should be empty to remove manual tag")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			defer env.teardown()
+
+			// Mock tags response
+			env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"results": []map[string]interface{}{
+						{"id": 1, "name": "paperless-gpt"},
+					},
+					"next": nil,
+				})
+			})
+
+			// Track update calls (PATCH only, not GET)
+			var updateCalls []map[string]interface{}
+			updatePath := fmt.Sprintf("/api/documents/%d/", tt.document.ID)
+
+			env.setMockResponse(updatePath, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "GET" {
+					// Return document state after first update (still has paperless-gpt tag)
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"id":                 tt.document.ID,
+						"title":              "New Title", // Title was updated
+						"tags":               []int{1},    // Still has paperless-gpt tag
+						"created_date":       tt.document.OriginalDocument.CreatedDate,
+						"content":            "",
+						"correspondent":      nil,
+						"custom_fields":      []interface{}{},
+						"original_file_name": "test.pdf",
+						"document_type":      nil,
+					})
+					return
+				}
+
+				// Track PATCH calls
+				assert.Equal(t, "PATCH", r.Method)
+				bodyBytes, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				defer r.Body.Close()
+
+				var updatedFields map[string]interface{}
+				err = json.Unmarshal(bodyBytes, &updatedFields)
+				require.NoError(t, err)
+
+				updateCalls = append(updateCalls, updatedFields)
+				w.WriteHeader(http.StatusOK)
+			})
+
+			ctx := context.Background()
+			err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{tt.document}, env.db, false)
+			require.NoError(t, err)
+
+			assert.Len(t, updateCalls, tt.expectUpdateCalls,
+				"Expected %d update calls, got %d", tt.expectUpdateCalls, len(updateCalls))
+
+			if tt.expectUpdateCalls > 0 {
+				tt.validateCalls(t, updateCalls)
+			}
+		})
+	}
 }
 
 // TestUrlEncode tests the urlEncode function

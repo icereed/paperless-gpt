@@ -18,11 +18,12 @@ import (
 
 // ProcessedDocument represents a document after OCR processing
 type ProcessedDocument struct {
-	ID         int
-	Text       string
-	HOCRStruct *hocr.HOCR
-	HOCR       string
-	PDFData    []byte
+	ID               int
+	Text             string
+	HOCRStruct       *hocr.HOCR
+	HOCR             string
+	PDFData          []byte
+	ReplacedOriginal bool // true when the original document was successfully deleted and replaced
 }
 
 // HOCRCapable defines an interface for OCR providers that can generate hOCR
@@ -145,7 +146,8 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	if processMode == "whole_pdf" {
 		// Process the entire PDF in one go, skipping the splitting step
 		var pdfBytes []byte
-		_, pdfBytes, totalPdfPages, err := app.Client.DownloadDocumentAsPDF(ctx, documentID, 0, false)
+		var err error
+		_, pdfBytes, totalPdfPages, err = app.Client.DownloadDocumentAsPDF(ctx, documentID, 0, false)
 		if err != nil {
 			return nil, fmt.Errorf("error downloading document PDF for document %d: %w", documentID, err)
 		}
@@ -411,6 +413,8 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 							if options.UploadPDF && pdfData != nil {
 								if err := app.uploadProcessedPDF(ctx, documentID, pdfData, options, docLogger); err != nil {
 									docLogger.WithError(err).Error("Failed to upload processed PDF")
+								} else if options.ReplaceOriginal {
+									processedDoc.ReplacedOriginal = true
 								}
 							}
 						}

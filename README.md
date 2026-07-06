@@ -7,6 +7,9 @@
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-icereed-ea4aaa?logo=github-sponsors)](https://github.com/sponsors/icereed)
 
+
+<a href="https://trendshift.io/repositories/12701" target="_blank"><img src="https://trendshift.io/api/badge/repositories/12701" alt="icereed%2Fpaperless-gpt | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
 ![Screenshot](./paperless-gpt-screenshot.png)
 
 <sub>💡 Maintained by [Icereed](https://github.com/icereed). Proudly supported by [BubbleTax.de](https://bubbletax.de/?utm_source=github&utm_medium=readme&utm_campaign=paperless) – automated, BMF-compliant tax reports for Interactive Brokers traders in Germany.</sub>
@@ -171,12 +174,17 @@ services:
       # OPENAI_API_TYPE: "azure"
       # OPENAI_BASE_URL: "https://your-resource.openai.azure.com"
 
-      # Option 3: Ollama (Local)
+      # Option 4: Ollama (Local)
       # LLM_PROVIDER: "ollama"
       # LLM_MODEL: "qwen3:8b"
       # OLLAMA_HOST: "http://host.docker.internal:11434"
       # OLLAMA_CONTEXT_LENGTH: "8192" # Sets Ollama NumCtx (context window)
       # TOKEN_LIMIT: 1000 # Recommended for smaller models
+
+      # Option 5: Anthropic/Claude
+      # LLM_PROVIDER: "anthropic"
+      # LLM_MODEL: "claude-sonnet-4-5"
+      # ANTHROPIC_API_KEY: "your_anthropic_api_key"
 
       # Optional LLM Settings
       # LLM_LANGUAGE: "English" # Optional, default: English
@@ -184,8 +192,8 @@ services:
       # OCR Configuration - Choose one:
       # Option 1: LLM-based OCR
       OCR_PROVIDER: "llm" # Default OCR provider
-      VISION_LLM_PROVIDER: "ollama" # openai or ollama
-      VISION_LLM_MODEL: "minicpm-v" # minicpm-v (ollama) or gpt-4o (openai)
+      VISION_LLM_PROVIDER: "ollama" # openai, ollama, mistral, or anthropic
+      VISION_LLM_MODEL: "minicpm-v" # minicpm-v (ollama) or gpt-4o (openai) or claude-sonnet-4-5 (anthropic/claude)
       OLLAMA_HOST: "http://host.docker.internal:11434" # If using Ollama
 
       # OCR Processing Mode
@@ -408,7 +416,7 @@ Different OCR providers support different processing modes:
 | **Azure Document Intelligence** | ✅ | ❌ | ❌ |
 | **Google Document AI** | ✅ | ✅ | ✅ |
 | **Mistral OCR** | ✅ | ✅ | ✅ |
-| **Docling Server** | ✅ | ❌ | ❌ |
+| **Docling Server** | ✅ | ✅ | ✅ |
 
 > **Important**: paperless-gpt will validate your configuration at startup and prevent unsupported mode/provider combinations. If you specify an unsupported mode for your provider, the application will fail to start with a clear error message.
 
@@ -538,10 +546,11 @@ For best results with the enhanced OCR features:
 | `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                            | No       |                            |
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
 | `AUTO_TAG`                          | Tag for auto processing.                                                                                                                                                                      | No       | paperless-gpt-auto         |
-| `LLM_PROVIDER`                      | AI backend (`openai`, `ollama`, or `googleai`).                                                                                                                                               | Yes      |                            |
-| `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`).                                                                                                                           | Yes      |                            |
+| `LLM_PROVIDER`                      | AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`).                                                                                                                       | Yes      |                            |
+| `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`).                                                                                               | Yes      |                            |
 | `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                    | Cond.    |                            |
 | `MISTRAL_API_KEY`                   | Mistral API key (required if using Mistral).                                                                                                                                                  | Cond.    |                            |
+| `ANTHROPIC_API_KEY`                 | Anthropic API key (required if using Anthropic/Claude).                                                                                                                                       | Cond.    |                            |
 | `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                                   | No       |                            |
 | `OPENAI_BASE_URL`                   | Base URL for OpenAI API. For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`).                                                                       | No       |                            |
 | `LLM_LANGUAGE`                      | Likely language for documents (e.g. `English`). Appears in the prompt to help the LLM.                                                                                                                                               | No       | English                    |
@@ -553,7 +562,7 @@ For best results with the enhanced OCR features:
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
 | `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                      | No       | llm                        |
 | `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
-| `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai` or `ollama`). Required if OCR_PROVIDER is `llm`.                                                                                                             | Cond.    |                            |
+| `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                                                    | Cond.    |                            |
 | `VISION_LLM_MODEL`                  | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                                                                                                 | Cond.    |                            |
 | `VISION_LLM_REQUESTS_PER_MINUTE`    | Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load.                                                                                              | No       | 120                        |
 | `VISION_LLM_MAX_RETRIES`            | Maximum retry attempts for failed Vision LLM requests.                                                                                                                                        | No       | 3                          |
@@ -591,9 +600,15 @@ For best results with the enhanced OCR features:
 | `LISTEN_INTERFACE`                  | Network interface to listen on.                                                                                                                                                               | No       | 8080                       |
 | `AUTO_GENERATE_TITLE`               | Generate titles automatically if `paperless-gpt-auto` is used.                                                                                                                                | No       | true                       |
 | `AUTO_GENERATE_TAGS`                | Generate tags automatically if `paperless-gpt-auto` is used.                                                                                                                                  | No       | true                       |
+| `CREATE_NEW_TAGS`                   | Allow the LLM to suggest new tags that don't exist in paperless-ngx yet. When enabled, new tags will be created automatically in paperless-ngx.                                               | No       | false                      |
 | `AUTO_GENERATE_CORRESPONDENTS`      | Generate correspondents automatically if `paperless-gpt-auto` is used.                                                                                                                        | No       | true                       |
+| `AUTO_GENERATE_DOCUMENT_TYPE`       | Generate document types automatically if `paperless-gpt-auto` is used. Only existing document types from paperless-ngx will be used.                                                          | No       | true                       |
 | `AUTO_GENERATE_CREATED_DATE`        | Generate the created dates automatically if `paperless-gpt-auto` is used.                                                                                                                     | No       | true                       |
 | `TOKEN_LIMIT`                       | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                                                                                             | No       |                            |
+| `IMAGE_MAX_PIXEL_DIMENSION`         | Maximum pixels along any side when rendering document pages to images.                                                                                                                        | No       | 10000                      |
+| `IMAGE_MAX_TOTAL_PIXELS`            | Maximum total pixel count (width × height) when rendering document pages to images.                                                                                                           | No       | 40000000                   |
+| `IMAGE_MAX_RENDER_DPI`              | Maximum DPI used when rendering document pages to images.                                                                                                                                     | No       | 600                        |
+| `IMAGE_MAX_FILE_BYTES`              | Maximum JPEG file size in bytes for rendered page images. Images exceeding this are compressed or resized.                                                                                     | No       | 10485760                   |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
 
 ### Custom Prompt Templates

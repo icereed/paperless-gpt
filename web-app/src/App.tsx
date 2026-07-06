@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import DocumentProcessor from './DocumentProcessor';
@@ -7,7 +7,31 @@ import History from './History';
 import Settings from './components/Settings';
 import AdhocAnalysis from './AdhocAnalysis';
 
+interface VersionInfo {
+  version: string;
+  commit: string;
+  buildDate: string;
+}
+
 const App: React.FC = () => {
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+
+  // Fetch version information on component mount
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const response = await fetch('./api/version');
+        if (response.ok) {
+          const data = await response.json();
+          setVersionInfo(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch version information:', error);
+      }
+    };
+    fetchVersion();
+  }, []);
+
   // Keep the base path (path prefix from reverse-proxy) and remove the app path,
   // convert "/" to "" so Router basename is empty at root.
   const rawBasename = window.location.pathname.replace(/(\/[^/]+)$/, "/");
@@ -42,6 +66,14 @@ const App: React.FC = () => {
               >
                 Buy Me a Coffee
               </a>
+              {versionInfo && (
+                <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                  <span className="font-semibold">paperless-gpt</span> {versionInfo.version}
+                  {versionInfo.commit && versionInfo.commit !== 'devCommit' && versionInfo.commit.length >= 7 && (
+                    <span className="ml-2">({versionInfo.commit.slice(0, 7)})</span>
+                  )}
+                </p>
+              )}
             </footer>
           </div>
         </div>

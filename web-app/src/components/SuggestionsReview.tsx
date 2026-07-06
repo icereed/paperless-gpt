@@ -9,6 +9,7 @@ interface SuggestionsReviewProps {
   onTagAddition: (docId: number, tag: TagOption) => void;
   onTagDeletion: (docId: number, index: number) => void;
   onCorrespondentChange: (docId: number, correspondent: string) => void;
+  onDocumentTypeChange: (docId: number, documentType: string) => void;
   onCreatedDateChange: (docId: number, createdDate: string) => void;
   onCustomFieldSuggestionToggle: (docId: number, fieldId: number) => void;
   onBack: () => void;
@@ -23,6 +24,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   onTagAddition,
   onTagDeletion,
   onCorrespondentChange,
+  onDocumentTypeChange,
   onCreatedDateChange,
   onCustomFieldSuggestionToggle,
   onBack,
@@ -43,6 +45,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           onTagAddition={onTagAddition}
           onTagDeletion={onTagDeletion}
           onCorrespondentChange={onCorrespondentChange}
+          onDocumentTypeChange={onDocumentTypeChange}
           onCreatedDateChange={onCreatedDateChange}
           onCustomFieldSuggestionToggle={onCustomFieldSuggestionToggle}
         />

@@ -22,10 +22,6 @@ test.beforeEach(async ({ page: testPage }) => {
   await page.screenshot({ path: 'test-results/initial-state.png' });
 });
 
-test.afterEach(async () => {
-  await page.close();
-});
-
 test('should process document and show changes in history', async () => {
   const paperlessNgxPort = testEnv.paperlessNgx.getMappedPort(PORTS.paperlessNgx);
   const paperlessGptPort = testEnv.paperlessGpt.getMappedPort(PORTS.paperlessGpt);

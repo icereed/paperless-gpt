@@ -217,18 +217,55 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 	return tagIDMapping, nil
 }
 
-// GetDocumentsByTags retrieves documents that match the specified tags
-func (client *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []string, pageSize int) ([]Document, error) {
-	tagQueries := make([]string, len(tags))
-	for i, tag := range tags {
-		tagQueries[i] = fmt.Sprintf("tags__name__iexact=%s", tag)
-	}
-	searchQuery := strings.Join(tagQueries, "&")
-	path := fmt.Sprintf("api/documents/?%s&page_size=%d", urlEncode(searchQuery), pageSize)
+// GetDocumentCountByTag checks if there is a document for the specified tag (it is much faster than api/documents/)
+func (client *PaperlessClient) GetDocumentCountByTag(ctx context.Context, tag string) (int, error) {
+	path := fmt.Sprintf("api/tags/?name__iexact=%s", url.QueryEscape(tag))
 
 	resp, err := client.Do(ctx, "GET", path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed in GetDocumentsByTags: %w", err)
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("error fetching tags: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var tagsResponse struct {
+		Results []struct {
+			DocumentCount int `json:"document_count"`
+		} `json:"results"`
+		Count int `json:"count"`
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&tagsResponse)
+	if err != nil {
+		return 0, err
+	}
+
+	if tagsResponse.Count == 0 {
+		return 0, nil
+	}
+
+	return tagsResponse.Results[0].DocumentCount, nil
+}
+
+// GetDocumentsByTag retrieves documents that match the specified tag
+func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
+	documentCount, err := client.GetDocumentCountByTag(ctx, tag)
+	if err != nil {
+		return nil, fmt.Errorf("error checking document count for tag %s: %w", tag, err)
+	}
+	if documentCount == 0 {
+		return []Document{}, nil
+	}
+
+	path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=%d", url.QueryEscape(tag), pageSize)
+
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed in GetDocumentsByTag: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -244,7 +281,7 @@ func (client *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []st
 			"path":        path,
 			"response":    string(bodyBytes),
 			"headers":     resp.Header,
-		}).Error("Error response from server in GetDocumentsByTags")
+		}).Error("Error response from server in GetDocumentsByTag")
 		return nil, fmt.Errorf("error searching documents: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
 	}
 
@@ -254,7 +291,7 @@ func (client *PaperlessClient) GetDocumentsByTags(ctx context.Context, tags []st
 		log.WithFields(logrus.Fields{
 			"response_body": string(bodyBytes),
 			"error":         err,
-		}).Error("Failed to parse JSON response in GetDocumentsByTags")
+		}).Error("Failed to parse JSON response in GetDocumentsByTag")
 		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
 	}
 
@@ -424,6 +461,16 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		return fmt.Errorf("error fetching available correspondents: %w", err)
 	}
 
+	// Build document type name -> ID map
+	documentTypes, err := client.GetAllDocumentTypes(ctx)
+	if err != nil {
+		return fmt.Errorf("error fetching available document types: %w", err)
+	}
+	availableDocumentTypes := make(map[string]int)
+	for _, dt := range documentTypes {
+		availableDocumentTypes[dt.Name] = dt.ID
+	}
+
 	for _, document := range documents {
 		documentID := document.ID
 		originalDoc := document.OriginalDocument
@@ -453,18 +500,41 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			}
 		}
 		finalTagNames = cleanedTags
+
 		slices.Sort(finalTagNames)
 		finalTagNames = slices.Compact(finalTagNames)
 
+		log.Debugf("Document %d: Final tag names after compacting: %v", documentID, finalTagNames)
+
+		// NOTE: this will dump the OCR complete tag if it doesn't exist in paperless-ngx
 		if !hasSameTags(originalDoc.Tags, finalTagNames) {
-			originalFields["tags"] = originalDoc.Tags
-			var newTagIDs []int
+			var finalTagIDs []int
 			for _, tagName := range finalTagNames {
 				if tagID, exists := availableTags[tagName]; exists {
-					newTagIDs = append(newTagIDs, tagID)
+					finalTagIDs = append(finalTagIDs, tagID)
+				} else if createNewTags {
+					// Create the new tag in paperless-ngx
+					newTagID, err := client.CreateTag(ctx, tagName)
+					if err != nil {
+						log.Warnf("Document %d: Failed to create new tag '%s': %v", documentID, tagName, err)
+						continue
+					}
+					log.Infof("Document %d: Created new tag '%s' with ID %d", documentID, tagName, newTagID)
+					availableTags[tagName] = newTagID
+					finalTagIDs = append(finalTagIDs, newTagID)
 				}
 			}
-			updatedFields["tags"] = newTagIDs
+			// Only update tags if there are remaining tags after changes
+			// Sending an empty tags array causes Paperless-NGX to return an error
+			// However, we need to track this for a potential second update
+			if len(finalTagIDs) > 0 {
+				originalFields["tags"] = originalDoc.Tags
+				updatedFields["tags"] = finalTagIDs
+			} else {
+				// Mark that we need to remove tags but can't do it in this update
+				// We'll handle this after the main update completes
+				originalFields["tags"] = originalDoc.Tags
+			}
 		}
 
 		// --- CORRESPONDENT ---
@@ -479,6 +549,17 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					return fmt.Errorf("error creating correspondent '%s': %w", document.SuggestedCorrespondent, err)
 				}
 				updatedFields["correspondent"] = newCorrID
+			}
+		}
+
+		// --- DOCUMENT TYPE ---
+		if document.SuggestedDocumentType != "" && document.SuggestedDocumentType != originalDoc.DocumentTypeName {
+			originalFields["document_type"] = originalDoc.DocumentTypeName
+			if docTypeID, exists := availableDocumentTypes[document.SuggestedDocumentType]; exists {
+				updatedFields["document_type"] = docTypeID
+			} else {
+				// Unlike correspondents, we don't create new document types - only use existing ones
+				log.Warnf("Document type '%s' not found in available types, skipping for document %d", document.SuggestedDocumentType, documentID)
 			}
 		}
 
@@ -556,16 +637,26 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		if len(updatedFields) == 0 {
 			log.Infof("No fields to update for document %d.", documentID)
 			// Still need to remove the auto-tag if it exists
-			if slices.Contains(originalDoc.Tags, autoTag) || slices.Contains(originalDoc.Tags, manualTag) {
+			if slices.Contains(originalDoc.Tags, autoTag) || slices.Contains(originalDoc.Tags, manualTag) || slices.Contains(originalDoc.Tags, autoOcrTag) {
 				var finalTagIDs []int
 				for _, tagName := range originalDoc.Tags {
-					if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) {
+					if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) && !strings.EqualFold(tagName, autoOcrTag) {
 						if tagID, exists := availableTags[tagName]; exists {
 							finalTagIDs = append(finalTagIDs, tagID)
 						}
 					}
 				}
-				updatedFields["tags"] = finalTagIDs
+				// Mark that we need to remove tags
+				// We'll send the tag update directly (even if empty) since there are no other field changes
+				originalFields["tags"] = originalDoc.Tags
+				if len(finalTagIDs) > 0 {
+					updatedFields["tags"] = finalTagIDs
+				} else {
+					// Document only had auto/manual tags with no other changes
+					// We need to send an empty tags array to remove the manual tag
+					log.Infof("Document %d: Removing manual/auto tag (only tag present, no other changes)", documentID)
+					updatedFields["tags"] = []int{}
+				}
 			} else {
 				continue
 			}
@@ -589,7 +680,75 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			return fmt.Errorf("error updating document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
 		}
 
+		// Check if we need to remove auto/manual tags in a separate update
+		// This happens when tags changed but resulted in an empty array (which we can't send)
+		if _, hadTagChange := originalFields["tags"]; hadTagChange {
+			if _, tagsSent := updatedFields["tags"]; !tagsSent {
+				// We detected a tag change but didn't send it because it would be empty
+				// Now we need to remove the auto/manual tag using the bulk edit API
+				log.Infof("Document %d: Removing auto/manual tag in separate update", documentID)
+
+				// Get the current document state to see what tags it has now
+				currentDoc, err := client.GetDocument(ctx, documentID)
+				if err != nil {
+					log.Warnf("Failed to get current document state for tag removal: %v", err)
+				} else {
+					// Remove auto/manual tags from current tags
+					var remainingTagIDs []int
+					var remainingTagNames []string
+					for _, tagName := range currentDoc.Tags {
+						if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) && !strings.EqualFold(tagName, autoOcrTag) {
+							if tagID, exists := availableTags[tagName]; exists {
+								remainingTagIDs = append(remainingTagIDs, tagID)
+								remainingTagNames = append(remainingTagNames, tagName)
+							}
+						}
+					}
+
+					// Always send the tag update to remove auto/manual tags, even if it results in an empty array
+					// This is required - the auto/manual tag MUST be removed
+					// Ensure we send an empty array [] instead of null
+					if remainingTagIDs == nil {
+						remainingTagIDs = []int{}
+					}
+					tagUpdateFields := map[string]interface{}{
+						"tags": remainingTagIDs,
+					}
+					tagJsonData, err := json.Marshal(tagUpdateFields)
+					if err == nil {
+						tagPath := fmt.Sprintf("api/documents/%d/", documentID)
+						tagResp, err := client.Do(ctx, "PATCH", tagPath, bytes.NewBuffer(tagJsonData))
+						if err == nil {
+							defer tagResp.Body.Close()
+							if tagResp.StatusCode == http.StatusOK {
+								log.Infof("Document %d: Successfully removed auto/manual tag", documentID)
+								// Record this tag change with tag names for both PreviousValue and NewValue
+								mod := ModificationHistory{
+									DocumentID:    uint(documentID),
+									ModField:      "tags",
+									PreviousValue: fmt.Sprintf("%v", originalDoc.Tags),
+									NewValue:      fmt.Sprintf("%v", remainingTagNames),
+								}
+								if err := InsertModification(db, &mod); err != nil {
+									log.Warnf("Error inserting tag modification record: %v", err)
+								}
+							} else {
+								bodyBytes, _ := io.ReadAll(tagResp.Body)
+								log.Warnf("Failed to remove auto/manual tag: %d, %s", tagResp.StatusCode, string(bodyBytes))
+							}
+						}
+					}
+				}
+			}
+		}
+
 		for field, value := range originalFields {
+			// Skip tags if we handled it separately above
+			if field == "tags" {
+				if _, tagsSent := updatedFields["tags"]; !tagsSent {
+					continue // Already handled in separate update above
+				}
+			}
 			log.Printf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
 			mod := ModificationHistory{
 				DocumentID:    uint(documentID),
@@ -687,11 +846,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 		n := n // capture loop variable
 		g.Go(func() error {
 			// DPI calculation constants
-			const minDPI = 72                     // Minimum DPI to ensure readable text
-			const maxPixelDimension = 10_000      // Maximum pixels along any side (10,000px)
-			const maxTotalPixels = 40_000_000     // Maximum total pixel count (40 megapixels)
-			const maxRenderDPI = 600              // Maximum DPI to use when rendering
-			const maxFileBytes = 10 * 1024 * 1024 // Maximum JPEG file size (10 MB)
+			const minDPI = 72 // Minimum DPI to ensure readable text
 
 			mu.Lock() // MuPDF is not thread-safe
 			rect, err := doc.Bound(n)
@@ -705,14 +860,14 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 			hPts := float64(rect.Dy())
 
 			// Calculate DPI limits based on maximum allowed dimension and total pixels
-			dpiSide := float64(maxPixelDimension*72) / math.Max(wPts, hPts)
-			dpiArea := math.Sqrt(float64(maxTotalPixels) * 72 * 72 / (wPts * hPts))
+			dpiSide := float64(imageMaxPixelDimension*72) / math.Max(wPts, hPts)
+			dpiArea := math.Sqrt(float64(imageMaxTotalPixels) * 72 * 72 / (wPts * hPts))
 
 			// Use the more restrictive of the two limits
 			dpi := math.Min(dpiSide, dpiArea)
 
 			// Ensure DPI stays within acceptable bounds
-			dpi = math.Min(dpi, float64(maxRenderDPI))
+			dpi = math.Min(dpi, float64(imageMaxRenderDPI))
 			dpi = math.Max(dpi, float64(minDPI))
 
 			// Render the page at calculated DPI
@@ -731,7 +886,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 
 			// Try moderate quality reduction first to avoid OCR-affecting artifacts
 			// More granular steps (85, 80, 75, 70, 65, 60)
-			for q := 85; buf.Len() > maxFileBytes && q >= 60; q -= 5 {
+			for q := 85; buf.Len() > imageMaxFileBytes && q >= 60; q -= 5 {
 				buf.Reset()
 				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: q}); err != nil {
 					return err
@@ -739,9 +894,9 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 			}
 
 			// If quality reduction wasn't enough, resize the image as last resort
-			if buf.Len() > maxFileBytes {
+			if buf.Len() > imageMaxFileBytes {
 				// Calculate precise scale factor needed to meet file size target
-				scale := math.Sqrt(float64(maxFileBytes) / float64(buf.Len()))
+				scale := math.Sqrt(float64(imageMaxFileBytes) / float64(buf.Len()))
 
 				// Resize image proportionally using high-quality Lanczos algorithm
 				img = imaging.Resize(img,
@@ -753,6 +908,8 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 					return err
 				}
 			}
+
+			log.Infof("Document %d page %d: final image dimensions %dx%d, size %d bytes, DPI %.0f", documentID, n, img.Bounds().Dx(), img.Bounds().Dy(), buf.Len(), dpi)
 
 			// Save image to file
 			imagePath := filepath.Join(docDir, fmt.Sprintf("page%03d.jpg", n))

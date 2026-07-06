@@ -9,6 +9,7 @@ interface SuggestionCardProps {
   onTagAddition: (docId: number, tag: TagOption) => void;
   onTagDeletion: (docId: number, index: number) => void;
   onCorrespondentChange: (docId: number, correspondent: string) => void;
+  onDocumentTypeChange: (docId: number, documentType: string) => void;
   onCreatedDateChange: (docId: number, createdDate: string) => void;
   onCustomFieldSuggestionToggle: (docId: number, fieldId: number) => void;
 }
@@ -20,6 +21,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   onTagAddition,
   onTagDeletion,
   onCorrespondentChange,
+  onDocumentTypeChange,
   onCreatedDateChange,
   onCustomFieldSuggestionToggle,
 }) => {
@@ -121,6 +123,18 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
             onChange={(e) => onCorrespondentChange(suggestion.id, e.target.value)}
             className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
             placeholder="Correspondent"
+          />
+        </div>
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Suggested Document Type
+          </label>
+          <input
+            type="text"
+            value={suggestion.suggested_document_type || ""}
+            onChange={(e) => onDocumentTypeChange(suggestion.id, e.target.value)}
+            className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
+            placeholder="Document Type"
           />
         </div>
         <div className="mt-4">

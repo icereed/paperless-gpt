@@ -56,21 +56,37 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 	})
 	logger.Debug("Starting Docling processing")
 
+
 	// Prepare multipart request body
 	var requestBody bytes.Buffer
 	writer := multipart.NewWriter(&requestBody)
 
-	// Add image file part
-	// Using a generic filename as the actual name isn't critical here
-	part, err := writer.CreateFormFile("files", "document.pdf")
+	// Detect if the incoming content is a PDF. Docling can accept PDF bytes directly
+	// for both per-page PDF and whole PDF processing modes. PDF files start with "%PDF".
+	isPDF := len(imageContent) >= 4 && bytes.HasPrefix(imageContent, []byte("%PDF"))
+
+	// Add file part. Use a generic filename; keep using document.pdf to match tests and
+	// to indicate a PDF payload. For image content Docling also accepts common image
+	// file names; using .pdf is acceptable and keeps behavior consistent.
+	filename := "document.pdf"
+	part, err := writer.CreateFormFile("files", filename)
 	if err != nil {
 		logger.WithError(err).Error("Failed to create form file")
 		return nil, fmt.Errorf("failed to create form file: %w", err)
 	}
 	_, err = io.Copy(part, bytes.NewReader(imageContent))
 	if err != nil {
-		logger.WithError(err).Error("Failed to copy image content to form")
-		return nil, fmt.Errorf("failed to copy image content to form: %w", err)
+		logger.WithError(err).Error("Failed to copy content to form")
+		return nil, fmt.Errorf("failed to copy content to form: %w", err)
+	}
+
+	// If the caller passed a pageNumber of 0, it indicates whole-PDF processing in the
+	// higher-level logic. We don't need to set a special field for Docling here, but
+	// keep the metadata in the request fields as before.
+	if isPDF {
+		logger.WithField("docling_payload", "pdf").Debug("Detected PDF payload; sending directly to Docling")
+	} else {
+		logger.WithField("docling_payload", "image").Debug("Detected image payload; sending directly to Docling")
 	}
 
 	// Add required form fields

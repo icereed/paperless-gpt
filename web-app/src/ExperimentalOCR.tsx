@@ -35,7 +35,7 @@ const ExperimentalOCR: React.FC = () => {
   const stopOCRJob = async () => {
     if (!jobId) return;
     try {
-      await axios.post(`/api/ocr/jobs/${jobId}/stop`);
+      await axios.post(`./api/ocr/jobs/${jobId}/stop`);
       setJobStatus('cancelled');
     } catch (err) {
       setError('Failed to stop OCR job.');
@@ -57,7 +57,7 @@ const ExperimentalOCR: React.FC = () => {
   const fetchPerPageResults = useCallback(async () => {
     if (!documentId) return;
     try {
-      const response = await axios.get<{ pages: OCRPageResult[] }>(`/api/documents/${documentId}/ocr_pages`);
+      const response = await axios.get<{ pages: OCRPageResult[] }>(`./api/documents/${documentId}/ocr_pages`);
       setPerPageResults(response.data.pages);
     } catch (err) {
       console.error("Error fetching per-page OCR results:", err);
@@ -168,7 +168,7 @@ const ExperimentalOCR: React.FC = () => {
 
     try {
       const response = await axios.post(
-        `/api/documents/${documentId}/ocr_pages/${pageIdx}/reocr`,
+        `./api/documents/${documentId}/ocr_pages/${pageIdx}/reocr`,
         {},
         { signal: controller.signal }
       );
@@ -213,7 +213,7 @@ const ExperimentalOCR: React.FC = () => {
     }
 
     try {
-      await axios.delete(`/api/documents/${documentId}/ocr_pages/${pageIdx}/reocr`);
+      await axios.delete(`./api/documents/${documentId}/ocr_pages/${pageIdx}/reocr`);
       console.log(`Cancellation request sent for page ${pageIdx}`);
     } catch (err) {
       console.error(`Failed to send cancellation request for page ${pageIdx}:`, err);

@@ -91,10 +91,11 @@ func (app *App) getSuggestedTags(
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
-		"Language":      likelyLanguage,
-		"AvailableTags": availableTags,
-		"OriginalTags":  originalTags,
-		"Title":         suggestedTitle,
+		"Language":       likelyLanguage,
+		"AvailableTags":  availableTags,
+		"OriginalTags":   originalTags,
+		"Title":          suggestedTitle,
+		"CreateNewTags":  createNewTags,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(tagTemplate, templateData)
@@ -150,7 +151,29 @@ func (app *App) getSuggestedTags(
 	slices.Sort(suggestedTags)
 	suggestedTags = slices.Compact(suggestedTags)
 
-	// Filter out tags that are not in the available tags list
+	// Filter out tags that are not in the available tags list (unless CREATE_NEW_TAGS is enabled)
+	if createNewTags {
+		// When creating new tags is enabled, keep all non-empty suggested tags
+		filteredTags := []string{}
+		for _, tag := range suggestedTags {
+			if tag != "" {
+				// Use the available tag's casing if it exists
+				matched := false
+				for _, availableTag := range availableTags {
+					if strings.EqualFold(tag, availableTag) {
+						filteredTags = append(filteredTags, availableTag)
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					filteredTags = append(filteredTags, tag)
+				}
+			}
+		}
+		return filteredTags, nil
+	}
+
 	filteredTags := []string{}
 	for _, tag := range suggestedTags {
 		for _, availableTag := range availableTags {
@@ -162,6 +185,81 @@ func (app *App) getSuggestedTags(
 	}
 
 	return filteredTags, nil
+}
+
+// getSuggestedDocumentType generates a suggested document type for a document using the LLM
+func (app *App) getSuggestedDocumentType(
+	ctx context.Context,
+	content string,
+	suggestedTitle string,
+	availableDocumentTypes []string,
+	logger *logrus.Entry) (string, error) {
+	likelyLanguage := getLikelyLanguage()
+
+	templateMutex.RLock()
+	defer templateMutex.RUnlock()
+
+	// Get available tokens for content
+	templateData := map[string]interface{}{
+		"Language":               likelyLanguage,
+		"AvailableDocumentTypes": availableDocumentTypes,
+		"Title":                  suggestedTitle,
+	}
+
+	availableTokens, err := getAvailableTokensForContent(documentTypeTemplate, templateData)
+	if err != nil {
+		logger.Errorf("Error calculating available tokens: %v", err)
+		return "", fmt.Errorf("error calculating available tokens: %v", err)
+	}
+
+	// Truncate content if needed
+	truncatedContent, err := truncateContentByTokens(content, availableTokens)
+	if err != nil {
+		logger.Errorf("Error truncating content: %v", err)
+		return "", fmt.Errorf("error truncating content: %v", err)
+	}
+
+	// Execute template with truncated content
+	var promptBuffer bytes.Buffer
+	templateData["Content"] = truncatedContent
+	err = documentTypeTemplate.Execute(&promptBuffer, templateData)
+	if err != nil {
+		logger.Errorf("Error executing document type template: %v", err)
+		return "", fmt.Errorf("error executing document type template: %v", err)
+	}
+
+	prompt := promptBuffer.String()
+	logger.Debugf("Document type suggestion prompt: %s", prompt)
+
+	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+		{
+			Parts: []llms.ContentPart{
+				llms.TextContent{
+					Text: prompt,
+				},
+			},
+			Role: llms.ChatMessageTypeHuman,
+		},
+	})
+	if err != nil {
+		logger.Errorf("Error getting response from LLM: %v", err)
+		return "", fmt.Errorf("error getting response from LLM: %v", err)
+	}
+
+	response := strings.TrimSpace(stripReasoning(completion.Choices[0].Content))
+
+	// Validate that the response is in the available document types list
+	for _, docType := range availableDocumentTypes {
+		if strings.EqualFold(response, docType) {
+			return docType, nil // Return the exact name from available types
+		}
+	}
+
+	// If not found in available types, return empty string
+	if response != "" {
+		logger.Warnf("LLM suggested document type '%s' not found in available types, ignoring", response)
+	}
+	return "", nil
 }
 
 // getSuggestedTitle generates a suggested title for a document using the LLM
@@ -424,6 +522,18 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 		availableCorrespondentNames = append(availableCorrespondentNames, correspondentName)
 	}
 
+	// Fetch all available document types from paperless-ngx
+	availableDocumentTypes, err := app.Client.GetAllDocumentTypes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch available document types: %v", err)
+	}
+
+	// Prepare a list of document type names
+	availableDocumentTypeNames := make([]string, 0, len(availableDocumentTypes))
+	for _, docType := range availableDocumentTypes {
+		availableDocumentTypeNames = append(availableDocumentTypeNames, docType.Name)
+	}
+
 	documents := suggestionRequest.Documents
 	documentSuggestions := []DocumentSuggestion{}
 
@@ -444,6 +554,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			suggestedTitle := doc.Title
 			var suggestedTags []string
 			var suggestedCorrespondent string
+			var suggestedDocumentType string
 			var suggestedCreatedDate string
 			var suggestedCustomFields []CustomFieldSuggestion
 
@@ -477,6 +588,21 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 					mu.Unlock()
 					log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
 					return
+				}
+			}
+
+			if suggestionRequest.GenerateDocumentTypes {
+				if len(availableDocumentTypeNames) == 0 {
+					docLogger.Debug("Document type generation is enabled, but no document types are available in paperless-ngx.")
+				} else {
+					suggestedDocumentType, err = app.getSuggestedDocumentType(ctx, content, suggestedTitle, availableDocumentTypeNames, docLogger)
+					if err != nil {
+						mu.Lock()
+						errorsList = append(errorsList, fmt.Errorf("Document %d: %v", documentID, err))
+						mu.Unlock()
+						log.Errorf("Error generating document type for document %d: %v", documentID, err)
+						return
+					}
 				}
 			}
 
@@ -541,6 +667,14 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 				suggestion.SuggestedCorrespondent = suggestedCorrespondent
 			} else {
 				suggestion.SuggestedCorrespondent = ""
+			}
+
+			// Document Type
+			if suggestionRequest.GenerateDocumentTypes {
+				log.Printf("Suggested document type for document %d: %s", documentID, suggestedDocumentType)
+				suggestion.SuggestedDocumentType = suggestedDocumentType
+			} else {
+				suggestion.SuggestedDocumentType = ""
 			}
 
 			// CreatedDate
