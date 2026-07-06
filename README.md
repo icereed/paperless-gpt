@@ -147,8 +147,9 @@ services:
 
   paperless-gpt:
     # Use one of these image sources:
-    image: icereed/paperless-gpt:latest # Docker Hub
-    # image: ghcr.io/icereed/paperless-gpt:latest  # GitHub Container Registry
+    image: icereed/paperless-gpt:latest # Docker Hub (upstream)
+    # image: ghcr.io/icereed/paperless-gpt:latest  # GitHub Container Registry (upstream)
+    # image: ghcr.io/hensing/paperless-gpt:latest  # This fork's GHCR image
     environment:
       PAPERLESS_BASE_URL: "http://paperless-ngx:8000"
       PAPERLESS_API_TOKEN: "your_paperless_api_token"
