@@ -1,9 +1,12 @@
 name: Build and Push Docker Images
 
+# Everything in this workflow runs WITHOUT repo secrets on pull requests, so
+# it runs automatically for every PR — including forks. Real-LLM E2E tests
+# (which need API keys) live in e2e-real-llm.yml behind a maintainer approval
+# gate.
 permissions:
-  pull-requests: write
   contents: read
-  packages: write # Added permission for GitHub Container Registry
+  packages: write # Push to GitHub Container Registry (push events only)
 
 on:
   push:
@@ -14,24 +17,13 @@ on:
   pull_request:
     branches:
       - main
-  pull_request_target:
-    branches:
-      - main
-    types: [labeled]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Untrusted fork checkout: pull_request_target fires on ANY label, not just
-    # safe-to-test, so gate this job on the specific label that was just applied.
-    # Without this, any maintainer triage label (e.g. "bug") would run
-    # attacker-controlled code from the fork with repo secrets in scope.
-    if: github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test'
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -65,88 +57,27 @@ jobs:
       - name: Run Go tests
         run: go test ./...
 
-  determine-workflow:
-    runs-on: ubuntu-latest
-    needs: test
-    outputs:
-      is_fork: ${{ steps.check.outputs.is_fork }}
-      run_e2e: ${{ steps.check.outputs.run_e2e }}
-      run_e2e_local: ${{ steps.check.outputs.run_e2e_local }}
-      has_openai_key: ${{ steps.check.outputs.has_openai_key }}
-    steps:
-      - name: Check PR origin and approval
-        id: check
-        # secrets.* isn't available in a job-level `if:`, only in step
-        # env/run — so the "does this fork have API keys configured" check
-        # has to happen here and get exposed as an output instead.
-        env:
-          OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
-        run: |
-          echo "has_openai_key=${OPENAI_API_KEY_PRESENT}" >> $GITHUB_OUTPUT
-
-          echo "Event: ${{ github.event_name }}"
-          echo "Repository: ${{ github.repository }}"
-          echo "Head repository: ${{ github.event.pull_request.head.repo.full_name }}"
-          
-          # Determine if this is a fork PR
-          IS_FORK="false"
-          if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.event_name }}" == "pull_request_target" ]]; then
-            if [[ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
-              IS_FORK="true"
-            fi
-          fi
-          echo "is_fork=${IS_FORK}" >> $GITHUB_OUTPUT
-          
-          # Determine if E2E tests should run with registry image (push events only)
-          RUN_E2E="false"
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            RUN_E2E="true"
-          fi
-          echo "run_e2e=${RUN_E2E}" >> $GITHUB_OUTPUT
-          
-          # Determine if E2E tests should run with local build
-          RUN_E2E_LOCAL="false"
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            # Only run E2E for internal PRs (not forks)
-            if [[ "${IS_FORK}" == "false" ]]; then
-              RUN_E2E_LOCAL="true"
-            fi
-          elif [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
-            # Fork PRs only run if labeled with 'safe-to-test'
-            LABELS='${{ toJSON(github.event.pull_request.labels.*.name) }}'
-            if echo "$LABELS" | grep -q "safe-to-test"; then
-              RUN_E2E_LOCAL="true"
-            fi
-          fi
-          echo "run_e2e_local=${RUN_E2E_LOCAL}" >> $GITHUB_OUTPUT
-          
-          echo "Workflow decisions:"
-          echo "  is_fork: ${IS_FORK}"
-          echo "  run_e2e: ${RUN_E2E}"
-          echo "  run_e2e_local: ${RUN_E2E_LOCAL}"
-
   build-amd64:
     runs-on: ubuntu-latest
     needs: test
-    # Same untrusted-checkout gate as the test job — see comment there.
-    if: github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test'
     outputs:
       digest: ${{ steps.build_amd64.outputs.digest }}
       image_tag: ${{ steps.set_image_tag.outputs.image_tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to Docker Hub
-        if: github.repository == 'icereed/paperless-gpt'
+        # Fork PRs have no secrets, and PR builds never push (`push: false`
+        # below) — logging in would fail with "Username and password required".
+        if: ${{ github.event_name != 'pull_request' && github.repository == 'icereed/paperless-gpt' }}
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Log in to GitHub Container Registry
+        if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -158,7 +89,7 @@ jobs:
           # Set repository names
           DOCKERHUB_REPO="icereed/paperless-gpt"
           GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
-          
+
           # For forks, only use GHCR
           if [[ "${GITHUB_REPOSITORY}" != "icereed/paperless-gpt" ]]; then
             if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
@@ -209,15 +140,11 @@ jobs:
   build-arm64:
     runs-on: ubuntu-24.04-arm
     needs: test
-    # Same untrusted-checkout gate as the test job — see comment there.
-    if: github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test'
     outputs:
       digest: ${{ steps.build_arm64.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Log in to Docker Hub
@@ -239,7 +166,7 @@ jobs:
           # Set repository names
           DOCKERHUB_REPO="icereed/paperless-gpt"
           GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
-          
+
           # For forks, only use GHCR
           if [[ "${GITHUB_REPOSITORY}" != "icereed/paperless-gpt" ]]; then
             if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
@@ -283,8 +210,7 @@ jobs:
   merge-manifests:
     needs: [build-amd64, build-arm64]
     runs-on: ubuntu-latest
-    # Same untrusted-checkout gate as the test job — see comment there.
-    if: github.event_name != 'pull_request' && (github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test')
+    if: github.event_name != 'pull_request'
     env:
       DOCKERHUB_REPO: icereed/paperless-gpt
       GHCR_REPO: ghcr.io/${{ github.repository }}
@@ -328,13 +254,13 @@ jobs:
         run: |
           AMD64_DIGEST=$(cat ${{ runner.temp }}/digests/digest-amd64.txt)
           ARM64_DIGEST=$(cat ${{ runner.temp }}/digests/digest-arm64.txt)
-          
+
           # For forks, only create GHCR manifests
           if [[ "${GITHUB_REPOSITORY}" != "icereed/paperless-gpt" ]]; then
             # Create manifests for GHCR only (using GHCR digests)
             docker buildx imagetools create -t ${GHCR_REPO}:${VERSION} \
               ${GHCR_REPO}@sha256:${AMD64_DIGEST} ${GHCR_REPO}@sha256:${ARM64_DIGEST}
-            
+
             # Also push commit SHA tag for traceability
             docker buildx imagetools create -t ${GHCR_REPO}:${GITHUB_SHA} \
               ${GHCR_REPO}@sha256:${AMD64_DIGEST} ${GHCR_REPO}@sha256:${ARM64_DIGEST}
@@ -342,17 +268,17 @@ jobs:
             # Create manifests for Docker Hub
             docker buildx imagetools create -t ${DOCKERHUB_REPO}:${VERSION} \
               ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
-              
+
             # Create manifests for GHCR
             docker buildx imagetools create -t ${GHCR_REPO}:${VERSION} \
               ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
-            
+
             # Also push "latest" tag when on a tag
             if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
               # Docker Hub latest
               docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest \
                 ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
-                
+
               # GHCR latest
               docker buildx imagetools create -t ${GHCR_REPO}:latest \
                 ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
@@ -366,25 +292,24 @@ jobs:
           else
             echo "Inspecting Docker Hub manifest:"
             docker buildx imagetools inspect ${DOCKERHUB_REPO}:${VERSION}
-            
+
             echo "Inspecting GHCR manifest:"
             docker buildx imagetools inspect ${GHCR_REPO}:${VERSION}
-            
+
             if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
               echo "Inspecting Docker Hub latest manifest:"
               docker buildx imagetools inspect ${DOCKERHUB_REPO}:latest
-              
+
               echo "Inspecting GHCR latest manifest:"
               docker buildx imagetools inspect ${GHCR_REPO}:latest
             fi
           fi
 
-  e2e-tests:
-    name: E2E Tests (Registry Image)
-    needs: [build-amd64, determine-workflow]
-    # Skip cleanly (instead of failing) on forks that haven't configured LLM
-    # API key secrets yet.
-    if: needs.determine-workflow.outputs.run_e2e == 'true' && needs.determine-workflow.outputs.has_openai_key == 'true'
+  e2e-mock:
+    name: E2E Tests (Mock LLM)
+    # Full document-processing flow against a WireMock LLM — zero secrets, so
+    # it runs automatically on every PR, fork or not. See web-app/e2e/mocks/.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -392,14 +317,81 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Docker image locally
+        uses: docker/build-push-action@v6
         with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          cache-from: type=gha
+          tags: icereed/paperless-gpt:e2e
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web-app/package-lock.json'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+      - name: Run Playwright tests (mock LLM)
+        run: npm run test:e2e:mock
+        env:
+          CI: true
+          DEBUG: testcontainers:containers
+          PAPERLESS_GPT_IMAGE: icereed/paperless-gpt:e2e
+      - name: Upload Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-mock
+          path: web-app/playwright-report/
+          retention-days: 30
+      - name: Upload test screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results-mock
+          path: web-app/test-results/
+          retention-days: 30
+
+  check-llm-secrets:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      has_openai_key: ${{ steps.check.outputs.has_openai_key }}
+    steps:
+      - name: Check whether LLM API keys are configured
+        id: check
+        # secrets.* isn't available in a job-level `if:`, only in step
+        # env/run — so the "does this repo have API keys configured" check
+        # (false e.g. for forks running their own CI) has to happen here and
+        # get exposed as an output instead.
+        env:
+          OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
+        run: echo "has_openai_key=${OPENAI_API_KEY_PRESENT}" >> $GITHUB_OUTPUT
+
+  e2e-tests:
+    name: E2E Tests (Registry Image)
+    needs: [build-amd64, check-llm-secrets]
+    # Runs with real LLM API keys on every push to main / tag as the final
+    # safety net after merge. Skips cleanly on forks without keys configured.
+    if: needs.check-llm-secrets.outputs.has_openai_key == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web-app
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
       - name: Set PAPERLESS_GPT_IMAGE
         run: |
           GHCR_REPO="ghcr.io/${GITHUB_REPOSITORY}"
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            IMAGE="${GHCR_REPO}:pr-${GITHUB_SHA}-amd64"
-          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             IMAGE="${GHCR_REPO}:${GITHUB_REF_NAME}-amd64"
           else
             IMAGE="${GHCR_REPO}:unreleased-amd64"
@@ -442,61 +434,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: test-results
-          path: web-app/test-results/
-          retention-days: 30
-
-  e2e-tests-local:
-    name: E2E Tests (Local Build)
-    needs: determine-workflow
-    # Skip cleanly (instead of failing) on forks that haven't configured LLM
-    # API key secrets yet.
-    if: needs.determine-workflow.outputs.run_e2e_local == 'true' && needs.determine-workflow.outputs.has_openai_key == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./web-app
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Build Docker image locally
-        run: |
-          cd ..
-          docker build -t icereed/paperless-gpt:e2e .
-          echo "PAPERLESS_GPT_IMAGE=icereed/paperless-gpt:e2e" >> $GITHUB_ENV
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: './web-app/package-lock.json'
-      - name: Install dependencies
-        run: npm ci
-      - name: Install Playwright browsers
-        run: npx playwright install chromium --with-deps
-      - name: Run Playwright tests
-        run: npm run test:e2e
-        env:
-          CI: true
-          DEBUG: testcontainers:containers
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          PAPERLESS_GPT_IMAGE: ${{ env.PAPERLESS_GPT_IMAGE }}
-      - name: Upload Playwright Report
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: playwright-report-local
-          path: web-app/playwright-report/
-          retention-days: 30
-      - name: Upload test screenshots
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: test-results-local
           path: web-app/test-results/
           retention-days: 30

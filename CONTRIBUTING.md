@@ -175,9 +175,26 @@ The application should now be accessible at `http://localhost:8080`.
   - Use testing libraries like Jest and React Testing Library.
   - Run tests with `npm run test`.
 
+- **End-to-End Tests**:
+
+  - The main E2E flow runs without any API keys: `cd web-app && npm run test:e2e:mock` (see [web-app/e2e/README.md](web-app/e2e/README.md)).
+  - The full E2E suite (`npm run test:e2e`) needs real LLM API keys and is optional for contributors.
+
 - **Continuous Integration**:
 
   - Ensure all tests pass before submitting a PR.
+
+### What CI runs on your pull request
+
+Everything you need for a green PR runs **automatically, also for forks — no secrets, no maintainer action needed**:
+
+| Check | What it does |
+| --- | --- |
+| `test` | Go unit tests + frontend build & tests |
+| `build-amd64` / `build-arm64` | Docker image builds (nothing is pushed) |
+| `E2E Tests (Mock LLM)` | Full document-processing flow (upload → suggestions → apply → history → undo) against a mocked LLM |
+
+One additional check, `E2E Tests (Real LLM, maintainer approval)`, shows up as *waiting*. It runs the E2E suite with real LLM API keys and only starts after the maintainer approves that specific run — this is a deliberate security/cost gate, **not** something you did wrong, and it is not required for your PR to be mergeable. If your change touches LLM or OCR behavior, the maintainer will typically approve it before merging; after merge, the real-LLM suite also runs automatically on `main`.
 
 ## Documentation
 
