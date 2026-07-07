@@ -72,10 +72,18 @@ jobs:
       is_fork: ${{ steps.check.outputs.is_fork }}
       run_e2e: ${{ steps.check.outputs.run_e2e }}
       run_e2e_local: ${{ steps.check.outputs.run_e2e_local }}
+      has_openai_key: ${{ steps.check.outputs.has_openai_key }}
     steps:
       - name: Check PR origin and approval
         id: check
+        # secrets.* isn't available in a job-level `if:`, only in step
+        # env/run — so the "does this fork have API keys configured" check
+        # has to happen here and get exposed as an output instead.
+        env:
+          OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
         run: |
+          echo "has_openai_key=${OPENAI_API_KEY_PRESENT}" >> $GITHUB_OUTPUT
+
           echo "Event: ${{ github.event_name }}"
           echo "Repository: ${{ github.repository }}"
           echo "Head repository: ${{ github.event.pull_request.head.repo.full_name }}"
@@ -376,7 +384,7 @@ jobs:
     needs: [build-amd64, determine-workflow]
     # Skip cleanly (instead of failing) on forks that haven't configured LLM
     # API key secrets yet.
-    if: needs.determine-workflow.outputs.run_e2e == 'true' && secrets.OPENAI_API_KEY != ''
+    if: needs.determine-workflow.outputs.run_e2e == 'true' && needs.determine-workflow.outputs.has_openai_key == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -442,7 +450,7 @@ jobs:
     needs: determine-workflow
     # Skip cleanly (instead of failing) on forks that haven't configured LLM
     # API key secrets yet.
-    if: needs.determine-workflow.outputs.run_e2e_local == 'true' && secrets.OPENAI_API_KEY != ''
+    if: needs.determine-workflow.outputs.run_e2e_local == 'true' && needs.determine-workflow.outputs.has_openai_key == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
