@@ -22,6 +22,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Untrusted fork checkout: pull_request_target fires on ANY label, not just
+    # safe-to-test, so gate this job on the specific label that was just applied.
+    # Without this, any maintainer triage label (e.g. "bug") would run
+    # attacker-controlled code from the fork with repo secrets in scope.
+    if: github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test'
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -67,10 +72,18 @@ jobs:
       is_fork: ${{ steps.check.outputs.is_fork }}
       run_e2e: ${{ steps.check.outputs.run_e2e }}
       run_e2e_local: ${{ steps.check.outputs.run_e2e_local }}
+      has_openai_key: ${{ steps.check.outputs.has_openai_key }}
     steps:
       - name: Check PR origin and approval
         id: check
+        # secrets.* isn't available in a job-level `if:`, only in step
+        # env/run — so the "does this fork have API keys configured" check
+        # has to happen here and get exposed as an output instead.
+        env:
+          OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
         run: |
+          echo "has_openai_key=${OPENAI_API_KEY_PRESENT}" >> $GITHUB_OUTPUT
+
           echo "Event: ${{ github.event_name }}"
           echo "Repository: ${{ github.repository }}"
           echo "Head repository: ${{ github.event.pull_request.head.repo.full_name }}"
@@ -115,6 +128,8 @@ jobs:
   build-amd64:
     runs-on: ubuntu-latest
     needs: test
+    # Same untrusted-checkout gate as the test job — see comment there.
+    if: github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test'
     outputs:
       digest: ${{ steps.build_amd64.outputs.digest }}
       image_tag: ${{ steps.set_image_tag.outputs.image_tag }}
@@ -194,6 +209,8 @@ jobs:
   build-arm64:
     runs-on: ubuntu-24.04-arm
     needs: test
+    # Same untrusted-checkout gate as the test job — see comment there.
+    if: github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test'
     outputs:
       digest: ${{ steps.build_arm64.outputs.digest }}
     steps:
@@ -266,7 +283,8 @@ jobs:
   merge-manifests:
     needs: [build-amd64, build-arm64]
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
+    # Same untrusted-checkout gate as the test job — see comment there.
+    if: github.event_name != 'pull_request' && (github.event_name != 'pull_request_target' || github.event.label.name == 'safe-to-test')
     env:
       DOCKERHUB_REPO: icereed/paperless-gpt
       GHCR_REPO: ghcr.io/${{ github.repository }}
@@ -364,7 +382,9 @@ jobs:
   e2e-tests:
     name: E2E Tests (Registry Image)
     needs: [build-amd64, determine-workflow]
-    if: needs.determine-workflow.outputs.run_e2e == 'true'
+    # Skip cleanly (instead of failing) on forks that haven't configured LLM
+    # API key secrets yet.
+    if: needs.determine-workflow.outputs.run_e2e == 'true' && needs.determine-workflow.outputs.has_openai_key == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -428,7 +448,9 @@ jobs:
   e2e-tests-local:
     name: E2E Tests (Local Build)
     needs: determine-workflow
-    if: needs.determine-workflow.outputs.run_e2e_local == 'true'
+    # Skip cleanly (instead of failing) on forks that haven't configured LLM
+    # API key secrets yet.
+    if: needs.determine-workflow.outputs.run_e2e_local == 'true' && needs.determine-workflow.outputs.has_openai_key == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:

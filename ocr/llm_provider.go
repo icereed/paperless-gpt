@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"net/http"
 	"os"
+	"paperless-gpt/internal/textsanitize"
 	"strings"
 
 	_ "image/jpeg"
@@ -18,6 +20,7 @@ import (
 	"github.com/tmc/langchaingo/llms/mistral"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
+	"paperless-gpt/sanitize"
 )
 
 // LLMProvider implements OCR using LLM vision models
@@ -29,6 +32,19 @@ type LLMProvider struct {
 	maxTokens   int
 	temperature *float64
 	ollamaTopK  *int
+}
+
+// WithPrompt returns a shallow copy of the provider with a different prompt.
+// This enables per-document prompt rendering without mutating shared state.
+func (p *LLMProvider) WithPrompt(prompt string) *LLMProvider {
+	clone := *p
+	clone.prompt = prompt
+	return &clone
+}
+
+// GetPrompt returns the current OCR prompt.
+func (p *LLMProvider) GetPrompt() string {
+	return p.prompt
 }
 
 func newLLMProvider(config Config) (*LLMProvider, error) {
@@ -110,7 +126,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		}).Debug("Image dimensions")
 	}
 
-	logger.Debugf("Prompt: %s", p.prompt)
+	logger.Debugf("Prompt length: %d", len(p.prompt))
 
 	// Prepare content parts based on provider type
 	var parts []llms.ContentPart
@@ -135,7 +151,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 
 	parts = []llms.ContentPart{
 		contentPart,
-		llms.TextPart(p.prompt),
+		llms.TextPart(sanitize.Sanitize(p.prompt)),
 	}
 
 	var callOpts []llms.CallOption
@@ -162,7 +178,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		return nil, fmt.Errorf("error getting response from LLM: %w", err)
 	}
 
-	text := stripReasoning(completion.Choices[0].Content)
+	text := textsanitize.StripReasoning(completion.Choices[0].Content)
 	limitHit := false
 	tokenCount := -1
 
@@ -208,6 +224,44 @@ func createOpenAIClient(config Config) (llms.Model, error) {
 	)
 }
 
+// OllamaHTTPClient returns an *http.Client with headers from OLLAMA_HEADERS injected,
+// or nil if OLLAMA_HEADERS is not set.
+func OllamaHTTPClient() *http.Client {
+	raw := os.Getenv("OLLAMA_HEADERS")
+	if raw == "" {
+		return nil
+	}
+	headers := map[string]string{}
+	for _, pair := range strings.Split(raw, ",") {
+		parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+		if len(parts) == 2 && parts[0] != "" {
+			headers[parts[0]] = parts[1]
+		}
+	}
+	if len(headers) == 0 {
+		return nil
+	}
+	return &http.Client{
+		Transport: &ollamaHeaderTransport{
+			base:    http.DefaultTransport,
+			headers: headers,
+		},
+	}
+}
+
+type ollamaHeaderTransport struct {
+	base    http.RoundTripper
+	headers map[string]string
+}
+
+func (t *ollamaHeaderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	for k, v := range t.headers {
+		req.Header.Set(k, v)
+	}
+	return t.base.RoundTrip(req)
+}
+
 // createOllamaClient creates a new Ollama vision model client
 func createOllamaClient(config Config) (llms.Model, error) {
 	host := os.Getenv("OLLAMA_HOST")
@@ -220,6 +274,9 @@ func createOllamaClient(config Config) (llms.Model, error) {
 	}
 	if config.OllamaContextLength > 0 {
 		opts = append(opts, ollama.WithRunnerNumCtx(config.OllamaContextLength))
+	}
+	if client := OllamaHTTPClient(); client != nil {
+		opts = append(opts, ollama.WithHTTPClient(client))
 	}
 	return ollama.New(opts...)
 }

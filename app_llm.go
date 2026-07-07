@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"paperless-gpt/internal/textsanitize"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	_ "image/jpeg"
+
+	"paperless-gpt/sanitize"
 
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
@@ -67,7 +70,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := stripReasoning(strings.TrimSpace(completion.Choices[0].Content))
+	response := textsanitize.StripReasoning(strings.TrimSpace(completion.Choices[0].Content))
 	return response, nil
 }
 
@@ -138,7 +141,7 @@ func (app *App) getSuggestedTags(
 		return nil, fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := stripReasoning(completion.Choices[0].Content)
+	response := textsanitize.StripReasoning(completion.Choices[0].Content)
 
 	suggestedTags := strings.Split(response, ",")
 	for i, tag := range suggestedTags {
@@ -246,7 +249,7 @@ func (app *App) getSuggestedDocumentType(
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := strings.TrimSpace(stripReasoning(completion.Choices[0].Content))
+	response := strings.TrimSpace(textsanitize.StripReasoning(completion.Choices[0].Content))
 
 	// Validate that the response is in the available document types list
 	for _, docType := range availableDocumentTypes {
@@ -314,7 +317,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
-	result := stripReasoning(completion.Choices[0].Content)
+	result := textsanitize.StripReasoning(completion.Choices[0].Content)
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
 
@@ -370,10 +373,25 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
-	result := stripReasoning(completion.Choices[0].Content)
+	result := textsanitize.StripReasoning(completion.Choices[0].Content)
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
+var xmlAttrEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	`"`, "&quot;",
+	"'", "&apos;",
+	"<", "&lt;",
+	">", "&gt;",
+)
 
+var xmlTextEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+)
+
+func escapeXMLAttr(s string) string { return xmlAttrEscaper.Replace(s) }
+func escapeXMLText(s string) string { return xmlTextEscaper.Replace(s) }
 // getSuggestedCustomFields generates suggested custom fields for a document using the LLM
 func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry) ([]CustomFieldSuggestion, error) {
 	// Fetch all available custom fields
@@ -401,7 +419,15 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	var xmlBuilder strings.Builder
 	xmlBuilder.WriteString("<custom_fields>\n")
 	for _, field := range selectedCustomFields {
-		xmlBuilder.WriteString(fmt.Sprintf("  <field name=\"%s\" type=\"%s\"></field>\n", field.Name, field.DataType))
+		if field.DataType == "select" && field.ExtraData != nil && len(field.ExtraData.SelectOptions) > 0 {
+			xmlBuilder.WriteString(fmt.Sprintf("  <field name=\"%s\" type=\"%s\">\n", escapeXMLAttr(field.Name), escapeXMLAttr(field.DataType)))
+			for _, opt := range field.ExtraData.SelectOptions {
+				xmlBuilder.WriteString(fmt.Sprintf("    <option id=\"%s\">%s</option>\n", escapeXMLAttr(opt.ID), escapeXMLText(opt.Label)))
+			}
+			xmlBuilder.WriteString("  </field>\n")
+		} else {
+			xmlBuilder.WriteString(fmt.Sprintf("  <field name=\"%s\" type=\"%s\"></field>\n", escapeXMLAttr(field.Name), escapeXMLAttr(field.DataType)))
+		}
 	}
 	xmlBuilder.WriteString("</custom_fields>")
 	customFieldsXML := xmlBuilder.String()
@@ -422,7 +448,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 		return nil, fmt.Errorf("error calculating available tokens for custom fields: %v", err)
 	}
 
-	truncatedContent, err := truncateContentByTokens(doc.Content, availableTokens)
+	truncatedContent, err := truncateContentByTokens(sanitize.Sanitize(doc.Content), availableTokens)
 	if err != nil {
 		return nil, fmt.Errorf("error truncating content for custom fields: %v", err)
 	}
@@ -449,7 +475,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 		return nil, fmt.Errorf("error getting response from LLM for custom fields: %v", err)
 	}
 
-	response := stripReasoning(completion.Choices[0].Content)
+	response := textsanitize.StripReasoning(completion.Choices[0].Content)
 	response = stripMarkdown(response)
 	logger.Debugf("LLM response for custom fields: %s", response)
 
@@ -550,7 +576,7 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			startTime := time.Now()
 			docLogger.Printf("Processing Document ID %d...", documentID)
 
-			content := doc.Content
+			content := sanitize.Sanitize(doc.Content)
 			suggestedTitle := doc.Title
 			var suggestedTags []string
 			var suggestedCorrespondent string
@@ -694,6 +720,12 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 			// Remove manual tag from the list of suggested tags
 			suggestion.RemoveTags = []string{manualTag, autoTag}
 
+			// Add auto-processing complete tag if configured (only for auto-processing, not manual review)
+			if app.autoTagComplete != "" && suggestionRequest.IsAutoProcessing {
+				suggestion.AddTags = append(suggestion.AddTags, app.autoTagComplete)
+				docLogger.Debugf("Adding auto-processing complete tag '%s'", app.autoTagComplete)
+			}
+
 			documentSuggestions = append(documentSuggestions, suggestion)
 			mu.Unlock()
 
@@ -717,22 +749,6 @@ func (app *App) generateDocumentSuggestions(ctx context.Context, suggestionReque
 // getTodayDate returns the current date in YYYY-MM-DD format
 func getTodayDate() string {
 	return time.Now().Format("2006-01-02")
-}
-
-// stripReasoning removes the reasoning from the content indicated by <think> and </think> tags.
-func stripReasoning(content string) string {
-	// Remove reasoning from the content
-	reasoningStart := strings.Index(content, "<think>")
-	if reasoningStart != -1 {
-		reasoningEnd := strings.Index(content, "</think>")
-		if reasoningEnd != -1 {
-			content = content[:reasoningStart] + content[reasoningEnd+len("</think>"):]
-		}
-	}
-
-	// Trim whitespace
-	content = strings.TrimSpace(content)
-	return content
 }
 
 // stripMarkdown removes the markdown code block from the content.

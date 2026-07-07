@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"gorm.io/gorm"
 )
@@ -96,6 +97,7 @@ type GenerateSuggestionsRequest struct {
 	GenerateCreatedDate    bool       `json:"generate_created_date,omitempty"`
 	GenerateCustomFields   bool       `json:"generate_custom_fields,omitempty"`
 	GenerateDocumentTypes  bool       `json:"generate_document_types,omitempty"`
+	IsAutoProcessing       bool       `json:"-"` // internal flag; not exposed via API
 }
 
 // AnalyzeDocumentsRequest is the request payload for the ad-hoc analysis
@@ -134,7 +136,13 @@ type Correspondent struct {
 	MatchingAlgorithm int    `json:"matching_algorithm"`
 	Match             string `json:"match"`
 	IsInsensitive     bool   `json:"is_insensitive"`
-	Owner             *int   `json:"owner"`
+	// omitempty so nil owners are dropped from the JSON body; paperless-ngx
+	// then falls back to the request user (request.user) as the owner of
+	// the newly created object. Sending "owner": null overrides that and
+	// produces ownerless correspondents — they still appear in the
+	// correspondents list, but documents assigned to them are shown as
+	// "private" in the UI instead of the correspondent name.
+	Owner             *int   `json:"owner,omitempty"`
 	SetPermissions    struct {
 		View struct {
 			Users  []int `json:"users"`
@@ -154,6 +162,22 @@ type OCROptions struct {
 	CopyMetadata    bool   // Whether to copy metadata from the original document
 	LimitPages      int    // Limit on the number of pages to process (0 = no limit)
 	ProcessMode     string // OCR processing mode: "image" (default) or "pdf"
+	ExistingContent string // Existing document text (e.g., from Tesseract) to include in OCR prompt
+}
+
+// PartialUpdateError signals that a document update succeeded only after
+// paperless-gpt had to drop one or more fields that paperless-ngx rejected as
+// invalid. The PATCH eventually succeeded with the surviving fields; the
+// document has been written but is incomplete relative to what the LLM
+// suggested. Callers should treat this as a successful update but apply the
+// fail tag so the user knows the document needs review.
+type PartialUpdateError struct {
+	DocumentID    int
+	DroppedFields []string
+}
+
+func (e *PartialUpdateError) Error() string {
+	return fmt.Sprintf("document %d updated with %d field(s) dropped due to paperless-ngx validation errors: %v", e.DocumentID, len(e.DroppedFields), e.DroppedFields)
 }
 
 // ClientInterface defines the interface for PaperlessClient operations
