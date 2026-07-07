@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -755,6 +757,57 @@ func TestDownloadDocumentAsPDF(t *testing.T) {
 	assert.Equal(t, 1, totalPages)
 
 	// Testing with splitting=true would be more complex so we'll skip that for simplicity
+}
+
+// TestDownloadDocumentAsPDF_SplitWithPageLimit verifies that when a page
+// limit is set, the split step only produces (and pdfcpu only has to work
+// through) the limited number of pages - not every page in the source PDF.
+func TestDownloadDocumentAsPDF_SplitWithPageLimit(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	documentID := 456
+
+	// tests/pdf/five-pager.pdf has 5 pages.
+	pdfFile := "tests/pdf/five-pager.pdf"
+	pdfContent, err := os.ReadFile(pdfFile)
+	require.NoError(t, err)
+
+	downloadPath := fmt.Sprintf("/api/documents/%d/download/", documentID)
+	env.setMockResponse(downloadPath, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(pdfContent)
+	})
+
+	ctx := context.Background()
+	env.client.CacheFolder = "tests/tmp"
+	os.RemoveAll(env.client.CacheFolder)
+	defer os.RemoveAll(env.client.CacheFolder)
+
+	limitPages := 2
+	pdfPaths, _, totalPages, err := env.client.DownloadDocumentAsPDF(ctx, documentID, limitPages, true)
+	require.NoError(t, err)
+	assert.Equal(t, 5, totalPages, "the source document has 5 pages")
+	assert.Len(t, pdfPaths, limitPages, "only the page-limited count of split files should be returned")
+
+	for _, p := range pdfPaths {
+		_, err := os.Stat(p)
+		assert.NoError(t, err, "each returned split path should exist on disk")
+	}
+
+	// Confirm no split output beyond the limit was written to docDir either -
+	// this is the actual bug being guarded against: pdfcpu used to split
+	// every page up front regardless of limitPages.
+	docDir := filepath.Join(env.client.CacheFolder, fmt.Sprintf("document-%d-pdf", documentID))
+	entries, err := os.ReadDir(docDir)
+	require.NoError(t, err)
+	var splitFileCount int
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "original_") && strings.HasSuffix(e.Name(), ".pdf") {
+			splitFileCount++
+		}
+	}
+	assert.Equal(t, limitPages, splitFileCount, "no more than the page-limited count of split files should exist on disk")
 }
 
 func TestParsePaperlessValidationErrors(t *testing.T) {

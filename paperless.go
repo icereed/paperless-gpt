@@ -1253,8 +1253,30 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 		}
 	}
 
-	// Use pdfcpu to split the PDF
-	err = api.SplitFile(originalPDFPath, docDir, 1, nil)
+	// Use pdfcpu to split the PDF. When a page limit applies, trim the
+	// source down to just the pages we need first so an oversized document
+	// doesn't cost the same split work regardless of OCR_LIMIT_PAGES - the
+	// unlimited split extracted (and wrote to disk) every page up front and
+	// only used the first pagesToProcess afterward.
+	splitSourcePath := originalPDFPath
+	if pagesToProcess < totalPages {
+		trimDir, err := os.MkdirTemp("", "pgpt-trim-*")
+		if err != nil {
+			return nil, nil, 0, fmt.Errorf("error creating temp dir for page-limited trim: %w", err)
+		}
+		defer os.RemoveAll(trimDir)
+
+		// Keep the "original.pdf" basename so pdfcpu's split output naming
+		// (derived from the input file's basename) still produces
+		// original_1.pdf, original_2.pdf, ... in docDir below.
+		splitSourcePath = filepath.Join(trimDir, "original.pdf")
+		selection := []string{fmt.Sprintf("1-%d", pagesToProcess)}
+		if err := api.TrimFile(originalPDFPath, splitSourcePath, selection, nil); err != nil {
+			return nil, nil, 0, fmt.Errorf("error trimming PDF to page limit: %w", err)
+		}
+	}
+
+	err = api.SplitFile(splitSourcePath, docDir, 1, nil)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("error splitting PDF: %w", err)
 	}
