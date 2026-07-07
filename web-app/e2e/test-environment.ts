@@ -1,4 +1,6 @@
 import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { GenericContainer, Network, StartedTestContainer, Wait } from 'testcontainers';
 
 export interface TestEnvironment {
@@ -40,6 +42,13 @@ async function stopAll(started: Stoppable[]): Promise<void> {
   }
 }
 
+// Mock mode (E2E_LLM_MODE=mock) replaces the OpenAI API with a WireMock
+// container serving canned completions (see mocks/README.md), so the E2E flow
+// runs without real API keys — e.g. on fork PRs in CI.
+export function isMockLlmMode(): boolean {
+  return process.env.E2E_LLM_MODE === 'mock';
+}
+
 export async function setupTestEnvironment(config?: TestEnvironmentConfig): Promise<TestEnvironment> {
   console.log('Setting up test environment...');
   const paperlessPort = PORTS.paperlessNgx;
@@ -50,6 +59,22 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
     // Create a network for the containers
     const network = await new Network().start();
     started.push(network);
+
+    if (isMockLlmMode()) {
+      console.log('Starting WireMock LLM mock container...');
+      const mocksDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'mocks');
+      const wiremock = await new GenericContainer('wiremock/wiremock:3.13.1')
+        .withNetwork(network)
+        .withNetworkAliases('llm-mock')
+        .withCopyDirectoriesToContainer([
+          { source: mocksDir, target: '/home/wiremock/mappings' },
+        ])
+        .withExposedPorts(8080)
+        .withWaitStrategy(Wait.forHttp('/__admin/mappings', 8080))
+        .start();
+      started.push(wiremock);
+      console.log('WireMock LLM mock container started');
+    }
 
     console.log('Starting Redis container...');
     const redis = await new GenericContainer('redis:7')
@@ -114,10 +139,16 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
       LLM_PROVIDER: "openai",
       LLM_MODEL: "gpt-4o-mini",
       LLM_LANGUAGE: "english",
-      OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+      OPENAI_API_KEY: isMockLlmMode() ? 'mock-key' : (process.env.OPENAI_API_KEY || ''),
       PDF_OCR_TAGGING: "true",
       PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete",
     };
+
+    if (isMockLlmMode()) {
+      Object.assign(baseEnvironment, {
+        OPENAI_BASE_URL: 'http://llm-mock:8080/v1',
+      });
+    }
 
     // Configure OCR provider and processing mode based on config
     if (config?.ocrProvider === 'mistral_ocr') {

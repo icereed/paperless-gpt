@@ -1005,6 +1005,10 @@ func createLLM() (llms.Model, error) {
 				openai.WithBaseURL(baseURL),
 				openai.WithEmbeddingModel("this-is-not-used"), // This is mandatory for Azure by langchain-go
 			)
+		} else if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL != "" {
+			// OpenAI-compatible endpoints (OpenRouter, LiteLLM, vLLM, mock
+			// servers in E2E tests, ...)
+			options = append(options, openai.WithBaseURL(baseURL))
 		}
 
 		llm, err := openai.New(options...)
@@ -1126,6 +1130,10 @@ func createVisionLLM() (llms.Model, error) {
 				openai.WithBaseURL(baseURL),
 				openai.WithEmbeddingModel("this-is-not-used"), // This is mandatory for Azure by langchain-go
 			)
+		} else if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL != "" {
+			// OpenAI-compatible endpoints (OpenRouter, LiteLLM, vLLM, mock
+			// servers in E2E tests, ...)
+			options = append(options, openai.WithBaseURL(baseURL))
 		}
 
 		llm, err := openai.New(options...)
