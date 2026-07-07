@@ -576,6 +576,7 @@ For best results with the enhanced OCR features:
 | `GOOGLEAI_API_KEY`                  | Google Gemini API key (required if using `LLM_PROVIDER=googleai`).                                                                                                                            | Cond.    |                            |
 | `GOOGLEAI_THINKING_BUDGET`          | (Optional, googleai only) Integer. Controls Gemini "thinking" budget. If unset, model default is used (thinking enabled if supported). Set to `0` to disable thinking (if model supports it). | No       |                            |
 | `OLLAMA_HOST`                       | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                                                                                                 | No       |                            |
+| `OLLAMA_THINK`                      | (Ollama only) Set to `false` to disable Ollama reasoning ("think") mode, `true` to force it on. Recommended `false` for thinking-mode models (e.g. Qwen 3, Gemma 3) on tasks that need strict output formats — with thinking left on, these models can spend the whole token budget reasoning and return empty content. If unset, the model's default applies. | No       |                            |
 | `LLM_REQUESTS_PER_MINUTE`           | Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load.                                                                                                | No       | 120                        |
 | `LLM_MAX_RETRIES`                   | Maximum retry attempts for failed main LLM requests.                                                                                                                                          | No       | 3                          |
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
@@ -625,6 +626,8 @@ For best results with the enhanced OCR features:
 | `AUTO_GENERATE_DOCUMENT_TYPE`       | Generate document types automatically if `paperless-gpt-auto` is used. Only existing document types from paperless-ngx will be used.                                                          | No       | true                       |
 | `AUTO_GENERATE_CREATED_DATE`        | Generate the created dates automatically if `paperless-gpt-auto` is used.                                                                                                                     | No       | true                       |
 | `TOKEN_LIMIT`                       | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                                                                                             | No       |                            |
+| `REMOVE_FROM_CONTENT`               | Comma-separated list of literal strings removed from document content before it is sent to the LLM for suggestions/analysis. Useful for stripping boilerplate (e.g. scanner watermarks) that confuses the model.                    | No       |                            |
+| `REMOVE_FROM_CONTENT_REGEX`         | Semicolon-separated list of regular expressions removed from document content before it is sent to the LLM. Invalid patterns cause a startup error.                                          | No       |                            |
 | `IMAGE_MAX_PIXEL_DIMENSION`         | Maximum pixels along any side when rendering document pages to images.                                                                                                                        | No       | 10000                      |
 | `IMAGE_MAX_TOTAL_PIXELS`            | Maximum total pixel count (width × height) when rendering document pages to images.                                                                                                           | No       | 40000000                   |
 | `IMAGE_MAX_RENDER_DPI`              | Maximum DPI used when rendering document pages to images.                                                                                                                                     | No       | 600                        |
@@ -670,6 +673,7 @@ Each template has access to specific variables:
 **ocr_prompt.tmpl**:
 
 - `{{.Language}}` - Target language
+- `{{.Content}}` - Text already extracted for the document (e.g. by paperless-ngx's basic OCR), truncated to 8,000 characters. Injected per document so the vision model can use it as a reference; empty if the document has no existing text.
 
 **correspondent_prompt.tmpl**:
 
