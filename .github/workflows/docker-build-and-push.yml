@@ -374,7 +374,9 @@ jobs:
   e2e-tests:
     name: E2E Tests (Registry Image)
     needs: [build-amd64, determine-workflow]
-    if: needs.determine-workflow.outputs.run_e2e == 'true'
+    # Skip cleanly (instead of failing) on forks that haven't configured LLM
+    # API key secrets yet.
+    if: needs.determine-workflow.outputs.run_e2e == 'true' && secrets.OPENAI_API_KEY != ''
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -438,7 +440,9 @@ jobs:
   e2e-tests-local:
     name: E2E Tests (Local Build)
     needs: determine-workflow
-    if: needs.determine-workflow.outputs.run_e2e_local == 'true'
+    # Skip cleanly (instead of failing) on forks that haven't configured LLM
+    # API key secrets yet.
+    if: needs.determine-workflow.outputs.run_e2e_local == 'true' && secrets.OPENAI_API_KEY != ''
     runs-on: ubuntu-latest
     defaults:
       run:
