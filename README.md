@@ -80,6 +80,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
   - [Table of Contents](#table-of-contents)
   - [Getting Started](#getting-started)
     - [Prerequisites](#prerequisites)
+    - [Security](#security)
     - [Installation](#installation)
       - [Docker Compose](#docker-compose)
       - [Manual Setup](#manual-setup)
@@ -132,6 +133,12 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 - Access to an LLM provider:
   - **OpenAI**: An API key with models like `gpt-4o` or `gpt-3.5-turbo`.
   - **Ollama**: A running Ollama server with models like `qwen3:8b`.
+
+### Security
+
+**paperless-gpt has no built-in authentication.** Its web UI and `/api/*` endpoints are open to anyone who can reach the port — by default it listens on all interfaces (`LISTEN_INTERFACE` defaults to `:8080`), so a plain `-p 8080:8080` (as in the example below) exposes it to your whole LAN/VPN, not just `localhost`. Anyone who can reach it can rewrite documents in your connected paperless-ngx instance, trigger LLM/OCR jobs against your API keys, and change settings — with zero credentials required.
+
+Do not expose it directly to the internet or an untrusted network. Put it behind a reverse proxy that adds authentication (e.g. Authelia, Authentik, a Basic Auth layer), restrict it to a VPN/Tailscale network, or otherwise limit who can reach the port.
 
 ### Installation
 
@@ -414,6 +421,7 @@ paperless-gpt offers different methods for processing documents, giving you flex
 - **Best for**: Providers that handle multi-page documents efficiently, reduced API calls
 - **Configuration**: `OCR_PROCESS_MODE: "whole_pdf"`
 - **Note**: Processing large PDFs may cause you to hit the API limit of your OCR provider. If you encounter problems with large documents, consider switching to `pdf` mode, which processes pages individually.
+- **Note**: `OCR_LIMIT_PAGES` does **not** apply in this mode — the whole point of `whole_pdf` is to hand the OCR provider the entire document in one shot, so it always processes every page regardless of that setting. Use `pdf` or `image` mode if you need a page cap.
 
 ### Provider Compatibility
 
@@ -607,7 +615,7 @@ For best results with the enhanced OCR features:
 | `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed.                                                                                                                                                  | No       | paperless-gpt-ocr-complete |
 | `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                        | No       | false                      |
 | `AUTO_OCR_TAG`                      | Tag for automatically processing docs with OCR.                                                                                                                                               | No       | paperless-gpt-ocr-auto     |
-| `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit.                                                                                                                                   | No       | 5                          |
+| `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit. Not applied in `whole_pdf` mode (see [Whole PDF Mode](#whole-pdf-mode)), which always processes the entire document.              | No       | 5                          |
 | `LOG_LEVEL`                         | Application log level (`info`, `debug`, `warn`, `error`).                                                                                                                                     | No       | info                       |
 | `LISTEN_INTERFACE`                  | Network interface to listen on.                                                                                                                                                               | No       | 8080                       |
 | `AUTO_GENERATE_TITLE`               | Generate titles automatically if `paperless-gpt-auto` is used.                                                                                                                                | No       | true                       |
