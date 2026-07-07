@@ -202,10 +202,29 @@ test('should process multi-page PDF with Mistral OCR using whole_pdf mode', asyn
   // For a 5-page PDF, we should get substantial text content
   expect(documentContent?.length).toBeGreaterThan(100);
 
-  // Should contain "Musée royal d'Histoire naturelle de Belgique" (with or without period)
-  // OCR may extract with minor variations in punctuation
-  const hasExpectedText = documentContent?.includes("Musée royal d'Histoire naturelle de Belgique") || 
-                          documentContent?.includes("Musée royal d'Histoire naturelle de. Belgique");
+  // Should contain "Musée royal d'Histoire naturelle de Belgique".
+  // In the source document the phrase is split across a line break
+  // ("...d'Histoire" / "naturelle..."), and mistral-ocr-latest is an unpinned
+  // model whose line-break, apostrophe and punctuation rendering changes over
+  // time. Compare on a normalized form (diacritics folded, everything except
+  // letters collapsed to single spaces) so the assertion only fails when the
+  // museum name is genuinely missing from the OCR output.
+  const normalizeForMatch = (s: string) =>
+    s
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '') // strip combining diacritical marks
+      .toLowerCase()
+      .replace(/[^a-z]+/g, ' ')
+      .trim();
+
+  const expectedPhrase = normalizeForMatch("Musée royal d'Histoire naturelle de Belgique");
+  const hasExpectedText = normalizeForMatch(documentContent ?? '').includes(expectedPhrase);
+  if (!hasExpectedText) {
+    console.log('Expected phrase not found in OCR output. Full document content for diagnosis:');
+    console.log('=== OCR CONTENT START ===');
+    console.log(documentContent);
+    console.log('=== OCR CONTENT END ===');
+  }
   expect(hasExpectedText).toBeTruthy();
   
   console.log(`OCR processing successful! Extracted ${documentContent?.length} characters of text.`);
