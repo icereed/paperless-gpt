@@ -43,6 +43,22 @@ For **Mistral OCR tests**:
 export MISTRAL_API_KEY="your_mistral_api_key_here"
 ```
 
+### Running Without API Keys (Mock Mode)
+
+The main document-processing flow can run entirely without LLM API keys —
+this is what CI runs automatically on every pull request (including forks):
+
+```bash
+npm run test:e2e:mock
+```
+
+This sets `E2E_LLM_MODE=mock`, which starts a WireMock container serving
+canned OpenAI-compatible completions (see `mocks/README.md`) and points
+paperless-gpt at it via `OPENAI_BASE_URL`. It verifies the full pipeline
+(UI, backend, paperless-ngx integration) deterministically; only LLM output
+quality is out of scope. The provider-specific OCR tests (OpenAI, Mistral,
+Anthropic) still require real API keys.
+
 ### Optional Environment Variables
 ```bash
 # Use specific paperless-gpt Docker image (defaults to icereed/paperless-gpt:e2e)

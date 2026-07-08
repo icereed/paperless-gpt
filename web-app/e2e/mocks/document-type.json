@@ -1,0 +1,28 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/chat/completions",
+    "bodyPatterns": [
+      { "contains": "select the most appropriate document type" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "id": "chatcmpl-mock-document-type",
+      "object": "chat.completion",
+      "created": 1700000000,
+      "model": "gpt-4o-mini",
+      "choices": [
+        {
+          "index": 0,
+          "message": { "role": "assistant", "content": "Invoice" },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": { "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15 }
+    }
+  }
+}
