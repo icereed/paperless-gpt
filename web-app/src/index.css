@@ -1,3 +1,228 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Design tokens — two-layer system: OKLCH primitives live here as semantic CSS
+ * variables, Tailwind maps them to utility names (see tailwind.config.js).
+ * Dark is a first-class theme, not an inversion: depth comes from surface
+ * lightness, accents are desaturated, ink weight is compensated.
+ * Every fg/bg pair below is WCAG AA verified.
+ */
+:root {
+  color-scheme: light;
+
+  --color-canvas: oklch(97.5% 0.003 255); /* page background */
+  --color-surface: oklch(100% 0 0); /* cards, inputs */
+  --color-surface-2: oklch(95.5% 0.005 255); /* sidebar, panels, wells */
+  --color-line: oklch(90% 0.006 255); /* hairline borders */
+  --color-ink: oklch(23.5% 0.015 260); /* primary text */
+  --color-muted: oklch(45% 0.02 258); /* secondary text */
+  --color-faint: oklch(53% 0.02 258); /* metadata, timestamps */
+
+  --color-primary: oklch(50% 0.16 255); /* actions, selection, focus */
+  --color-primary-hover: oklch(44% 0.17 255);
+  --color-primary-ink: oklch(100% 0 0); /* text on primary */
+  --color-primary-tint: oklch(94.5% 0.025 255); /* selected washes */
+
+  --color-pos: oklch(50% 0.13 150); /* diff: new / added / undo-after */
+  --color-pos-tint: oklch(95.5% 0.035 150);
+  --color-neg: oklch(50% 0.18 27); /* diff: old / removed / errors */
+  --color-neg-tint: oklch(95.5% 0.02 27);
+  --color-warn: oklch(50% 0.11 75); /* pending, attention */
+  --color-warn-tint: oklch(96% 0.03 85);
+
+  --shadow-card: 0 1px 2px oklch(20% 0.02 260 / 0.06), 0 1px 3px oklch(20% 0.02 260 / 0.08);
+  --shadow-raised: 0 4px 12px oklch(20% 0.02 260 / 0.1), 0 2px 4px oklch(20% 0.02 260 / 0.06);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --color-canvas: oklch(17% 0.012 260);
+  --color-surface: oklch(21% 0.014 260);
+  --color-surface-2: oklch(25.5% 0.016 260);
+  --color-line: oklch(31% 0.015 260);
+  --color-ink: oklch(92% 0.01 255);
+  --color-muted: oklch(73% 0.02 255);
+  --color-faint: oklch(64% 0.02 255);
+
+  --color-primary: oklch(70% 0.13 255);
+  --color-primary-hover: oklch(75% 0.13 255);
+  --color-primary-ink: oklch(15% 0.02 260);
+  --color-primary-tint: oklch(27% 0.05 255);
+
+  --color-pos: oklch(76% 0.13 150);
+  --color-pos-tint: oklch(26% 0.045 150);
+  --color-neg: oklch(72% 0.15 27);
+  --color-neg-tint: oklch(26% 0.035 27);
+  --color-warn: oklch(78% 0.12 75);
+  --color-warn-tint: oklch(27% 0.04 85);
+
+  /* Dark elevation comes from surface lightness; shadows only ground overlays. */
+  --shadow-card: 0 0 0 1px oklch(31% 0.015 260 / 0.6);
+  --shadow-raised: 0 8px 24px oklch(0% 0 0 / 0.5);
+}
+
+@layer base {
+  html {
+    height: 100%;
+  }
+
+  body {
+    height: 100%;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, sans-serif;
+    font-size: 1rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #root {
+    height: 100%;
+  }
+
+  /* Light text on dark reads heavier; step body weight down a touch. */
+  .dark body {
+    font-weight: 350;
+    letter-spacing: 0.011em;
+  }
+
+  /* One global, token-driven focus treatment. Never remove without replacement. */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::placeholder {
+    color: var(--color-faint);
+    opacity: 1;
+  }
+}
+
+/*
+ * react-tag-autocomplete, restyled on tokens (replaces the library example CSS).
+ * Deliberately OUTSIDE @layer components: these class names only exist at
+ * runtime (rendered by the library), so Tailwind would purge them from a layer.
+ */
+.react-tags {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.5rem;
+    border: 1px solid var(--color-line);
+    border-radius: 0.375rem;
+    background: var(--color-surface);
+    cursor: text;
+  }
+
+  .react-tags.is-active {
+    border-color: var(--color-primary);
+  }
+
+  .react-tags__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .react-tags__list {
+    display: contents;
+    list-style: none;
+  }
+
+  .react-tags__list-item {
+    display: inline-flex;
+  }
+
+  .react-tags__tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background: var(--color-primary-tint);
+    color: var(--color-ink);
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+  }
+
+  .react-tags__tag:hover {
+    border-color: var(--color-neg);
+    background: var(--color-neg-tint);
+  }
+
+  .react-tags__tag:hover::after {
+    content: "×";
+    color: var(--color-neg);
+    font-weight: 600;
+  }
+
+  .react-tags__combobox {
+    display: inline-flex;
+    flex: 1 1 4rem;
+    min-width: 4rem;
+  }
+
+  .react-tags__combobox-input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    padding: 0.125rem 0;
+    background: transparent;
+    color: var(--color-ink);
+    font-size: 0.875rem;
+  }
+
+  .react-tags__combobox-input:focus {
+    outline: none; /* the surrounding .react-tags.is-active border is the focus cue */
+  }
+
+  .react-tags__listbox {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 14rem;
+    overflow-y: auto;
+    border: 1px solid var(--color-line);
+    border-radius: 0.375rem;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-raised);
+    padding: 0.25rem;
+  }
+
+  .react-tags__listbox-option {
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+  }
+
+  .react-tags__listbox-option.is-active,
+  .react-tags__listbox-option:hover {
+    background: var(--color-primary-tint);
+  }
+
+.react-tags__listbox-option[aria-disabled="true"] {
+  color: var(--color-faint);
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

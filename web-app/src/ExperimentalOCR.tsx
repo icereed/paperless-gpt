@@ -232,9 +232,10 @@ const ExperimentalOCR: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto p-6 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200">
-      <h1 className="text-4xl font-bold mb-6 text-center">OCR via LLMs (Experimental)</h1>
-      <p className="mb-6 text-center text-yellow-600">
-        This is an experimental feature. Results may vary, and processing may take some time.
+      <h1 className="text-xl font-semibold mb-2">OCR</h1>
+      <p className="mb-6 text-sm text-muted">
+        Run LLM-powered OCR on a document. Processing can take a while for long
+        documents.
       </p>
       <div className="bg-gray-100 dark:bg-gray-800 p-6 rounded-lg shadow-md">
         <div className="mb-4">

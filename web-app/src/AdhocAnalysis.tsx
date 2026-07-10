@@ -98,14 +98,13 @@ const AdhocAnalysis: React.FC = () => {
           <NoDocuments
             filterTag={filterTag}
             onReload={fetchDocuments}
-            processing={processing}
+            reloading={processing}
           />
         ) : (
           <DocumentsToProcess
             documents={documents}
             selectedDocuments={selectedDocuments}
             onSelectDocument={handleSelectDocument}
-            gridCols="3"
           />
         )}
       </div>
