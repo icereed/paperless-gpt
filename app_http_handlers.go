@@ -200,6 +200,103 @@ func (app *App) generateSuggestionsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, results)
 }
 
+func (app *App) submitSuggestionJobHandler(c *gin.Context) {
+	var suggestionRequest GenerateSuggestionsRequest
+	if err := c.ShouldBindJSON(&suggestionRequest); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request payload: %v", err)})
+		log.Errorf("Invalid suggestion job request payload: %v", err)
+		return
+	}
+
+	if len(suggestionRequest.Documents) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "At least one document is required"})
+		return
+	}
+
+	jobID := generateJobID()
+	job := &SuggestionJob{
+		ID:             jobID,
+		Status:         "pending",
+		Request:        suggestionRequest,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+		TotalDocuments: len(suggestionRequest.Documents),
+	}
+
+	suggestionJobStore.addJob(job)
+	select {
+	case suggestionJobQueue <- job:
+		c.JSON(http.StatusAccepted, gin.H{"job_id": jobID})
+	default:
+		suggestionJobStore.updateStatus(jobID, "failed", "Suggestion queue is full")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Suggestion queue is full, please retry"})
+	}
+}
+
+func (app *App) getSuggestionJobStatusHandler(c *gin.Context) {
+	jobID := c.Param("job_id")
+
+	job, exists := suggestionJobStore.getJob(jobID)
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, suggestionJobResponse(job))
+}
+
+func (app *App) getAllSuggestionJobsHandler(c *gin.Context) {
+	jobs := suggestionJobStore.getAllJobs()
+
+	jobList := make([]gin.H, 0, len(jobs))
+	for _, job := range jobs {
+		jobList = append(jobList, suggestionJobResponse(job))
+	}
+
+	c.JSON(http.StatusOK, jobList)
+}
+
+func (app *App) stopSuggestionJobHandler(c *gin.Context) {
+	jobID := c.Param("job_id")
+	if suggestionJobStore.cancelPending(jobID) {
+		c.Status(http.StatusNoContent)
+		return
+	}
+
+	suggestionJobCancellersMu.Lock()
+	cancel, exists := suggestionJobCancellers[jobID]
+	suggestionJobCancellersMu.Unlock()
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No running job with this ID"})
+		return
+	}
+	cancel()
+	c.Status(http.StatusNoContent)
+}
+
+func suggestionJobResponse(job SuggestionJob) gin.H {
+	response := gin.H{
+		"job_id":              job.ID,
+		"status":              job.Status,
+		"created_at":          job.CreatedAt,
+		"updated_at":          job.UpdatedAt,
+		"documents_done":      job.DocumentsDone,
+		"total_documents":     job.TotalDocuments,
+		"current_document_id": job.CurrentDocumentID,
+	}
+
+	if job.Status == "completed" {
+		response["result"] = job.Result
+	} else if job.Status == "failed" || job.Status == "cancelled" {
+		response["error"] = job.Error
+	}
+	if len(job.FailedDocuments) > 0 {
+		response["failed_documents"] = job.FailedDocuments
+	}
+
+	return response
+}
+
 // updateDocumentsHandler handles the PATCH /api/update-documents endpoint
 func (app *App) updateDocumentsHandler(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -310,6 +407,24 @@ func (app *App) stopOCRJobHandler(c *gin.Context) {
 	}
 	cancel()
 	c.Status(http.StatusNoContent)
+}
+
+// getDocumentThumbnailHandler proxies the paperless-ngx thumbnail for a document so
+// the frontend can show scan previews without direct access to paperless-ngx.
+func (app *App) getDocumentThumbnailHandler(c *gin.Context) {
+	parsedID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid document ID"})
+		return
+	}
+	data, contentType, err := app.Client.GetDocumentThumbnail(c.Request.Context(), parsedID)
+	if err != nil {
+		log.Errorf("Error fetching thumbnail for document %d: %v", parsedID, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to fetch thumbnail"})
+		return
+	}
+	c.Header("Cache-Control", "private, max-age=3600")
+	c.Data(http.StatusOK, contentType, data)
 }
 
 // getDocumentHandler handles the retrieval of a document by its ID
