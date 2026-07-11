@@ -49,7 +49,7 @@ var (
 	openaiAPIKey                  = os.Getenv("OPENAI_API_KEY")
 	manualTag                     = os.Getenv("MANUAL_TAG")
 	autoTag                       = os.Getenv("AUTO_TAG")
-	autoTagComplete               string // read via os.LookupEnv in validateOrDefaultEnvVars
+	autoTagComplete               string                        // read via os.LookupEnv in validateOrDefaultEnvVars
 	manualOcrTag                  = os.Getenv("MANUAL_OCR_TAG") // Not used yet
 	autoOcrTag                    = os.Getenv("AUTO_OCR_TAG")
 	failTag                       = os.Getenv("FAIL_TAG")
@@ -1044,7 +1044,7 @@ func createLLM() (llms.Model, error) {
 				log.Warnf("Invalid OLLAMA_THINK value: %v, ignoring (must be true/false)", err)
 			}
 		}
-		if client := ocr.OllamaHTTPClient(); client != nil {
+		if client := ollamaHTTPClientWithTimeout(); client != nil {
 			opts = append(opts, ollama.WithHTTPClient(client))
 		}
 		llm, err := ollama.New(opts...)
@@ -1159,7 +1159,7 @@ func createVisionLLM() (llms.Model, error) {
 				log.Warnf("Invalid OLLAMA_CONTEXT_LENGTH value: %v, ignoring", err)
 			}
 		}
-		if client := ocr.OllamaHTTPClient(); client != nil {
+		if client := ollamaHTTPClientWithTimeout(); client != nil {
 			opts = append(opts, ollama.WithHTTPClient(client))
 		}
 		llm, err := ollama.New(opts...)
@@ -1198,7 +1198,6 @@ func createVisionLLM() (llms.Model, error) {
 	}
 }
 
-
 func createCustomHTTPClient() *http.Client {
 	// Create custom transport that adds headers
 	customTransport := &headerTransport{
@@ -1213,6 +1212,41 @@ func createCustomHTTPClient() *http.Client {
 	httpClient.Transport = customTransport
 
 	return httpClient
+}
+
+// ollamaRequestTimeout returns the per-request timeout for Ollama HTTP calls.
+// Configurable via OLLAMA_TIMEOUT_SECONDS; defaults to 300s. A value <= 0
+// disables the timeout (restoring the previous unbounded behavior).
+func ollamaRequestTimeout() time.Duration {
+	if raw := os.Getenv("OLLAMA_TIMEOUT_SECONDS"); raw != "" {
+		if secs, err := strconv.Atoi(raw); err == nil {
+			if secs <= 0 {
+				return 0
+			}
+			return time.Duration(secs) * time.Second
+		}
+		log.Warnf("Invalid OLLAMA_TIMEOUT_SECONDS value: %q, using default 300s", raw)
+	}
+	return 300 * time.Second
+}
+
+// ollamaHTTPClientWithTimeout wraps the optional header-injecting client from
+// ocr.OllamaHTTPClient() so that Ollama requests always carry a request
+// timeout. Without this, langchaingo's default (timeout-less) http.Client is
+// used and a single stalled Ollama generation freezes the whole tagging loop
+// indefinitely. Returns nil only when the timeout is explicitly disabled AND no
+// custom header client is configured, preserving upstream behavior.
+func ollamaHTTPClientWithTimeout() *http.Client {
+	timeout := ollamaRequestTimeout()
+	base := ocr.OllamaHTTPClient() // may be nil when OLLAMA_HEADERS is unset
+	if base == nil {
+		if timeout == 0 {
+			return nil
+		}
+		return &http.Client{Timeout: timeout}
+	}
+	base.Timeout = timeout
+	return base
 }
 
 // headerTransport is a custom http.RoundTripper that adds custom headers to requests
