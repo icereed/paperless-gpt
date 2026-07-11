@@ -1214,7 +1214,7 @@ func createLLM() (llms.Model, error) {
 		}
 		var config OllamaMetadataConfig
 		applyOllamaMetadataEnvironment(&config)
-		llm, err := newOllamaMetadataModel(host, llmModel, 0, nil, 0, ocr.OllamaHTTPClient(), config)
+		llm, err := newOllamaMetadataModel(host, llmModel, 0, nil, 0, ollamaHTTPClientWithTimeout(), config)
 		if err != nil {
 			return nil, err
 		}
@@ -1326,7 +1326,7 @@ func createVisionLLM() (llms.Model, error) {
 				log.Warnf("Invalid OLLAMA_CONTEXT_LENGTH value: %v, ignoring", err)
 			}
 		}
-		if client := ocr.OllamaHTTPClient(); client != nil {
+		if client := ollamaHTTPClientWithTimeout(); client != nil {
 			opts = append(opts, ollama.WithHTTPClient(client))
 		}
 		llm, err := ollama.New(opts...)
@@ -1379,6 +1379,43 @@ func createCustomHTTPClient() *http.Client {
 	httpClient.Transport = customTransport
 
 	return httpClient
+}
+
+// ollamaRequestTimeout returns the per-request timeout for Ollama HTTP calls.
+// Configurable via OLLAMA_TIMEOUT_SECONDS; defaults to 300s. A value <= 0
+// disables the timeout (restoring the previous unbounded behavior).
+func ollamaRequestTimeout() time.Duration {
+	if raw := os.Getenv("OLLAMA_TIMEOUT_SECONDS"); raw != "" {
+		if secs, err := strconv.Atoi(raw); err == nil {
+			if secs <= 0 {
+				return 0
+			}
+			return time.Duration(secs) * time.Second
+		}
+		log.Warnf("Invalid OLLAMA_TIMEOUT_SECONDS value: %q, using default 300s", raw)
+	}
+	return 300 * time.Second
+}
+
+// ollamaHTTPClientWithTimeout wraps the optional header-injecting client from
+// ocr.OllamaHTTPClient() so that Ollama requests always carry a request
+// timeout. Without it both Ollama paths end up on a timeout-less client —
+// http.DefaultClient for the metadata model, langchaingo's default for the
+// vision provider — and a single stalled generation freezes the whole
+// background loop indefinitely, recoverable only by restarting the container.
+// Returns nil only when the timeout is explicitly disabled AND no custom header
+// client is configured, preserving the previous behavior for both.
+func ollamaHTTPClientWithTimeout() *http.Client {
+	timeout := ollamaRequestTimeout()
+	base := ocr.OllamaHTTPClient() // may be nil when OLLAMA_HEADERS is unset
+	if base == nil {
+		if timeout == 0 {
+			return nil
+		}
+		return &http.Client{Timeout: timeout}
+	}
+	base.Timeout = timeout
+	return base
 }
 
 // headerTransport is a custom http.RoundTripper that adds custom headers to requests
