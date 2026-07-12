@@ -32,9 +32,16 @@ environment:
   OLLAMA_HOST: "http://host.docker.internal:11434"
 ```
 
+On native Linux Docker Engine, `host.docker.internal` needs an extra hosts mapping (Docker Desktop sets it up for you):
+
+```yaml
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
 ## Know the limits before you switch
 
-- **This model is specialized for document type only.** paperless-gpt uses one text LLM for all suggestions (title, correspondent, tags, and type). If you switch `LLM_MODEL` to this one, the other fields will get worse. Use it if document type is the field you care about, or as a starting point for a per-field model option.
+- **This model is specialized for document type only.** paperless-gpt uses one text LLM for all suggestions (title, correspondent, tags, and type). If you switch `LLM_MODEL` to this one, the other fields have not been evaluated and may perform poorly. Use it if document type is the field you care about, or as a starting point for a per-field model option.
 - It was trained on English tobacco-industry documents with 10 fixed classes. Your type list, languages, and OCR quality will differ. Test on your own documents first.
 - 60 held-out rows is a small eval. The numbers above are honest but not a guarantee.
 
