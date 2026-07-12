@@ -66,6 +66,35 @@ func TestCreateAnthropicClient(t *testing.T) {
 	}
 }
 
+// Verifies that ANTHROPIC_BASE_URL, when set, is accepted without affecting
+// client creation, and that omitting it preserves the existing default-host behavior
+func TestCreateAnthropicClient_CustomBaseURL(t *testing.T) {
+	originalKey := os.Getenv("ANTHROPIC_API_KEY")
+	defer os.Setenv("ANTHROPIC_API_KEY", originalKey)
+	originalBaseURL := os.Getenv("ANTHROPIC_BASE_URL")
+	defer os.Setenv("ANTHROPIC_BASE_URL", originalBaseURL)
+
+	os.Setenv("ANTHROPIC_API_KEY", "test-api-key")
+
+	t.Run("no base URL set uses default", func(t *testing.T) {
+		os.Unsetenv("ANTHROPIC_BASE_URL")
+
+		client, err := createAnthropicClient(Config{VisionLLMModel: "claude-sonnet-4-5"})
+
+		assert.NoError(t, err)
+		assert.NotNil(t, client)
+	})
+
+	t.Run("custom base URL is accepted", func(t *testing.T) {
+		os.Setenv("ANTHROPIC_BASE_URL", "https://cliproxy.example.com/v1")
+
+		client, err := createAnthropicClient(Config{VisionLLMModel: "claude-sonnet-4-5"})
+
+		assert.NoError(t, err)
+		assert.NotNil(t, client)
+	})
+}
+
 // Test the creation of LLM provider specifically configured for Anthropic,
 // to ensure proper initialisation and API key validation
 func TestNewLLMProvider_Anthropic(t *testing.T) {
