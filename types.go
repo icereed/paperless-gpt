@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -59,6 +60,18 @@ type CustomFieldSuggestion struct {
 	Value interface{} `json:"value"`
 }
 
+// PermissionSet defines view/change permissions for users and groups
+type PermissionSet struct {
+	Users  []int `json:"users"`
+	Groups []int `json:"groups"`
+}
+
+// Permissions holds the full permission structure for a document
+type Permissions struct {
+	View   PermissionSet `json:"view"`
+	Change PermissionSet `json:"change"`
+}
+
 // GetDocumentApiResponse is the response payload for /documents/{id} endpoint.
 // But we are only interested in a subset of the fields.
 type GetDocumentApiResponse struct {
@@ -72,6 +85,8 @@ type GetDocumentApiResponse struct {
 	OriginalFileName string                `json:"original_file_name"`
 	Notes            []interface{}         `json:"notes"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
+	Owner            *int                  `json:"owner"`
+	Permissions      *Permissions          `json:"permissions,omitempty"`
 }
 
 // Document is a stripped down version of the document object from paperless-ngx.
@@ -85,7 +100,10 @@ type Document struct {
 	CreatedDate      string                `json:"created_date"`
 	OriginalFileName string                `json:"original_file_name"`
 	DocumentTypeName string                `json:"document_type_name"`
+	DocumentType     int                   `json:"document_type"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
+	Owner            *int                  `json:"owner"`
+	Permissions      *Permissions          `json:"permissions,omitempty"`
 }
 
 // GenerateSuggestionsRequest is the request payload for generating suggestions for /generate-suggestions endpoint
@@ -155,14 +173,25 @@ type Correspondent struct {
 	} `json:"set_permissions"`
 }
 
+// PendingPermissionRestore represents a queued request to restore owner and permissions
+// on a newly uploaded document after its consumption task completes.
+type PendingPermissionRestore struct {
+	TaskID        string
+	OriginalDocID int
+	Owner         *int
+	Permissions   *Permissions
+	CreatedAt     time.Time
+}
+
 // OCROptions contains options for the OCR processing
 type OCROptions struct {
-	UploadPDF       bool   // Whether to upload the generated PDF
-	ReplaceOriginal bool   // Whether to delete the original document after uploading
-	CopyMetadata    bool   // Whether to copy metadata from the original document
-	LimitPages      int    // Limit on the number of pages to process (0 = no limit)
-	ProcessMode     string // OCR processing mode: "image" (default) or "pdf"
-	ExistingContent string // Existing document text (e.g., from Tesseract) to include in OCR prompt
+	UploadPDF                bool   // Whether to upload the generated PDF
+	ReplaceOriginal          bool   // Whether to delete the original document after uploading
+	CopyMetadata             bool   // Whether to copy metadata from the original document
+	PreserveOwnerPermissions bool   // Whether to restore owner and permissions on the uploaded document
+	LimitPages               int    // Limit on the number of pages to process (0 = no limit)
+	ProcessMode              string // OCR processing mode: "image" (default) or "pdf"
+	ExistingContent          string // Existing document text (e.g., from Tesseract) to include in OCR prompt
 }
 
 // PartialUpdateError signals that a document update succeeded only after
@@ -196,6 +225,7 @@ type ClientInterface interface {
 	UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error)
 	GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error)
 	DeleteDocument(ctx context.Context, documentID int) error
+	PatchDocument(ctx context.Context, documentID int, fields map[string]interface{}) error
 }
 
 // DocumentProcessor defines the interface for processing documents with OCR

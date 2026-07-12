@@ -197,11 +197,13 @@ func TestUploadProcessedPDF(t *testing.T) {
 		require.Equal(t, mockTaskID, taskID, "Unexpected task ID in status request")
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":  "SUCCESS",
-			"task_id": taskID,
-			"result": map[string]interface{}{
-				"document_id": documentID,
+		json.NewEncoder(w).Encode([]map[string]interface{}{
+			{
+				"id":               mockTaskID,
+				"status":           "SUCCESS",
+				"task_id":          taskID,
+				"related_document": fmt.Sprintf("%d", documentID),
+				"result":           fmt.Sprintf("Success. New document id %d created", documentID),
 			},
 		})
 	})
@@ -236,10 +238,11 @@ func TestUploadProcessedPDF(t *testing.T) {
 		{
 			name: "Upload with metadata copy, no replacement",
 			options: OCROptions{
-				UploadPDF:       true,
-				ReplaceOriginal: false,
-				CopyMetadata:    true,
-				LimitPages:      0,
+				UploadPDF:                true,
+				ReplaceOriginal:          false,
+				CopyMetadata:             true,
+				PreserveOwnerPermissions: false,
+				LimitPages:               0,
 			},
 			expectReplacement:  false,
 			expectTagging:      true,
@@ -248,14 +251,28 @@ func TestUploadProcessedPDF(t *testing.T) {
 		{
 			name: "Upload with replacement",
 			options: OCROptions{
-				UploadPDF:       true,
-				ReplaceOriginal: true,
-				CopyMetadata:    true,
-				LimitPages:      0,
+				UploadPDF:                true,
+				ReplaceOriginal:          true,
+				CopyMetadata:             true,
+				PreserveOwnerPermissions: false,
+				LimitPages:               0,
 			},
 			expectReplacement:  true,
 			expectTagging:      true,
 			expectMetadataCopy: true,
+		},
+		{
+			name: "Upload with owner permissions preservation, no replacement",
+			options: OCROptions{
+				UploadPDF:                true,
+				ReplaceOriginal:          false,
+				CopyMetadata:             false,
+				PreserveOwnerPermissions: true,
+				LimitPages:               0,
+			},
+			expectReplacement:  false,
+			expectTagging:      false,
+			expectMetadataCopy: false,
 		},
 	}
 
@@ -290,6 +307,9 @@ func TestOCROptionsValidation(t *testing.T) {
 	validateOptions := func(opts OCROptions) error {
 		if !opts.UploadPDF && opts.ReplaceOriginal {
 			return fmt.Errorf("invalid OCROptions: cannot set ReplaceOriginal=true when UploadPDF=false")
+		}
+		if !opts.UploadPDF && opts.PreserveOwnerPermissions {
+			return fmt.Errorf("invalid OCROptions: cannot set PreserveOwnerPermissions=true when UploadPDF=false")
 		}
 		return nil
 	}
@@ -328,6 +348,22 @@ func TestOCROptionsValidation(t *testing.T) {
 			options: OCROptions{
 				UploadPDF:       false,
 				ReplaceOriginal: true,
+			},
+			expectError: true,
+		},
+		{
+			name: "Safe: preserve permissions with upload",
+			options: OCROptions{
+				UploadPDF:                true,
+				PreserveOwnerPermissions: true,
+			},
+			expectError: false,
+		},
+		{
+			name: "Unsafe: preserve permissions without upload",
+			options: OCROptions{
+				UploadPDF:                false,
+				PreserveOwnerPermissions: true,
 			},
 			expectError: true,
 		},
@@ -396,8 +432,8 @@ func TestOCRDetectionBehavior(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create a test environment with controlled PDF processing
 			mockApp := &App{
-			    ocrProcessMode:     tc.ocrMode,
-			    pdfSkipExistingOCR: tc.pdfSkipExistingOCR,
+				ocrProcessMode:     tc.ocrMode,
+				pdfSkipExistingOCR: tc.pdfSkipExistingOCR,
 			}
 
 			// Mock the pdfocr.DetectOCR function using monkey patching or a test stub
@@ -406,21 +442,21 @@ func TestOCRDetectionBehavior(t *testing.T) {
 			// Override the relevant conditional check to track if OCR detection would be performed
 			// This is a simplified way to test the behavior without actually processing PDFs
 			shouldCheck := false
-			
+
 			if mockApp.pdfSkipExistingOCR && (tc.ocrMode == "pdf" || tc.ocrMode == "whole_pdf") {
-			    shouldCheck = true
-			    ocrDetectionCalled = true
+				shouldCheck = true
+				ocrDetectionCalled = true
 			}
 
 			// Verify the OCR detection behavior
-			assert.Equal(t, tc.shouldCheckOCR, shouldCheck, 
-			    "OCR detection behavior doesn't match expected for mode=%s, skipExistingOCR=%v", 
-			    tc.ocrMode, tc.pdfSkipExistingOCR)
-			
+			assert.Equal(t, tc.shouldCheckOCR, shouldCheck,
+				"OCR detection behavior doesn't match expected for mode=%s, skipExistingOCR=%v",
+				tc.ocrMode, tc.pdfSkipExistingOCR)
+
 			if tc.shouldCheckOCR {
-			    assert.True(t, ocrDetectionCalled, "OCR detection should be performed")
+				assert.True(t, ocrDetectionCalled, "OCR detection should be performed")
 			} else {
-			    assert.False(t, ocrDetectionCalled, "OCR detection should not be performed")
+				assert.False(t, ocrDetectionCalled, "OCR detection should not be performed")
 			}
 		})
 	}

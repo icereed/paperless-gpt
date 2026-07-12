@@ -35,6 +35,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
    - **Google Document AI**: Leverage Google's powerful Document AI for OCR tasks.
    - **Azure Document Intelligence**: Use Microsoft's enterprise OCR solution.
    - **Docling Server**: Self-hosted OCR and document conversion service
+   - **iOS OCR Server**: Use Apple's Vision Framework via an iPhone for private, on-device OCR
 
 3. **Automatic Title, Tag & Created Date Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
@@ -89,6 +90,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [2. Azure Document Intelligence](#2-azure-document-intelligence)
     - [3. Google Document AI](#3-google-document-ai)
     - [4. Docling Server](#4-docling-server)
+    - [5. iOS OCR Server](#5-ios-ocr-server)
   - [OCR Processing Modes](#ocr-processing-modes)
     - [Image Mode (Default)](#image-mode-default)
     - [PDF Mode](#pdf-mode)
@@ -309,7 +311,7 @@ For detailed provider-specific documentation:
 
 - [Mistral AI Integration](docs/mistral_llm.md)
 
-paperless-gpt supports four different OCR providers, each with unique strengths and capabilities:
+paperless-gpt supports multiple OCR providers, each with unique strengths and capabilities:
 
 ### 1. LLM-based OCR (Default)
 
@@ -360,8 +362,8 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   - Strong form field detection
   - Multi-language support
   - High accuracy on structured documents
-  - **Exclusive hOCR generation** for creating searchable PDFs with text layers
-  - **Only provider that supports** enhanced PDF generation features
+  - **hOCR generation** for creating searchable PDFs with text layers
+  - **One of the providers that support** enhanced PDF generation features
 - **Best For**:
   - Forms and structured documents
   - Documents with tables
@@ -399,6 +401,27 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   DOCLING_OCR_ENGINE: "macocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE is set to 'standard')
   ```
 
+### 5. iOS OCR Server
+
+Uses the [OCR Server](https://apps.apple.com/ch/app/ocr-server/id6749533041) iOS app to perform OCR using Apple's Vision Framework.
+
+- **Key Features**:
+  - Uses Apple's Vision Framework via an iPhone for on-device OCR
+  - 100% local processing, no cloud dependencies, full privacy
+  - Supports multiple languages with automatic detection
+  - No API keys or external accounts needed
+  - **hOCR support for searchable PDF generation** (see [Enhanced OCR Features](#enhanced-ocr-features))
+- **Best For**:
+  - Users with an iOS device on the same network
+  - Privacy-sensitive environments
+  - Quick setup without cloud OCR services
+- **Configuration**:
+  ```yaml
+  OCR_PROVIDER: "ios_ocr"
+  IOS_OCR_SERVER_URL: "http://192.168.1.100:8000"
+  IOS_OCR_SERVER_TIMEOUT: "60" # optional, default 60s
+  ```
+
 ## OCR Processing Modes
 
 paperless-gpt offers different methods for processing documents, giving you flexibility based on your needs and OCR provider capabilities:
@@ -434,6 +457,7 @@ Different OCR providers support different processing modes:
 | **Google Document AI** | ✅ | ✅ | ✅ |
 | **Mistral OCR** | ✅ | ✅ | ✅ |
 | **Docling Server** | ✅ | ✅ | ✅ |
+| **iOS OCR Server** | ✅ | ❌ | ❌ |
 
 > **Important**: paperless-gpt will validate your configuration at startup and prevent unsupported mode/provider combinations. If you specify an unsupported mode for your provider, the application will fail to start with a clear error message.
 
@@ -453,14 +477,14 @@ environment:
 
 paperless-gpt includes powerful OCR enhancements that go beyond basic text extraction:
 
-> **Important Note**: The PDF text layer generation and hOCR features are currently **only supported with Google Document AI** as the OCR provider. These features are not available when using LLM-based OCR or Azure Document Intelligence.
+> **Important Note**: The PDF text layer generation and hOCR features are currently only supported with **Google Document AI** and **iOS OCR Server** as OCR providers. These features are not available when using LLM-based OCR, Azure Document Intelligence, Mistral OCR, or Docling Server.
 
 ### PDF Text Layer Generation
 
 - **Searchable & Selectable PDFs**: Creates PDFs with transparent text overlays accurately positioned over each word in the document
 - **hOCR Integration**: Utilizes hOCR format (HTML-based OCR representation) to maintain precise text positioning
 - **Document Quality Improvement**: Makes documents both searchable and selectable while preserving the original appearance
-- **Google Document AI Required**: These features rely on Google Document AI's ability to generate hOCR data with accurate word positions
+- **Google Document AI or iOS OCR Server Required**: These features rely on the provider's ability to generate hOCR data with accurate word positions
 
 ### Local File Saving
 
@@ -518,6 +542,11 @@ However, some metadata **cannot** be copied due to paperless-ngx API limitations
 - Modified date
 - Custom fields that might be added by other paperless-ngx plugins
 - Notes and annotations
+
+> **⚠️ Trade-off: Owner & Permissions Restoration**  
+> When `PDF_PRESERVE_OWNER_PERMISSIONS` is enabled, paperless-gpt uses an **in-memory queue** to restore the original document's owner and permissions after paperless-ngx finishes processing the upload.  
+> **If paperless-gpt crashes or restarts** between the upload and the restore, the queue is lost. The new document will retain paperless-ngx's default permissions, which may be less restrictive than the original.  
+> This is acceptable because the API token holder already has access to all documents, and a future update may add persistent queue storage.
 
 ### Safety Features
 
@@ -580,7 +609,7 @@ For best results with the enhanced OCR features:
 | `LLM_REQUESTS_PER_MINUTE`           | Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load.                                                                                                | No       | 120                        |
 | `LLM_MAX_RETRIES`                   | Maximum retry attempts for failed main LLM requests.                                                                                                                                          | No       | 3                          |
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
-| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                      | No       | llm                        |
+| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, `google_docai`, `docling`, `mistral_ocr`, `ios_ocr`).                                                                                                    | No       | llm                        |
 | `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
 | `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                                                    | Cond.    |                            |
 | `VISION_LLM_MODEL`                  | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                                                                                                 | Cond.    |                            |
@@ -605,6 +634,8 @@ For best results with the enhanced OCR features:
 | `DOCLING_IMAGE_EXPORT_MODE`         | Mode for image export. Optional; defaults to `embedded` if unset.                                                                                                                             | No       | embedded                   |
 | `DOCLING_OCR_PIPELINE`              | Sets the pipeline type. Optional; defaults to `vlm` if unset.                                                                                                                                 | No       | vlm                        |
 | `DOCLING_OCR_ENGINE`                | Sets the ocr engine, if `DOCLING_OCR_PIPELINE` is set to `standard`. Optional; defaults to `easyocr`                                                                                          | No       | easyocr                    |
+| `IOS_OCR_SERVER_URL`                | URL of the iOS OCR Server (e.g. `http://192.168.1.100:8000`). Required if OCR_PROVIDER is `ios_ocr`.                                                                                          | Cond.    |                            |
+| `IOS_OCR_SERVER_TIMEOUT`            | HTTP request timeout in seconds for the iOS OCR Server.                                                                                                                                       | No       | 60                         |
 | `CREATE_LOCAL_HOCR`                 | Whether to save hOCR files locally.                                                                                                                                                           | No       | false                      |
 | `LOCAL_HOCR_PATH`                   | Path where hOCR files will be saved when hOCR generation is enabled.                                                                                                                          | No       | /app/hocr                  |
 | `CREATE_LOCAL_PDF`                  | Whether to save enhanced PDFs locally.                                                                                                                                                        | No       | false                      |
@@ -612,6 +643,7 @@ For best results with the enhanced OCR features:
 | `PDF_UPLOAD`                        | Whether to upload enhanced PDFs to paperless-ngx.                                                                                                                                             | No       | false                      |
 | `PDF_REPLACE`                       | Whether to delete the original document after uploading the enhanced version (DANGEROUS).                                                                                                     | No       | false                      |
 | `PDF_COPY_METADATA`                 | Whether to copy metadata from the original document to the uploaded PDF. Only applicable when using PDF_UPLOAD.                                                                               | No       | true                       |
+| `PDF_PRESERVE_OWNER_PERMISSIONS`    | Whether to restore the original document's owner and permissions on the uploaded PDF. Uses an async background queue that retries until paperless-ngx consumption completes. In-memory; lost on pod restart during the upload-to-restore window. | No       | false                      |
 | `PDF_OCR_TAGGING`                   | Whether to add a tag to mark documents as OCR-processed.                                                                                                                                      | No       | true                       |
 | `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed.                                                                                                                                                  | No       | paperless-gpt-ocr-complete |
 | `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                        | No       | false                      |

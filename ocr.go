@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,6 +47,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	// Validate options for safety
 	if !options.UploadPDF && options.ReplaceOriginal {
 		return nil, fmt.Errorf("invalid OCROptions: cannot set ReplaceOriginal=true when UploadPDF=false")
+	}
+	if !options.UploadPDF && options.PreserveOwnerPermissions {
+		return nil, fmt.Errorf("invalid OCROptions: cannot set PreserveOwnerPermissions=true when UploadPDF=false")
 	}
 
 	docLogger := documentLogger(documentID)
@@ -246,7 +250,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		}
 	} else {
 		// Process pages as images
-		imagePaths, imgPageCount, err := app.Client.DownloadDocumentAsImages(ctx, documentID, pageLimit)
+		var imgPageCount int
+		var err error
+		imagePaths, imgPageCount, err = app.Client.DownloadDocumentAsImages(ctx, documentID, pageLimit)
 		defer func() {
 			for _, imagePath := range imagePaths {
 				if err := os.Remove(imagePath); err != nil {
@@ -553,6 +559,11 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 		if originalDoc.CreatedDate != "" {
 			metadata["created"] = originalDoc.CreatedDate
 		}
+
+		// Set document type if available
+		if originalDoc.DocumentType != 0 {
+			metadata["document_type"] = originalDoc.DocumentType
+		}
 	} else if app.pdfOCRTagging {
 		// Even if not copying all metadata, still add the OCR complete tag if tagging is enabled
 		allTags, err := app.Client.GetAllTags(ctx)
@@ -580,29 +591,43 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 
 	logger.WithField("task_id", taskID).Info("PDF uploaded successfully")
 
-	// If replacing the original is requested, delete it after upload
+	// Enqueue async permission restore if requested
+	// The background loop will poll the task and PATCH when complete
+	if options.PreserveOwnerPermissions {
+		app.enqueuePermissionRestore(taskID, documentID, originalDoc.Owner, originalDoc.Permissions)
+		logger.Info("Queued permission restore for new document")
+	}
+
+	// If replacing the original is requested, poll for completion and delete
 	if options.ReplaceOriginal {
 		// Poll for task completion
-		maxRetries := 12
+		maxRetries := 720
 		waitTime := 5 * time.Second
 
 		logger.Info("Waiting for document processing to complete before deletion...")
 
+		deleteOriginal := false
 		for i := 0; i < maxRetries; i++ {
 			taskStatus, err := app.Client.GetTaskStatus(ctx, taskID)
 			if err != nil {
-				logger.WithError(err).Warn("Failed to check task status, proceeding with deletion anyway")
+				logger.WithError(err).Warn("Failed to check task status, keeping original document")
 				break
 			}
 
 			status, ok := taskStatus["status"].(string)
 			if !ok {
-				logger.Warn("Could not determine task status, proceeding with deletion anyway")
+				logger.Warn("Could not determine task status, keeping original document")
 				break
 			}
 
 			if status == "SUCCESS" {
 				logger.Info("Document processing completed successfully")
+				deleteOriginal = true
+
+				if options.PreserveOwnerPermissions {
+					_ = app.patchNewDocumentPermissions(ctx, taskStatus, originalDoc.Owner, originalDoc.Permissions, logger)
+				}
+
 				break
 			}
 
@@ -616,12 +641,66 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 			}
 		}
 
-		// Delete original document
+		if !deleteOriginal {
+			return fmt.Errorf("document %d was not deleted: processing did not reach SUCCESS", documentID)
+		}
 		if err := app.Client.DeleteDocument(ctx, documentID); err != nil {
 			return fmt.Errorf("error deleting original document: %w", err)
 		}
 		logger.Info("Original document deleted successfully")
 	}
 
+	return nil
+}
+
+// extractDocIDFromTask extracts the new document ID from a task status response.
+// Only related_document is a valid source — taskStatus["id"] is the task UUID, not a document ID.
+func extractDocIDFromTask(taskStatus map[string]interface{}) (int, bool) {
+	if relatedDoc, ok := taskStatus["related_document"]; ok {
+		switch v := relatedDoc.(type) {
+		case string:
+			if id, err := strconv.Atoi(v); err == nil {
+				return id, true
+			}
+		case float64:
+			return int(v), true
+		}
+	}
+	return 0, false
+}
+
+// buildPatchFields creates the PATCH payload for owner and permissions.
+func buildPatchFields(owner *int, permissions *Permissions) map[string]interface{} {
+	fields := make(map[string]interface{})
+	if owner != nil {
+		fields["owner"] = *owner
+	}
+	if permissions != nil {
+		fields["set_permissions"] = permissions
+	}
+	return fields
+}
+
+// patchNewDocumentPermissions extracts the new document ID from a task status
+// and patches it with the given owner and permissions. Returns an error if the
+// patch fails so callers can decide whether to retry.
+func (app *App) patchNewDocumentPermissions(ctx context.Context, taskStatus map[string]interface{}, owner *int, permissions *Permissions, logger *logrus.Entry) error {
+	newDocID, found := extractDocIDFromTask(taskStatus)
+	if !found {
+		logger.Warn("Could not determine new document ID from task status")
+		return fmt.Errorf("could not determine new document ID from task status")
+	}
+
+	logger.WithField("new_doc_id", newDocID).Info("Restoring owner and permissions on new document")
+
+	patchFields := buildPatchFields(owner, permissions)
+	if len(patchFields) == 0 {
+		return nil
+	}
+
+	if err := app.Client.PatchDocument(ctx, newDocID, patchFields); err != nil {
+		logger.WithError(err).Warn("Failed to patch owner/permissions on new document, continuing")
+		return err
+	}
 	return nil
 }

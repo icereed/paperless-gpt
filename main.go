@@ -79,6 +79,7 @@ var (
 	pdfUpload                     = os.Getenv("PDF_UPLOAD") == "true"
 	pdfReplace                    = os.Getenv("PDF_REPLACE") == "true"
 	pdfCopyMetadata               = os.Getenv("PDF_COPY_METADATA") == "true"
+	pdfPreserveOwnerPermissions   = os.Getenv("PDF_PRESERVE_OWNER_PERMISSIONS") == "true"
 	pdfOCRCompleteTag             = os.Getenv("PDF_OCR_COMPLETE_TAG")
 	pdfOCRTagging                 = os.Getenv("PDF_OCR_TAGGING") == "true"
 	pdfSkipExistingOCR            = os.Getenv("PDF_SKIP_EXISTING_OCR") == "true"
@@ -86,6 +87,8 @@ var (
 	doclingImageExportMode        = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
 	doclingOCRPipeline            = os.Getenv("DOCLING_OCR_PIPELINE")
 	doclingOCREngine              = os.Getenv("DOCLING_OCR_ENGINE")
+	iosOcrServerURL               = os.Getenv("IOS_OCR_SERVER_URL")
+	iosOcrServerTimeout           = os.Getenv("IOS_OCR_SERVER_TIMEOUT")
 	googleThinkingBudget          *int32 // Will be parsed from GOOGLEAI_THINKING_BUDGET
 
 	// Templates
@@ -122,24 +125,28 @@ func refreshCustomFieldsCache(client ClientInterface) {
 
 // App struct to hold dependencies
 type App struct {
-	Client             ClientInterface
-	Database           *gorm.DB
-	LLM                llms.Model
-	VisionLLM          llms.Model
-	ocrProvider        ocr.Provider      // OCR provider interface
-	ocrProcessMode     string            // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
-	docProcessor       DocumentProcessor // Optional: Can be used for mocking
-	localHOCRPath      string            // Path for saving hOCR files locally
-	localPDFPath       string            // Path for saving PDF files locally
-	createLocalHOCR    bool              // Whether to save hOCR files locally
-	createLocalPDF     bool              // Whether to create PDF files locally
-	pdfUpload          bool              // Whether to upload processed PDFs to paperless-ngx
-	pdfReplace         bool              // Whether to replace original document after upload
-	pdfCopyMetadata    bool              // Whether to copy metadata from original to uploaded PDF
-	pdfOCRCompleteTag  string            // Tag to add to documents that have been OCR processed
-	pdfOCRTagging      bool              // Whether to add the OCR complete tag to processed PDFs
-	pdfSkipExistingOCR bool              // Whether to skip processing PDFs that already have OCR detected
-	autoTagComplete    string            // Tag to add to documents after auto-processing is complete
+	Client                      ClientInterface
+	Database                    *gorm.DB
+	LLM                         llms.Model
+	VisionLLM                   llms.Model
+	ocrProvider                 ocr.Provider      // OCR provider interface
+	ocrProcessMode              string            // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
+	docProcessor                DocumentProcessor // Optional: Can be used for mocking
+	localHOCRPath               string            // Path for saving hOCR files locally
+	localPDFPath                string            // Path for saving PDF files locally
+	createLocalHOCR             bool              // Whether to save hOCR files locally
+	createLocalPDF              bool              // Whether to create PDF files locally
+	pdfUpload                   bool              // Whether to upload processed PDFs to paperless-ngx
+	pdfReplace                  bool              // Whether to replace original document after upload
+	pdfCopyMetadata             bool              // Whether to copy metadata from original to uploaded PDF
+	pdfPreserveOwnerPermissions bool              // Whether to restore owner and permissions on the uploaded document
+	pdfOCRCompleteTag           string            // Tag to add to documents that have been OCR processed
+	pdfOCRTagging               bool              // Whether to add the OCR complete tag to processed PDFs
+	pdfSkipExistingOCR          bool              // Whether to skip processing PDFs that already have OCR detected
+	autoTagComplete             string            // Tag to add to documents after auto-processing is complete
+
+	pendingRestores   []PendingPermissionRestore
+	pendingRestoresMu sync.Mutex
 }
 
 func main() {
@@ -302,6 +309,7 @@ func main() {
 		DoclingImageExportMode:   doclingImageExportMode,
 		DoclingOCRPipeline:       doclingOCRPipeline,
 		DoclingOCREngine:         doclingOCREngine,
+		IosOcrServerURL:          iosOcrServerURL,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 		VisionLLMMaxTokens:       visionLlmMaxTokens,
 		VisionLLMTemperature:     visionLlmTemperature,
@@ -317,6 +325,19 @@ func main() {
 			ocrConfig.AzureTimeout = timeout
 		} else {
 			log.Warnf("Invalid AZURE_DOCAI_TIMEOUT_SECONDS value: %v, using default", err)
+		}
+	}
+
+	// Parse iOS OCR Server timeout if set
+	if iosOcrServerTimeout != "" {
+		if timeout, err := strconv.Atoi(iosOcrServerTimeout); err == nil {
+			if timeout > 0 {
+				ocrConfig.IosOcrServerTimeout = timeout
+			} else {
+				log.Warnf("Invalid IOS_OCR_SERVER_TIMEOUT value: %d, must be positive, using default (60)", timeout)
+			}
+		} else {
+			log.Warnf("Invalid IOS_OCR_SERVER_TIMEOUT value: %v, using default (60)", err)
 		}
 	}
 
@@ -339,24 +360,25 @@ func main() {
 
 	// Initialize App with dependencies
 	app := &App{
-		Client:             client,
-		Database:           database,
-		LLM:                llm,
-		VisionLLM:          visionLlm,
-		ocrProvider:        ocrProvider,
-		ocrProcessMode:     ocrProcessMode,
-		docProcessor:       nil, // App itself implements DocumentProcessor
-		localHOCRPath:      localHOCRPath,
-		localPDFPath:       localPDFPath,
-		createLocalHOCR:    createLocalHOCR,
-		createLocalPDF:     createLocalPDF,
-		pdfUpload:          pdfUpload,
-		pdfReplace:         pdfReplace,
-		pdfCopyMetadata:    pdfCopyMetadata,
-		pdfOCRCompleteTag:  pdfOCRCompleteTag,
-		pdfOCRTagging:      pdfOCRTagging,
-		pdfSkipExistingOCR: pdfSkipExistingOCR,
-		autoTagComplete:    autoTagComplete,
+		Client:                      client,
+		Database:                    database,
+		LLM:                         llm,
+		VisionLLM:                   visionLlm,
+		ocrProvider:                 ocrProvider,
+		ocrProcessMode:              ocrProcessMode,
+		docProcessor:                nil, // App itself implements DocumentProcessor
+		localHOCRPath:               localHOCRPath,
+		localPDFPath:                localPDFPath,
+		createLocalHOCR:             createLocalHOCR,
+		createLocalPDF:              createLocalPDF,
+		pdfUpload:                   pdfUpload,
+		pdfReplace:                  pdfReplace,
+		pdfCopyMetadata:             pdfCopyMetadata,
+		pdfPreserveOwnerPermissions: pdfPreserveOwnerPermissions,
+		pdfOCRCompleteTag:           pdfOCRCompleteTag,
+		pdfOCRTagging:               pdfOCRTagging,
+		pdfSkipExistingOCR:          pdfSkipExistingOCR,
+		autoTagComplete:             autoTagComplete,
 	}
 
 	if app.isOcrEnabled() {
@@ -559,6 +581,7 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
 		"docling":      {"image", "pdf", "whole_pdf"}, // Docling supports image and PDF modes
+		"ios_ocr":      {"image"},                     // iOS OCR Server supports image mode only
 	}
 
 	// Google Gemini API natively handles PDF documents
@@ -674,6 +697,12 @@ func validateOrDefaultEnvVars() {
 		if doclingOCRPipeline == "standard" && doclingOCREngine == "" {
 			doclingOCREngine = "easyocr"
 			log.Infof("DOCLING_OCR_ENGINE not set, defaulting to %s", doclingOCREngine)
+		}
+	}
+
+	if ocrProvider == "ios_ocr" {
+		if iosOcrServerURL == "" {
+			log.Fatal("Please set the IOS_OCR_SERVER_URL environment variable for iOS OCR Server provider")
 		}
 	}
 

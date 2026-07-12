@@ -47,6 +47,15 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 					count += ocrCount
 				}
 
+				// Process pending permission restores
+				if a, ok := app.(*App); ok {
+					permCount, err := a.processPendingPermissionRestores(ctx)
+					if err != nil {
+						return 0, fmt.Errorf("error in processPendingPermissionRestores: %w", err)
+					}
+					count += permCount
+				}
+
 				// Run auto-tagging after OCR
 				autoCount, err := app.processAutoTagDocuments(ctx)
 				if err != nil {
@@ -308,12 +317,13 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		}
 
 		options := OCROptions{
-			UploadPDF:       app.pdfUpload,
-			ReplaceOriginal: app.pdfReplace,
-			CopyMetadata:    app.pdfCopyMetadata,
-			LimitPages:      limitOcrPages,
-			ProcessMode:     app.ocrProcessMode,
-			ExistingContent: document.Content,
+			UploadPDF:                app.pdfUpload,
+			ReplaceOriginal:          app.pdfReplace,
+			CopyMetadata:             app.pdfCopyMetadata,
+			PreserveOwnerPermissions: app.pdfPreserveOwnerPermissions,
+			LimitPages:               limitOcrPages,
+			ProcessMode:              app.ocrProcessMode,
+			ExistingContent:          document.Content,
 		}
 
 		// Use the DocumentProcessor interface instead of calling the method directly
