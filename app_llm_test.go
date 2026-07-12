@@ -476,6 +476,12 @@ func (m *mockPaperlessClient) GetDocument(ctx context.Context, documentID int) (
 func (m *mockPaperlessClient) GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error) {
 	return nil, "", nil
 }
+func (m *mockPaperlessClient) SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error) {
+	return nil, nil
+}
+func (m *mockPaperlessClient) GetDocumentPageImage(ctx context.Context, documentID int, pageIndex int) ([]byte, error) {
+	return nil, nil
+}
 func (m *mockPaperlessClient) GetAllTags(ctx context.Context) (map[string]int, error) {
 	m.GetAllTagsCalls++
 	if m.TagsError != nil {

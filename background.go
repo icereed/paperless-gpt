@@ -307,13 +307,35 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			}
 		}
 
-		options := OCROptions{
-			UploadPDF:       app.pdfUpload,
-			ReplaceOriginal: app.pdfReplace,
-			CopyMetadata:    app.pdfCopyMetadata,
-			LimitPages:      limitOcrPages,
-			ProcessMode:     app.ocrProcessMode,
-			ExistingContent: document.Content,
+		options := app.effectiveOCRDefaults()
+		options.ExistingContent = document.Content
+
+		// Every auto run is tracked exactly like a manual one: registered in
+		// the in-memory job store (live progress) and persisted as an OCR Run
+		// (Activity log), so hands-off users can audit what happened.
+		jobID := generateJobID()
+		jobStore.addJob(&Job{
+			ID:         jobID,
+			DocumentID: document.ID,
+			Status:     "in_progress",
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
+			Options:    options,
+		})
+		if err := CreateOCRRun(app.Database, &OCRRun{
+			JobID:           jobID,
+			DocumentID:      document.ID,
+			DocumentTitle:   document.Title,
+			Trigger:         "auto",
+			LimitPages:      options.LimitPages,
+			ProcessMode:     options.ProcessMode,
+			UploadPDF:       options.UploadPDF,
+			ReplaceOriginal: options.ReplaceOriginal,
+			CopyMetadata:    options.CopyMetadata,
+			Provider:        app.ocrProviderLabel,
+			PDFAction:       "none",
+		}); err != nil {
+			docLogger.Warnf("Failed to persist auto OCR run: %v", err)
 		}
 
 		// Use the DocumentProcessor interface instead of calling the method directly
@@ -321,20 +343,30 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		var err error
 		if app.docProcessor != nil {
 			// Use injected processor if available
-			processedDoc, err = app.docProcessor.ProcessDocumentOCR(ctx, document.ID, options, "")
+			processedDoc, err = app.docProcessor.ProcessDocumentOCR(ctx, document.ID, options, jobID)
 		} else {
 			// Use the app's own implementation if no processor is injected
-			processedDoc, err = app.ProcessDocumentOCR(ctx, document.ID, options, "")
+			processedDoc, err = app.ProcessDocumentOCR(ctx, document.ID, options, jobID)
 		}
 
+		pagesDone, totalPages := jobStore.progress(jobID)
 		if err != nil {
 			docLogger.Errorf("OCR processing failed: %v", err)
+			jobStore.updateJobStatus(jobID, "failed", err.Error())
+			finishOCRRunLogged(app, jobID, "failed", err.Error(), pagesDone, totalPages, "", "")
 			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
 			continue
 		}
 		if processedDoc == nil {
 			docLogger.Info("OCR processing skipped for document")
+			jobStore.updateJobStatus(jobID, "completed", "Skipped (already processed)")
+			finishOCRRunLogged(app, jobID, "completed", "", pagesDone, totalPages, "none", "Skipped (already processed)")
 			continue
+		}
+		jobStore.updateJobStatus(jobID, "completed", processedDoc.Text)
+		finishOCRRunLogged(app, jobID, "completed", "", pagesDone, totalPages, processedDoc.PDFAction, processedDoc.PDFDetail)
+		if err := PruneOCRRuns(app.Database, document.ID); err != nil {
+			docLogger.Warnf("Failed to prune OCR runs: %v", err)
 		}
 		docLogger.Debug("OCR processing completed")
 

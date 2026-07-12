@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -317,6 +318,27 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// submitOCRJobRequest is the optional body of POST /api/documents/:id/ocr.
+// Absent fields fall back to the effective defaults (settings over env).
+type submitOCRJobRequest struct {
+	LimitPages      *int    `json:"limit_pages"`
+	ProcessMode     *string `json:"process_mode"`
+	UploadPDF       *bool   `json:"upload_pdf"`
+	ReplaceOriginal *bool   `json:"replace_original"`
+	CopyMetadata    *bool   `json:"copy_metadata"`
+	PromptOverride  string  `json:"prompt_override"`
+}
+
+// ocrSupportsHOCR reports whether the configured provider can produce hOCR
+// (the prerequisite for searchable PDFs).
+func (app *App) ocrSupportsHOCR() bool {
+	if app.ocrProvider == nil {
+		return false
+	}
+	capable, ok := app.ocrProvider.(HOCRCapable)
+	return ok && capable.IsHOCREnabled()
+}
+
 func (app *App) submitOCRJobHandler(c *gin.Context) {
 	documentIDStr := c.Param("id")
 	documentID, err := strconv.Atoi(documentIDStr)
@@ -325,14 +347,93 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 		return
 	}
 
+	var req submitOCRJobRequest
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request payload: %v", err)})
+			return
+		}
+	}
+
+	options := app.effectiveOCRDefaults()
+	if req.LimitPages != nil {
+		if *req.LimitPages < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "limit_pages must be 0 (no limit) or positive"})
+			return
+		}
+		options.LimitPages = *req.LimitPages
+	}
+	if req.ProcessMode != nil && *req.ProcessMode != "" {
+		mode := *req.ProcessMode
+		if mode != "image" && mode != "pdf" && mode != "whole_pdf" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "process_mode must be one of: image, pdf, whole_pdf"})
+			return
+		}
+		options.ProcessMode = mode
+	}
+	if req.UploadPDF != nil {
+		options.UploadPDF = *req.UploadPDF
+	}
+	if req.ReplaceOriginal != nil {
+		options.ReplaceOriginal = *req.ReplaceOriginal
+	}
+	if req.CopyMetadata != nil {
+		options.CopyMetadata = *req.CopyMetadata
+	}
+	if options.ReplaceOriginal && !options.UploadPDF {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "replace_original requires upload_pdf"})
+		return
+	}
+	if options.UploadPDF && !app.ocrSupportsHOCR() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Searchable PDFs need an hOCR-capable OCR provider (enable hOCR for the LLM provider)"})
+		return
+	}
+	if req.PromptOverride != "" {
+		if _, err := renderOCRPromptOverride(req.PromptOverride, ""); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Prompt override does not render: %v", err)})
+			return
+		}
+		options.PromptOverride = req.PromptOverride
+	}
+
+	// Fetch title and existing content: the title makes the persisted run
+	// self-describing, the content feeds the OCR prompt's cross-reference.
+	documentTitle := fmt.Sprintf("Document %d", documentID)
+	if doc, err := app.Client.GetDocument(c.Request.Context(), documentID); err == nil {
+		documentTitle = doc.Title
+		options.ExistingContent = doc.Content
+	} else {
+		log.Warnf("Could not fetch document %d before OCR run: %v", documentID, err)
+	}
+
 	// Create a new job
-	jobID := generateJobID() // Implement a function to generate unique job IDs
+	jobID := generateJobID()
 	job := &Job{
 		ID:         jobID,
 		DocumentID: documentID,
 		Status:     "pending",
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
+		Options:    options,
+	}
+
+	run := &OCRRun{
+		JobID:            jobID,
+		DocumentID:       documentID,
+		DocumentTitle:    documentTitle,
+		Trigger:          "manual",
+		LimitPages:       options.LimitPages,
+		ProcessMode:      options.ProcessMode,
+		UploadPDF:        options.UploadPDF,
+		ReplaceOriginal:  options.ReplaceOriginal,
+		CopyMetadata:     options.CopyMetadata,
+		PromptOverridden: options.PromptOverride != "",
+		PromptOverride:   options.PromptOverride,
+		Provider:         app.ocrProviderLabel,
+		PDFAction:        "none",
+	}
+	if err := CreateOCRRun(app.Database, run); err != nil {
+		log.Warnf("Failed to persist OCR run for job %s: %v", jobID, err)
 	}
 
 	// Add job to store and queue
@@ -341,6 +442,183 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 
 	// Return the job ID to the client
 	c.JSON(http.StatusAccepted, gin.H{"job_id": jobID})
+}
+
+// listOCRRunsHandler returns persisted OCR runs (the Activity log), newest
+// first, optionally filtered by document.
+func (app *App) listOCRRunsHandler(c *gin.Context) {
+	limit := 50
+	if l, err := strconv.Atoi(c.DefaultQuery("limit", "50")); err == nil && l > 0 && l <= 200 {
+		limit = l
+	}
+	offset := 0
+	if o, err := strconv.Atoi(c.DefaultQuery("offset", "0")); err == nil && o >= 0 {
+		offset = o
+	}
+	documentID := 0
+	if d, err := strconv.Atoi(c.DefaultQuery("document_id", "0")); err == nil && d > 0 {
+		documentID = d
+	}
+
+	runs, total, err := ListOCRRuns(app.Database, documentID, limit, offset)
+	if err != nil {
+		log.Errorf("Failed to list OCR runs: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list OCR runs"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"runs": runs, "total": total})
+}
+
+// getOCRConfigHandler describes the OCR setup: provider, capabilities,
+// effective defaults, and the auto-OCR queue. It powers the Playground's
+// transparency panel, the setup state, and the Activity header.
+func (app *App) getOCRConfigHandler(c *gin.Context) {
+	enabled := app.isOcrEnabled()
+	defaults := app.effectiveOCRDefaults()
+
+	response := gin.H{
+		"enabled":      enabled,
+		"provider":     app.ocrProviderLabel,
+		"hocr_capable": app.ocrSupportsHOCR(),
+		"defaults": gin.H{
+			"limit_pages":      defaults.LimitPages,
+			"process_mode":     defaults.ProcessMode,
+			"upload_pdf":       defaults.UploadPDF,
+			"replace_original": defaults.ReplaceOriginal,
+			"copy_metadata":    defaults.CopyMetadata,
+		},
+		"auto_tag":         autoOcrTag,
+		"ocr_complete_tag": pdfOCRCompleteTag,
+		"ocr_tagging":      pdfOCRTagging,
+	}
+
+	if enabled && autoOcrTag != "" {
+		if count, err := app.Client.GetDocumentCountByTag(c.Request.Context(), autoOcrTag); err == nil {
+			response["auto_queue_count"] = count
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// updateOCRDefaultsHandler persists new OCR Run Option defaults — the
+// "make this the auto default" ramp from Playground to hands-off auto mode.
+func (app *App) updateOCRDefaultsHandler(c *gin.Context) {
+	var defaults OCRDefaults
+	if err := c.ShouldBindJSON(&defaults); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid request payload: %v", err)})
+		return
+	}
+	if defaults.LimitPages != nil && *defaults.LimitPages < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "limit_pages must be 0 (no limit) or positive"})
+		return
+	}
+	if defaults.ProcessMode != nil && *defaults.ProcessMode != "" {
+		mode := *defaults.ProcessMode
+		if mode != "image" && mode != "pdf" && mode != "whole_pdf" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "process_mode must be one of: image, pdf, whole_pdf"})
+			return
+		}
+	}
+	if defaults.ReplaceOriginal != nil && *defaults.ReplaceOriginal {
+		uploadEnabled := app.pdfUpload
+		if defaults.UploadPDF != nil {
+			uploadEnabled = *defaults.UploadPDF
+		}
+		if !uploadEnabled {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "replace_original requires upload_pdf"})
+			return
+		}
+	}
+
+	if err := updateOCRDefaults(defaults); err != nil {
+		log.Errorf("Failed to save OCR defaults: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save OCR defaults"})
+		return
+	}
+
+	effective := app.effectiveOCRDefaults()
+	c.JSON(http.StatusOK, gin.H{
+		"defaults": gin.H{
+			"limit_pages":      effective.LimitPages,
+			"process_mode":     effective.ProcessMode,
+			"upload_pdf":       effective.UploadPDF,
+			"replace_original": effective.ReplaceOriginal,
+			"copy_metadata":    effective.CopyMetadata,
+		},
+	})
+}
+
+// documentIDFromQuery recognizes bare document IDs and paperless-ngx
+// document URLs so the picker's search field doubles as a paste target.
+var documentURLPattern = regexp.MustCompile(`/documents/(\d+)`)
+
+func documentIDFromQuery(query string) int {
+	trimmed := strings.TrimSpace(query)
+	if id, err := strconv.Atoi(trimmed); err == nil && id > 0 {
+		return id
+	}
+	if m := documentURLPattern.FindStringSubmatch(trimmed); m != nil {
+		if id, err := strconv.Atoi(m[1]); err == nil && id > 0 {
+			return id
+		}
+	}
+	return 0
+}
+
+// searchDocumentsHandler powers the Playground document picker: recent
+// documents for an empty query, full-text search otherwise, and direct hits
+// for pasted IDs or paperless-ngx URLs.
+func (app *App) searchDocumentsHandler(c *gin.Context) {
+	query := c.Query("q")
+	limit := 20
+	if l, err := strconv.Atoi(c.DefaultQuery("limit", "20")); err == nil && l > 0 && l <= 50 {
+		limit = l
+	}
+
+	if id := documentIDFromQuery(query); id > 0 {
+		if doc, err := app.Client.GetDocument(c.Request.Context(), id); err == nil {
+			c.JSON(http.StatusOK, gin.H{"documents": []Document{doc}})
+			return
+		}
+		// Fall through to full-text search: the number might be part of a title.
+	}
+
+	documents, err := app.Client.SearchDocuments(c.Request.Context(), query, limit)
+	if err != nil {
+		log.Errorf("Error searching documents: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search documents"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"documents": documents})
+}
+
+// getDocumentPageImageHandler serves a rendered page of a document for the
+// Playground's scan-next-to-text view.
+func (app *App) getDocumentPageImageHandler(c *gin.Context) {
+	documentID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid document ID"})
+		return
+	}
+	pageIndex, err := strconv.Atoi(c.Param("pageIndex"))
+	if err != nil || pageIndex < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page index"})
+		return
+	}
+
+	data, err := app.Client.GetDocumentPageImage(c.Request.Context(), documentID, pageIndex)
+	if err != nil {
+		if strings.Contains(err.Error(), "out of range") {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		log.Errorf("Error rendering page image for document %d page %d: %v", documentID, pageIndex, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to render page image"})
+		return
+	}
+	c.Header("Cache-Control", "private, max-age=3600")
+	c.Data(http.StatusOK, "image/jpeg", data)
 }
 
 func (app *App) getJobStatusHandler(c *gin.Context) {
@@ -455,25 +733,33 @@ func (app *App) getOCRPagesHandler(c *gin.Context) {
 		return
 	}
 
-	dbResults, err := GetOcrPageResults(app.Database, parsedID)
+	// job_id selects a specific run's pages; empty means the latest run.
+	requestedJobID := c.Query("job_id")
+	dbResults, err := GetOcrPageResults(app.Database, parsedID, requestedJobID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch OCR page results"})
 		return
 	}
 
 	type OCRPageResult struct {
+		PageIndex      int                    `json:"pageIndex"`
 		Text           string                 `json:"text"`
 		OcrLimitHit    bool                   `json:"ocrLimitHit"`
 		GenerationInfo map[string]interface{} `json:"generationInfo,omitempty"`
 	}
 
-	var pages []OCRPageResult
+	pages := []OCRPageResult{}
+	jobID := requestedJobID
 	for _, res := range dbResults {
 		var genInfo map[string]interface{}
 		if res.GenerationInfo != "" {
 			_ = json.Unmarshal([]byte(res.GenerationInfo), &genInfo)
 		}
+		if jobID == "" {
+			jobID = res.JobID
+		}
 		pages = append(pages, OCRPageResult{
+			PageIndex:      res.PageIndex,
 			Text:           res.Text,
 			OcrLimitHit:    res.OcrLimitHit,
 			GenerationInfo: genInfo,
@@ -481,7 +767,8 @@ func (app *App) getOCRPagesHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"pages": pages,
+		"pages":  pages,
+		"job_id": jobID,
 	})
 }
 
@@ -552,7 +839,13 @@ func (app *App) reOCRPageHandler(c *gin.Context) {
 			genInfoJSON = string(b)
 		}
 	}
-	saveErr := SaveSingleOcrPageResult(app.Database, parsedID, pageIdx, result.Text, result.OcrLimitHit, genInfoJSON)
+	// Attribute the corrected page to a run: an explicit job_id wins,
+	// otherwise the latest run of the document.
+	jobID := c.Query("job_id")
+	if jobID == "" {
+		jobID = LatestOCRRunJobID(app.Database, parsedID)
+	}
+	saveErr := SaveSingleOcrPageResult(app.Database, parsedID, jobID, pageIdx, result.Text, result.OcrLimitHit, genInfoJSON)
 	if saveErr != nil {
 		log.Errorf("Failed to save re-OCR result for doc %d page %d: %v", parsedID, pageIdx, saveErr)
 	}
