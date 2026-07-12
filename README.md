@@ -195,6 +195,7 @@ services:
       # LLM_PROVIDER: "anthropic"
       # LLM_MODEL: "claude-sonnet-4-5"
       # ANTHROPIC_API_KEY: "your_anthropic_api_key"
+      # ANTHROPIC_BASE_URL: "https://your-anthropic-compatible-proxy.example.com" # Optional, e.g. CLIProxyAPI, LiteLLM
 
       # Optional LLM Settings
       # LLM_LANGUAGE: "English" # Optional, default: English
@@ -570,6 +571,7 @@ For best results with the enhanced OCR features:
 | `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                    | Cond.    |                            |
 | `MISTRAL_API_KEY`                   | Mistral API key (required if using Mistral).                                                                                                                                                  | Cond.    |                            |
 | `ANTHROPIC_API_KEY`                 | Anthropic API key (required if using Anthropic/Claude).                                                                                                                                       | Cond.    |                            |
+| `ANTHROPIC_BASE_URL`                | Base URL for the Anthropic API. Use it to point to an Anthropic-compatible endpoint (e.g. [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), LiteLLM). If unset, the Anthropic SDK's default host is used. | No       |                            |
 | `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                                   | No       |                            |
 | `OPENAI_BASE_URL`                   | Base URL for OpenAI API. Use it to point to an OpenAI-compatible endpoint (e.g. OpenRouter, LiteLLM, vLLM). For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                            |
 | `LLM_LANGUAGE`                      | Likely language for documents (e.g. `English`). Appears in the prompt to help the LLM.                                                                                                                                               | No       | English                    |
