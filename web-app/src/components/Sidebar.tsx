@@ -6,7 +6,6 @@ import {
   HomeIcon,
   Bars3Icon,
 } from "@heroicons/react/24/outline";
-import axios from "axios";
 import classNames from "classnames";
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -47,22 +46,16 @@ const Sidebar: React.FC = () => {
     });
   };
 
-  const [ocrEnabled, setOcrEnabled] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    axios
-      .get<{ enabled: boolean }>("./api/experimental/ocr")
-      .then((res) => {
-        if (!cancelled) setOcrEnabled(res.data.enabled);
-      })
-      .catch((err) => console.error(err));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+  // OCR is the headline feature and always visible — without a configured
+  // provider the page shows setup guidance instead of hiding entirely.
   const menuItems: MenuItem[] = [
     { name: "home", path: "./", icon: HomeIcon, title: "Home" },
+    {
+      name: "ocr",
+      path: "./ocr",
+      icon: DocumentMagnifyingGlassIcon,
+      title: "OCR",
+    },
     {
       name: "adhoc-analysis",
       path: "./adhoc-analysis",
@@ -77,17 +70,6 @@ const Sidebar: React.FC = () => {
       title: "Settings",
     },
   ];
-
-  // OCR is a headline feature; when enabled it sits right below Home.
-  // (The route keeps its historical /experimental-ocr path for bookmarks.)
-  if (ocrEnabled) {
-    menuItems.splice(1, 0, {
-      name: "ocr",
-      path: "./experimental-ocr",
-      icon: DocumentMagnifyingGlassIcon,
-      title: "OCR",
-    });
-  }
 
   const currentSegment = location.pathname.split("/").at(-1);
 
@@ -125,7 +107,11 @@ const Sidebar: React.FC = () => {
       <nav aria-label="Main" className="flex-1 overflow-y-auto p-2">
         <ul className="space-y-1">
           {menuItems.map((item) => {
-            const isActive = currentSegment === item.path.split("/").at(-1);
+            // /ocr has sub-routes (/ocr/activity) that keep the item active.
+            const isActive =
+              item.name === "ocr"
+                ? location.pathname.includes("/ocr")
+                : currentSegment === item.path.split("/").at(-1);
             const Icon = item.icon;
             return (
               <li key={item.name}>
