@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/jpeg"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tmc/langchaingo/llms"
@@ -89,6 +90,24 @@ func TestProcessImage_RetriesExhausted(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Equal(t, 3, llm.calls) // initial call + 2 retries
+}
+
+func TestProcessImage_ContextCanceledDuringBackoff(t *testing.T) {
+	t.Setenv("VISION_LLM_MAX_RETRIES", "8")
+	t.Setenv("VISION_LLM_BACKOFF_MAX_WAIT", "10s") // long backoff so cancellation fires first
+
+	llm := &fakeVisionLLM{errs: []error{
+		errors.New("API returned unexpected status code: 429"),
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	_, err := retryTestProvider(llm).ProcessImage(ctx, testJPEG(t), 1)
+
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, llm.calls)
 }
 
 func TestProcessImage_ZeroRetriesRestoresFailFast(t *testing.T) {
