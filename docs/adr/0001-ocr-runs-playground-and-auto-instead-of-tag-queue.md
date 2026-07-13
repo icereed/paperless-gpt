@@ -58,3 +58,20 @@ settings that let auto mode take over.
   requesting an upload generates the PDF regardless.
 - A future manual OCR queue would be a new decision; nothing in the run model
   blocks it, but there is deliberately no half-built tag flow in the codebase.
+
+## Amendment (2026-07-13): shadowing must be visible
+
+Settings-persisted defaults shadowing env values brushes against the spirit of
+12-factor config: the operator's compose file would silently stop telling the
+truth. The persistence itself is consistent with the app's existing pattern
+(UI-editable prompts, `config/settings.json` for custom fields) and is what
+makes the "tune in the Playground, promote to auto mode" ramp work — so it
+stays, but the shadowing is never silent:
+
+- `GET /api/ocr/config` reports the source (`env`/`saved`) per option,
+- the Playground shows a notice with a one-click "Reset to env defaults"
+  (`DELETE /api/ocr/defaults`),
+- startup logs which options are overridden by saved settings.
+
+A strict `OCR_DEFAULTS_SOURCE=env` mode (ignore saved values entirely) was
+considered and deferred until someone actually asks for it.

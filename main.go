@@ -165,6 +165,9 @@ func main() {
 		log.Warn("Custom fields are enabled, but no custom fields are selected in the settings.")
 	}
 
+	// UI-saved OCR defaults shadow env values; say so where operators look.
+	logOCRSettingsOverrides()
+
 	// Print version
 	printVersion()
 
@@ -417,6 +420,7 @@ func main() {
 		api.GET("/ocr/runs", app.listOCRRunsHandler)
 		api.GET("/ocr/config", app.getOCRConfigHandler)
 		api.PUT("/ocr/defaults", app.updateOCRDefaultsHandler)
+		api.DELETE("/ocr/defaults", app.resetOCRDefaultsHandler)
 		api.GET("/search-documents", app.searchDocumentsHandler)
 		api.GET("/documents/:id/pages/:pageIndex/image", app.getDocumentPageImageHandler)
 		api.POST("/ocr/jobs/:job_id/stop", app.stopOCRJobHandler)

@@ -9,11 +9,15 @@ export interface OCRRunOptions {
   copy_metadata: boolean;
 }
 
+export type OCRDefaultsSource = "env" | "saved";
+
 export interface OCRConfig {
   enabled: boolean;
   provider: string;
   hocr_capable: boolean;
   defaults: OCRRunOptions;
+  /** Per option: whether the effective default comes from env or UI-saved settings. */
+  defaults_sources: Record<string, OCRDefaultsSource>;
   auto_tag: string;
   ocr_complete_tag: string;
   ocr_tagging: boolean;
@@ -162,6 +166,11 @@ export async function saveOCRDefaults(options: OCRRunOptions): Promise<void> {
     replace_original: options.replace_original,
     copy_metadata: options.copy_metadata,
   });
+}
+
+/** Clears UI-saved defaults so the env-derived values apply again. */
+export async function resetOCRDefaults(): Promise<void> {
+  await axios.delete("./api/ocr/defaults");
 }
 
 export async function fetchOCRPromptTemplate(): Promise<string> {

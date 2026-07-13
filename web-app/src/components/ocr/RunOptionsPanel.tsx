@@ -7,6 +7,7 @@ import {
   OCRConfig,
   OCRRunOptions,
   fetchOCRPromptTemplate,
+  resetOCRDefaults,
   saveOCRDefaults,
   saveOCRPromptTemplate,
 } from "./api";
@@ -21,6 +22,8 @@ interface RunOptionsPanelProps {
   canStart: boolean;
   running: boolean;
   onToast: (message: string) => void;
+  /** Called after defaults were saved or reset so the config refreshes. */
+  onDefaultsChanged: () => void;
 }
 
 type PDFChoice = "none" | "attach" | "replace";
@@ -43,6 +46,7 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
   canStart,
   running,
   onToast,
+  onDefaultsChanged,
 }) => {
   const [promptOpen, setPromptOpen] = useState(promptOverride !== null);
   const [templateLoaded, setTemplateLoaded] = useState(false);
@@ -85,6 +89,7 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
     setSavingDefaults(true);
     try {
       await saveOCRDefaults(options);
+      onDefaultsChanged();
       onToast(
         "Saved as defaults — Auto-OCR and future runs now use these options."
       );
@@ -95,6 +100,21 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
       setSavingDefaults(false);
     }
   };
+
+  const handleResetDefaults = async () => {
+    try {
+      await resetOCRDefaults();
+      onDefaultsChanged();
+      onToast("Saved defaults cleared — the env-configured values apply again.");
+    } catch (err) {
+      console.error("Failed to reset OCR defaults:", err);
+      onToast("Resetting defaults failed — check the backend connection.");
+    }
+  };
+
+  const savedOverridesActive = Object.values(config.defaults_sources || {}).some(
+    (source) => source === "saved"
+  );
 
   const handleSavePromptAsDefault = async () => {
     if (promptOverride === null) return;
@@ -240,6 +260,23 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
           </Button>
         </div>
       </div>
+
+      {savedOverridesActive && (
+        <p className="mt-3 flex flex-wrap items-center gap-2 rounded-md bg-warn-tint px-3 py-2 text-xs text-warn">
+          <span>
+            Saved defaults are active and override the values from your
+            environment variables (also logged at startup).
+          </span>
+          <button
+            type="button"
+            onClick={handleResetDefaults}
+            disabled={running}
+            className="font-medium underline hover:no-underline"
+          >
+            Reset to env defaults
+          </button>
+        </p>
+      )}
 
       <div className="mt-4 border-t border-line pt-3">
         <button

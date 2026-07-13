@@ -81,6 +81,13 @@ const OCR: React.FC = () => {
     };
   }, []);
 
+  // Refresh after defaults were saved/reset so source markers stay truthful.
+  const refreshConfig = useCallback(() => {
+    fetchOCRConfig()
+      .then(setConfig)
+      .catch((err) => console.error("Failed to refresh OCR config:", err));
+  }, []);
+
   const loadRuns = useCallback(async (documentId: number) => {
     const { runs } = await fetchOCRRuns(documentId);
     const completed = runs.filter((run) => run.status === "completed");
@@ -275,6 +282,7 @@ VISION_LLM_MODEL=minicpm-v`}
               canStart={!jobRunning}
               running={jobRunning}
               onToast={(message) => setToast({ kind: "success", message })}
+              onDefaultsChanged={refreshConfig}
             />
           )}
 

@@ -175,6 +175,44 @@ func TestSubmitOCRJobHandlerValidation(t *testing.T) {
 	}
 }
 
+func TestOCRDefaultsSourcesAndReset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	app := &App{ocrProcessMode: "image"}
+
+	settingsMutex.Lock()
+	origSettings := settings
+	limit := 3
+	settings.OCR = OCRDefaults{LimitPages: &limit}
+	settingsMutex.Unlock()
+	defer func() {
+		settingsMutex.Lock()
+		settings = origSettings
+		settingsMutex.Unlock()
+	}()
+
+	sources := ocrDefaultsSources()
+	assert.Equal(t, "saved", sources["limit_pages"])
+	assert.Equal(t, "env", sources["process_mode"])
+
+	// DELETE /api/ocr/defaults clears the overrides.
+	router := gin.New()
+	router.DELETE("/api/ocr/defaults", app.resetOCRDefaultsHandler)
+	req, err := http.NewRequest(http.MethodDelete, "/api/ocr/defaults", nil)
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	sources = ocrDefaultsSources()
+	assert.Equal(t, "env", sources["limit_pages"])
+
+	var resp struct {
+		Sources map[string]string `json:"defaults_sources"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "env", resp.Sources["limit_pages"])
+}
+
 func TestEffectiveOCRDefaultsMergesSettingsOverEnv(t *testing.T) {
 	app := &App{pdfUpload: false, pdfReplace: false, pdfCopyMetadata: false, ocrProcessMode: "image"}
 

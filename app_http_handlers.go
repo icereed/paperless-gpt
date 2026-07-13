@@ -487,6 +487,9 @@ func (app *App) getOCRConfigHandler(c *gin.Context) {
 			"replace_original": defaults.ReplaceOriginal,
 			"copy_metadata":    defaults.CopyMetadata,
 		},
+		// "env" or "saved" per option — saved values shadow env values and
+		// that shadowing must be visible to the operator.
+		"defaults_sources": ocrDefaultsSources(),
 		"auto_tag":         autoOcrTag,
 		"ocr_complete_tag": pdfOCRCompleteTag,
 		"ocr_tagging":      pdfOCRTagging,
@@ -537,6 +540,21 @@ func (app *App) updateOCRDefaultsHandler(c *gin.Context) {
 		return
 	}
 
+	app.respondWithOCRDefaults(c)
+}
+
+// resetOCRDefaultsHandler clears all UI-saved OCR defaults so the env-derived
+// values apply again — the escape hatch for declaratively managed setups.
+func (app *App) resetOCRDefaultsHandler(c *gin.Context) {
+	if err := updateOCRDefaults(OCRDefaults{}); err != nil {
+		log.Errorf("Failed to reset OCR defaults: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reset OCR defaults"})
+		return
+	}
+	app.respondWithOCRDefaults(c)
+}
+
+func (app *App) respondWithOCRDefaults(c *gin.Context) {
 	effective := app.effectiveOCRDefaults()
 	c.JSON(http.StatusOK, gin.H{
 		"defaults": gin.H{
@@ -546,6 +564,7 @@ func (app *App) updateOCRDefaultsHandler(c *gin.Context) {
 			"replace_original": effective.ReplaceOriginal,
 			"copy_metadata":    effective.CopyMetadata,
 		},
+		"defaults_sources": ocrDefaultsSources(),
 	})
 }
 
