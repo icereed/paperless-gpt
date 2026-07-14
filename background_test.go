@@ -756,18 +756,38 @@ func TestProcessAutoOcrTagDocuments_FailTagAfterMaxRetries(t *testing.T) {
 		assert.Equal(t, []string{autoOcrTag}, client.calls[1].RemoveTags)
 	})
 
-	t.Run("context cancellation is never counted", func(t *testing.T) {
+	t.Run("loop shutdown is never counted", func(t *testing.T) {
 		ocrMaxRetries = 3
 		client := &recordingClient{taggedDocuments: map[string][]Document{autoOcrTag: {newDoc(10)}}}
 		app := newApp(client, &mockDocumentProcessor{
 			mockErr: fmt.Errorf("OCR aborted: %w", context.Canceled),
 		})
 
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // the poll loop is shutting down
+
 		for round := 1; round <= 5; round++ {
-			_, err := app.processAutoOcrTagDocuments(context.Background())
+			_, err := app.processAutoOcrTagDocuments(ctx)
 			assert.Error(t, err)
 		}
 		assert.Empty(t, client.calls, "shutdown-caused failures must not fail-tag documents")
+	})
+
+	t.Run("provider-side timeouts do count", func(t *testing.T) {
+		ocrMaxRetries = 3
+		client := &recordingClient{taggedDocuments: map[string][]Document{autoOcrTag: {newDoc(14)}}}
+		// Providers wrap their calls in their own timeout contexts (e.g.
+		// Azure), so a per-document timeout surfaces as an error wrapping
+		// context.DeadlineExceeded while the loop context is still alive.
+		app := newApp(client, &mockDocumentProcessor{
+			mockErr: fmt.Errorf("operation timed out after 2m0s: %w", context.DeadlineExceeded),
+		})
+
+		for round := 1; round <= 3; round++ {
+			app.processAutoOcrTagDocuments(context.Background())
+		}
+		require.Len(t, client.calls, 1, "a document that keeps timing out must be fail-tagged")
+		assert.Equal(t, []string{failTag}, client.calls[0].SuggestedTags)
 	})
 
 	t.Run("OCR_MAX_RETRIES=0 disables the limit", func(t *testing.T) {

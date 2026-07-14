@@ -395,9 +395,13 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			jobStore.updateJobStatus(jobID, "failed", err.Error())
 			finishOCRRunLogged(app, jobID, "failed", err.Error(), pagesDone, totalPages, "", "")
 
-			// A canceled/expired context is a shutdown, not a document
-			// problem — never count it against the document.
-			if ocrMaxRetries > 0 && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			// A canceled/expired poll-loop context is a shutdown, not a
+			// document problem — never count it against the document.
+			// Deliberately checked on ctx rather than via errors.Is on err:
+			// providers wrap their calls in their own timeout contexts
+			// (e.g. Azure, ocr/azure_provider.go), and those per-document
+			// timeouts must count toward the limit.
+			if ocrMaxRetries > 0 && ctx.Err() == nil {
 				attempts := app.ocrFailures.recordFailure(document.ID)
 				if attempts >= ocrMaxRetries {
 					reason := fmt.Sprintf("OCR failed %d times", attempts)
