@@ -567,6 +567,7 @@ For best results with the enhanced OCR features:
 | `AUTO_TAG_COMPLETE`                 | Tag added to documents after auto-processing is complete. Only applied during auto-processing, not manual review. Set to an empty string (`AUTO_TAG_COMPLETE=""`) to disable. When the variable is unset, the default tag is used. | No       | paperless-gpt-auto-complete |
 | `LLM_PROVIDER`                      | AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`).                                                                                                                       | Yes      |                            |
 | `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`).                                                                                               | Yes      |                            |
+| `LLM_TIMEOUT`                       | timeout to receive an answer from the model in seconds.                                                                                                                                       | No       |60                          |
 | `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                    | Cond.    |                            |
 | `MISTRAL_API_KEY`                   | Mistral API key (required if using Mistral).                                                                                                                                                  | Cond.    |                            |
 | `ANTHROPIC_API_KEY`                 | Anthropic API key (required if using Anthropic/Claude).                                                                                                                                       | Cond.    |                            |
@@ -956,6 +957,7 @@ environment:
   OLLAMA_CONTEXT_LENGTH: "4096" # Controls Ollama NumCtx (context window); if unset, model default is used
   LLM_PROVIDER: "ollama"
   LLM_MODEL: "qwen3:8b" # Or other local model
+  LLM_TIMEOUT: "240"
 ```
 
 Common issues and solutions:
@@ -964,6 +966,7 @@ Common issues and solutions:
 - On Ollama, if you hit "context length exceeded" or memory issues, reduce `OLLAMA_CONTEXT_LENGTH` or choose a smaller model/context size.
 - If processing is too limited, gradually increase the limit while monitoring performance
 - For models with larger context windows, you can increase the limit or disable it entirely
+- If you encounter "error getting response from LLM: rate limiter wait failed: context canceled" you might need to increase the LLM_TIMEOUT value
 
 ### PDF Processing Issues
 

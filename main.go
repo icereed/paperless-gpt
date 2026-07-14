@@ -20,6 +20,7 @@ import (
 
 	"github.com/Masterminds/sprig/v3"
 	"github.com/fatih/color"
+	"github.com/gin-contrib/timeout"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
@@ -37,6 +38,7 @@ var (
 	log = logrus.New()
 
 	// Environment Variables
+	llmTimeout                    = 60 // Will be read from LLM_TIMEOUT
 	paperlessInsecureSkipVerify   = os.Getenv("PAPERLESS_INSECURE_SKIP_VERIFY") == "true"
 	correspondentBlackList        = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
 	paperlessBaseURL              = os.Getenv("PAPERLESS_BASE_URL")
@@ -386,7 +388,9 @@ func main() {
 		api.GET("/documents", app.documentsHandler)
 		// http://localhost:8080/api/documents/544
 		api.GET("/documents/:id", app.getDocumentHandler())
-		api.POST("/generate-suggestions", app.generateSuggestionsHandler)
+		api.POST("/generate-suggestions", timeout.New(
+			timeout.WithTimeout(time.Duration(llmTimeout)*time.Second),
+		), app.generateSuggestionsHandler)
 		api.PATCH("/update-documents", app.updateDocumentsHandler)
 		api.GET("/filter-tag", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"tag": manualTag})
@@ -720,6 +724,17 @@ func validateOrDefaultEnvVars() {
 			}
 			tokenLimit = parsed
 			log.Infof("Using token limit: %d", tokenLimit)
+		}
+	}
+
+	// Initialize LLM Timeout from environment variable
+	if timeout := os.Getenv("LLM_TIMEOUT"); timeout != "" {
+		if parsed, err := strconv.Atoi(timeout); err == nil {
+			if parsed < 0 {
+				log.Fatalf("LLM_TIMEOUT must be non-negative, got: %d", parsed)
+			}
+			llmTimeout = parsed
+			log.Infof("Using LLM timeout: %d", llmTimeout)
 		}
 	}
 
