@@ -62,3 +62,15 @@ The unattended background loop that runs OCR on every document carrying the auto
 **OCR Activity**:
 The persisted history of OCR Runs (manual and auto) — status, pages, duration, failures, and whether a Searchable PDF was attached or replaced. Entry point for re-running with adjusted Run Options.
 _Avoid_: job list, log
+
+### Configuration
+
+**Env Registry**:
+The single structured source of truth for every environment variable paperless-gpt understands (name, category, default, secret flag, meaning). A drift test fails the build if code reads a variable missing from it.
+
+**Active Configuration**:
+The read-only diagnostics view of every setting's effective value, its Source, and its meaning. Answers "what is this instance actually running with?". Secrets are shown only as set / not set.
+_Avoid_: settings dump, env dump
+
+**Source**:
+Where a setting's effective value comes from: `env` (set in the environment), `saved` (a UI-saved value shadows the environment) or `default`. Saved shadowing is always surfaced so the environment never silently lies.

@@ -419,6 +419,7 @@ func main() {
 		api.GET("/jobs/ocr", app.getAllJobsHandler)
 		api.GET("/ocr/runs", app.listOCRRunsHandler)
 		api.GET("/ocr/config", app.getOCRConfigHandler)
+		api.GET("/config", app.getConfigHandler)
 		api.PUT("/ocr/defaults", app.updateOCRDefaultsHandler)
 		api.DELETE("/ocr/defaults", app.resetOCRDefaultsHandler)
 		api.GET("/search-documents", app.searchDocumentsHandler)
