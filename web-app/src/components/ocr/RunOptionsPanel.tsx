@@ -1,4 +1,8 @@
-import { ChevronDownIcon, SparklesIcon } from "@heroicons/react/24/outline";
+import {
+  BookmarkSquareIcon,
+  ChevronDownIcon,
+  SparklesIcon,
+} from "@heroicons/react/24/outline";
 import classNames from "classnames";
 import React, { useEffect, useState } from "react";
 import Button from "../ui/Button";
@@ -245,13 +249,15 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
 
         <div className="flex items-center gap-2">
           <Button
-            variant="ghost"
-            size="sm"
+            variant="secondary"
             onClick={handleSaveDefaults}
             loading={savingDefaults}
             disabled={running}
-            title="Auto-OCR and future runs use these options"
+            title="Make these options the standard for Auto-OCR and future runs"
           >
+            {!savingDefaults && (
+              <BookmarkSquareIcon className="h-4 w-4" aria-hidden="true" />
+            )}
             Save as defaults
           </Button>
           <Button variant="primary" onClick={onStart} disabled={!canStart} loading={running}>

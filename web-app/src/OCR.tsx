@@ -1,4 +1,10 @@
-import { StopIcon } from "@heroicons/react/24/outline";
+import {
+  AdjustmentsHorizontalIcon,
+  BoltIcon,
+  DocumentMagnifyingGlassIcon,
+  SparklesIcon,
+  StopIcon,
+} from "@heroicons/react/24/outline";
 import axios from "axios";
 import classNames from "classnames";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -270,6 +276,80 @@ VISION_LLM_MODEL=minicpm-v`}
             onSelect={selectDocument}
             disabled={jobRunning}
           />
+
+          {!selectedDoc && !jobRunning && (
+            <div className="rounded-lg border border-line bg-surface p-6 sm:p-8">
+              <div className="flex items-start gap-4">
+                <div className="hidden shrink-0 rounded-lg bg-primary-tint p-2.5 sm:block">
+                  <DocumentMagnifyingGlassIcon
+                    className="h-6 w-6 text-primary"
+                    aria-hidden="true"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold">
+                    Try LLM-based OCR on any document
+                  </h2>
+                  <p className="mt-1.5 max-w-prose text-sm text-muted">
+                    Pick a document above — search by title or content, or paste a
+                    paperless ID or URL — to see the scan beside freshly recognized
+                    text. Tune the options, compare runs, then apply the result
+                    back to paperless-ngx.
+                  </p>
+                  <ol className="mt-4 flex flex-col gap-3 sm:flex-row sm:gap-6">
+                    <li className="flex items-center gap-2 text-sm text-muted">
+                      <DocumentMagnifyingGlassIcon
+                        className="h-4 w-4 shrink-0 text-faint"
+                        aria-hidden="true"
+                      />
+                      <span>
+                        <span className="font-medium text-ink">Pick</span> a
+                        document
+                      </span>
+                    </li>
+                    <li className="flex items-center gap-2 text-sm text-muted">
+                      <AdjustmentsHorizontalIcon
+                        className="h-4 w-4 shrink-0 text-faint"
+                        aria-hidden="true"
+                      />
+                      <span>
+                        <span className="font-medium text-ink">Tune &amp; run</span>{" "}
+                        the OCR
+                      </span>
+                    </li>
+                    <li className="flex items-center gap-2 text-sm text-muted">
+                      <SparklesIcon
+                        className="h-4 w-4 shrink-0 text-faint"
+                        aria-hidden="true"
+                      />
+                      <span>
+                        <span className="font-medium text-ink">Apply</span> or
+                        automate
+                      </span>
+                    </li>
+                  </ol>
+                  <p className="mt-5 border-t border-line pt-4 text-sm text-muted">
+                    <BoltIcon
+                      className="mr-1.5 inline-block h-4 w-4 align-text-bottom text-faint"
+                      aria-hidden="true"
+                    />
+                    Want it hands-off? Tag documents with{" "}
+                    <span className="whitespace-nowrap rounded-full bg-primary-tint px-2 py-0.5 text-xs font-medium text-ink">
+                      {config.auto_tag}
+                    </span>{" "}
+                    to run OCR automatically — every run lands in the{" "}
+                    <Link
+                      to="/ocr?tab=activity"
+                      className="font-medium text-primary hover:underline"
+                    >
+                      Activity log
+                    </Link>
+                    .
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {selectedDoc && (
             <RunOptionsPanel
