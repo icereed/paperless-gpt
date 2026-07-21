@@ -79,6 +79,7 @@ var envRegistry = []EnvVar{
 	{Name: "MISTRAL_API_KEY", Category: "LLM", Secret: true, Default: "", Description: "Mistral API key (required if using Mistral)."},
 	{Name: "MISTRAL_MODEL", Category: "OCR", Secret: false, Default: "mistral-ocr-latest", Description: "Mistral OCR model used when OCR_PROVIDER is mistral_ocr."},
 	{Name: "OCR_LIMIT_PAGES", Category: "OCR", Secret: false, Default: "5", Description: "Limit the number of pages for OCR. Set to `0` for no limit. Not applied in `whole_pdf` mode (see Whole PDF Mode), which always processes the entire document."},
+	{Name: "OCR_MAX_RETRIES", Category: "OCR", Secret: false, Default: "3", Description: "How many times OCR processing may fail for a document (in the auto-OCR poll) before paperless-gpt gives up: the auto OCR tag is removed and `FAIL_TAG` applied, so the document stops being retried (and re-billed) every cycle. Counted in memory — a restart resets the count. Set to `0` to keep retrying forever."},
 	{Name: "OCR_PROCESS_MODE", Category: "OCR", Secret: false, Default: "image", Description: "Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once)."},
 	{Name: "OCR_PROVIDER", Category: "OCR", Secret: false, Default: "llm", Description: "OCR provider to use (`llm`, `azure`, or `google_docai`)."},
 	{Name: "OLLAMA_CONTEXT_LENGTH", Category: "LLM", Secret: false, Default: "", Description: "(Ollama only) Integer. Sets NumCtx (context window) for the Ollama runner. If unset or 0, the model default is used."},

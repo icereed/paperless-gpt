@@ -670,7 +670,9 @@ func TestProcessAutoOcrTagDocuments_FailTagAfterMaxRetries(t *testing.T) {
 		return Document{ID: id, Title: "Broken Doc", Tags: []string{autoOcrTag}}
 	}
 	newApp := func(client *recordingClient, processor *mockDocumentProcessor) *App {
-		return &App{Client: client, docProcessor: processor}
+		// A Database is required since the auto-OCR loop now persists an OCRRun
+		// per attempt (#1005). Use a fully-migrated in-memory DB per App.
+		return &App{Client: client, docProcessor: processor, Database: newOCRRunTestDB(t)}
 	}
 
 	t.Run("fail tag applied on the configured attempt", func(t *testing.T) {
