@@ -302,8 +302,13 @@ func createAnthropicClient(config Config) (llms.Model, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("Anthropic API key is not set")
 	}
-	return anthropic.New(
+	options := []anthropic.Option{
 		anthropic.WithModel(config.VisionLLMModel),
 		anthropic.WithToken(apiKey),
-	)
+	}
+	if baseURL := os.Getenv("ANTHROPIC_BASE_URL"); baseURL != "" {
+		// Anthropic-compatible endpoints (e.g. CLIProxyAPI, LiteLLM proxies)
+		options = append(options, anthropic.WithBaseURL(baseURL))
+	}
+	return anthropic.New(options...)
 }

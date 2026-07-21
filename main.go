@@ -1138,10 +1138,15 @@ func createLLM() (llms.Model, error) {
 		if apiKey == "" {
 			return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set")
 		}
-		llm, err := anthropic.New(
+		anthropicOptions := []anthropic.Option{
 			anthropic.WithModel(llmModel),
 			anthropic.WithToken(apiKey),
-		)
+		}
+		if baseURL := os.Getenv("ANTHROPIC_BASE_URL"); baseURL != "" {
+			// Anthropic-compatible endpoints (e.g. CLIProxyAPI, LiteLLM proxies)
+			anthropicOptions = append(anthropicOptions, anthropic.WithBaseURL(baseURL))
+		}
+		llm, err := anthropic.New(anthropicOptions...)
 		if err != nil {
 			return nil, err
 		}
@@ -1244,10 +1249,15 @@ func createVisionLLM() (llms.Model, error) {
 		if apiKey == "" {
 			return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set")
 		}
-		llm, err := anthropic.New(
+		anthropicOptions := []anthropic.Option{
 			anthropic.WithModel(visionLlmModel),
 			anthropic.WithToken(apiKey),
-		)
+		}
+		if baseURL := os.Getenv("ANTHROPIC_BASE_URL"); baseURL != "" {
+			// Anthropic-compatible endpoints (e.g. CLIProxyAPI, LiteLLM proxies)
+			anthropicOptions = append(anthropicOptions, anthropic.WithBaseURL(baseURL))
+		}
+		llm, err := anthropic.New(anthropicOptions...)
 		if err != nil {
 			return nil, err
 		}
