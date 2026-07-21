@@ -48,8 +48,8 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   const [showSummary, setShowSummary] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [edited, setEdited] = useState(false);
   const statsRef = useRef({ docs: 0, fields: 0 });
+  const finishedRef = useRef(false);
 
   // A retry job can append documents after mount.
   useEffect(() => {
@@ -62,7 +62,6 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
 
   const updateItem = useCallback(
     (docId: number, update: (item: DocumentSuggestion) => DocumentSuggestion) => {
-      setEdited(true);
       setItems((prev) =>
         prev.map((item) => (item.id === docId ? update(item) : item))
       );
@@ -108,7 +107,6 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   };
 
   const handleToggleField = (docId: number, key: FieldKey) => {
-    setEdited(true);
     setExcludedMap((prev) => {
       const current = new Set(prev[docId] || []);
       if (current.has(key)) {
@@ -128,21 +126,29 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
     (item) => decisions[item.id] === "skipped"
   ).length;
 
-  const finishIfDone = useCallback(
-    (nextDecisions: Record<number, Decision>) => {
-      const allDecided = items.every(
-        (item) => (nextDecisions[item.id] || "pending") !== "pending"
-      );
-      if (allDecided) {
-        onFinished(statsRef.current.docs, statsRef.current.fields);
-      }
-    },
-    [items, onFinished]
-  );
+  // Fire onFinished exactly once, from an effect (not inside a state updater,
+  // which React may replay). It triggers when every item has been decided.
+  useEffect(() => {
+    if (finishedRef.current || items.length === 0) return;
+    const allDecided = items.every(
+      (item) => (decisions[item.id] || "pending") !== "pending"
+    );
+    if (allDecided) {
+      finishedRef.current = true;
+      onFinished(statsRef.current.docs, statsRef.current.fields);
+    }
+  }, [items, decisions, onFinished]);
 
   const applyDocuments = async (docsToApply: DocumentSuggestion[]) => {
     setError(null);
-    setApplyingIds(new Set(docsToApply.map((doc) => doc.id)));
+    const ids = docsToApply.map((doc) => doc.id);
+    // Track applying ids incrementally so concurrent single-doc applies don't
+    // clear each other's loading state.
+    setApplyingIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.add(id));
+      return next;
+    });
     try {
       const payload = docsToApply.map((item) =>
         buildUpdatePayload(item, excludedMap[item.id] || new Set())
@@ -161,17 +167,20 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
         docsToApply.forEach((doc) => {
           next[doc.id] = "applied";
         });
-        finishIfDone(next);
         return next;
       });
+      setShowSummary(false);
     } catch (err) {
       console.error("Error updating documents:", err);
       setError(
         "Applying the changes failed — nothing was marked as done. Check the backend connection and try again."
       );
     } finally {
-      setApplyingIds(new Set());
-      setShowSummary(false);
+      setApplyingIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
     }
   };
 
@@ -181,17 +190,17 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   };
 
   const handleSkip = (docId: number) => {
-    setDecisions((prev) => {
-      const next = { ...prev, [docId]: "skipped" as Decision };
-      finishIfDone(next);
-      return next;
-    });
+    setDecisions((prev) => ({ ...prev, [docId]: "skipped" as Decision }));
   };
 
   const handleDiscard = () => {
-    if (edited || pendingItems.length > 0) {
+    // Only confirm when there is something undecided to discard. `edited` stays
+    // true after edits are applied, so gating on it would show a misleading
+    // "0 undecided suggestions will be discarded" dialog.
+    if (pendingItems.length > 0) {
       setShowDiscardConfirm(true);
-    } else {
+    } else if (!finishedRef.current) {
+      finishedRef.current = true;
       onFinished(statsRef.current.docs, statsRef.current.fields);
     }
   };

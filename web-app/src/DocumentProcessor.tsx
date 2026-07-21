@@ -178,8 +178,12 @@ const DocumentProcessor: React.FC = () => {
   );
 
   // Resume a job after a reload: the job id survives in localStorage and the
-  // full result (including original documents) lives on the server.
+  // full result (including original documents) lives on the server. Wait for
+  // the initial data (custom fields) before consuming a completed result —
+  // otherwise every custom field name resolves to "Unknown Field" and the job
+  // is marked consumed, so the names never recover.
   useEffect(() => {
+    if (loading) return;
     const storedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
     if (!storedJobId) return;
     (async () => {
@@ -198,7 +202,7 @@ const DocumentProcessor: React.FC = () => {
         localStorage.removeItem(ACTIVE_JOB_KEY);
       }
     })();
-  }, [consumeJobResult]);
+  }, [loading, consumeJobResult]);
 
   // Poll the active job until it reaches a terminal state.
   useEffect(() => {

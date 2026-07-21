@@ -59,13 +59,49 @@ func init() {
 	suggestionLogger.SetLevel(logrus.InfoLevel)
 }
 
+// maxSuggestionJobs caps the in-memory job store. Each retained job holds its
+// full result (including document content), so without a cap a long-running
+// server would leak memory. Terminal jobs are evicted oldest-first once the
+// cap is exceeded.
+const maxSuggestionJobs = 200
+
 func (store *SuggestionJobStore) addJob(job *SuggestionJob) {
 	store.Lock()
 	defer store.Unlock()
 	job.DocumentsDone = 0
 	job.TotalDocuments = len(job.Request.Documents)
 	store.jobs[job.ID] = job
+	store.evictOldestTerminalLocked()
 	suggestionLogger.Infof("Suggestion job added: %s", job.ID)
+}
+
+// evictOldestTerminalLocked drops the oldest finished jobs while the store is
+// over capacity. Callers must hold the write lock. Non-terminal jobs are never
+// evicted so an in-flight job is never lost.
+func (store *SuggestionJobStore) evictOldestTerminalLocked() {
+	if len(store.jobs) <= maxSuggestionJobs {
+		return
+	}
+	type terminal struct {
+		id      string
+		updated time.Time
+	}
+	var candidates []terminal
+	for id, j := range store.jobs {
+		switch j.Status {
+		case "completed", "failed", "cancelled":
+			candidates = append(candidates, terminal{id, j.UpdatedAt})
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].updated.Before(candidates[j].updated)
+	})
+	for _, c := range candidates {
+		if len(store.jobs) <= maxSuggestionJobs {
+			break
+		}
+		delete(store.jobs, c.id)
+	}
 }
 
 func cloneSuggestionJob(job *SuggestionJob) SuggestionJob {
@@ -180,13 +216,6 @@ func (store *SuggestionJobStore) cancelPending(jobID string) bool {
 		return true
 	}
 	return false
-}
-
-func (store *SuggestionJobStore) isCancelled(jobID string) bool {
-	store.RLock()
-	defer store.RUnlock()
-	job, exists := store.jobs[jobID]
-	return exists && job.Status == "cancelled"
 }
 
 func (store *SuggestionJobStore) updateProgress(jobID string, documentsDone int, currentDocumentID int) {

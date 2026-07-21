@@ -62,12 +62,46 @@ func generateJobID() string {
 	return uuid.New().String()
 }
 
+// maxOCRJobs caps the in-memory OCR job store; terminal jobs are evicted
+// oldest-first so a long-running server does not accumulate them without bound.
+// (The durable record lives in the OCRRun table, which has its own pruning.)
+const maxOCRJobs = 200
+
 func (store *JobStore) addJob(job *Job) {
 	store.Lock()
 	defer store.Unlock()
 	job.PagesDone = 0 // Initialize PagesDone to 0
 	store.jobs[job.ID] = job
+	store.evictOldestTerminalLocked()
 	logger.Infof("Job added: %v", job)
+}
+
+// evictOldestTerminalLocked drops the oldest finished jobs while over capacity.
+// Callers must hold the write lock; in-flight jobs are never evicted.
+func (store *JobStore) evictOldestTerminalLocked() {
+	if len(store.jobs) <= maxOCRJobs {
+		return
+	}
+	type terminal struct {
+		id      string
+		updated time.Time
+	}
+	var candidates []terminal
+	for id, j := range store.jobs {
+		switch j.Status {
+		case "completed", "failed", "cancelled":
+			candidates = append(candidates, terminal{id, j.UpdatedAt})
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].updated.Before(candidates[j].updated)
+	})
+	for _, c := range candidates {
+		if len(store.jobs) <= maxOCRJobs {
+			break
+		}
+		delete(store.jobs, c.id)
+	}
 }
 
 func (store *JobStore) getJob(jobID string) (*Job, bool) {

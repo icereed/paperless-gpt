@@ -136,13 +136,33 @@ func PruneOCRRuns(db *gorm.DB, documentID int) error {
 		return err
 	}
 	if total > maxOCRRunRecords {
-		var oldest []uint
+		type oldestRun struct {
+			ID    uint
+			JobID string
+		}
+		var oldest []oldestRun
 		if err := db.Model(&OCRRun{}).Order("started_at ASC").
-			Limit(int(total-maxOCRRunRecords)).Pluck("id", &oldest).Error; err != nil {
+			Limit(int(total - maxOCRRunRecords)).
+			Find(&oldest).Error; err != nil {
 			return err
 		}
 		if len(oldest) > 0 {
-			if err := db.Where("id IN ?", oldest).Delete(&OCRRun{}).Error; err != nil {
+			ids := make([]uint, 0, len(oldest))
+			jobIDs := make([]string, 0, len(oldest))
+			for _, r := range oldest {
+				ids = append(ids, r.ID)
+				if r.JobID != "" {
+					jobIDs = append(jobIDs, r.JobID)
+				}
+			}
+			// Delete the runs' page results first so they are never orphaned
+			// (left behind with no matching OCRRun) by the record cap.
+			if len(jobIDs) > 0 {
+				if err := db.Where("job_id IN ?", jobIDs).Delete(&OCRPageResult{}).Error; err != nil {
+					return err
+				}
+			}
+			if err := db.Where("id IN ?", ids).Delete(&OCRRun{}).Error; err != nil {
 				return err
 			}
 		}

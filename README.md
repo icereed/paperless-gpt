@@ -619,9 +619,6 @@ For best results with the enhanced OCR features:
 | `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                        | No       | false                      |
 | `AUTO_OCR_TAG`                      | Tag for automatically processing docs with OCR.                                                                                                                                               | No       | paperless-gpt-ocr-auto     |
 | `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit. Not applied in `whole_pdf` mode (see [Whole PDF Mode](#whole-pdf-mode)), which always processes the entire document.              | No       | 5                          |
-
-> [!NOTE]
-> `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs.
 | `LOG_LEVEL`                         | Application log level (`info`, `debug`, `warn`, `error`).                                                                                                                                     | No       | info                       |
 | `LISTEN_INTERFACE`                  | Network interface to listen on.                                                                                                                                                               | No       | 8080                       |
 | `AUTO_GENERATE_TITLE`               | Generate titles automatically if `paperless-gpt-auto` is used.                                                                                                                                | No       | true                       |
@@ -638,6 +635,9 @@ For best results with the enhanced OCR features:
 | `IMAGE_MAX_RENDER_DPI`              | Maximum DPI used when rendering document pages to images.                                                                                                                                     | No       | 600                        |
 | `IMAGE_MAX_FILE_BYTES`              | Maximum JPEG file size in bytes for rendered page images. Images exceeding this are compressed or resized.                                                                                     | No       | 10485760                   |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
+
+> [!NOTE]
+> `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs. The **Active Configuration** panel on the Settings page shows each value's effective source (env / saved / default).
 
 ### Custom Prompt Templates
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,24 @@ import (
 	"github.com/gardar/ocrchestra/pkg/pdfocr"
 	"github.com/sirupsen/logrus"
 )
+
+// ocrSupportsPromptOverride reports whether the configured provider honors a
+// per-run prompt (only the LLM provider does). Used to reject overrides that
+// would otherwise be silently ignored.
+func (app *App) ocrSupportsPromptOverride() bool {
+	_, ok := app.ocrProvider.(*ocr.LLMProvider)
+	return ok
+}
+
+// replaceAfterUploadError signals that the searchable PDF was uploaded
+// successfully but deleting the original document (replace mode) then failed.
+// The upload must not be reported as failed — a retry would create a duplicate.
+type replaceAfterUploadError struct{ cause error }
+
+func (e *replaceAfterUploadError) Error() string {
+	return "PDF uploaded but original could not be deleted: " + e.cause.Error()
+}
+func (e *replaceAfterUploadError) Unwrap() error { return e.cause }
 
 // ProcessedDocument represents a document after OCR processing
 type ProcessedDocument struct {
@@ -181,6 +200,16 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 
 		// Store the PDF data in the outer variable
 		originalPDFData = pdfBytes
+
+		// Record the page total so progress reporting has a denominator
+		// (whole_pdf reports a single step, but the UI still divides by it).
+		if jobID != "" {
+			jobStore.Lock()
+			if job, exists := jobStore.jobs[jobID]; exists {
+				job.TotalPages = totalPdfPages
+			}
+			jobStore.Unlock()
+		}
 
 		docLogger.WithFields(logrus.Fields{
 			"pdf_size":         len(originalPDFData),
@@ -495,15 +524,26 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 
 							// Upload PDF to paperless-ngx if requested
 							if options.UploadPDF && pdfData != nil {
-								if err := app.uploadProcessedPDF(ctx, documentID, pdfData, options, docLogger); err != nil {
+								err := app.uploadProcessedPDF(ctx, documentID, pdfData, options, docLogger)
+								var replaceErr *replaceAfterUploadError
+								switch {
+								case err == nil && options.ReplaceOriginal:
+									processedDoc.ReplacedOriginal = true
+									processedDoc.PDFAction = "replaced"
+								case err == nil:
+									processedDoc.PDFAction = "attached"
+								case errors.As(err, &replaceErr):
+									// The searchable PDF was uploaded; only deleting the
+									// original failed. Report it as attached-with-warning
+									// rather than "failed" so the user isn't misled into a
+									// retry that would create a duplicate.
+									docLogger.WithError(err).Error("PDF uploaded but original could not be replaced")
+									processedDoc.PDFAction = "attached"
+									processedDoc.PDFDetail = fmt.Sprintf("Searchable PDF was uploaded, but the original could not be deleted: %v", replaceErr.cause)
+								default:
 									docLogger.WithError(err).Error("Failed to upload processed PDF")
 									processedDoc.PDFAction = "failed"
 									processedDoc.PDFDetail = fmt.Sprintf("PDF upload failed: %v", err)
-								} else if options.ReplaceOriginal {
-									processedDoc.ReplacedOriginal = true
-									processedDoc.PDFAction = "replaced"
-								} else {
-									processedDoc.PDFAction = "attached"
 								}
 							}
 						}
@@ -695,9 +735,11 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 			}
 		}
 
-		// Delete original document
+		// Delete original document. The PDF is already uploaded at this point,
+		// so signal that distinctly: the caller must not report the whole upload
+		// as failed (a retry would create a duplicate).
 		if err := app.Client.DeleteDocument(ctx, documentID); err != nil {
-			return fmt.Errorf("error deleting original document: %w", err)
+			return &replaceAfterUploadError{cause: err}
 		}
 		logger.Info("Original document deleted successfully")
 	}

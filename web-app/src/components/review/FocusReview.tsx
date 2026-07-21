@@ -100,7 +100,7 @@ const FocusReview: React.FC<FocusReviewProps> = ({
         break;
       case "s":
         e.preventDefault();
-        if (decision === "pending") {
+        if (decision === "pending" && !applying) {
           onSkip(item.id);
           goNext();
         }
@@ -243,6 +243,7 @@ const FocusReview: React.FC<FocusReviewProps> = ({
                   <Button
                     size="sm"
                     variant="ghost"
+                    disabled={applying}
                     onClick={() => {
                       onSkip(item.id);
                       goNext();

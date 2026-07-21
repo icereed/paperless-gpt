@@ -4,6 +4,30 @@ export type ThemePreference = "system" | "light" | "dark";
 
 const STORAGE_KEY = "pgpt-theme";
 
+// localStorage can throw (private mode, sandboxed iframes, storage-partitioned
+// contexts, enterprise policy). Mirror index.html's try/catch guard so the
+// always-mounted theme hook never crashes the app on read/write.
+function readStoredTheme(): ThemePreference {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored === "light" || stored === "dark" ? stored : "system";
+  } catch {
+    return "system";
+  }
+}
+
+function writeStoredTheme(next: ThemePreference) {
+  try {
+    if (next === "system") {
+      localStorage.removeItem(STORAGE_KEY);
+    } else {
+      localStorage.setItem(STORAGE_KEY, next);
+    }
+  } catch {
+    /* persistence unavailable — the in-memory preference still applies */
+  }
+}
+
 function applyPreference(preference: ThemePreference) {
   const dark =
     preference === "dark" ||
@@ -18,10 +42,7 @@ function applyPreference(preference: ThemePreference) {
  * live afterwards and follows OS changes while in "system" mode.
  */
 export function useTheme() {
-  const [preference, setPreference] = useState<ThemePreference>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored === "light" || stored === "dark" ? stored : "system";
-  });
+  const [preference, setPreference] = useState<ThemePreference>(readStoredTheme);
 
   useEffect(() => {
     applyPreference(preference);
@@ -34,11 +55,7 @@ export function useTheme() {
   }, [preference]);
 
   const setTheme = useCallback((next: ThemePreference) => {
-    if (next === "system") {
-      localStorage.removeItem(STORAGE_KEY);
-    } else {
-      localStorage.setItem(STORAGE_KEY, next);
-    }
+    writeStoredTheme(next);
     setPreference(next);
   }, []);
 

@@ -96,6 +96,33 @@ func TestPruneOCRRunsKeepsPageTextsForRecentRuns(t *testing.T) {
 	assert.Equal(t, int64(7), total)
 }
 
+func TestPruneOCRRunsDoesNotOrphanPageResults(t *testing.T) {
+	db := newOCRRunTestDB(t)
+
+	// Exceed the record cap so the oldest runs get trimmed. Use documents far
+	// apart so the per-document "keep newest 5" window doesn't cover them.
+	total := maxOCRRunRecords + 3
+	for i := 0; i < total; i++ {
+		jobID := fmt.Sprintf("cap-job-%d", i)
+		require.NoError(t, CreateOCRRun(db, &OCRRun{JobID: jobID, DocumentID: i, Trigger: "manual"}))
+		require.NoError(t, SaveSingleOcrPageResult(db, i, jobID, 0, "text", false, ""))
+	}
+
+	require.NoError(t, PruneOCRRuns(db, total-1))
+
+	// No OCRPageResult may reference a job_id without a surviving OCRRun.
+	var pageJobIDs []string
+	require.NoError(t, db.Model(&OCRPageResult{}).Distinct().Pluck("job_id", &pageJobIDs).Error)
+	for _, jid := range pageJobIDs {
+		if jid == "" {
+			continue
+		}
+		var cnt int64
+		require.NoError(t, db.Model(&OCRRun{}).Where("job_id = ?", jid).Count(&cnt).Error)
+		assert.Positivef(t, cnt, "page results for %s were orphaned (run record gone)", jid)
+	}
+}
+
 func TestGetOcrPageResultsDefaultsToLatestRun(t *testing.T) {
 	db := newOCRRunTestDB(t)
 	require.NoError(t, SaveSingleOcrPageResult(db, 5, "job-old", 0, "old text", false, ""))
@@ -173,6 +200,41 @@ func TestSubmitOCRJobHandlerValidation(t *testing.T) {
 	case <-jobQueue:
 	default:
 	}
+}
+
+func TestUpdateOCRDefaultsRejectsUploadWithoutHOCR(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := newOCRRunTestDB(t)
+	app := &App{Database: db, ocrProcessMode: "image"} // no ocrProvider → no hOCR
+
+	settingsMutex.Lock()
+	orig := settings
+	settingsMutex.Unlock()
+	defer func() {
+		settingsMutex.Lock()
+		settings = orig
+		settingsMutex.Unlock()
+	}()
+
+	router := gin.New()
+	router.PUT("/api/ocr/defaults", app.updateOCRDefaultsHandler)
+	req, err := http.NewRequest(http.MethodPut, "/api/ocr/defaults",
+		bytes.NewBufferString(`{"upload_pdf": true}`))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code,
+		"saving upload_pdf default without an hOCR provider must be rejected")
+}
+
+func TestReplaceAfterUploadErrorUnwraps(t *testing.T) {
+	cause := fmt.Errorf("boom")
+	err := &replaceAfterUploadError{cause: cause}
+	assert.ErrorIs(t, err, cause)
+	var target *replaceAfterUploadError
+	assert.ErrorAs(t, error(err), &target)
 }
 
 func TestOCRDefaultsSourcesAndReset(t *testing.T) {

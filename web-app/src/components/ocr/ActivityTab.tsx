@@ -6,7 +6,7 @@ import {
   XCircleIcon,
 } from "@heroicons/react/24/outline";
 import classNames from "classnames";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../ui/Button";
 import { OCRConfig, OCRRun, fetchOCRRuns, formatRunOptions, runDuration } from "./api";
@@ -35,27 +35,27 @@ const ActivityTab: React.FC<ActivityTabProps> = ({ config }) => {
   const [runs, setRuns] = useState<OCRRun[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  // Monotonic id so an older, slower poll can't overwrite a newer snapshot.
+  const requestSeq = useRef(0);
 
   const load = useCallback(() => {
-    let cancelled = false;
+    const seq = ++requestSeq.current;
     fetchOCRRuns(undefined, 100)
       .then(({ runs }) => {
-        if (cancelled) return;
+        if (seq !== requestSeq.current) return;
         setRuns(runs);
         setError(null);
       })
       .catch((err) => {
         console.error("Failed to load OCR activity:", err);
-        if (!cancelled) setError("Could not load the activity log.");
+        if (seq === requestSeq.current) setError("Could not load the activity log.");
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   useEffect(() => load(), [load]);
 
-  // Live refresh while anything is running.
+  // Live refresh while anything is running. The seq guard in load() drops any
+  // response that resolves after a newer poll has started.
   useEffect(() => {
     if (!runs?.some((run) => run.status === "in_progress")) return;
     const interval = setInterval(load, 4000);

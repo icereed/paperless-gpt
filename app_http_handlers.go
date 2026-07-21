@@ -389,6 +389,10 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 		return
 	}
 	if req.PromptOverride != "" {
+		if !app.ocrSupportsPromptOverride() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Prompt overrides are only supported by the LLM OCR provider"})
+			return
+		}
 		if _, err := renderOCRPromptOverride(req.PromptOverride, ""); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Prompt override does not render: %v", err)})
 			return
@@ -523,15 +527,19 @@ func (app *App) updateOCRDefaultsHandler(c *gin.Context) {
 			return
 		}
 	}
-	if defaults.ReplaceOriginal != nil && *defaults.ReplaceOriginal {
-		uploadEnabled := app.pdfUpload
-		if defaults.UploadPDF != nil {
-			uploadEnabled = *defaults.UploadPDF
-		}
-		if !uploadEnabled {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "replace_original requires upload_pdf"})
-			return
-		}
+	uploadEnabled := app.pdfUpload
+	if defaults.UploadPDF != nil {
+		uploadEnabled = *defaults.UploadPDF
+	}
+	if defaults.ReplaceOriginal != nil && *defaults.ReplaceOriginal && !uploadEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "replace_original requires upload_pdf"})
+		return
+	}
+	// Mirror the submit-time guard: a saved upload_pdf default without an
+	// hOCR-capable provider would break every run that inherits it.
+	if uploadEnabled && !app.ocrSupportsHOCR() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Searchable PDFs need an hOCR-capable OCR provider; cannot save upload_pdf as a default"})
+		return
 	}
 
 	if err := updateOCRDefaults(defaults); err != nil {

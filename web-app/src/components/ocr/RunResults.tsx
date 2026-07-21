@@ -5,7 +5,7 @@ import {
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 import classNames from "classnames";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Document } from "../../DocumentProcessor";
 import Button from "../ui/Button";
 import Modal from "../ui/Modal";
@@ -68,10 +68,16 @@ const RunResults: React.FC<RunResultsProps> = ({
   const [editedTexts, setEditedTexts] = useState<Record<number, string>>({});
   const [compareJobId, setCompareJobId] = useState<string>("");
   const [comparePages, setComparePages] = useState<OCRPage[] | null>(null);
+  const [compareError, setCompareError] = useState<string | null>(null);
   const [reOcrPending, setReOcrPending] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [showApplyConfirm, setShowApplyConfirm] = useState(false);
   const [applying, setApplying] = useState(false);
+  // Identifies the run the currently-displayed pages belong to, so an in-flight
+  // re-OCR response can't be applied after the user switches runs/documents.
+  const activeKey = `${document.id}:${selectedJobId}`;
+  const activeKeyRef = useRef(activeKey);
+  activeKeyRef.current = activeKey;
 
   const selectedRun = runs.find((run) => run.job_id === selectedJobId);
   const newestJobId = runs[0]?.job_id;
@@ -98,14 +104,22 @@ const RunResults: React.FC<RunResultsProps> = ({
   useEffect(() => {
     if (!compareJobId) {
       setComparePages(null);
+      setCompareError(null);
       return;
     }
     let cancelled = false;
+    // Clear the previous comparison immediately so stale text isn't shown
+    // under the new run label while the request is in flight.
+    setComparePages(null);
+    setCompareError(null);
     fetchOCRPages(document.id, compareJobId)
       .then(({ pages }) => {
         if (!cancelled) setComparePages(pages);
       })
-      .catch((err) => console.error("Failed to fetch compare pages:", err));
+      .catch((err) => {
+        console.error("Failed to fetch compare pages:", err);
+        if (!cancelled) setCompareError("Could not load the comparison run.");
+      });
     return () => {
       cancelled = true;
     };
@@ -123,8 +137,12 @@ const RunResults: React.FC<RunResultsProps> = ({
   const handleReOCR = async (pageIndex: number) => {
     setReOcrPending((prev) => new Set(prev).add(pageIndex));
     setError(null);
+    const keyAtStart = activeKeyRef.current;
     try {
       const refreshed = await reOCRPage(document.id, pageIndex, selectedJobId);
+      // Ignore the response if the user switched run/document meanwhile —
+      // otherwise it would splice one run's text into another.
+      if (activeKeyRef.current !== keyAtStart) return;
       setPages((prev) =>
         (prev || []).map((p) => (p.pageIndex === pageIndex ? refreshed : p))
       );
@@ -346,7 +364,13 @@ const RunResults: React.FC<RunResultsProps> = ({
                         {compareRun?.prompt_overridden ? "(custom prompt)" : ""}
                       </label>
                       <div className="h-[calc(100%-1.5rem)] min-h-48 overflow-y-auto whitespace-pre-wrap rounded-md border border-line bg-surface-2 px-3 py-2 text-sm leading-relaxed text-muted">
-                        {comparePage ? comparePage.text : "No text for this page in the comparison run."}
+                        {compareError
+                          ? compareError
+                          : !comparePages
+                            ? "Loading comparison…"
+                            : comparePage
+                              ? comparePage.text
+                              : "No text for this page in the comparison run."}
                       </div>
                     </div>
                   )}

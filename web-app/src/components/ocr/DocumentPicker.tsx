@@ -31,19 +31,25 @@ const DocumentPicker: React.FC<DocumentPickerProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Monotonic id so a slow earlier request can't overwrite a newer result.
+  const requestSeq = useRef(0);
 
   useEffect(() => {
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
+      const seq = ++requestSeq.current;
       setLoading(true);
       setError(null);
       try {
-        setResults(await searchDocuments(query));
+        const docs = await searchDocuments(query);
+        if (seq === requestSeq.current) setResults(docs);
       } catch (err) {
         console.error("Document search failed:", err);
-        setError("Search failed — check the backend connection.");
+        if (seq === requestSeq.current) {
+          setError("Search failed — check the backend connection.");
+        }
       } finally {
-        setLoading(false);
+        if (seq === requestSeq.current) setLoading(false);
       }
     }, query ? 250 : 0);
     return () => clearTimeout(debounceRef.current);
@@ -73,6 +79,9 @@ const DocumentPicker: React.FC<DocumentPickerProps> = ({
           className="absolute z-dropdown mt-1 max-h-96 w-full overflow-y-auto rounded-md border border-line bg-surface p-1 shadow-raised duration-100 ease-out-quart data-[closed]:opacity-0 empty:invisible"
         >
           {error && <p className="px-3 py-2 text-sm text-neg">{error}</p>}
+          {!error && loading && results.length === 0 && (
+            <p className="px-3 py-2 text-sm text-muted">Searching…</p>
+          )}
           {!error && !loading && results.length === 0 && (
             <p className="px-3 py-2 text-sm text-muted">
               No documents found{query ? ` for “${query}”` : ""}.
