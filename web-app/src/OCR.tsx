@@ -328,15 +328,15 @@ VISION_LLM_MODEL=minicpm-v`}
                       </span>
                     </li>
                   </ol>
-                  <p className="mt-5 flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-line pt-4 text-sm text-muted">
+                  <p className="mt-5 border-t border-line pt-4 text-sm text-muted">
                     <BoltIcon
-                      className="h-4 w-4 shrink-0 text-faint"
+                      className="mr-1.5 inline-block h-4 w-4 align-text-bottom text-faint"
                       aria-hidden="true"
                     />
-                    Want it hands-off? Tag documents with
+                    Want it hands-off? Tag documents with{" "}
                     <span className="whitespace-nowrap rounded-full bg-primary-tint px-2 py-0.5 text-xs font-medium text-ink">
                       {config.auto_tag}
-                    </span>
+                    </span>{" "}
                     to run OCR automatically — every run lands in the{" "}
                     <Link
                       to="/ocr?tab=activity"
