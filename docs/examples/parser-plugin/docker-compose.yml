@@ -1,0 +1,63 @@
+# docker-compose example for the paperless-gpt parser plugin path.
+#
+# Spins up paperless-ngx 3.0 (dev tag for now) alongside paperless-gpt as a
+# parser sidecar. paperless-ngx loads the Python shim which forwards every
+# document to /api/v1/parse on the sidecar.
+#
+# Status: proof-of-concept for icereed/paperless-gpt#964. Not yet production-
+# ready (no archive PDF / thumbnail yet — see RFC).
+
+services:
+  paperless-ngx:
+    image: ghcr.io/paperless-ngx/paperless-ngx:dev
+    depends_on:
+      - paperless-gpt
+      - redis
+    environment:
+      PAPERLESS_REDIS: redis://redis:6379
+      PAPERLESS_URL: http://localhost:8000
+      PAPERLESS_SECRET_KEY: change-me
+      PAPERLESS_TIME_ZONE: Europe/Berlin
+      # Tell the shim where the sidecar lives.
+      PAPERLESS_GPT_URL: http://paperless-gpt:8080
+      PAPERLESS_GPT_PARSER_SCORE: "60"
+    volumes:
+      - paperless-data:/usr/src/paperless/data
+      - paperless-media:/usr/src/paperless/media
+      - ./consume:/usr/src/paperless/consume
+      # Mount the shim as an editable install. In production you would
+      # `pip install paperless-gpt-parser` inside a custom image instead.
+      - ../paperless-gpt-parser:/opt/paperless-gpt-parser:ro
+    command: >
+      sh -c "pip install -e /opt/paperless-gpt-parser &&
+             /usr/local/bin/paperless"
+    ports:
+      - "8000:8000"
+
+  paperless-gpt:
+    # Replace with `icereed/paperless-gpt:latest` once a release with the
+    # /api/v1 endpoints lands. For now: build from the feature branch.
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment:
+      # Minimal config so isOcrEnabled() returns true.
+      LLM_PROVIDER: openai
+      LLM_MODEL: gpt-4o-mini
+      VISION_LLM_PROVIDER: openai
+      VISION_LLM_MODEL: gpt-4o-mini
+      OCR_PROVIDER: llm
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in your shell}
+      # paperless-gpt's polling flow needs these but they can point anywhere
+      # for the parser-only use case.
+      PAPERLESS_BASE_URL: http://paperless-ngx:8000
+      PAPERLESS_API_TOKEN: not-used-by-parser-api
+    ports:
+      - "8080:8080"
+
+  redis:
+    image: redis:7-alpine
+
+volumes:
+  paperless-data:
+  paperless-media:

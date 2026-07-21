@@ -463,6 +463,12 @@ func main() {
 		api.GET("/version", getVersionHandler)
 	}
 
+	// Generic LLM-OCR API (v1) — consumer-agnostic endpoints for the
+	// paperless-ngx parser plugin, n8n/Make workflows, coding agents, etc.
+	// See docs/parser_plugin_rfc.md. Currently returns 501 (stub for design
+	// discussion).
+	app.registerParserAPI(router)
+
 	// Serve frontend files
 	// Check if the web-app/dist directory exists for local development
 	if _, err := os.Stat("web-app/dist"); err == nil {
