@@ -74,22 +74,20 @@ test('should process document and show changes in history', async () => {
   await page.waitForSelector('.document-card', { timeout: 1000 * 60 });
   await page.screenshot({ path: 'test-results/document-loaded.png' });
   
-  // Click the process button
-  await page.click('button:has-text("Generate Suggestions")');
-  
-  // Wait for processing to complete
-  await page.waitForSelector('.suggestions-review', { timeout: 30000 });
+  // Click the process button (starts an async suggestion job with progress UI)
+  await page.click('button:has-text("Generate suggestions")');
+
+  // Wait for the job to finish and the review to appear
+  await page.waitForSelector('.suggestions-review', { timeout: 60000 });
   await page.screenshot({ path: 'test-results/suggestions-loaded.png' });
 
-  // Apply the suggestions
-  await page.click('button:has-text("Apply")');
-  
-  // Wait for success message
-  await page.waitForSelector('.success-modal', { timeout: 10000 });
-  await page.screenshot({ path: 'test-results/suggestions-applied.png' });
+  // Apply all remaining suggestions via the summary dialog
+  await page.click('button:has-text("Apply remaining")');
+  await page.getByRole('button', { name: /^Apply to \d+ documents?$/ }).click();
 
-  // Click "OK" on success modal
-  await page.click('button:has-text("OK")');
+  // Wait for the success toast (review closes automatically once all documents are decided)
+  await page.waitForSelector('div[role="status"]:has-text("Applied")', { timeout: 15000 });
+  await page.screenshot({ path: 'test-results/suggestions-applied.png' });
 
   // 3. Check history page for the modifications
   await page.click('a:has-text("History")');

@@ -50,7 +50,6 @@ var (
 	manualTag                     = os.Getenv("MANUAL_TAG")
 	autoTag                       = os.Getenv("AUTO_TAG")
 	autoTagComplete               string // read via os.LookupEnv in validateOrDefaultEnvVars
-	manualOcrTag                  = os.Getenv("MANUAL_OCR_TAG") // Not used yet
 	autoOcrTag                    = os.Getenv("AUTO_OCR_TAG")
 	failTag                       = os.Getenv("FAIL_TAG")
 	ocrProcessMode                = os.Getenv("OCR_PROCESS_MODE")
@@ -140,6 +139,7 @@ type App struct {
 	pdfOCRTagging      bool              // Whether to add the OCR complete tag to processed PDFs
 	pdfSkipExistingOCR bool              // Whether to skip processing PDFs that already have OCR detected
 	autoTagComplete    string            // Tag to add to documents after auto-processing is complete
+	ocrProviderLabel   string            // Human-readable provider description for run records ("llm (ollama/minicpm-v)")
 }
 
 func main() {
@@ -164,6 +164,9 @@ func main() {
 	if settings.CustomFieldsEnable && len(settings.CustomFieldsSelectedIDs) == 0 {
 		log.Warn("Custom fields are enabled, but no custom fields are selected in the settings.")
 	}
+
+	// UI-saved OCR defaults shadow env values; say so where operators look.
+	logOCRSettingsOverrides()
 
 	// Print version
 	printVersion()
@@ -199,6 +202,9 @@ func main() {
 
 	// Initialize Database
 	database := InitializeDB()
+	if err := MarkInterruptedOCRRuns(database); err != nil {
+		log.Warnf("Failed to mark interrupted OCR runs: %v", err)
+	}
 
 	// Load Templates
 	if err := loadTemplates(); err != nil {
@@ -357,10 +363,10 @@ func main() {
 		pdfOCRTagging:      pdfOCRTagging,
 		pdfSkipExistingOCR: pdfSkipExistingOCR,
 		autoTagComplete:    autoTagComplete,
+		ocrProviderLabel:   ocrProviderLabel(),
 	}
 
 	if app.isOcrEnabled() {
-		fmt.Printf("Using %s as manual OCR tag\n", manualOcrTag)
 		fmt.Printf("Using %s as auto OCR tag\n", autoOcrTag)
 		rawLimitOcrPages := os.Getenv("OCR_LIMIT_PAGES")
 		if rawLimitOcrPages == "" {
@@ -386,7 +392,12 @@ func main() {
 		api.GET("/documents", app.documentsHandler)
 		// http://localhost:8080/api/documents/544
 		api.GET("/documents/:id", app.getDocumentHandler())
+		api.GET("/documents/:id/thumb", app.getDocumentThumbnailHandler)
 		api.POST("/generate-suggestions", app.generateSuggestionsHandler)
+		api.POST("/jobs/suggestions", app.submitSuggestionJobHandler)
+		api.GET("/jobs/suggestions/:job_id", app.getSuggestionJobStatusHandler)
+		api.GET("/jobs/suggestions", app.getAllSuggestionJobsHandler)
+		api.POST("/jobs/suggestions/:job_id/stop", app.stopSuggestionJobHandler)
 		api.PATCH("/update-documents", app.updateDocumentsHandler)
 		api.GET("/filter-tag", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"tag": manualTag})
@@ -406,6 +417,13 @@ func main() {
 		api.DELETE("/documents/:id/ocr_pages/:pageIndex/reocr", app.cancelReOCRPageHandler)
 		api.GET("/jobs/ocr/:job_id", app.getJobStatusHandler)
 		api.GET("/jobs/ocr", app.getAllJobsHandler)
+		api.GET("/ocr/runs", app.listOCRRunsHandler)
+		api.GET("/ocr/config", app.getOCRConfigHandler)
+		api.GET("/config", app.getConfigHandler)
+		api.PUT("/ocr/defaults", app.updateOCRDefaultsHandler)
+		api.DELETE("/ocr/defaults", app.resetOCRDefaultsHandler)
+		api.GET("/search-documents", app.searchDocumentsHandler)
+		api.GET("/documents/:id/pages/:pageIndex/image", app.getDocumentPageImageHandler)
 		api.POST("/ocr/jobs/:job_id/stop", app.stopOCRJobHandler)
 
 		// Endpoint to see if user enabled OCR
@@ -447,6 +465,9 @@ func main() {
 		router.GET("/experimental-ocr", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
+		router.GET("/ocr", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
 		router.GET("/settings", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
@@ -478,6 +499,11 @@ func main() {
 		router.GET("/experimental-ocr", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
+		// ocr route (tabs use a query param; nested paths would break the
+		// relative asset base needed for reverse-proxy prefixes)
+		router.GET("/ocr", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
 		// settings route
 		router.GET("/settings", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
@@ -491,6 +517,7 @@ func main() {
 	// Start OCR worker pool
 	numWorkers := 1 // Number of workers to start
 	startWorkerPool(app, numWorkers)
+	startSuggestionWorkerPool(app, suggestionWorkerCount())
 
 	if listenInterface == "" {
 		listenInterface = ":8080"
@@ -550,6 +577,33 @@ func (app *App) isOcrEnabled() bool {
 	return app.ocrProvider != nil
 }
 
+// ocrProviderLabel composes a human-readable description of the configured
+// OCR provider for run records and the config endpoint.
+func ocrProviderLabel() string {
+	provider := os.Getenv("OCR_PROVIDER")
+	if provider == "" {
+		provider = "llm"
+	}
+	switch provider {
+	case "llm":
+		if visionLlmProvider != "" {
+			if visionLlmModel != "" {
+				return fmt.Sprintf("llm (%s/%s)", visionLlmProvider, visionLlmModel)
+			}
+			return fmt.Sprintf("llm (%s)", visionLlmProvider)
+		}
+		return "llm"
+	case "mistral_ocr":
+		model := os.Getenv("MISTRAL_MODEL")
+		if model == "" {
+			model = "mistral-ocr-latest"
+		}
+		return fmt.Sprintf("mistral_ocr (%s)", model)
+	default:
+		return provider
+	}
+}
+
 // validateOCRProviderModeCompatibility validates that the OCR provider supports the specified processing mode
 func validateOCRProviderModeCompatibility(provider, mode, visionProvider string) error {
 	// Define which providers support which modes
@@ -594,10 +648,6 @@ func validateOrDefaultEnvVars() {
 		autoTag = "paperless-gpt-auto"
 	}
 	fmt.Printf("Using %s as auto tag\n", autoTag)
-
-	if manualOcrTag == "" {
-		manualOcrTag = "paperless-gpt-ocr"
-	}
 
 	if autoOcrTag == "" {
 		autoOcrTag = "paperless-gpt-ocr-auto"

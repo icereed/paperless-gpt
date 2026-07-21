@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon"
@@ -8,8 +8,22 @@
       sizes="any" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Paperless GPT</title>
+    <script>
+      // Apply the persisted theme before first paint to avoid a flash.
+      (function () {
+        try {
+          var stored = localStorage.getItem("pgpt-theme");
+          var dark =
+            stored === "dark" ||
+            (stored !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (e) {
+          /* no storage access: stay light */
+        }
+      })();
+    </script>
   </head>
-  <body class="bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

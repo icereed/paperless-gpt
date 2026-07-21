@@ -81,6 +81,10 @@ func (m *mockClient) GetDocument(ctx context.Context, documentID int) (Document,
 	return Document{}, fmt.Errorf("document %d not found", documentID)
 }
 
+func (m *mockClient) GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error) {
+	return nil, "", fmt.Errorf("not implemented")
+}
+
 func (m *mockClient) AddDocument(doc Document, tags []string) {
 	m.documents[doc.ID] = doc
 

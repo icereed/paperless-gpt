@@ -580,6 +580,8 @@ For best results with the enhanced OCR features:
 | `LLM_REQUESTS_PER_MINUTE`           | Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load.                                                                                                | No       | 120                        |
 | `LLM_MAX_RETRIES`                   | Maximum retry attempts for failed main LLM requests.                                                                                                                                          | No       | 3                          |
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
+| `SUGGESTION_WORKERS`                | Number of async manual suggestion workers. Keep this at `1` for slow or local LLM backends to avoid concurrent generation overload.                                                           | No       | 1                          |
+| `SUGGESTION_JOB_TIMEOUT_SECONDS`    | Optional timeout for async manual suggestion jobs. Leave unset to disable; set a bounded value for slow local inference when jobs must not run forever.                                      | No       |                            |
 | `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                      | No       | llm                        |
 | `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
 | `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                                                    | Cond.    |                            |
@@ -633,6 +635,9 @@ For best results with the enhanced OCR features:
 | `IMAGE_MAX_RENDER_DPI`              | Maximum DPI used when rendering document pages to images.                                                                                                                                     | No       | 600                        |
 | `IMAGE_MAX_FILE_BYTES`              | Maximum JPEG file size in bytes for rendered page images. Images exceeding this are compressed or resized.                                                                                     | No       | 10485760                   |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
+
+> [!NOTE]
+> `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs. The **Active Configuration** panel on the Settings page shows each value's effective source (env / saved / default).
 
 ### Custom Prompt Templates
 
