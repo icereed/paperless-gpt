@@ -100,7 +100,7 @@ const PromptsEditor: React.FC = () => {
       <h1 className="text-3xl font-bold mb-6 text-gray-800 dark:text-gray-200">Edit Prompts</h1>
 
       {successMessage && (
-        <div className="fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg transition-transform transform animate-bounce" role="alert">
+        <div className="fixed bottom-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg" role="alert">
           <span className="block sm:inline">{successMessage}</span>
         </div>
       )}

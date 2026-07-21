@@ -1,35 +1,48 @@
-import { ArrowPathIcon } from "@heroicons/react/24/outline";
+import { ArrowPathIcon, InboxIcon } from "@heroicons/react/24/outline";
 import React from "react";
+import Button from "./ui/Button";
 
 interface NoDocumentsProps {
   filterTag: string | null;
   onReload: () => void;
-  processing: boolean;
+  reloading: boolean;
 }
 
+/** Empty state that teaches how documents get into the queue. */
 const NoDocuments: React.FC<NoDocumentsProps> = ({
   filterTag,
   onReload,
-  processing,
+  reloading,
 }) => (
-  <div className="flex flex-col items-center justify-center h-full bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 py-10">
-    <p className="text-xl font-semibold mb-4">
-      No documents found with filter tag{" "}
-      {filterTag && (
-        <span className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-sm font-medium px-2.5 py-0.5 rounded-full">
+  <div className="mx-auto mt-16 max-w-xl rounded-lg border border-line bg-surface p-8 text-center">
+    <InboxIcon className="mx-auto h-10 w-10 text-faint" aria-hidden="true" />
+    <h1 className="mt-4 text-lg font-semibold">No documents waiting</h1>
+    <p className="mt-2 text-sm text-muted">
+      paperless-gpt picks up every document tagged{" "}
+      {filterTag ? (
+        <span className="whitespace-nowrap rounded-full bg-primary-tint px-2 py-0.5 text-xs font-medium text-ink">
           {filterTag}
         </span>
-      )}
-      .
+      ) : (
+        "with the configured filter tag"
+      )}{" "}
+      in paperless-ngx. Tag a document there and it appears here — this page
+      checks automatically every few seconds.
     </p>
-    <button
-      onClick={onReload}
-      disabled={processing}
-      className="flex items-center bg-blue-600 dark:bg-blue-800 text-white dark:text-gray-200 px-4 py-2 rounded hover:bg-blue-700 dark:hover:bg-blue-900 focus:outline-none"
-    >
-      Reload
-      <ArrowPathIcon className="h-5 w-5 ml-2" />
-    </button>
+    <div className="mt-6 flex items-center justify-center gap-3">
+      <Button variant="secondary" onClick={onReload} loading={reloading}>
+        {!reloading && <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />}
+        Check now
+      </Button>
+      <a
+        href="https://github.com/icereed/paperless-gpt#how-it-works"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-sm font-medium text-primary hover:underline"
+      >
+        How tagging works
+      </a>
+    </div>
   </div>
 );
 

@@ -163,7 +163,7 @@ services:
       PAPERLESS_PUBLIC_URL: "http://paperless.mydomain.com" # Optional
       MANUAL_TAG: "paperless-gpt" # Optional, default: paperless-gpt
       AUTO_TAG: "paperless-gpt-auto" # Optional, default: paperless-gpt-auto
-      FAIL_TAG: "paperless-gpt-failed" # Optional, default: paperless-gpt-failed. Applied to documents whose update is rejected by paperless-ngx, so they don't get re-processed in a loop. Auto-created at startup.
+      FAIL_TAG: "paperless-gpt-failed" # Optional, default: paperless-gpt-failed. Applied to documents whose update is rejected by paperless-ngx or whose OCR keeps failing (see OCR_MAX_RETRIES), so they don't get re-processed in a loop. Auto-created at startup.
       # LLM Configuration - Choose one:
 
       # Option 1: Standard OpenAI
@@ -248,6 +248,7 @@ services:
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
+      OCR_MAX_RETRIES: "3" # Optional, default: 3. Failed OCR attempts per document before it is fail-tagged and removed from the queue. Set to 0 to retry forever.
       LOG_LEVEL: "info" # Optional: debug, warn, error
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
@@ -564,7 +565,7 @@ For best results with the enhanced OCR features:
 | `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                            | No       |                            |
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
 | `AUTO_TAG`                          | Tag for auto processing.                                                                                                                                                                      | No       | paperless-gpt-auto         |
-| `FAIL_TAG`                          | Tag applied to a document when paperless-gpt could not apply the full LLM suggestion. Two cases trigger it: (1) **partial success** — paperless-ngx rejected one or more fields (e.g. an LLM-suggested date in an impossible format such as `2023-01-79`); paperless-gpt drops the rejected fields, retries the update with the rest, and applies this tag so the user knows the document needs review; (2) **hard failure** — the update could not be salvaged; paperless-gpt removes the auto tag (to break the processing loop) and applies this tag. The tag is created automatically in paperless-ngx at startup if it does not exist. | No       | paperless-gpt-failed       |
+| `FAIL_TAG`                          | Tag applied to a document when paperless-gpt could not apply the full LLM suggestion. Two cases trigger it: (1) **partial success** — paperless-ngx rejected one or more fields (e.g. an LLM-suggested date in an impossible format such as `2023-01-79`); paperless-gpt drops the rejected fields, retries the update with the rest, and applies this tag so the user knows the document needs review; (2) **hard failure** — the update could not be salvaged; paperless-gpt removes the auto tag (to break the processing loop) and applies this tag; (3) **repeated OCR failure** — OCR processing of the document failed `OCR_MAX_RETRIES` times in a row; paperless-gpt removes the auto OCR tag and applies this tag. The tag is created automatically in paperless-ngx at startup if it does not exist. | No       | paperless-gpt-failed       |
 | `AUTO_TAG_COMPLETE`                 | Tag added to documents after auto-processing is complete. Only applied during auto-processing, not manual review. Set to an empty string (`AUTO_TAG_COMPLETE=""`) to disable. When the variable is unset, the default tag is used. | No       | paperless-gpt-auto-complete |
 | `LLM_PROVIDER`                      | AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`).                                                                                                                       | Yes      |                            |
 | `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`).                                                                                               | Yes      |                            |
@@ -582,6 +583,8 @@ For best results with the enhanced OCR features:
 | `LLM_REQUESTS_PER_MINUTE`           | Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load.                                                                                                | No       | 120                        |
 | `LLM_MAX_RETRIES`                   | Maximum retry attempts for failed main LLM requests.                                                                                                                                          | No       | 3                          |
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
+| `SUGGESTION_WORKERS`                | Number of async manual suggestion workers. Keep this at `1` for slow or local LLM backends to avoid concurrent generation overload.                                                           | No       | 1                          |
+| `SUGGESTION_JOB_TIMEOUT_SECONDS`    | Optional timeout for async manual suggestion jobs. Leave unset to disable; set a bounded value for slow local inference when jobs must not run forever.                                      | No       |                            |
 | `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                      | No       | llm                        |
 | `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
 | `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                                                    | Cond.    |                            |
@@ -619,6 +622,7 @@ For best results with the enhanced OCR features:
 | `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                        | No       | false                      |
 | `AUTO_OCR_TAG`                      | Tag for automatically processing docs with OCR.                                                                                                                                               | No       | paperless-gpt-ocr-auto     |
 | `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit. Not applied in `whole_pdf` mode (see [Whole PDF Mode](#whole-pdf-mode)), which always processes the entire document.              | No       | 5                          |
+| `OCR_MAX_RETRIES`                   | How many times OCR processing may fail for a document before paperless-gpt gives up on it: the auto OCR tag is removed and `FAIL_TAG` applied, so the document stops being retried (and re-billed) every poll cycle. Counted in memory — a restart resets the count. Set to `0` to keep the old retry-forever behavior.                                | No       | 3                          |
 | `LOG_LEVEL`                         | Application log level (`info`, `debug`, `warn`, `error`).                                                                                                                                     | No       | info                       |
 | `LISTEN_INTERFACE`                  | Network interface to listen on.                                                                                                                                                               | No       | 8080                       |
 | `AUTO_GENERATE_TITLE`               | Generate titles automatically if `paperless-gpt-auto` is used.                                                                                                                                | No       | true                       |
@@ -635,6 +639,9 @@ For best results with the enhanced OCR features:
 | `IMAGE_MAX_RENDER_DPI`              | Maximum DPI used when rendering document pages to images.                                                                                                                                     | No       | 600                        |
 | `IMAGE_MAX_FILE_BYTES`              | Maximum JPEG file size in bytes for rendered page images. Images exceeding this are compressed or resized.                                                                                     | No       | 10485760                   |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
+
+> [!NOTE]
+> `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs. The **Active Configuration** panel on the Settings page shows each value's effective source (env / saved / default).
 
 ### Custom Prompt Templates
 

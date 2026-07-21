@@ -1,179 +1,119 @@
+import {
+  ArrowsPointingOutIcon,
+  CheckCircleIcon,
+} from "@heroicons/react/24/outline";
+import classNames from "classnames";
 import React from "react";
-import { ReactTags } from "react-tag-autocomplete";
 import { DocumentSuggestion, TagOption } from "../DocumentProcessor";
+import Button from "./ui/Button";
+import {
+  Decision,
+  FieldKey,
+  SuggestionEditHandlers,
+  countChanges,
+} from "./review/fields";
+import SuggestionFields from "./review/SuggestionFields";
 
 interface SuggestionCardProps {
   suggestion: DocumentSuggestion;
   availableTags: TagOption[];
-  onTitleChange: (docId: number, title: string) => void;
-  onTagAddition: (docId: number, tag: TagOption) => void;
-  onTagDeletion: (docId: number, index: number) => void;
-  onCorrespondentChange: (docId: number, correspondent: string) => void;
-  onDocumentTypeChange: (docId: number, documentType: string) => void;
-  onCreatedDateChange: (docId: number, createdDate: string) => void;
-  onCustomFieldSuggestionToggle: (docId: number, fieldId: number) => void;
+  decision: Decision;
+  excluded: Set<FieldKey>;
+  onToggleField: (docId: number, key: FieldKey) => void;
+  handlers: SuggestionEditHandlers;
+  onApply: (docId: number) => void;
+  onSkip: (docId: number) => void;
+  onOpenFocus: (docId: number) => void;
+  applying: boolean;
 }
 
 const SuggestionCard: React.FC<SuggestionCardProps> = ({
   suggestion,
   availableTags,
-  onTitleChange,
-  onTagAddition,
-  onTagDeletion,
-  onCorrespondentChange,
-  onDocumentTypeChange,
-  onCreatedDateChange,
-  onCustomFieldSuggestionToggle,
+  decision,
+  excluded,
+  onToggleField,
+  handlers,
+  onApply,
+  onSkip,
+  onOpenFocus,
+  applying,
 }) => {
-  const sortedAvailableTags = availableTags.sort((a, b) => a.name.localeCompare(b.name));
   const document = suggestion.original_document;
+  const changeCount = countChanges(suggestion, excluded);
+  const decided = decision !== "pending";
+
   return (
-    <div className="bg-white dark:bg-gray-800 shadow-lg shadow-blue-500/50 rounded-md p-4 relative flex flex-col justify-between h-full">
-      <div className="flex items-center group relative">
-        <div className="relative">
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+    <article
+      aria-label={`Suggestions for “${document.title}”`}
+      className={classNames(
+        "flex h-full flex-col rounded-lg border border-line bg-surface shadow-card",
+        decided && "opacity-70"
+      )}
+    >
+      <header className="flex items-start justify-between gap-2 border-b border-line px-4 py-3">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-medium" title={document.title}>
             {document.title}
           </h3>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 truncate">
-            {document.content.length > 40
-              ? `${document.content.substring(0, 40)}...`
-              : document.content}
-          </p>
-          <div className="mt-4">
-            {document.tags.map((tag) => (
-              <span
-                key={tag}
-                className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full"
-              >
-                {tag}
+          <p className="mt-0.5 text-xs text-faint">
+            {decision === "applied" ? (
+              <span className="inline-flex items-center gap-1 text-pos">
+                <CheckCircleIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                Applied — revert anytime in History
               </span>
-            ))}
-          </div>
+            ) : decision === "skipped" ? (
+              "Skipped — stays in the queue"
+            ) : changeCount === 0 ? (
+              "No changes suggested"
+            ) : (
+              `${changeCount} field ${changeCount === 1 ? "change" : "changes"}`
+            )}
+          </p>
         </div>
-        <div className="absolute inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-4 rounded-md">
-          <div className="text-sm text-white p-2 bg-gray-800 dark:bg-gray-900 rounded-md w-full max-h-full overflow-y-auto">
-            <p className="mt-2 whitespace-pre-wrap">{document.content}</p>
-          </div>
-        </div>
-      </div>
-      <div className="mt-4">
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Suggested Title
-        </label>
-        <input
-          type="text"
-          value={suggestion.suggested_title || ""}
-          onChange={(e) => onTitleChange(suggestion.id, e.target.value)}
-          className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
+        <button
+          type="button"
+          onClick={() => onOpenFocus(suggestion.id)}
+          aria-label={`Open “${document.title}” in focus view`}
+          title="Focus view (document text + scan)"
+          className="rounded-md p-1.5 text-muted transition-colors duration-150 ease-out-quart hover:bg-surface-2 hover:text-ink"
+        >
+          <ArrowsPointingOutIcon className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </header>
+
+      <div className="flex-1 px-4 py-1.5">
+        <SuggestionFields
+          suggestion={suggestion}
+          availableTags={availableTags}
+          excluded={excluded}
+          onToggleField={onToggleField}
+          handlers={handlers}
+          disabled={decided || applying}
         />
-        <div className="mt-4">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Suggested Tags
-          </label>
-          <ReactTags
-            selected={
-              suggestion.suggested_tags?.map((tag, index) => ({
-                id: index.toString(),
-                name: tag,
-                label: tag,
-                value: index.toString(),
-              })) || []
-            }
-            suggestions={sortedAvailableTags.map((tag) => ({
-              id: tag.id,
-              name: tag.name,
-              label: tag.name,
-              value: tag.id,
-            }))}
-            onAdd={(tag) =>
-              onTagAddition(suggestion.id, {
-                id: String(tag.label),
-                name: String(tag.value),
-              })
-            }
-            onDelete={(index) => onTagDeletion(suggestion.id, index)}
-            allowNew={true}
-            placeholderText="Add a tag"
-            classNames={{
-              root: "react-tags dark:bg-gray-800",
-              rootIsActive: "is-active",
-              rootIsDisabled: "is-disabled",
-              rootIsInvalid: "is-invalid",
-              label: "react-tags__label",
-              tagList: "react-tags__list",
-              tagListItem: "react-tags__list-item",
-              tag: "react-tags__tag dark:bg-blue-900 dark:text-blue-200",
-              tagName: "react-tags__tag-name",
-              comboBox: "react-tags__combobox dark:bg-gray-700 dark:text-gray-200",
-              input: "react-tags__combobox-input dark:bg-gray-700 dark:text-gray-200",
-              listBox: "react-tags__listbox dark:bg-gray-700 dark:text-gray-200",
-              option: "react-tags__listbox-option dark:bg-gray-700 dark:text-gray-200 hover:bg-blue-500 dark:hover:bg-blue-800",
-              optionIsActive: "is-active",
-              highlight: "react-tags__highlight dark:bg-gray-800",
-            }}
-          />
-        </div>
-        <div className="mt-4">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Suggested Correspondent
-          </label>
-          <input
-            type="text"
-            value={suggestion.suggested_correspondent || ""}
-            onChange={(e) => onCorrespondentChange(suggestion.id, e.target.value)}
-            className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
-            placeholder="Correspondent"
-          />
-        </div>
-        <div className="mt-4">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Suggested Document Type
-          </label>
-          <input
-            type="text"
-            value={suggestion.suggested_document_type || ""}
-            onChange={(e) => onDocumentTypeChange(suggestion.id, e.target.value)}
-            className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
-            placeholder="Document Type"
-          />
-        </div>
-        <div className="mt-4">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Suggested Created Date
-          </label>
-          <input
-            type="text"
-            value={suggestion.suggested_created_date || ""}
-            onChange={(e) => onCreatedDateChange(suggestion.id, e.target.value)}
-            className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 mt-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-200"
-            placeholder="Created Date"
-          />
-        </div>
-        {suggestion.suggested_custom_fields && suggestion.suggested_custom_fields.length > 0 && (
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Suggested Custom Fields
-            </label>
-            <div className="mt-2 space-y-2">
-              {suggestion.suggested_custom_fields?.map((field) => (
-                <div key={field.id} className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id={`custom-field-${suggestion.id}-${field.id}`}
-                    checked={field.isSelected}
-                    onChange={() => onCustomFieldSuggestionToggle(suggestion.id, field.id)}
-                    className="w-4 h-4 mr-2"
-                  />
-                  <label htmlFor={`custom-field-${suggestion.id}-${field.id}`} className="text-sm">
-                    <span className="font-semibold">{field.name}:</span> {String(field.value)}
-                  </label>
-                </div>
-              )) || []}
-            </div>
-          </div>
-        )}
       </div>
-    </div>
+
+      {!decided && (
+        <footer className="flex items-center justify-end gap-2 border-t border-line px-4 py-3">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onSkip(suggestion.id)}
+            disabled={applying}
+          >
+            Skip
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => onApply(suggestion.id)}
+            loading={applying}
+          >
+            Apply
+          </Button>
+        </footer>
+      )}
+    </article>
   );
 };
 
