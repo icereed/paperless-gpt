@@ -2,6 +2,7 @@ import {
   ArrowPathIcon,
   BoltIcon,
   CheckCircleIcon,
+  ChevronDownIcon,
   ExclamationTriangleIcon,
   XCircleIcon,
 } from "@heroicons/react/24/outline";
@@ -34,7 +35,20 @@ const statusMeta: Record<
 const ActivityTab: React.FC<ActivityTabProps> = ({ config }) => {
   const [runs, setRuns] = useState<OCRRun[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Run ids whose full failure detail (error text + untruncated title) is shown.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const navigate = useNavigate();
+
+  const toggleExpanded = (id: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   // Monotonic id so an older, slower poll can't overwrite a newer snapshot.
   const requestSeq = useRef(0);
 
@@ -129,6 +143,15 @@ const ActivityTab: React.FC<ActivityTabProps> = ({ config }) => {
             const meta = statusMeta[run.status] || statusMeta.completed;
             const Icon = meta.icon;
             const duration = runDuration(run);
+            const isExpanded = expanded.has(run.id);
+            const pdfDetail =
+              (run.pdf_action === "skipped" || run.pdf_action === "failed") &&
+              run.pdf_detail
+                ? run.pdf_detail
+                : null;
+            const errorDetail =
+              run.error && run.status !== "completed" ? run.error : null;
+            const hasDetails = Boolean(errorDetail || pdfDetail);
             return (
               <li
                 key={run.id}
@@ -153,7 +176,12 @@ const ActivityTab: React.FC<ActivityTabProps> = ({ config }) => {
                   {run.trigger === "auto" ? "auto" : "manual"}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium" title={run.document_title}>
+                  <p
+                    className={classNames(
+                      "text-sm font-medium",
+                      !isExpanded && "truncate"
+                    )}
+                  >
                     {run.document_title || `Document ${run.document_id}`}
                   </p>
                   <p className="truncate text-xs text-muted">
@@ -170,16 +198,44 @@ const ActivityTab: React.FC<ActivityTabProps> = ({ config }) => {
                       Original replaced with searchable PDF
                     </p>
                   )}
-                  {(run.pdf_action === "skipped" || run.pdf_action === "failed") &&
-                    run.pdf_detail && (
-                      <p className="mt-0.5 truncate text-xs text-warn" title={run.pdf_detail}>
-                        PDF {run.pdf_action}: {run.pdf_detail}
-                      </p>
-                    )}
-                  {run.error && run.status !== "completed" && (
-                    <p className="mt-0.5 truncate text-xs text-neg" title={run.error}>
-                      {run.error}
+                  {pdfDetail && (
+                    <p
+                      className={classNames(
+                        "mt-0.5 text-xs text-warn",
+                        isExpanded
+                          ? "whitespace-pre-wrap break-words"
+                          : "truncate"
+                      )}
+                    >
+                      PDF {run.pdf_action}: {pdfDetail}
                     </p>
+                  )}
+                  {errorDetail && (
+                    <p
+                      className={classNames(
+                        "mt-0.5 text-xs text-neg",
+                        isExpanded ? "whitespace-pre-wrap break-words" : "truncate"
+                      )}
+                    >
+                      {errorDetail}
+                    </p>
+                  )}
+                  {hasDetails && (
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(run.id)}
+                      aria-expanded={isExpanded}
+                      className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-ink"
+                    >
+                      <ChevronDownIcon
+                        className={classNames(
+                          "h-3.5 w-3.5 transition-transform duration-150 ease-out-quart",
+                          isExpanded && "rotate-180"
+                        )}
+                        aria-hidden="true"
+                      />
+                      {isExpanded ? "Hide details" : "Show details"}
+                    </button>
                   )}
                 </div>
                 <Button
