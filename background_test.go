@@ -37,10 +37,18 @@ func (m *mockOCRProvider) ProcessImage(ctx context.Context, imageData []byte, pa
 
 // mockDocumentProcessor implements the DocumentProcessor interface for testing
 type mockDocumentProcessor struct {
-	mockText string
+	mockText  string
+	mockErr   error         // returned for every document while non-nil
+	perDocErr map[int]error // returned for specific documents while set
 }
 
 func (m *mockDocumentProcessor) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions, jobID string) (*ProcessedDocument, error) {
+	if err := m.perDocErr[documentID]; err != nil {
+		return nil, err
+	}
+	if m.mockErr != nil {
+		return nil, m.mockErr
+	}
 	return &ProcessedDocument{
 		ID:   documentID,
 		Text: m.mockText,
@@ -547,12 +555,13 @@ func TestProcessAutoOcrTagDocuments(t *testing.T) {
 }
 
 // recordingClient is a stub ClientInterface used to verify the loop-break
-// recovery PATCH built by recoverFromFailedUpdate.
+// recovery PATCH built by recoverFromFailedUpdate / markProcessingFailed.
 type recordingClient struct {
 	*PaperlessClient
 	calls           []DocumentSuggestion
-	updateErr       error // returned by UpdateDocuments while non-nil
-	failAfterNCalls int   // 0 = always succeed, N>0 = fail first N calls then succeed
+	updateErr       error                 // returned by UpdateDocuments while non-nil
+	failAfterNCalls int                   // 0 = always succeed, N>0 = fail first N calls then succeed
+	taggedDocuments map[string][]Document // served by GetDocumentsByTag
 }
 
 func (r *recordingClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
@@ -564,6 +573,21 @@ func (r *recordingClient) UpdateDocuments(ctx context.Context, documents []Docum
 		return r.updateErr
 	}
 	return nil
+}
+
+func (r *recordingClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
+	return r.taggedDocuments[tag], nil
+}
+
+// callsFor filters the recorded UpdateDocuments suggestions by document ID.
+func (r *recordingClient) callsFor(documentID int) []DocumentSuggestion {
+	var out []DocumentSuggestion
+	for _, c := range r.calls {
+		if c.ID == documentID {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // TestRecoverFromFailedUpdate verifies that the recovery PATCH built by
@@ -622,5 +646,182 @@ func TestRecoverFromFailedUpdate(t *testing.T) {
 
 		require.Len(t, client.calls, 1)
 		assert.Equal(t, []string{"paperless-gpt-ocr-auto"}, client.calls[0].RemoveTags)
+	})
+}
+
+// TestProcessAutoOcrTagDocuments_FailTagAfterMaxRetries verifies that a
+// document whose OCR processing keeps failing is retried up to ocrMaxRetries
+// times and then taken out of the queue: the auto-OCR tag is removed and the
+// fail tag applied, so the poll loop stops re-paying the OCR provider for a
+// document that will never succeed.
+func TestProcessAutoOcrTagDocuments_FailTagAfterMaxRetries(t *testing.T) {
+	prevFailTag := failTag
+	prevAutoOcrTag := autoOcrTag
+	prevMaxRetries := ocrMaxRetries
+	t.Cleanup(func() {
+		failTag = prevFailTag
+		autoOcrTag = prevAutoOcrTag
+		ocrMaxRetries = prevMaxRetries
+	})
+	failTag = "paperless-gpt-failed"
+	autoOcrTag = "paperless-gpt-ocr-auto"
+
+	newDoc := func(id int) Document {
+		return Document{ID: id, Title: "Broken Doc", Tags: []string{autoOcrTag}}
+	}
+	newApp := func(client *recordingClient, processor *mockDocumentProcessor) *App {
+		// A Database is required since the auto-OCR loop now persists an OCRRun
+		// per attempt (#1005). Use a fully-migrated in-memory DB per App.
+		return &App{Client: client, docProcessor: processor, Database: newOCRRunTestDB(t)}
+	}
+
+	t.Run("fail tag applied on the configured attempt", func(t *testing.T) {
+		ocrMaxRetries = 3
+		client := &recordingClient{taggedDocuments: map[string][]Document{autoOcrTag: {newDoc(7)}}}
+		app := newApp(client, &mockDocumentProcessor{mockErr: errors.New("pdf is broken")})
+
+		// Attempts 1 and 2: failure is counted, no PATCH, error surfaces so
+		// the loop backoff still applies.
+		for round := 1; round <= 2; round++ {
+			count, err := app.processAutoOcrTagDocuments(context.Background())
+			assert.Error(t, err, "round %d should surface the OCR error", round)
+			assert.Equal(t, 0, count)
+			assert.Empty(t, client.calls, "no tag PATCH before the limit is reached")
+		}
+
+		// Attempt 3: limit reached — trigger tag removed, fail tag added, and
+		// the handled error no longer surfaces to the loop.
+		count, err := app.processAutoOcrTagDocuments(context.Background())
+		assert.NoError(t, err, "a fail-tagged document must not keep the loop in backoff")
+		assert.Equal(t, 0, count)
+		require.Len(t, client.calls, 1, "exactly one recovery PATCH expected")
+		got := client.calls[0]
+		assert.Equal(t, 7, got.ID)
+		assert.Equal(t, []string{autoOcrTag}, got.RemoveTags, "auto OCR tag must be removed to break the loop")
+		assert.Equal(t, []string{failTag}, got.SuggestedTags, "fail tag must be added as a marker")
+		assert.True(t, got.KeepOriginalTags)
+	})
+
+	t.Run("successful OCR resets the counter", func(t *testing.T) {
+		ocrMaxRetries = 3
+		client := &recordingClient{taggedDocuments: map[string][]Document{autoOcrTag: {newDoc(8)}}}
+		processor := &mockDocumentProcessor{mockText: "ocr text", mockErr: errors.New("flaky")}
+		app := newApp(client, processor)
+
+		// Two failures...
+		for round := 1; round <= 2; round++ {
+			_, err := app.processAutoOcrTagDocuments(context.Background())
+			assert.Error(t, err)
+		}
+		// ...then a success, which must reset the streak.
+		processor.mockErr = nil
+		count, err := app.processAutoOcrTagDocuments(context.Background())
+		assert.NoError(t, err)
+		assert.Equal(t, 1, count)
+		require.Len(t, client.calls, 1, "only the normal OCR update expected")
+		assert.Equal(t, []string{autoOcrTag}, client.calls[0].RemoveTags)
+		assert.Empty(t, client.calls[0].SuggestedTags, "no fail tag on the success path")
+
+		// Two more failures must NOT reach the limit (streak restarted at 0).
+		processor.mockErr = errors.New("flaky again")
+		for round := 1; round <= 2; round++ {
+			_, err := app.processAutoOcrTagDocuments(context.Background())
+			assert.Error(t, err)
+		}
+		assert.Len(t, client.calls, 1, "no recovery PATCH after the counter was reset")
+	})
+
+	t.Run("failed recovery PATCH keeps the counter and is retried", func(t *testing.T) {
+		ocrMaxRetries = 3
+		client := &recordingClient{
+			taggedDocuments: map[string][]Document{autoOcrTag: {newDoc(9)}},
+			updateErr:       errors.New("paperless unreachable"),
+			failAfterNCalls: 1,
+		}
+		app := newApp(client, &mockDocumentProcessor{mockErr: errors.New("pdf is broken")})
+
+		for round := 1; round <= 2; round++ {
+			_, err := app.processAutoOcrTagDocuments(context.Background())
+			assert.Error(t, err)
+		}
+
+		// Attempt 3: recovery PATCH fails — the error must surface and the
+		// counter must survive so the recovery is retried next round.
+		_, err := app.processAutoOcrTagDocuments(context.Background())
+		assert.Error(t, err, "failed recovery must surface the document error")
+		require.Len(t, client.calls, 1)
+
+		// Attempt 4: counter still >= limit, recovery retried and succeeds.
+		_, err = app.processAutoOcrTagDocuments(context.Background())
+		assert.NoError(t, err)
+		require.Len(t, client.calls, 2)
+		assert.Equal(t, []string{autoOcrTag}, client.calls[1].RemoveTags)
+	})
+
+	t.Run("loop shutdown is never counted", func(t *testing.T) {
+		ocrMaxRetries = 3
+		client := &recordingClient{taggedDocuments: map[string][]Document{autoOcrTag: {newDoc(10)}}}
+		app := newApp(client, &mockDocumentProcessor{
+			mockErr: fmt.Errorf("OCR aborted: %w", context.Canceled),
+		})
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // the poll loop is shutting down
+
+		for round := 1; round <= 5; round++ {
+			_, err := app.processAutoOcrTagDocuments(ctx)
+			assert.Error(t, err)
+		}
+		assert.Empty(t, client.calls, "shutdown-caused failures must not fail-tag documents")
+	})
+
+	t.Run("provider-side timeouts do count", func(t *testing.T) {
+		ocrMaxRetries = 3
+		client := &recordingClient{taggedDocuments: map[string][]Document{autoOcrTag: {newDoc(14)}}}
+		// Providers wrap their calls in their own timeout contexts (e.g.
+		// Azure), so a per-document timeout surfaces as an error wrapping
+		// context.DeadlineExceeded while the loop context is still alive.
+		app := newApp(client, &mockDocumentProcessor{
+			mockErr: fmt.Errorf("operation timed out after 2m0s: %w", context.DeadlineExceeded),
+		})
+
+		for round := 1; round <= 3; round++ {
+			app.processAutoOcrTagDocuments(context.Background())
+		}
+		require.Len(t, client.calls, 1, "a document that keeps timing out must be fail-tagged")
+		assert.Equal(t, []string{failTag}, client.calls[0].SuggestedTags)
+	})
+
+	t.Run("OCR_MAX_RETRIES=0 disables the limit", func(t *testing.T) {
+		ocrMaxRetries = 0
+		client := &recordingClient{taggedDocuments: map[string][]Document{autoOcrTag: {newDoc(11)}}}
+		app := newApp(client, &mockDocumentProcessor{mockErr: errors.New("pdf is broken")})
+
+		for round := 1; round <= 5; round++ {
+			_, err := app.processAutoOcrTagDocuments(context.Background())
+			assert.Error(t, err)
+		}
+		assert.Empty(t, client.calls, "with the limit disabled the document keeps retrying like before")
+	})
+
+	t.Run("documents are counted independently", func(t *testing.T) {
+		ocrMaxRetries = 3
+		broken, healthy := newDoc(12), newDoc(13)
+		client := &recordingClient{taggedDocuments: map[string][]Document{autoOcrTag: {broken, healthy}}}
+		app := newApp(client, &mockDocumentProcessor{
+			mockText:  "ocr text",
+			perDocErr: map[int]error{12: errors.New("pdf is broken")},
+		})
+
+		for round := 1; round <= 3; round++ {
+			app.processAutoOcrTagDocuments(context.Background())
+		}
+
+		// The healthy document is updated every round and must never reset
+		// or absorb the broken document's failure count.
+		assert.Len(t, client.callsFor(13), 3, "healthy document updated each round")
+		brokenCalls := client.callsFor(12)
+		require.Len(t, brokenCalls, 1, "broken document fail-tagged exactly once, on round 3")
+		assert.Equal(t, []string{failTag}, brokenCalls[0].SuggestedTags)
 	})
 }
