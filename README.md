@@ -309,6 +309,7 @@ services:
 For detailed provider-specific documentation:
 
 - [Mistral AI Integration](docs/mistral_llm.md)
+- [Local fine-tuned model for document type suggestions](docs/local_finetuned_document_type.md)
 
 paperless-gpt supports four different OCR providers, each with unique strengths and capabilities:
 
