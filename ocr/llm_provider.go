@@ -179,6 +179,9 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	}
 
 	text := textsanitize.StripReasoning(completion.Choices[0].Content)
+	// Some vision models wrap their whole answer in a ```markdown … ``` fence;
+	// strip it so the recognized text isn't polluted with model scaffolding.
+	text = textsanitize.StripCodeFences(text)
 	limitHit := false
 	tokenCount := -1
 

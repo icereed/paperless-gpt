@@ -12,3 +12,7 @@ dist/
 *.tsbuildinfo
 paperless-gpt
 web-app/e2e/test-results
+
+# Local design-session context (not part of the repo)
+.impeccable/
+PRODUCT.md
