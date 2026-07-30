@@ -991,3 +991,87 @@ func TestCreatedDatePreValidation(t *testing.T) {
 	}
 	assert.Equal(t, "Better Title", receivedPatch["title"], "valid fields must still be sent")
 }
+
+// TestUpdateDocuments_PreserveExistingMetadata verifies that PRESERVE_EXISTING_METADATA
+// keeps a correspondent and a document type that are already set, while still
+// filling in the ones that are empty. Without it, a suggestion always wins — which
+// silently overrides paperless-ngx' own classifier and any manual correction.
+func TestUpdateDocuments_PreserveExistingMetadata(t *testing.T) {
+	t.Setenv("PRESERVE_EXISTING_METADATA", "true")
+	preserveExistingMetadata = true
+	defer func() { preserveExistingMetadata = false }()
+
+	tests := []struct {
+		name                string
+		originalCorr        string
+		originalType        string
+		wantCorrUnchanged   bool
+		wantTypeUnchanged   bool
+	}{
+		{
+			name:              "both already set are kept",
+			originalCorr:      "Existing Corp",
+			originalType:      "Invoice",
+			wantCorrUnchanged: true,
+			wantTypeUnchanged: true,
+		},
+		{
+			name:              "empty ones are still filled",
+			originalCorr:      "",
+			originalType:      "",
+			wantCorrUnchanged: false,
+			wantTypeUnchanged: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			defer env.teardown()
+
+			var patched map[string]interface{}
+			env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"results":[]}`))
+			})
+			env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPatch {
+					_ = json.NewDecoder(r.Body).Decode(&patched)
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+			})
+			env.setMockResponse("/api/correspondents/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"results":[{"id":7,"name":"Suggested Corp"}]}`))
+			})
+			env.setMockResponse("/api/document_types/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"results":[{"id":9,"name":"Receipt"}]}`))
+			})
+
+			doc := DocumentSuggestion{
+				ID: 1,
+				OriginalDocument: Document{
+					ID:               1,
+					Correspondent:    tt.originalCorr,
+					DocumentTypeName: tt.originalType,
+				},
+				SuggestedCorrespondent: "Suggested Corp",
+				SuggestedDocumentType:  "Receipt",
+			}
+			if err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{doc}, env.db, false); err != nil {
+				t.Fatalf("UpdateDocuments: %v", err)
+			}
+
+			_, corrPatched := patched["correspondent"]
+			if corrPatched == tt.wantCorrUnchanged {
+				t.Errorf("correspondent: patched=%v, want unchanged=%v", corrPatched, tt.wantCorrUnchanged)
+			}
+			_, typePatched := patched["document_type"]
+			if typePatched == tt.wantTypeUnchanged {
+				t.Errorf("document_type: patched=%v, want unchanged=%v", typePatched, tt.wantTypeUnchanged)
+			}
+		})
+	}
+}
