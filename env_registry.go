@@ -36,6 +36,7 @@ var envRegistry = []EnvVar{
 	{Name: "AUTO_GENERATE_CORRESPONDENTS", Category: "Tags & automation", Secret: false, Default: "true", Description: "Generate correspondents automatically if `paperless-gpt-auto` is used."},
 	{Name: "AUTO_GENERATE_CREATED_DATE", Category: "Tags & automation", Secret: false, Default: "true", Description: "Generate the created dates automatically if `paperless-gpt-auto` is used."},
 	{Name: "AUTO_GENERATE_DOCUMENT_TYPE", Category: "Tags & automation", Secret: false, Default: "true", Description: "Generate document types automatically if `paperless-gpt-auto` is used. Only existing document types from paperless-ngx will be used."},
+	{Name: "PRESERVE_EXISTING_METADATA", Category: "Tags & automation", Secret: false, Default: "false", Description: "Keep a correspondent or document type that is already set on the document instead of overwriting it with the suggestion. Lets paperless-ngx' own classifier or a manual correction stay in charge while the LLM only fills the gaps."},
 	{Name: "AUTO_GENERATE_TAGS", Category: "Tags & automation", Secret: false, Default: "true", Description: "Generate tags automatically if `paperless-gpt-auto` is used."},
 	{Name: "AUTO_GENERATE_TITLE", Category: "Tags & automation", Secret: false, Default: "true", Description: "Generate titles automatically if `paperless-gpt-auto` is used."},
 	{Name: "AUTO_OCR_TAG", Category: "Tags & automation", Secret: false, Default: "paperless-gpt-ocr-auto", Description: "Tag for automatically processing docs with OCR."},

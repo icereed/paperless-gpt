@@ -606,7 +606,12 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 
 		// --- CORRESPONDENT ---
-		if document.SuggestedCorrespondent != "" && document.SuggestedCorrespondent != originalDoc.Correspondent {
+		// With PRESERVE_EXISTING_METADATA, a correspondent that is already set
+		// wins over the suggestion. That leaves paperless-ngx' own classifier (or
+		// a manual correction) in charge and limits the LLM to documents that do
+		// not have a correspondent yet.
+		if document.SuggestedCorrespondent != "" && document.SuggestedCorrespondent != originalDoc.Correspondent &&
+			!(preserveExistingMetadata && originalDoc.Correspondent != "") {
 			originalFields["correspondent"] = originalDoc.Correspondent
 			if corrID, exists := availableCorrespondents[document.SuggestedCorrespondent]; exists {
 				updatedFields["correspondent"] = corrID
@@ -621,7 +626,10 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 
 		// --- DOCUMENT TYPE ---
-		if document.SuggestedDocumentType != "" && document.SuggestedDocumentType != originalDoc.DocumentTypeName {
+		// Same as above: an existing document type is kept when
+		// PRESERVE_EXISTING_METADATA is enabled.
+		if document.SuggestedDocumentType != "" && document.SuggestedDocumentType != originalDoc.DocumentTypeName &&
+			!(preserveExistingMetadata && originalDoc.DocumentTypeName != "") {
 			originalFields["document_type"] = originalDoc.DocumentTypeName
 			if docTypeID, exists := availableDocumentTypes[document.SuggestedDocumentType]; exists {
 				updatedFields["document_type"] = docTypeID
