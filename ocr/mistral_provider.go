@@ -9,21 +9,25 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/sirupsen/logrus"
 )
 
-var (
-	mistralOCREndpoint   = "https://api.mistral.ai/v1/ocr"
-	mistralFilesEndpoint = "https://api.mistral.ai/v1/files"
+const (
+	mistralDefaultBaseURL = "https://api.mistral.ai"
+	mistralOCRPath        = "/v1/ocr"
+	mistralFilesPath      = "/v1/files"
 )
 
 // MistralOCRProvider implements the OCR Provider interface using Mistral's OCR API
 type MistralOCRProvider struct {
-	apiKey string
-	model  string
+	apiKey        string
+	model         string
+	ocrEndpoint   string
+	filesEndpoint string
 }
 
 // MistralOCRRequest represents the request body for the Mistral OCR API
@@ -71,8 +75,14 @@ func newMistralOCRProvider(config Config) (Provider, error) {
 	if config.MistralAPIKey == "" {
 		return nil, fmt.Errorf("missing required Mistral API key")
 	}
+	baseURL := strings.TrimRight(strings.TrimSpace(config.MistralBaseURL), "/")
+	if baseURL == "" {
+		baseURL = mistralDefaultBaseURL
+	}
 	return &MistralOCRProvider{
-		apiKey: config.MistralAPIKey,
+		apiKey:        config.MistralAPIKey,
+		ocrEndpoint:   baseURL + mistralOCRPath,
+		filesEndpoint: baseURL + mistralFilesPath,
 		model: func() string {
 			if config.MistralModel == "" {
 				return "mistral-ocr-latest" // Default model
@@ -90,7 +100,7 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 		"provider":    "mistral_ocr",
 		"model":       p.model,
 	})
-	
+
 	logger.Info("Processing image with Mistral OCR provider")
 
 	// Detect the actual MIME type of the data
@@ -124,16 +134,16 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 		logger.Debug("Processing image content via base64 method")
 		// For image content, use base64 encoding
 		base64Data := base64.StdEncoding.EncodeToString(data)
-		
+
 		// Use the detected MIME type for the data URL
 		dataURL := fmt.Sprintf("data:%s;base64,%s", mtype.String(), base64Data)
-		
+
 		req.Document.Type = "image_url"
 		req.Document.ImageURL = dataURL
 		logger.WithFields(logrus.Fields{
-			"mime_type":        mtype.String(),
-			"base64_length":    len(base64Data),
-			"data_url_prefix":  dataURL[:min(50, len(dataURL))],
+			"mime_type":       mtype.String(),
+			"base64_length":   len(base64Data),
+			"data_url_prefix": dataURL[:min(50, len(dataURL))],
 		}).Debug("Using image URL method")
 	}
 
@@ -145,10 +155,10 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 	return &OCRResult{
 		Text: text,
 		Metadata: map[string]string{
-			"provider":   "mistral_ocr",
-			"model":      p.model,
-			"mime_type":  mtype.String(),
-			"page":       fmt.Sprintf("%d", pageNumber),
+			"provider":  "mistral_ocr",
+			"model":     p.model,
+			"mime_type": mtype.String(),
+			"page":      fmt.Sprintf("%d", pageNumber),
 		},
 	}, nil
 }
@@ -179,7 +189,7 @@ func (p *MistralOCRProvider) uploadFile(data []byte) (string, error) {
 		return "", err
 	}
 
-	req, err := http.NewRequest("POST", mistralFilesEndpoint, body)
+	req, err := http.NewRequest("POST", p.filesEndpoint, body)
 	if err != nil {
 		return "", err
 	}
@@ -188,7 +198,7 @@ func (p *MistralOCRProvider) uploadFile(data []byte) (string, error) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	logger.WithFields(logrus.Fields{
-		"url":          mistralFilesEndpoint,
+		"url":          p.filesEndpoint,
 		"content_type": writer.FormDataContentType(),
 		"body_size":    body.Len(),
 	}).Debug("Sending file upload request")
@@ -237,7 +247,7 @@ func (p *MistralOCRProvider) getSignedURL(fileID string) (string, error) {
 	logger := log.WithField("file_id", fileID)
 	logger.Debug("Getting signed URL")
 
-	url := fmt.Sprintf("%s/%s/url?expiry=24", mistralFilesEndpoint, fileID)
+	url := fmt.Sprintf("%s/%s/url?expiry=24", p.filesEndpoint, fileID)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
@@ -304,7 +314,7 @@ func (p *MistralOCRProvider) processDocument(req MistralOCRRequest, logger *logr
 	reqLogData, _ := json.Marshal(reqCopy)
 	logger.WithField("request_body", string(reqLogData)).Debug("OCR request details")
 
-	httpReq, err := http.NewRequest("POST", mistralOCREndpoint, bytes.NewBuffer(jsonData))
+	httpReq, err := http.NewRequest("POST", p.ocrEndpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", err
 	}
@@ -313,7 +323,7 @@ func (p *MistralOCRProvider) processDocument(req MistralOCRRequest, logger *logr
 	httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
 
 	logger.WithFields(logrus.Fields{
-		"url":         mistralOCREndpoint,
+		"url":         p.ocrEndpoint,
 		"method":      "POST",
 		"body_size":   len(jsonData),
 		"api_key_len": len(p.apiKey),
@@ -358,25 +368,25 @@ func (p *MistralOCRProvider) processDocument(req MistralOCRRequest, logger *logr
 	}
 
 	logger.WithFields(logrus.Fields{
-		"pages_count":      len(ocrResp.Pages),
-		"pages_processed":  ocrResp.UsageInfo.PagesProcessed,
-		"model":            ocrResp.Model,
+		"pages_count":     len(ocrResp.Pages),
+		"pages_processed": ocrResp.UsageInfo.PagesProcessed,
+		"model":           ocrResp.Model,
 	}).Info("OCR processing completed")
 
 	// Combine text from all pages
 	var combinedText string
 	for i, page := range ocrResp.Pages {
 		logger.WithFields(logrus.Fields{
-			"page_index":     i,
-			"page_markdown":  len(page.Markdown),
-			"page_dpi":       page.Dimensions.Dpi,
-			"page_width":     page.Dimensions.Width,
-			"page_height":    page.Dimensions.Height,
+			"page_index":    i,
+			"page_markdown": len(page.Markdown),
+			"page_dpi":      page.Dimensions.Dpi,
+			"page_width":    page.Dimensions.Width,
+			"page_height":   page.Dimensions.Height,
 		}).Debug("Processing page content")
-		
+
 		combinedText += page.Markdown + "\n"
 	}
-	
+
 	// Remove trailing newline
 	if len(combinedText) > 0 {
 		combinedText = combinedText[:len(combinedText)-1]

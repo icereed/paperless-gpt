@@ -9,12 +9,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func setupTestServer() (*httptest.Server, func()) {
-	origOCREndpoint := mistralOCREndpoint
-	origFilesEndpoint := mistralFilesEndpoint
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/ocr" {
 			handleOCRRequest(w, r)
@@ -22,17 +20,24 @@ func setupTestServer() (*httptest.Server, func()) {
 			handleFileUploadRequest(w, r)
 		} else if r.URL.Path == "/v1/files/test-file-id/url" {
 			handleGetSignedURLRequest(w, r)
+		} else {
+			http.NotFound(w, r)
 		}
 	}))
 
-	mistralOCREndpoint = server.URL + "/v1/ocr"
-	mistralFilesEndpoint = server.URL + "/v1/files"
-
 	return server, func() {
 		server.Close()
-		mistralOCREndpoint = origOCREndpoint
-		mistralFilesEndpoint = origFilesEndpoint
 	}
+}
+
+func newTestMistralOCRProvider(t *testing.T, baseURL string) *MistralOCRProvider {
+	t.Helper()
+	provider, err := newMistralOCRProvider(Config{
+		MistralAPIKey:  "test-key",
+		MistralBaseURL: baseURL,
+	})
+	require.NoError(t, err)
+	return provider.(*MistralOCRProvider)
 }
 
 func handleOCRRequest(w http.ResponseWriter, r *http.Request) {
@@ -113,17 +118,20 @@ func handleGetSignedURLRequest(w http.ResponseWriter, r *http.Request) {
 
 func TestNewMistralOCRProvider(t *testing.T) {
 	tests := []struct {
-		name        string
-		config      Config
-		wantErr     bool
-		errContains string
+		name              string
+		config            Config
+		wantOCREndpoint   string
+		wantFilesEndpoint string
+		wantErr           bool
+		errContains       string
 	}{
 		{
 			name: "valid config",
 			config: Config{
 				MistralAPIKey: "test-key",
 			},
-			wantErr: false,
+			wantOCREndpoint:   "https://api.mistral.ai/v1/ocr",
+			wantFilesEndpoint: "https://api.mistral.ai/v1/files",
 		},
 		{
 			name: "valid config with custom model",
@@ -131,7 +139,17 @@ func TestNewMistralOCRProvider(t *testing.T) {
 				MistralAPIKey: "test-key",
 				MistralModel:  "custom-model",
 			},
-			wantErr: false,
+			wantOCREndpoint:   "https://api.mistral.ai/v1/ocr",
+			wantFilesEndpoint: "https://api.mistral.ai/v1/files",
+		},
+		{
+			name: "valid config with custom base URL",
+			config: Config{
+				MistralAPIKey:  "test-key",
+				MistralBaseURL: " https://litellm.example.com/// ",
+			},
+			wantOCREndpoint:   "https://litellm.example.com/v1/ocr",
+			wantFilesEndpoint: "https://litellm.example.com/v1/files",
 		},
 		{
 			name:        "missing API key",
@@ -155,6 +173,8 @@ func TestNewMistralOCRProvider(t *testing.T) {
 				assert.NotNil(t, provider)
 				mistralProvider := provider.(*MistralOCRProvider)
 				assert.Equal(t, tt.config.MistralAPIKey, mistralProvider.apiKey)
+				assert.Equal(t, tt.wantOCREndpoint, mistralProvider.ocrEndpoint)
+				assert.Equal(t, tt.wantFilesEndpoint, mistralProvider.filesEndpoint)
 				if tt.config.MistralModel != "" {
 					assert.Equal(t, tt.config.MistralModel, mistralProvider.model)
 				} else {
@@ -166,14 +186,10 @@ func TestNewMistralOCRProvider(t *testing.T) {
 }
 
 func TestMistralOCRProvider_ProcessImage(t *testing.T) {
-	_, cleanup := setupTestServer()
+	server, cleanup := setupTestServer()
 	defer cleanup()
 
-	// Create provider with mocked API endpoint
-	provider := &MistralOCRProvider{
-		apiKey: "test-key",
-		model:  "mistral-ocr-latest",
-	}
+	provider := newTestMistralOCRProvider(t, server.URL)
 
 	// Test image processing
 	testImage := []byte("test image data")
@@ -187,14 +203,10 @@ func TestMistralOCRProvider_ProcessImage(t *testing.T) {
 }
 
 func TestMistralOCRProvider_UploadFile(t *testing.T) {
-	_, cleanup := setupTestServer()
+	server, cleanup := setupTestServer()
 	defer cleanup()
 
-	// Create provider with mocked API endpoint
-	provider := &MistralOCRProvider{
-		apiKey: "test-key",
-		model:  "mistral-ocr-latest",
-	}
+	provider := newTestMistralOCRProvider(t, server.URL)
 
 	// Test file upload
 	testPDF := []byte("test pdf data")
@@ -205,14 +217,10 @@ func TestMistralOCRProvider_UploadFile(t *testing.T) {
 }
 
 func TestMistralOCRProvider_GetSignedURL(t *testing.T) {
-	_, cleanup := setupTestServer()
+	server, cleanup := setupTestServer()
 	defer cleanup()
 
-	// Create provider with mocked API endpoint
-	provider := &MistralOCRProvider{
-		apiKey: "test-key",
-		model:  "mistral-ocr-latest",
-	}
+	provider := newTestMistralOCRProvider(t, server.URL)
 
 	// Test getting signed URL
 	url, err := provider.getSignedURL("test-file-id")
@@ -222,14 +230,10 @@ func TestMistralOCRProvider_GetSignedURL(t *testing.T) {
 }
 
 func TestMistralOCRProvider_ProcessDocument(t *testing.T) {
-	_, cleanup := setupTestServer()
+	server, cleanup := setupTestServer()
 	defer cleanup()
 
-	// Create provider with mocked API endpoint
-	provider := &MistralOCRProvider{
-		apiKey: "test-key",
-		model:  "mistral-ocr-latest",
-	}
+	provider := newTestMistralOCRProvider(t, server.URL)
 
 	req := MistralOCRRequest{
 		Model: provider.model,
@@ -282,11 +286,7 @@ func TestMistralOCRProvider_ErrorHandling(t *testing.T) {
 			}))
 			defer server.Close()
 
-			provider := &MistralOCRProvider{
-				apiKey: "test-key",
-				model:  "mistral-ocr-latest",
-			}
-			mistralOCREndpoint = server.URL + "/v1/ocr"
+			provider := newTestMistralOCRProvider(t, server.URL)
 
 			req := MistralOCRRequest{
 				Model: provider.model,

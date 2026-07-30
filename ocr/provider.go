@@ -40,8 +40,9 @@ type Config struct {
 	Provider string
 
 	// Mistral OCR settings
-	MistralAPIKey string
-	MistralModel  string // Optional, defaults to "mistral-ocr-latest"
+	MistralAPIKey  string
+	MistralBaseURL string // Optional, defaults to "https://api.mistral.ai"
+	MistralModel   string // Optional, defaults to "mistral-ocr-latest"
 
 	// Generic Vision LLM settings
 	VisionLLMMaxTokens   int
