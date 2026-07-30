@@ -16,7 +16,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const mistralDefaultBaseURL = "https://api.mistral.ai"
+const (
+	mistralDefaultBaseURL = "https://api.mistral.ai"
+	mistralOCRPath        = "/v1/ocr"
+	mistralFilesPath      = "/v1/files"
+)
 
 // MistralOCRProvider implements the OCR Provider interface using Mistral's OCR API
 type MistralOCRProvider struct {
@@ -77,8 +81,8 @@ func newMistralOCRProvider(config Config) (Provider, error) {
 	}
 	return &MistralOCRProvider{
 		apiKey:        config.MistralAPIKey,
-		ocrEndpoint:   baseURL + "/v1/ocr",
-		filesEndpoint: baseURL + "/v1/files",
+		ocrEndpoint:   baseURL + mistralOCRPath,
+		filesEndpoint: baseURL + mistralFilesPath,
 		model: func() string {
 			if config.MistralModel == "" {
 				return "mistral-ocr-latest" // Default model
