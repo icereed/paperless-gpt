@@ -23,9 +23,13 @@ environment:
   # OCR Configuration
   OCR_PROVIDER: "mistral_ocr"
   MISTRAL_API_KEY: "your_mistral_api_key"
+  # Optional: use a Mistral-compatible proxy or gateway
+  MISTRAL_BASE_URL: "https://api.mistral.ai"
   # Optional: specify model version
   MISTRAL_MODEL: "mistral-ocr-latest"
 ```
+
+`MISTRAL_BASE_URL` defaults to `https://api.mistral.ai`. A custom base URL must serve both the Mistral OCR endpoint at `/v1/ocr` and the Files API at `/v1/files`, which is used when processing PDFs.
 
 ## Size Limits and Constraints
 

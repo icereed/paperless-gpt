@@ -305,6 +305,7 @@ func main() {
 		AzureModelID:             azureDocAIModelID,
 		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
 		MistralAPIKey:            os.Getenv("MISTRAL_API_KEY"),
+		MistralBaseURL:           os.Getenv("MISTRAL_BASE_URL"),
 		MistralModel:             os.Getenv("MISTRAL_MODEL"),
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,

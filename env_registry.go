@@ -77,6 +77,7 @@ var envRegistry = []EnvVar{
 	{Name: "LOG_LEVEL", Category: "Server & container", Secret: false, Default: "info", Description: "Application log level (`info`, `debug`, `warn`, `error`)."},
 	{Name: "MANUAL_TAG", Category: "Tags & automation", Secret: false, Default: "paperless-gpt", Description: "Tag for manual processing."},
 	{Name: "MISTRAL_API_KEY", Category: "LLM", Secret: true, Default: "", Description: "Mistral API key (required if using Mistral)."},
+	{Name: "MISTRAL_BASE_URL", Category: "OCR", Secret: false, Default: "https://api.mistral.ai", Description: "Base URL for the Mistral OCR and Files APIs. A custom gateway must expose both `/v1/ocr` and `/v1/files`."},
 	{Name: "MISTRAL_MODEL", Category: "OCR", Secret: false, Default: "mistral-ocr-latest", Description: "Mistral OCR model used when OCR_PROVIDER is mistral_ocr."},
 	{Name: "OCR_LIMIT_PAGES", Category: "OCR", Secret: false, Default: "5", Description: "Limit the number of pages for OCR. Set to `0` for no limit. Not applied in `whole_pdf` mode (see Whole PDF Mode), which always processes the entire document."},
 	{Name: "OCR_MAX_RETRIES", Category: "OCR", Secret: false, Default: "3", Description: "How many times OCR processing may fail for a document (in the auto-OCR poll) before paperless-gpt gives up: the auto OCR tag is removed and `FAIL_TAG` applied, so the document stops being retried (and re-billed) every cycle. Counted in memory — a restart resets the count. Set to `0` to keep retrying forever."},
