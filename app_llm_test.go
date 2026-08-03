@@ -17,9 +17,11 @@ import (
 
 // Mock LLM for testing
 type mockLLM struct {
-	lastPrompt string
-	Response   string
-	Error      error
+	lastPrompt    string
+	lastModel     string
+	lastStreaming bool
+	Response      string
+	Error         error
 }
 
 func (m *mockLLM) CreateEmbedding(_ context.Context, texts []string) ([][]float32, error) {
@@ -38,6 +40,13 @@ func (m *mockLLM) Call(ctx context.Context, prompt string, options ...llms.CallO
 }
 
 func (m *mockLLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
+	opts := llms.CallOptions{}
+	for _, option := range options {
+		option(&opts)
+	}
+	m.lastModel = opts.Model
+	m.lastStreaming = opts.StreamingFunc != nil
+
 	if len(messages) > 0 && len(messages[0].Parts) > 0 {
 		if textContent, ok := messages[0].Parts[0].(llms.TextContent); ok {
 			m.lastPrompt = textContent.Text
@@ -60,6 +69,25 @@ func (m *mockLLM) GenerateContent(ctx context.Context, messages []llms.MessageCo
 			},
 		},
 	}, nil
+}
+
+func TestTitleGenerationPassesConfiguredModel(t *testing.T) {
+	previousTemplate := titleTemplate
+	titleTemplate = template.Must(template.New("title").Parse(testTitleTemplate))
+	t.Cleanup(func() { titleTemplate = previousTemplate })
+	model := &mockLLM{Response: "Suggested title"}
+	app := &App{LLM: model}
+	previousModel := llmModel
+	llmModel = "frontier"
+	t.Cleanup(func() { llmModel = previousModel })
+	previousProvider := llmProvider
+	llmProvider = "openai"
+	t.Cleanup(func() { llmProvider = previousProvider })
+
+	_, err := app.getSuggestedTitle(context.Background(), "Document content", "Original title", logrus.WithField("test", "model"))
+	require.NoError(t, err)
+	assert.Equal(t, "frontier", model.lastModel)
+	assert.True(t, model.lastStreaming)
 }
 
 // Mock templates for testing
