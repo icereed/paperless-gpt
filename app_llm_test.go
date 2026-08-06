@@ -330,6 +330,107 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 	})
 }
 
+func TestTagBlackList(t *testing.T) {
+	testLogger := logrus.WithField("test", "test")
+
+	var err error
+	tagTemplate, err = template.New("tag").Parse(testTagTemplate)
+	require.NoError(t, err)
+
+	originalCreateNewTags := createNewTags
+	originalTagBlackList := tagBlackList
+	defer func() {
+		createNewTags = originalCreateNewTags
+		tagBlackList = originalTagBlackList
+	}()
+
+	ctx := context.Background()
+	availableTags := []string{"invoice", "receipt", "paperless-gpt-failed"}
+
+	t.Run("blacklisted tags are withheld from the prompt", func(t *testing.T) {
+		createNewTags = false
+		tagBlackList = []string{"paperless-gpt-failed"}
+		mockLLM := &mockLLM{Response: "invoice"}
+		app := &App{LLM: mockLLM}
+
+		_, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, []string{}, testLogger)
+		require.NoError(t, err)
+
+		assert.NotContains(t, mockLLM.lastPrompt, "paperless-gpt-failed",
+			"blacklisted tag must not appear in <available_tags>")
+		assert.Contains(t, mockLLM.lastPrompt, "invoice")
+	})
+
+	t.Run("blacklisted tag suggested anyway is stripped", func(t *testing.T) {
+		createNewTags = false
+		tagBlackList = []string{"paperless-gpt-failed"}
+		mockLLM := &mockLLM{Response: "invoice, paperless-gpt-failed"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, []string{}, testLogger)
+		require.NoError(t, err)
+
+		assert.Contains(t, tags, "invoice")
+		assert.NotContains(t, tags, "paperless-gpt-failed")
+	})
+
+	t.Run("blacklist beats CREATE_NEW_TAGS", func(t *testing.T) {
+		// Without the pre-append filter this is the leaking path: with
+		// createNewTags on, the available-tags check no longer gates the result.
+		createNewTags = true
+		tagBlackList = []string{"paperless-gpt-failed"}
+		mockLLM := &mockLLM{Response: "invoice, paperless-gpt-failed"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, []string{}, testLogger)
+		require.NoError(t, err)
+
+		assert.Contains(t, tags, "invoice")
+		assert.NotContains(t, tags, "paperless-gpt-failed")
+	})
+
+	t.Run("matching is case-insensitive", func(t *testing.T) {
+		createNewTags = true
+		tagBlackList = []string{"PAPERLESS-GPT-FAILED"}
+		mockLLM := &mockLLM{Response: "invoice, paperless-gpt-failed"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, []string{}, testLogger)
+		require.NoError(t, err)
+
+		assert.NotContains(t, tags, "paperless-gpt-failed")
+	})
+
+	t.Run("tags already on the document survive the blacklist", func(t *testing.T) {
+		// The blacklist suppresses suggestions; it must not strip a tag a user
+		// (or a previous failed run) already put on the document.
+		createNewTags = false
+		tagBlackList = []string{"paperless-gpt-failed"}
+		mockLLM := &mockLLM{Response: "invoice"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags,
+			[]string{"paperless-gpt-failed"}, testLogger)
+		require.NoError(t, err)
+
+		assert.Contains(t, tags, "invoice")
+		assert.Contains(t, tags, "paperless-gpt-failed")
+	})
+
+	t.Run("empty blacklist changes nothing", func(t *testing.T) {
+		createNewTags = false
+		tagBlackList = []string{}
+		mockLLM := &mockLLM{Response: "invoice, paperless-gpt-failed"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, []string{}, testLogger)
+		require.NoError(t, err)
+
+		assert.Contains(t, tags, "invoice")
+		assert.Contains(t, tags, "paperless-gpt-failed")
+	})
+}
+
 func TestTokenLimitInTitleGeneration(t *testing.T) {
 	testLogger := logrus.WithField("test", "test")
 

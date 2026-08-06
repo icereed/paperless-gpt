@@ -92,10 +92,21 @@ func (app *App) getSuggestedTags(
 	availableTags = removeTagFromList(availableTags, autoTag)
 	availableTags = removeTagFromList(availableTags, autoOcrTag)
 
+	// Never show TAG_BLACK_LIST entries to the LLM. Withholding them from
+	// <available_tags> is the reliable fix: a negative "do not pick X"
+	// instruction in the prompt competes with the explicit "choose from this
+	// list" instruction, and models follow it inconsistently.
+	//
+	// This is deliberately a separate slice rather than a reassignment of
+	// availableTags: availableTags also gates which of the document's *original*
+	// tags survive the filter at the end of this function, and blacklisting a
+	// tag must not strip it from documents that already carry it.
+	promptTags := removeBlackListedTags(availableTags, tagBlackList)
+
 	// Get available tokens for content
 	templateData := map[string]interface{}{
 		"Language":      likelyLanguage,
-		"AvailableTags": availableTags,
+		"AvailableTags": promptTags,
 		"OriginalTags":  originalTags,
 		"Title":         suggestedTitle,
 		"CreateNewTags": createNewTags,
@@ -147,6 +158,14 @@ func (app *App) getSuggestedTags(
 	for i, tag := range suggestedTags {
 		suggestedTags[i] = strings.TrimSpace(tag)
 	}
+
+	// Second line of defence for TAG_BLACK_LIST: a model can still emit a
+	// blacklisted name it was never shown (hallucinated, or copied out of the
+	// document content), and with CREATE_NEW_TAGS enabled such a name would not
+	// be filtered by the available-tags check below. Applied before the original
+	// tags are appended, so the blacklist only suppresses *suggestions* and
+	// never strips a tag the document already carries.
+	suggestedTags = removeBlackListedTags(suggestedTags, tagBlackList)
 
 	// append the original tags to the suggested tags
 	suggestedTags = append(suggestedTags, originalTags...)
