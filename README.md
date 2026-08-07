@@ -1,3 +1,4 @@
+<!-- Hermes OpenCode VM test -->
 # paperless-gpt
 
 [![License](https://img.shields.io/github/license/icereed/paperless-gpt)](LICENSE)
