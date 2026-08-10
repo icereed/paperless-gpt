@@ -61,6 +61,9 @@ func newLLMProvider(config Config) (*LLMProvider, error) {
 	case "openai":
 		logger.Debug("Initializing OpenAI vision model")
 		model, err = createOpenAIClient(config)
+	case "atlas":
+		logger.Debug("Initializing Atlas Cloud vision model")
+		model, err = createAtlasClient(config)
 	case "ollama":
 		logger.Debug("Initializing Ollama vision model")
 		model, err = createOllamaClient(config)
@@ -132,7 +135,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	var parts []llms.ContentPart
 	var contentPart llms.ContentPart
 
-	if providerName == "openai" || providerName == "mistral" {
+	if providerName == "openai" || providerName == "atlas" || providerName == "mistral" {
 		logger.Info("Using OpenAI image format")
 		contentPart = llms.ImageURLPart("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageContent))
 	} else if providerName == "googleai" {
@@ -224,6 +227,18 @@ func createOpenAIClient(config Config) (llms.Model, error) {
 	return openai.New(
 		openai.WithModel(config.VisionLLMModel),
 		openai.WithToken(apiKey),
+	)
+}
+
+func createAtlasClient(config Config) (llms.Model, error) {
+	apiKey := os.Getenv("ATLAS_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("Atlas Cloud API key is not set")
+	}
+	return openai.New(
+		openai.WithModel(config.VisionLLMModel),
+		openai.WithToken(apiKey),
+		openai.WithBaseURL("https://api.atlascloud.ai/v1"),
 	)
 }
 

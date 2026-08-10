@@ -33,6 +33,7 @@ var envCategoryOrder = []string{
 // GOOGLE_APPLICATION_CREDENTIALS) that never appear as os.Getenv calls in Go.
 var envRegistry = []EnvVar{
 	{Name: "ANTHROPIC_API_KEY", Category: "LLM", Secret: true, Default: "", Description: "Anthropic API key (required if using Anthropic/Claude)."},
+	{Name: "ATLAS_API_KEY", Category: "LLM", Secret: true, Default: "", Description: "Atlas Cloud API key (required if using `LLM_PROVIDER=atlas` or `VISION_LLM_PROVIDER=atlas`)."},
 	{Name: "AUTO_GENERATE_CORRESPONDENTS", Category: "Tags & automation", Secret: false, Default: "true", Description: "Generate correspondents automatically if `paperless-gpt-auto` is used."},
 	{Name: "AUTO_GENERATE_CREATED_DATE", Category: "Tags & automation", Secret: false, Default: "true", Description: "Generate the created dates automatically if `paperless-gpt-auto` is used."},
 	{Name: "AUTO_GENERATE_DOCUMENT_TYPE", Category: "Tags & automation", Secret: false, Default: "true", Description: "Generate document types automatically if `paperless-gpt-auto` is used. Only existing document types from paperless-ngx will be used."},
@@ -70,7 +71,7 @@ var envRegistry = []EnvVar{
 	{Name: "LLM_LANGUAGE", Category: "Processing & limits", Secret: false, Default: "English", Description: "Likely language for documents (e.g. `English`). Appears in the prompt to help the LLM."},
 	{Name: "LLM_MAX_RETRIES", Category: "LLM", Secret: false, Default: "3", Description: "Maximum retry attempts for failed main LLM requests."},
 	{Name: "LLM_MODEL", Category: "LLM", Secret: false, Default: "", Description: "AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`)."},
-	{Name: "LLM_PROVIDER", Category: "LLM", Secret: false, Default: "", Description: "AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`)."},
+	{Name: "LLM_PROVIDER", Category: "LLM", Secret: false, Default: "", Description: "AI backend (`openai`, `atlas`, `ollama`, `googleai`, `mistral`, or `anthropic`)."},
 	{Name: "LLM_REQUESTS_PER_MINUTE", Category: "LLM", Secret: false, Default: "120", Description: "Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load."},
 	{Name: "LOCAL_HOCR_PATH", Category: "PDF & hOCR", Secret: false, Default: "/app/hocr", Description: "Path where hOCR files will be saved when hOCR generation is enabled."},
 	{Name: "LOCAL_PDF_PATH", Category: "PDF & hOCR", Secret: false, Default: "/app/pdf", Description: "Path where PDF files will be saved when PDF generation is enabled."},
@@ -112,7 +113,7 @@ var envRegistry = []EnvVar{
 	{Name: "VISION_LLM_MAX_RETRIES", Category: "OCR", Secret: false, Default: "3", Description: "Maximum retry attempts for failed Vision LLM requests."},
 	{Name: "VISION_LLM_MAX_TOKENS", Category: "OCR", Secret: false, Default: "", Description: "Maximum tokens for Vision LLM OCR output."},
 	{Name: "VISION_LLM_MODEL", Category: "OCR", Secret: false, Default: "", Description: "Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`."},
-	{Name: "VISION_LLM_PROVIDER", Category: "OCR", Secret: false, Default: "", Description: "AI backend for LLM OCR (`openai`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`."},
+	{Name: "VISION_LLM_PROVIDER", Category: "OCR", Secret: false, Default: "", Description: "AI backend for LLM OCR (`openai`, `atlas`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`."},
 	{Name: "VISION_LLM_REQUESTS_PER_MINUTE", Category: "OCR", Secret: false, Default: "120", Description: "Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load."},
 	{Name: "VISION_LLM_TEMPERATURE", Category: "OCR", Secret: false, Default: "", Description: "Sampling temperature for Vision OCR generation. Lower is more deterministic. Important: For OpenAI GPT-5 it must be explicitly set to `1.0`."},
 }
