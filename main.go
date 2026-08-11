@@ -39,6 +39,7 @@ var (
 	// Environment Variables
 	paperlessInsecureSkipVerify   = os.Getenv("PAPERLESS_INSECURE_SKIP_VERIFY") == "true"
 	correspondentBlackList        = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
+	correspondentPromptLimit      int // Will be read from CORRESPONDENT_PROMPT_LIMIT
 	paperlessBaseURL              = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken             = os.Getenv("PAPERLESS_API_TOKEN")
 	azureDocAIEndpoint            = os.Getenv("AZURE_DOCAI_ENDPOINT")
@@ -685,6 +686,17 @@ func validateOrDefaultEnvVars() {
 		fmt.Println("Auto tag complete is disabled")
 	}
 
+	rawCorrespondentPromptLimit := os.Getenv("CORRESPONDENT_PROMPT_LIMIT")
+	if rawCorrespondentPromptLimit == "" {
+		correspondentPromptLimit = 0
+	} else {
+		var err error
+		correspondentPromptLimit, err = strconv.Atoi(rawCorrespondentPromptLimit)
+		if err != nil || correspondentPromptLimit < 0 {
+			log.Fatalf("Invalid CORRESPONDENT_PROMPT_LIMIT value: %q (must be a non-negative integer, 0 sends the full list)", rawCorrespondentPromptLimit)
+		}
+	}
+
 	if paperlessBaseURL == "" {
 		log.Fatal("Please set the PAPERLESS_BASE_URL environment variable.")
 	}
@@ -1259,7 +1271,6 @@ func createVisionLLM() (llms.Model, error) {
 		return nil, nil
 	}
 }
-
 
 func createCustomHTTPClient() *http.Client {
 	// Create custom transport that adds headers
