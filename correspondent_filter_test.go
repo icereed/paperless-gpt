@@ -58,3 +58,16 @@ func TestCorrespondentMatchScore_ShortNameFallback(t *testing.T) {
 	assert.Equal(t, 1.0, correspondentMatchScore("dm", "einkauf bei dm heute"))
 	assert.Equal(t, 0.0, correspondentMatchScore("dm", "einkauf woanders"))
 }
+
+func TestCorrespondentMatchScore_PunctuationSeparatesTerms(t *testing.T) {
+	// An en dash (and other punctuation) must split terms, so "Müller–GmbH"
+	// tokenizes into "müller" and "gmbh" and matches a document that spells the
+	// name with a space. Both significant words are found -> full score.
+	assert.Equal(t, 1.0, correspondentMatchScore("Müller–GmbH", "rechnung von müller gmbh"))
+}
+
+func TestFilterCorrespondentsForPrompt_EnDashName(t *testing.T) {
+	names := []string{"Müller–GmbH", "Telekom", "Sparkasse Hof"}
+	got := filterCorrespondentsForPrompt(names, "Rechnung von Müller GmbH", "", 1)
+	assert.Equal(t, []string{"Müller–GmbH"}, got)
+}

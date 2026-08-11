@@ -3,6 +3,7 @@ package main
 import (
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // filterCorrespondentsForPrompt reduces the correspondent names embedded into
@@ -45,7 +46,7 @@ func filterCorrespondentsForPrompt(names []string, content string, title string,
 // word fall back to a whole-name substring match.
 func correspondentMatchScore(name string, haystack string) float64 {
 	words := strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
-		return !('a' <= r && r <= 'z' || '0' <= r && r <= '9' || r > 127)
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	})
 	significant := 0
 	matched := 0
