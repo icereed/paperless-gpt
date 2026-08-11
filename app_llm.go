@@ -376,6 +376,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	result := textsanitize.StripReasoning(completion.Choices[0].Content)
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
+
 var xmlAttrEscaper = strings.NewReplacer(
 	"&", "&amp;",
 	`"`, "&quot;",
@@ -392,6 +393,7 @@ var xmlTextEscaper = strings.NewReplacer(
 
 func escapeXMLAttr(s string) string { return xmlAttrEscaper.Replace(s) }
 func escapeXMLText(s string) string { return xmlTextEscaper.Replace(s) }
+
 // getSuggestedCustomFields generates suggested custom fields for a document using the LLM
 func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry) ([]CustomFieldSuggestion, error) {
 	// Fetch all available custom fields
@@ -604,7 +606,8 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	}
 
 	if suggestionRequest.GenerateCorrespondents {
-		suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, generationContext.availableCorrespondentNames, correspondentBlackList)
+		promptCorrespondents := filterCorrespondentsForPrompt(generationContext.availableCorrespondentNames, content, suggestedTitle, correspondentPromptLimit)
+		suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, promptCorrespondents, correspondentBlackList)
 		if err != nil {
 			log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
