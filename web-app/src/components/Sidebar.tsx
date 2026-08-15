@@ -1,97 +1,145 @@
-import { mdiCogOutline, mdiHistory, mdiHomeOutline, mdiTextBoxSearchOutline, mdiFileChartOutline } from "@mdi/js";
-import { Icon } from "@mdi/react";
-import axios from "axios";
-import React, { useCallback, useEffect, useState } from "react";
+import {
+  ClockIcon,
+  Cog6ToothIcon,
+  DocumentChartBarIcon,
+  DocumentMagnifyingGlassIcon,
+  HomeIcon,
+  Bars3Icon,
+} from "@heroicons/react/24/outline";
+import classNames from "classnames";
+import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import logo from "../assets/logo.svg";
-import "./Sidebar.css";
+import ThemeToggle from "./ThemeToggle";
 
-interface SidebarProps {
-  onSelectPage: (page: string) => void;
+const COLLAPSE_KEY = "pgpt-sidebar-collapsed";
+
+interface MenuItem {
+  name: string;
+  path: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  title: string;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onSelectPage }) => {
-  const [collapsed, setCollapsed] = useState(false);
+const Sidebar: React.FC = () => {
+  const [collapsed, setCollapsed] = useState(
+    () =>
+      localStorage.getItem(COLLAPSE_KEY) === "1" ||
+      window.matchMedia("(max-width: 767px)").matches
+  );
   const location = useLocation();
 
-  const toggleSidebar = () => {
-    setCollapsed(!collapsed);
-  };
-
-  const handlePageClick = (page: string) => {
-    onSelectPage(page);
-  };
-
-  // Get whether experimental OCR is enabled
-  const [ocrEnabled, setOcrEnabled] = useState(false);
-  const fetchOcrEnabled = useCallback(async () => {
-    try {
-      const res = await axios.get<{ enabled: boolean }>(
-        "./api/experimental/ocr"
-      );
-      setOcrEnabled(res.data.enabled);
-    } catch (err) {
-      console.error(err);
-    }
+  // Small screens force the rail; the toggle can still expand it on demand.
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const onChange = () => {
+      if (mq.matches) setCollapsed(true);
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
 
-  useEffect(() => {
-    fetchOcrEnabled();
-  }, [fetchOcrEnabled]);
+  const toggleSidebar = () => {
+    setCollapsed((prev) => {
+      localStorage.setItem(COLLAPSE_KEY, prev ? "0" : "1");
+      return !prev;
+    });
+  };
 
-  const menuItems = [
-    { name: "home", path: "./", icon: mdiHomeOutline, title: "Home" },
-    { name: "adhoc-analysis", path: "./adhoc-analysis", icon: mdiFileChartOutline, title: "Ad-hoc Analysis" },
-    { name: "history", path: "./history", icon: mdiHistory, title: "History" },
-    { name: "settings", path: "./settings", icon: mdiCogOutline, title: "Settings" },
+  // OCR is the headline feature and always visible — without a configured
+  // provider the page shows setup guidance instead of hiding entirely.
+  const menuItems: MenuItem[] = [
+    { name: "home", path: "./", icon: HomeIcon, title: "Home" },
+    {
+      name: "ocr",
+      path: "./ocr",
+      icon: DocumentMagnifyingGlassIcon,
+      title: "OCR",
+    },
+    {
+      name: "adhoc-analysis",
+      path: "./adhoc-analysis",
+      icon: DocumentChartBarIcon,
+      title: "Ad-hoc Analysis",
+    },
+    { name: "history", path: "./history", icon: ClockIcon, title: "History" },
+    {
+      name: "settings",
+      path: "./settings",
+      icon: Cog6ToothIcon,
+      title: "Settings",
+    },
   ];
 
-  // If OCR is enabled, add the OCR menu item
-  if (ocrEnabled) {
-    menuItems.push({
-      name: "ocr",
-      path: "./experimental-ocr",
-      icon: mdiTextBoxSearchOutline,
-      title: "OCR",
-    });
-  }
+  const currentSegment = location.pathname.split("/").at(-1);
 
   return (
-    <div className={`sidebar min-w-[64px] ${collapsed ? "collapsed" : ""}`}>
-      <div className={`sidebar-header ${collapsed ? "collapsed" : ""}`}>
-        {!collapsed && (
-          <img
-            src={logo}
-            alt="Logo"
-            className="logo w-8 h-8 object-contain flex-shrink-0"
-          />
+    <div
+      className={classNames(
+        "flex shrink-0 flex-col border-r border-line bg-surface-2",
+        collapsed ? "w-16" : "w-60"
+      )}
+    >
+      <div
+        className={classNames(
+          "flex h-14 items-center border-b border-line px-3",
+          collapsed ? "justify-center" : "justify-between"
         )}
-        <button className="toggle-btn" onClick={toggleSidebar}>
-          &#9776;
+      >
+        {!collapsed && (
+          <span className="flex min-w-0 items-center gap-2">
+            <img src={logo} alt="" className="h-7 w-7 shrink-0 object-contain" />
+            <span className="truncate text-sm font-semibold">paperless-gpt</span>
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!collapsed}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="rounded-md p-2 text-muted transition-colors duration-150 ease-out-quart hover:bg-surface hover:text-ink"
+        >
+          <Bars3Icon className="h-5 w-5" aria-hidden="true" />
         </button>
       </div>
-      <ul className="menu-items">
-        {menuItems.map((item) => (
-          <li
-            key={item.name}
-            className={location.pathname.split('/').at(-1) === item.path.split('/').at(-1) ? "active" : ""}
-            onClick={() => handlePageClick(item.name)}
-          >
-            <Link
-              to={item.path}
-              onClick={() => handlePageClick(item.name)}
-              style={{ display: "flex", alignItems: "center" }}
-            >
-              {/* <Icon path={item.icon} size={1} />
-              {!collapsed && <span>&nbsp; {item.title}</span>} */}
-              <div className="w-7 h-7 flex items-center justify-center flex-shrink-0">
-                <Icon path={item.icon} size={1} />
-              </div>
-              {!collapsed && <span className="ml-2">{item.title}</span>}
-            </Link>
-          </li>
-        ))}
-      </ul>
+
+      <nav aria-label="Main" className="flex-1 overflow-y-auto p-2">
+        <ul className="space-y-1">
+          {menuItems.map((item) => {
+            // /ocr has sub-routes (/ocr/activity) that keep the item active.
+            const isActive =
+              item.name === "ocr"
+                ? location.pathname.includes("/ocr")
+                : currentSegment === item.path.split("/").at(-1);
+            const Icon = item.icon;
+            return (
+              <li key={item.name}>
+                <Link
+                  to={item.path}
+                  aria-current={isActive ? "page" : undefined}
+                  aria-label={collapsed ? item.title : undefined}
+                  title={collapsed ? item.title : undefined}
+                  className={classNames(
+                    "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors duration-150 ease-out-quart",
+                    collapsed && "justify-center px-2",
+                    isActive
+                      ? "bg-primary-tint font-medium text-ink"
+                      : "text-muted hover:bg-surface hover:text-ink"
+                  )}
+                >
+                  <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                  {!collapsed && <span className="truncate">{item.title}</span>}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      <div className="border-t border-line p-2">
+        <ThemeToggle showLabel={!collapsed} />
+      </div>
     </div>
   );
 };

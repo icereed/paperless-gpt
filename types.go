@@ -108,9 +108,21 @@ type AnalyzeDocumentsRequest struct {
 
 // Settings defines the structure for server-side UI settings
 type Settings struct {
-	CustomFieldsEnable      bool   `json:"custom_fields_enable"`
-	CustomFieldsSelectedIDs []int  `json:"custom_fields_selected_ids"`
-	CustomFieldsWriteMode   string `json:"custom_fields_write_mode"` // "append" or "replace"
+	CustomFieldsEnable      bool        `json:"custom_fields_enable"`
+	CustomFieldsSelectedIDs []int       `json:"custom_fields_selected_ids"`
+	CustomFieldsWriteMode   string      `json:"custom_fields_write_mode"` // "append" or "replace"
+	OCR                     OCRDefaults `json:"ocr"`
+}
+
+// OCRDefaults are persisted run-option defaults, editable from the UI.
+// A nil field means "use the env-derived value". They drive Auto-OCR and
+// prefill the Playground — the ramp from manual runs to hands-off auto mode.
+type OCRDefaults struct {
+	LimitPages      *int    `json:"limit_pages,omitempty"`
+	ProcessMode     *string `json:"process_mode,omitempty"`
+	UploadPDF       *bool   `json:"upload_pdf,omitempty"`
+	ReplaceOriginal *bool   `json:"replace_original,omitempty"`
+	CopyMetadata    *bool   `json:"copy_metadata,omitempty"`
 }
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
@@ -163,6 +175,7 @@ type OCROptions struct {
 	LimitPages      int    // Limit on the number of pages to process (0 = no limit)
 	ProcessMode     string // OCR processing mode: "image" (default) or "pdf"
 	ExistingContent string // Existing document text (e.g., from Tesseract) to include in OCR prompt
+	PromptOverride  string // Run-scoped OCR prompt template; empty = use the saved template
 }
 
 // PartialUpdateError signals that a document update succeeded only after
@@ -186,6 +199,9 @@ type ClientInterface interface {
 	GetDocumentCountByTag(ctx context.Context, tag string) (int, error)
 	UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error
 	GetDocument(ctx context.Context, documentID int) (Document, error)
+	GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error)
+	SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error)
+	GetDocumentPageImage(ctx context.Context, documentID int, pageIndex int) ([]byte, error)
 	GetAllTags(ctx context.Context) (map[string]int, error)
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
 	GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error)
