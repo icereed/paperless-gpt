@@ -1001,6 +1001,27 @@ services:
       # ... other variables
 ```
 
+#### Container Entrypoint Behavior
+
+The entrypoint behaves differently depending on whether the container
+runs as root or as a non-root user:
+
+**When running as root (default Docker behavior):**
+1. Creates the `paperless-gpt` user and group with the specified `PUID`/`PGID`
+2. Sets up required directories (`/app/config`, `/app/db`, `/app/prompts`, `/home/paperless-gpt`)
+3. Drops privileges to the unprivileged user via `su-exec`
+4. Starts the Go binary as `PUID`:`PGID`
+
+**When running as non-root** (e.g. `docker run --user`, Kubernetes
+`securityContext.runAsNonRoot: true`): the entrypoint detects it is not
+running as root, ensures required directories exist (`/app/config`,
+`/app/db`, `/app/prompts`), then starts the binary directly — skipping
+user/group creation and privilege drop. `PUID` and `PGID` are not used;
+the binary runs with the container's existing user/group (e.g.
+`securityContext.runAsUser`/`runAsGroup` in Kubernetes). The `/app`
+directory must be writable by that user for the directories to be
+created; any mounted volumes must also be writable by that user.
+
 ## Contributing
 
 **Pull requests** and **issues** are welcome!
