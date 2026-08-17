@@ -113,7 +113,7 @@ var envRegistry = []EnvVar{
 	{Name: "VISION_LLM_MAX_RETRIES", Category: "OCR", Secret: false, Default: "3", Description: "Maximum retry attempts for failed Vision LLM requests."},
 	{Name: "VISION_LLM_MAX_TOKENS", Category: "OCR", Secret: false, Default: "", Description: "Maximum tokens for Vision LLM OCR output."},
 	{Name: "VISION_LLM_MODEL", Category: "OCR", Secret: false, Default: "", Description: "Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`."},
-	{Name: "VISION_LLM_PROVIDER", Category: "OCR", Secret: false, Default: "", Description: "AI backend for LLM OCR (`openai`, `atlas`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`."},
+	{Name: "VISION_LLM_PROVIDER", Category: "OCR", Secret: false, Default: "", Description: "AI backend for LLM OCR (`openai`, `atlas`, `ollama`, `googleai`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`."},
 	{Name: "VISION_LLM_REQUESTS_PER_MINUTE", Category: "OCR", Secret: false, Default: "120", Description: "Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load."},
 	{Name: "VISION_LLM_TEMPERATURE", Category: "OCR", Secret: false, Default: "", Description: "Sampling temperature for Vision OCR generation. Lower is more deterministic. Important: For OpenAI GPT-5 it must be explicitly set to `1.0`."},
 }

@@ -207,7 +207,7 @@ services:
       # OCR Configuration - Choose one:
       # Option 1: LLM-based OCR
       OCR_PROVIDER: "llm" # Default OCR provider
-      VISION_LLM_PROVIDER: "ollama" # openai, atlas, ollama, mistral, or anthropic
+      VISION_LLM_PROVIDER: "ollama" # openai, atlas, ollama, googleai, mistral, or anthropic
       VISION_LLM_MODEL: "minicpm-v" # minicpm-v (ollama) or gpt-4o (openai) or claude-sonnet-4-5 (anthropic/claude)
       OLLAMA_HOST: "http://host.docker.internal:11434" # If using Ollama
 
@@ -591,7 +591,7 @@ For best results with the enhanced OCR features:
 | `SUGGESTION_JOB_TIMEOUT_SECONDS`    | Optional timeout for async manual suggestion jobs. Leave unset to disable; set a bounded value for slow local inference when jobs must not run forever.                                      | No       |                            |
 | `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                      | No       | llm                        |
 | `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
-| `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `atlas`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                                           | Cond.    |                            |
+| `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `atlas`, `ollama`, `googleai`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                               | Cond.    |                            |
 | `VISION_LLM_MODEL`                  | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                                                                                                 | Cond.    |                            |
 | `VISION_LLM_REQUESTS_PER_MINUTE`    | Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load.                                                                                              | No       | 120                        |
 | `VISION_LLM_MAX_RETRIES`            | Maximum retry attempts for failed Vision LLM requests.                                                                                                                                        | No       | 3                          |
