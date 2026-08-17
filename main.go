@@ -699,15 +699,16 @@ func validateOrDefaultEnvVars() {
 
 	if visionLlmProvider != "" &&
 		visionLlmProvider != "openai" &&
+		visionLlmProvider != "atlas" &&
 		visionLlmProvider != "ollama" &&
 		visionLlmProvider != "mistral" &&
 		visionLlmProvider != "googleai" &&
 		visionLlmProvider != "anthropic" {
 
-		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai', 'mistral' or 'anthropic'.")
+		log.Fatal("Please set the VISION_LLM_PROVIDER environment variable to 'openai', 'atlas', 'ollama', 'googleai', 'mistral' or 'anthropic'.")
 	}
-	if llmProvider != "openai" && llmProvider != "ollama" && llmProvider != "googleai" && llmProvider != "mistral" && llmProvider != "anthropic" {
-		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai', 'ollama', 'googleai', 'mistral' or 'anthropic'.")
+	if llmProvider != "openai" && llmProvider != "atlas" && llmProvider != "ollama" && llmProvider != "googleai" && llmProvider != "mistral" && llmProvider != "anthropic" {
+		log.Fatal("Please set the LLM_PROVIDER environment variable to 'openai', 'atlas', 'ollama', 'googleai', 'mistral' or 'anthropic'.")
 	}
 
 	// Validate OCR provider if set
@@ -761,6 +762,11 @@ func validateOrDefaultEnvVars() {
 			if baseURL := os.Getenv("OPENAI_BASE_URL"); baseURL == "" {
 				log.Fatal("Please set the OPENAI_BASE_URL environment variable for Azure OpenAI.")
 			}
+		}
+	}
+	if llmProvider == "atlas" || visionLlmProvider == "atlas" {
+		if os.Getenv("ATLAS_API_KEY") == "" {
+			log.Fatal("Please set the ATLAS_API_KEY environment variable for Atlas Cloud provider.")
 		}
 	}
 
@@ -1080,6 +1086,21 @@ func createLLM() (llms.Model, error) {
 
 		// Apply rate limiting with isVision=false
 		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
+	case "atlas":
+		apiKey := os.Getenv("ATLAS_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("Atlas Cloud API key is not set")
+		}
+		llm, err := openai.New(
+			openai.WithModel(llmModel),
+			openai.WithToken(apiKey),
+			openai.WithBaseURL("https://api.atlascloud.ai/v1"),
+			openai.WithHTTPClient(createCustomHTTPClient()),
+		)
+		if err != nil {
+			return nil, err
+		}
+		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
 	case "ollama":
 		host := os.Getenv("OLLAMA_HOST")
 		if host == "" {
@@ -1149,7 +1170,7 @@ func createLLM() (llms.Model, error) {
 		// Apply rate limiting with isVision=false
 		return NewRateLimitedLLM(llm, getRateLimitConfig(false)), nil
 	default:
-		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, ollama, mistral, googleai, anthropic)", llmProvider)
+		return nil, fmt.Errorf("unsupported LLM provider: %s (supported: openai, atlas, ollama, mistral, googleai, anthropic)", llmProvider)
 	}
 }
 
@@ -1205,6 +1226,21 @@ func createVisionLLM() (llms.Model, error) {
 
 		// Apply rate limiting with isVision=true
 		return NewRateLimitedLLM(llm, getRateLimitConfig(true)), nil
+	case "atlas":
+		apiKey := os.Getenv("ATLAS_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("Atlas Cloud API key is not set")
+		}
+		llm, err := openai.New(
+			openai.WithModel(visionLlmModel),
+			openai.WithToken(apiKey),
+			openai.WithBaseURL("https://api.atlascloud.ai/v1"),
+			openai.WithHTTPClient(createCustomHTTPClient()),
+		)
+		if err != nil {
+			return nil, err
+		}
+		return NewRateLimitedLLM(llm, getRateLimitConfig(true)), nil
 	case "ollama":
 		host := os.Getenv("OLLAMA_HOST")
 		if host == "" {
@@ -1259,7 +1295,6 @@ func createVisionLLM() (llms.Model, error) {
 		return nil, nil
 	}
 }
-
 
 func createCustomHTTPClient() *http.Client {
 	// Create custom transport that adds headers

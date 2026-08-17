@@ -171,19 +171,24 @@ services:
       LLM_MODEL: "gpt-4o"
       OPENAI_API_KEY: "your_openai_api_key"
 
-      # Option 2: Mistral
+      # Option 2: Atlas Cloud
+      # LLM_PROVIDER: "atlas"
+      # LLM_MODEL: "qwen/qwen3.8-max"
+      # ATLAS_API_KEY: "your_atlas_api_key"
+
+      # Option 3: Mistral
       # LLM_PROVIDER: "mistral"
       # LLM_MODEL: "mistral-large-latest"
       # MISTRAL_API_KEY: "your_mistral_api_key"
 
-      # Option 3: Azure OpenAI
+      # Option 4: Azure OpenAI
       # LLM_PROVIDER: "openai"
       # LLM_MODEL: "your-deployment-name"
       # OPENAI_API_KEY: "your_azure_api_key"
       # OPENAI_API_TYPE: "azure"
       # OPENAI_BASE_URL: "https://your-resource.openai.azure.com"
 
-      # Option 4: Ollama (Local)
+      # Option 5: Ollama (Local)
       # LLM_PROVIDER: "ollama"
       # LLM_MODEL: "qwen3:8b"
       # OLLAMA_HOST: "http://host.docker.internal:11434"
@@ -191,7 +196,7 @@ services:
       # OLLAMA_HEADERS: "Authorization=Bearer mytoken" # Optional headers for reverse-proxy auth
       # TOKEN_LIMIT: 1000 # Recommended for smaller models
 
-      # Option 5: Anthropic/Claude
+      # Option 6: Anthropic/Claude
       # LLM_PROVIDER: "anthropic"
       # LLM_MODEL: "claude-sonnet-4-5"
       # ANTHROPIC_API_KEY: "your_anthropic_api_key"
@@ -202,7 +207,7 @@ services:
       # OCR Configuration - Choose one:
       # Option 1: LLM-based OCR
       OCR_PROVIDER: "llm" # Default OCR provider
-      VISION_LLM_PROVIDER: "ollama" # openai, ollama, mistral, or anthropic
+      VISION_LLM_PROVIDER: "ollama" # openai, atlas, ollama, googleai, mistral, or anthropic
       VISION_LLM_MODEL: "minicpm-v" # minicpm-v (ollama) or gpt-4o (openai) or claude-sonnet-4-5 (anthropic/claude)
       OLLAMA_HOST: "http://host.docker.internal:11434" # If using Ollama
 
@@ -566,9 +571,10 @@ For best results with the enhanced OCR features:
 | `AUTO_TAG`                          | Tag for auto processing.                                                                                                                                                                      | No       | paperless-gpt-auto         |
 | `FAIL_TAG`                          | Tag applied to a document when paperless-gpt could not apply the full LLM suggestion. Two cases trigger it: (1) **partial success** — paperless-ngx rejected one or more fields (e.g. an LLM-suggested date in an impossible format such as `2023-01-79`); paperless-gpt drops the rejected fields, retries the update with the rest, and applies this tag so the user knows the document needs review; (2) **hard failure** — the update could not be salvaged; paperless-gpt removes the auto tag (to break the processing loop) and applies this tag; (3) **repeated OCR failure** — OCR processing of the document failed `OCR_MAX_RETRIES` times in a row; paperless-gpt removes the auto OCR tag and applies this tag. The tag is created automatically in paperless-ngx at startup if it does not exist. | No       | paperless-gpt-failed       |
 | `AUTO_TAG_COMPLETE`                 | Tag added to documents after auto-processing is complete. Only applied during auto-processing, not manual review. Set to an empty string (`AUTO_TAG_COMPLETE=""`) to disable. When the variable is unset, the default tag is used. | No       | paperless-gpt-auto-complete |
-| `LLM_PROVIDER`                      | AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`).                                                                                                                       | Yes      |                            |
+| `LLM_PROVIDER`                      | AI backend (`openai`, `atlas`, `ollama`, `googleai`, `mistral`, or `anthropic`).                                                                                                              | Yes      |                            |
 | `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`).                                                                                               | Yes      |                            |
 | `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                    | Cond.    |                            |
+| `ATLAS_API_KEY`                     | Atlas Cloud API key (required if using `LLM_PROVIDER=atlas` or `VISION_LLM_PROVIDER=atlas`).                                                                                                  | Cond.    |                            |
 | `MISTRAL_API_KEY`                   | Mistral API key (required if using Mistral).                                                                                                                                                  | Cond.    |                            |
 | `ANTHROPIC_API_KEY`                 | Anthropic API key (required if using Anthropic/Claude).                                                                                                                                       | Cond.    |                            |
 | `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                                   | No       |                            |
@@ -585,7 +591,7 @@ For best results with the enhanced OCR features:
 | `SUGGESTION_JOB_TIMEOUT_SECONDS`    | Optional timeout for async manual suggestion jobs. Leave unset to disable; set a bounded value for slow local inference when jobs must not run forever.                                      | No       |                            |
 | `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                      | No       | llm                        |
 | `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
-| `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                                                    | Cond.    |                            |
+| `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `atlas`, `ollama`, `googleai`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                               | Cond.    |                            |
 | `VISION_LLM_MODEL`                  | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                                                                                                 | Cond.    |                            |
 | `VISION_LLM_REQUESTS_PER_MINUTE`    | Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load.                                                                                              | No       | 120                        |
 | `VISION_LLM_MAX_RETRIES`            | Maximum retry attempts for failed Vision LLM requests.                                                                                                                                        | No       | 3                          |
