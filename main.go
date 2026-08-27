@@ -281,6 +281,24 @@ func main() {
 		}
 	}
 
+	var mistralImageLimit *int
+	if limitStr := os.Getenv("MISTRAL_OCR_IMAGE_LIMIT"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil {
+			mistralImageLimit = &parsed
+		} else {
+			log.Warnf("Invalid MISTRAL_OCR_IMAGE_LIMIT value: %v, ignoring", err)
+		}
+	}
+
+	var mistralImageMinSize *int
+	if minSizeStr := os.Getenv("MISTRAL_OCR_IMAGE_MIN_SIZE"); minSizeStr != "" {
+		if parsed, err := strconv.Atoi(minSizeStr); err == nil {
+			mistralImageMinSize = &parsed
+		} else {
+			log.Warnf("Invalid MISTRAL_OCR_IMAGE_MIN_SIZE value: %v, ignoring", err)
+		}
+	}
+
 	if val, ok := os.LookupEnv("GOOGLEAI_THINKING_BUDGET"); ok {
 		if v, err := strconv.ParseInt(val, 10, 32); err == nil {
 			if v >= math.MinInt32 && v <= math.MaxInt32 {
@@ -306,6 +324,8 @@ func main() {
 		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
 		MistralAPIKey:            os.Getenv("MISTRAL_API_KEY"),
 		MistralModel:             os.Getenv("MISTRAL_MODEL"),
+		MistralImageLimit:        mistralImageLimit,
+		MistralImageMinSize:      mistralImageMinSize,
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
 		DoclingOCRPipeline:       doclingOCRPipeline,

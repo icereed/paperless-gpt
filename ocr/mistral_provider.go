@@ -22,8 +22,10 @@ var (
 
 // MistralOCRProvider implements the OCR Provider interface using Mistral's OCR API
 type MistralOCRProvider struct {
-	apiKey string
-	model  string
+	apiKey       string
+	model        string
+	imageLimit   *int
+	imageMinSize *int
 }
 
 // MistralOCRRequest represents the request body for the Mistral OCR API
@@ -35,6 +37,8 @@ type MistralOCRRequest struct {
 		ImageURL    string `json:"image_url,omitempty"`
 	} `json:"document"`
 	IncludeImageBase64 bool `json:"include_image_base64,omitempty"`
+	ImageLimit         *int `json:"image_limit,omitempty"`
+	ImageMinSize       *int `json:"image_min_size,omitempty"`
 }
 
 // MistralOCRResponse represents the response from Mistral's OCR API
@@ -79,6 +83,8 @@ func newMistralOCRProvider(config Config) (Provider, error) {
 			}
 			return config.MistralModel
 		}(),
+		imageLimit:   config.MistralImageLimit,
+		imageMinSize: config.MistralImageMinSize,
 	}, nil
 }
 
@@ -99,6 +105,8 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 
 	var req MistralOCRRequest
 	req.Model = p.model
+	req.ImageLimit = p.imageLimit
+	req.ImageMinSize = p.imageMinSize
 
 	// Handle different content types appropriately
 	if mtype.String() == "application/pdf" {
