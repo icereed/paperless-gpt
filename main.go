@@ -284,7 +284,11 @@ func main() {
 	var mistralImageLimit *int
 	if limitStr := os.Getenv("MISTRAL_OCR_IMAGE_LIMIT"); limitStr != "" {
 		if parsed, err := strconv.Atoi(limitStr); err == nil {
-			mistralImageLimit = &parsed
+			if parsed >= 0 {
+				mistralImageLimit = &parsed
+			} else {
+				log.Warnf("Invalid MISTRAL_OCR_IMAGE_LIMIT value: must be >= 0, got %d, ignoring", parsed)
+			}
 		} else {
 			log.Warnf("Invalid MISTRAL_OCR_IMAGE_LIMIT value: %v, ignoring", err)
 		}
@@ -293,7 +297,11 @@ func main() {
 	var mistralImageMinSize *int
 	if minSizeStr := os.Getenv("MISTRAL_OCR_IMAGE_MIN_SIZE"); minSizeStr != "" {
 		if parsed, err := strconv.Atoi(minSizeStr); err == nil {
-			mistralImageMinSize = &parsed
+			if parsed >= 0 {
+				mistralImageMinSize = &parsed
+			} else {
+				log.Warnf("Invalid MISTRAL_OCR_IMAGE_MIN_SIZE value: must be >= 0, got %d, ignoring", parsed)
+			}
 		} else {
 			log.Warnf("Invalid MISTRAL_OCR_IMAGE_MIN_SIZE value: %v, ignoring", err)
 		}
