@@ -195,4 +195,3 @@ func (p *GoogleAIProvider) GenerateContent(ctx context.Context, messages []llms.
 func (p *GoogleAIProvider) Call(ctx context.Context, prompt string, opts ...llms.CallOption) (string, error) {
 	return p.GenerateText(ctx, prompt)
 }
-
