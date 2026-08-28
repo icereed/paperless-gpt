@@ -292,31 +292,36 @@ func main() {
 		}
 	}
 
+	visionRateLimitConfig := getRateLimitConfig(true)
+
 	ocrConfig := ocr.Config{
-		Provider:                 providerType,
-		GoogleProjectID:          os.Getenv("GOOGLE_PROJECT_ID"),
-		GoogleLocation:           os.Getenv("GOOGLE_LOCATION"),
-		GoogleProcessorID:        os.Getenv("GOOGLE_PROCESSOR_ID"),
-		VisionLLMProvider:        visionLlmProvider,
-		VisionLLMModel:           visionLlmModel,
-		VisionLLMPrompt:          ocrPrompt,
-		AzureEndpoint:            azureDocAIEndpoint,
-		AzureAPIKey:              azureDocAIKey,
-		AzureModelID:             azureDocAIModelID,
-		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
-		MistralAPIKey:            os.Getenv("MISTRAL_API_KEY"),
-		MistralModel:             os.Getenv("MISTRAL_MODEL"),
-		DoclingURL:               doclingURL,
-		DoclingImageExportMode:   doclingImageExportMode,
-		DoclingOCRPipeline:       doclingOCRPipeline,
-		DoclingOCREngine:         doclingOCREngine,
-		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
-		VisionLLMMaxTokens:       visionLlmMaxTokens,
-		VisionLLMTemperature:     visionLlmTemperature,
-		OllamaOcrTopK:            ollamaOcrTopK,
-		OllamaContextLength:      ollamaContextLength,
-		GoogleAIAPIKey:           os.Getenv("GOOGLEAI_API_KEY"),
-		GoogleAIThinkingBudget:   googleThinkingBudget,
+		Provider:                   providerType,
+		GoogleProjectID:            os.Getenv("GOOGLE_PROJECT_ID"),
+		GoogleLocation:             os.Getenv("GOOGLE_LOCATION"),
+		GoogleProcessorID:          os.Getenv("GOOGLE_PROCESSOR_ID"),
+		VisionLLMProvider:          visionLlmProvider,
+		VisionLLMModel:             visionLlmModel,
+		VisionLLMPrompt:            ocrPrompt,
+		VisionLLMRequestsPerMinute: visionRateLimitConfig.RequestsPerMinute,
+		VisionLLMMaxRetries:        visionRateLimitConfig.MaxRetries,
+		VisionLLMBackoffMaxWait:    visionRateLimitConfig.BackoffMaxWait,
+		AzureEndpoint:              azureDocAIEndpoint,
+		AzureAPIKey:                azureDocAIKey,
+		AzureModelID:               azureDocAIModelID,
+		AzureOutputContentFormat:   AzureDocAIOutputContentFormat,
+		MistralAPIKey:              os.Getenv("MISTRAL_API_KEY"),
+		MistralModel:               os.Getenv("MISTRAL_MODEL"),
+		DoclingURL:                 doclingURL,
+		DoclingImageExportMode:     doclingImageExportMode,
+		DoclingOCRPipeline:         doclingOCRPipeline,
+		DoclingOCREngine:           doclingOCREngine,
+		EnableHOCR:                 true, // Always generate hOCR struct if provider supports it
+		VisionLLMMaxTokens:         visionLlmMaxTokens,
+		VisionLLMTemperature:       visionLlmTemperature,
+		OllamaOcrTopK:              ollamaOcrTopK,
+		OllamaContextLength:        ollamaContextLength,
+		GoogleAIAPIKey:             os.Getenv("GOOGLEAI_API_KEY"),
+		GoogleAIThinkingBudget:     googleThinkingBudget,
 	}
 
 	// Parse Azure timeout if set
@@ -1259,7 +1264,6 @@ func createVisionLLM() (llms.Model, error) {
 		return nil, nil
 	}
 }
-
 
 func createCustomHTTPClient() *http.Client {
 	// Create custom transport that adds headers

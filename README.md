@@ -431,10 +431,13 @@ Different OCR providers support different processing modes:
 | Provider | Image Mode | PDF Mode | Whole PDF Mode |
 |----------|------------|----------|----------------|
 | **LLM-based OCR** (OpenAI/Ollama) | ✅ | ❌ | ❌ |
+| **LLM-based OCR** (GoogleAI Gemini) | ✅ | ✅ | ✅ |
 | **Azure Document Intelligence** | ✅ | ❌ | ❌ |
 | **Google Document AI** | ✅ | ✅ | ✅ |
 | **Mistral OCR** | ✅ | ✅ | ✅ |
 | **Docling Server** | ✅ | ✅ | ✅ |
+
+> **Note on OpenAI & Vision LLMs**: Vision Chat Completion endpoints (such as OpenAI GPT-4o, Groq, or Ollama vision models) accept image payloads (JPEG/PNG), not raw PDF bytes directly. For these providers, paperless-gpt uses `image` mode to render PDF pages into JPEG images before sending them to the model. In contrast, Google Gemini (`googleai`) natively supports binary PDF documents.
 
 > **Important**: paperless-gpt will validate your configuration at startup and prevent unsupported mode/provider combinations. If you specify an unsupported mode for your provider, the application will fail to start with a clear error message.
 
@@ -971,6 +974,19 @@ Common issues and solutions:
 - On Ollama, if you hit "context length exceeded" or memory issues, reduce `OLLAMA_CONTEXT_LENGTH` or choose a smaller model/context size.
 - If processing is too limited, gradually increase the limit while monitoring performance
 - For models with larger context windows, you can increase the limit or disable it entirely
+
+#### API Rate Limiting (Groq, OpenRouter, OpenAI, etc.)
+
+When using third-party Vision LLM providers with strict Tokens Per Minute (TPM) or Requests Per Minute (RPM) limits (e.g. Groq free tier or OpenRouter rate limits), multi-page OCR jobs can trigger `429 Rate Limit` errors if requests are sent too quickly.
+
+Configure these environment variables to space out requests and automatically retry with exponential backoff on 429 rate limit responses:
+
+```yaml
+environment:
+  VISION_LLM_REQUESTS_PER_MINUTE: "1"  # Max requests per minute sent to the Vision API
+  VISION_LLM_MAX_RETRIES: "5"          # Number of retry attempts on rate limit or API errors
+  VISION_LLM_BACKOFF_MAX_WAIT: "60s"   # Maximum wait time between retries
+```
 
 ### PDF Processing Issues
 

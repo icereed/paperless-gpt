@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gardar/ocrchestra/pkg/hocr"
 	"github.com/sirupsen/logrus"
@@ -48,7 +49,7 @@ type Config struct {
 	VisionLLMTemperature *float64
 
 	// Google AI (Gemini) settings
-	GoogleAIAPIKey       string
+	GoogleAIAPIKey         string
 	GoogleAIThinkingBudget *int32
 
 	// Ollama OCR-specific settings
@@ -77,6 +78,11 @@ type Config struct {
 	DoclingImageExportMode string
 	DoclingOCRPipeline     string // Optional, defaults to "vlm"
 	DoclingOCREngine       string // Optional, defaults to "easyocr", if DoclingOCRPipeline == "standard"
+
+	// Rate limiting settings for Vision LLM OCR
+	VisionLLMRequestsPerMinute float64
+	VisionLLMMaxRetries        int
+	VisionLLMBackoffMaxWait    time.Duration
 
 	// OCR output options
 	EnableHOCR     bool   // Whether to generate hOCR data if supported by the provider

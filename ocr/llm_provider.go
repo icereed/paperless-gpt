@@ -82,6 +82,20 @@ func newLLMProvider(config Config) (*LLMProvider, error) {
 		return nil, fmt.Errorf("error creating vision LLM client: %w", err)
 	}
 
+	// Apply rate limiting and retry wrapper if configured
+	if config.VisionLLMRequestsPerMinute > 0 || config.VisionLLMMaxRetries > 0 {
+		rateConfig := RateLimitConfig{
+			RequestsPerMinute: config.VisionLLMRequestsPerMinute,
+			MaxRetries:        config.VisionLLMMaxRetries,
+			BackoffMaxWait:    config.VisionLLMBackoffMaxWait,
+		}
+		logger.WithFields(logrus.Fields{
+			"rpm":         config.VisionLLMRequestsPerMinute,
+			"max_retries": config.VisionLLMMaxRetries,
+		}).Info("Wrapping vision LLM model with rate limiter")
+		model = NewRateLimitedLLM(model, rateConfig)
+	}
+
 	logger.Info("Successfully initialized LLM OCR provider")
 	return &LLMProvider{
 		provider:    config.VisionLLMProvider,
