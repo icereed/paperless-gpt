@@ -139,6 +139,15 @@ func TestNewMistralOCRProvider(t *testing.T) {
 			wantErr:     true,
 			errContains: "missing required Mistral API key",
 		},
+		{
+			name: "valid config with image params",
+			config: Config{
+				MistralAPIKey:       "test-key",
+				MistralImageLimit:   intPtr(5),
+				MistralImageMinSize: intPtr(200),
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -160,9 +169,36 @@ func TestNewMistralOCRProvider(t *testing.T) {
 				} else {
 					assert.Equal(t, "mistral-ocr-latest", mistralProvider.model)
 				}
+				assert.Equal(t, tt.config.MistralImageLimit, mistralProvider.imageLimit)
+				assert.Equal(t, tt.config.MistralImageMinSize, mistralProvider.imageMinSize)
 			}
 		})
 	}
+}
+
+func intPtr(v int) *int {
+	return &v
+}
+
+func TestMistralOCRRequest_ImageParams(t *testing.T) {
+	t.Run("omitted when unset", func(t *testing.T) {
+		data, err := json.Marshal(MistralOCRRequest{Model: "mistral-ocr-latest"})
+		assert.NoError(t, err)
+		assert.NotContains(t, string(data), "image_limit")
+		assert.NotContains(t, string(data), "image_min_size")
+	})
+
+	t.Run("included when set", func(t *testing.T) {
+		req := MistralOCRRequest{
+			Model:        "mistral-ocr-latest",
+			ImageLimit:   intPtr(5),
+			ImageMinSize: intPtr(200),
+		}
+		data, err := json.Marshal(req)
+		assert.NoError(t, err)
+		assert.Contains(t, string(data), `"image_limit":5`)
+		assert.Contains(t, string(data), `"image_min_size":200`)
+	})
 }
 
 func TestMistralOCRProvider_ProcessImage(t *testing.T) {
