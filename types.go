@@ -154,8 +154,8 @@ type Correspondent struct {
 	// produces ownerless correspondents — they still appear in the
 	// correspondents list, but documents assigned to them are shown as
 	// "private" in the UI instead of the correspondent name.
-	Owner             *int   `json:"owner,omitempty"`
-	SetPermissions    struct {
+	Owner          *int `json:"owner,omitempty"`
+	SetPermissions struct {
 		View struct {
 			Users  []int `json:"users"`
 			Groups []int `json:"groups"`

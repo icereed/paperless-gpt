@@ -230,4 +230,3 @@ func TestGoogleAIProvider_Close(t *testing.T) {
 	provider := &GoogleAIProvider{}
 	assert.NoError(t, provider.Close())
 }
-

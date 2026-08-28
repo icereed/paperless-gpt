@@ -90,7 +90,7 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 		"provider":    "mistral_ocr",
 		"model":       p.model,
 	})
-	
+
 	logger.Info("Processing image with Mistral OCR provider")
 
 	// Detect the actual MIME type of the data
@@ -124,16 +124,16 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 		logger.Debug("Processing image content via base64 method")
 		// For image content, use base64 encoding
 		base64Data := base64.StdEncoding.EncodeToString(data)
-		
+
 		// Use the detected MIME type for the data URL
 		dataURL := fmt.Sprintf("data:%s;base64,%s", mtype.String(), base64Data)
-		
+
 		req.Document.Type = "image_url"
 		req.Document.ImageURL = dataURL
 		logger.WithFields(logrus.Fields{
-			"mime_type":        mtype.String(),
-			"base64_length":    len(base64Data),
-			"data_url_prefix":  dataURL[:min(50, len(dataURL))],
+			"mime_type":       mtype.String(),
+			"base64_length":   len(base64Data),
+			"data_url_prefix": dataURL[:min(50, len(dataURL))],
 		}).Debug("Using image URL method")
 	}
 
@@ -145,10 +145,10 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 	return &OCRResult{
 		Text: text,
 		Metadata: map[string]string{
-			"provider":   "mistral_ocr",
-			"model":      p.model,
-			"mime_type":  mtype.String(),
-			"page":       fmt.Sprintf("%d", pageNumber),
+			"provider":  "mistral_ocr",
+			"model":     p.model,
+			"mime_type": mtype.String(),
+			"page":      fmt.Sprintf("%d", pageNumber),
 		},
 	}, nil
 }
@@ -358,25 +358,25 @@ func (p *MistralOCRProvider) processDocument(req MistralOCRRequest, logger *logr
 	}
 
 	logger.WithFields(logrus.Fields{
-		"pages_count":      len(ocrResp.Pages),
-		"pages_processed":  ocrResp.UsageInfo.PagesProcessed,
-		"model":            ocrResp.Model,
+		"pages_count":     len(ocrResp.Pages),
+		"pages_processed": ocrResp.UsageInfo.PagesProcessed,
+		"model":           ocrResp.Model,
 	}).Info("OCR processing completed")
 
 	// Combine text from all pages
 	var combinedText string
 	for i, page := range ocrResp.Pages {
 		logger.WithFields(logrus.Fields{
-			"page_index":     i,
-			"page_markdown":  len(page.Markdown),
-			"page_dpi":       page.Dimensions.Dpi,
-			"page_width":     page.Dimensions.Width,
-			"page_height":    page.Dimensions.Height,
+			"page_index":    i,
+			"page_markdown": len(page.Markdown),
+			"page_dpi":      page.Dimensions.Dpi,
+			"page_width":    page.Dimensions.Width,
+			"page_height":   page.Dimensions.Height,
 		}).Debug("Processing page content")
-		
+
 		combinedText += page.Markdown + "\n"
 	}
-	
+
 	// Remove trailing newline
 	if len(combinedText) > 0 {
 		combinedText = combinedText[:len(combinedText)-1]

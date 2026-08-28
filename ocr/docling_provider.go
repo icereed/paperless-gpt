@@ -56,7 +56,6 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 	})
 	logger.Debug("Starting Docling processing")
 
-
 	// Prepare multipart request body
 	var requestBody bytes.Buffer
 	writer := multipart.NewWriter(&requestBody)
