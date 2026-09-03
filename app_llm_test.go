@@ -570,7 +570,7 @@ func TestGetSuggestedCustomFields(t *testing.T) {
 
 	// 3. Execute
 	testLogger := logrus.WithField("test", "TestGetSuggestedCustomFields")
-	suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, selectedFieldIDs, testLogger)
+	suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, selectedFieldIDs, testLogger, nil)
 
 	// 4. Assert
 	require.NoError(t, err)
