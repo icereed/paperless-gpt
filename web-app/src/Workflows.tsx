@@ -33,6 +33,7 @@ const PROMPT_KEYS = [
   { key: "correspondent_prompt", label: "Correspondent prompt" },
   { key: "document_type_prompt", label: "Document type prompt" },
   { key: "date_prompt", label: "Created date prompt" },
+  { key: "custom_field_prompt", label: "Custom fields prompt" },
 ];
 
 const FLAG_KEYS: { key: keyof WorkflowConfig; label: string }[] = [

@@ -420,8 +420,9 @@ var xmlTextEscaper = strings.NewReplacer(
 
 func escapeXMLAttr(s string) string { return xmlAttrEscaper.Replace(s) }
 func escapeXMLText(s string) string { return xmlTextEscaper.Replace(s) }
-// getSuggestedCustomFields generates suggested custom fields for a document using the LLM
-func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry) ([]CustomFieldSuggestion, error) {
+// getSuggestedCustomFields generates suggested custom fields for a document using the LLM.
+// tmplOverride, when non-nil, replaces the global customFieldTemplate for this call.
+func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry, tmplOverride *template.Template) ([]CustomFieldSuggestion, error) {
 	// Fetch all available custom fields
 	allCustomFields, err := app.Client.GetCustomFields(ctx)
 	if err != nil {
@@ -461,7 +462,11 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	customFieldsXML := xmlBuilder.String()
 
 	templateMutex.RLock()
-	defer templateMutex.RUnlock()
+	activeTmpl := customFieldTemplate
+	templateMutex.RUnlock()
+	if tmplOverride != nil {
+		activeTmpl = tmplOverride
+	}
 
 	templateData := map[string]interface{}{
 		"Language":        getLikelyLanguage(),
@@ -471,7 +476,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 		"CustomFieldsXML": customFieldsXML,
 	}
 
-	availableTokens, err := getAvailableTokensForContent(customFieldTemplate, templateData)
+	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
 	if err != nil {
 		return nil, fmt.Errorf("error calculating available tokens for custom fields: %v", err)
 	}
@@ -483,7 +488,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 
 	var promptBuffer bytes.Buffer
 	templateData["Content"] = truncatedContent
-	err = customFieldTemplate.Execute(&promptBuffer, templateData)
+	err = activeTmpl.Execute(&promptBuffer, templateData)
 	if err != nil {
 		return nil, fmt.Errorf("error executing custom field template: %v", err)
 	}
@@ -694,7 +699,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		if len(selectedIDs) == 0 {
 			log.Warnf("Custom field generation is enabled, but no custom fields are selected in the settings. Please select at least one custom field for this feature to work.")
 		} else {
-			suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger)
+			suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger, wfTemplate("custom_field_prompt", customFieldTemplate))
 			if err != nil {
 				log.Errorf("Error generating custom fields for document %d: %v", documentID, err)
 				return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
