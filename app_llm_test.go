@@ -157,7 +157,7 @@ Content: {{.Content}}
 
 			// Test with the app's LLM
 			ctx := context.Background()
-			_, err = app.getSuggestedTitle(ctx, truncatedContent, "Test Title", testLogger)
+			_, err = app.getSuggestedTitle(ctx, truncatedContent, "Test Title", testLogger, nil)
 			require.NoError(t, err)
 
 			// Verify truncation
@@ -210,7 +210,7 @@ func TestTokenLimitInCorrespondentGeneration(t *testing.T) {
 	availableCorrespondents := []string{"Test Corp", "Example Inc"}
 	correspondentBlackList := []string{"Blocked Corp"}
 
-	_, err := app.getSuggestedCorrespondent(ctx, longContent, "Test Title", availableCorrespondents, correspondentBlackList)
+	_, err := app.getSuggestedCorrespondent(ctx, longContent, "Test Title", availableCorrespondents, correspondentBlackList, nil)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
@@ -248,7 +248,7 @@ func TestTokenLimitInTagGeneration(t *testing.T) {
 	availableTags := []string{"test", "example"}
 	originalTags := []string{"original"}
 
-	_, err := app.getSuggestedTags(ctx, longContent, "Test Title", availableTags, originalTags, testLogger)
+	_, err := app.getSuggestedTags(ctx, longContent, "Test Title", availableTags, originalTags, testLogger, nil)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
@@ -281,7 +281,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "invoice, new-tag, receipt"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger, nil)
 		require.NoError(t, err)
 
 		assert.Contains(t, tags, "invoice")
@@ -294,7 +294,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "invoice, new-tag, receipt"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger, nil)
 		require.NoError(t, err)
 
 		assert.Contains(t, tags, "invoice")
@@ -307,7 +307,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "Invoice, NEW-TAG"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger, nil)
 		require.NoError(t, err)
 
 		// Existing tag should use the available tag's casing
@@ -321,7 +321,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "invoice, , receipt"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger, nil)
 		require.NoError(t, err)
 
 		for _, tag := range tags {
@@ -354,7 +354,7 @@ func TestTokenLimitInTitleGeneration(t *testing.T) {
 	// Call getSuggestedTitle
 	ctx := context.Background()
 
-	_, err := app.getSuggestedTitle(ctx, longContent, "Original Title", testLogger)
+	_, err := app.getSuggestedTitle(ctx, longContent, "Original Title", testLogger, nil)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
@@ -390,7 +390,7 @@ func TestTokenLimitInCreatedDateGeneration(t *testing.T) {
 	// Call getSuggestedCreatedDate
 	ctx := context.Background()
 
-	_, err := app.getSuggestedCreatedDate(ctx, longContent, testLogger)
+	_, err := app.getSuggestedCreatedDate(ctx, longContent, testLogger, nil)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
