@@ -1092,3 +1092,155 @@ func getVersionHandler(c *gin.Context) {
 func containsDotDot(s string) bool {
 	return strings.Contains(s, "..")
 }
+
+// ---------------------------------------------------------------------------
+// Workflow CRUD handlers
+// ---------------------------------------------------------------------------
+
+// listWorkflowsHandler handles GET /api/workflows – returns all configured workflows.
+func (app *App) listWorkflowsHandler(c *gin.Context) {
+	settingsMutex.RLock()
+	wfs := make([]WorkflowConfig, len(settings.Workflows))
+	copy(wfs, settings.Workflows)
+	settingsMutex.RUnlock()
+	c.JSON(http.StatusOK, wfs)
+}
+
+// createWorkflowHandler handles POST /api/workflows – creates a new workflow.
+func (app *App) createWorkflowHandler(c *gin.Context) {
+	var wf WorkflowConfig
+	if err := c.ShouldBindJSON(&wf); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+	if wf.TriggerTag == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "trigger_tag is required"})
+		return
+	}
+
+	settingsMutex.Lock()
+	defer settingsMutex.Unlock()
+
+	// Auto-generate a stable ID if not provided.
+	if wf.ID == "" {
+		wf.ID = generateWorkflowID(wf.TriggerTag, settings.Workflows)
+	}
+	// Reject duplicates.
+	for _, existing := range settings.Workflows {
+		if existing.ID == wf.ID {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("workflow with id %q already exists", wf.ID)})
+			return
+		}
+		if existing.TriggerTag == wf.TriggerTag {
+			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("trigger_tag %q is already used by workflow %q", wf.TriggerTag, existing.ID)})
+			return
+		}
+	}
+
+	settings.Workflows = append(settings.Workflows, wf)
+	if err := saveSettingsLocked(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
+		return
+	}
+	invalidateWorkflowTemplateCache(wf.ID)
+	c.JSON(http.StatusCreated, wf)
+}
+
+// updateWorkflowHandler handles PUT /api/workflows/:id – replaces a workflow.
+func (app *App) updateWorkflowHandler(c *gin.Context) {
+	id := c.Param("id")
+	var wf WorkflowConfig
+	if err := c.ShouldBindJSON(&wf); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+	wf.ID = id // enforce path ID
+
+	settingsMutex.Lock()
+	defer settingsMutex.Unlock()
+
+	found := false
+	for i, existing := range settings.Workflows {
+		if existing.ID == id {
+			// Ensure the new trigger_tag is not used by another workflow.
+			for j, other := range settings.Workflows {
+				if j != i && other.TriggerTag == wf.TriggerTag && wf.TriggerTag != "" {
+					c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("trigger_tag %q is already used by workflow %q", wf.TriggerTag, other.ID)})
+					return
+				}
+			}
+			settings.Workflows[i] = wf
+			found = true
+			break
+		}
+	}
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("workflow %q not found", id)})
+		return
+	}
+	if err := saveSettingsLocked(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
+		return
+	}
+	invalidateWorkflowTemplateCache(id)
+	c.JSON(http.StatusOK, wf)
+}
+
+// deleteWorkflowHandler handles DELETE /api/workflows/:id – removes a workflow.
+func (app *App) deleteWorkflowHandler(c *gin.Context) {
+	id := c.Param("id")
+
+	settingsMutex.Lock()
+	defer settingsMutex.Unlock()
+
+	newWorkflows := make([]WorkflowConfig, 0, len(settings.Workflows))
+	found := false
+	for _, wf := range settings.Workflows {
+		if wf.ID == id {
+			found = true
+			continue
+		}
+		newWorkflows = append(newWorkflows, wf)
+	}
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("workflow %q not found", id)})
+		return
+	}
+	settings.Workflows = newWorkflows
+	if err := saveSettingsLocked(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
+		return
+	}
+	invalidateWorkflowTemplateCache(id)
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("workflow %q deleted", id)})
+}
+
+// generateWorkflowID creates a URL-safe workflow ID from the trigger tag,
+// appending a numeric suffix when necessary to avoid collisions.
+func generateWorkflowID(triggerTag string, existing []WorkflowConfig) string {
+	base := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		if r >= 'A' && r <= 'Z' {
+			return r + 32 // to lower
+		}
+		return '-'
+	}, triggerTag)
+
+	// Trim leading/trailing dashes.
+	base = strings.Trim(base, "-")
+	if base == "" {
+		base = "workflow"
+	}
+
+	id := base
+	used := map[string]bool{}
+	for _, wf := range existing {
+		used[wf.ID] = true
+	}
+	for i := 2; used[id]; i++ {
+		id = fmt.Sprintf("%s-%d", base, i)
+	}
+	return id
+}

@@ -198,22 +198,62 @@ func recoverFromFailedUpdate(ctx context.Context, client ClientInterface, db *go
 	}
 }
 
-// processAutoTagDocuments handles the background auto-tagging of documents
+// processAutoTagDocuments handles the background auto-tagging of documents.
+// It processes the global AUTO_TAG first, then iterates over all configured
+// named workflows, each identified by their own trigger tag.
 func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
-	documents, err := app.Client.GetDocumentsByTag(ctx, autoTag, 25)
+	totalProcessed := 0
+	var allErrs []error
+
+	// --- 1. Global AUTO_TAG (existing behaviour) ---
+	n, err := app.processTagDocuments(ctx, autoTag, "")
+	totalProcessed += n
 	if err != nil {
-		return 0, fmt.Errorf("error fetching documents with autoTag: %w", err)
+		allErrs = append(allErrs, err)
+	}
+
+	// --- 2. Named workflows ---
+	settingsMutex.RLock()
+	workflows := make([]WorkflowConfig, len(settings.Workflows))
+	copy(workflows, settings.Workflows)
+	settingsMutex.RUnlock()
+
+	for _, wf := range workflows {
+		if wf.TriggerTag == "" || wf.TriggerTag == autoTag {
+			continue // misconfigured or duplicate of global tag – skip
+		}
+		n, err := app.processTagDocuments(ctx, wf.TriggerTag, wf.ID)
+		totalProcessed += n
+		if err != nil {
+			allErrs = append(allErrs, err)
+		}
+	}
+
+	if len(allErrs) > 0 {
+		return totalProcessed, errors.Join(allErrs...)
+	}
+	return totalProcessed, nil
+}
+
+// processTagDocuments fetches documents with the given tag and runs the
+// suggestion pipeline for each of them. workflowID, when non-empty, selects a
+// named workflow whose prompt overrides and generation flags are applied on top
+// of the global defaults.
+func (app *App) processTagDocuments(ctx context.Context, triggerTag string, workflowID string) (int, error) {
+	documents, err := app.Client.GetDocumentsByTag(ctx, triggerTag, 25)
+	if err != nil {
+		return 0, fmt.Errorf("error fetching documents with tag %q: %w", triggerTag, err)
 	}
 
 	if len(documents) == 0 {
-		log.Debugf("No documents with tag %s found", autoTag)
+		log.Debugf("No documents with tag %s found", triggerTag)
 		return 0, nil // No documents to process
 	}
 
 	// Refresh the custom fields cache before processing, as we have documents
 	refreshCustomFieldsCache(app.Client)
 
-	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), autoTag)
+	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), triggerTag)
 
 	var errs []error
 	processedCount := 0
@@ -235,7 +275,11 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 		}
 
 		docLogger := documentLogger(document.ID)
-		docLogger.Info("Processing document for auto-tagging")
+		if workflowID != "" {
+			docLogger.Infof("Processing document for workflow %q (trigger tag: %s)", workflowID, triggerTag)
+		} else {
+			docLogger.Info("Processing document for auto-tagging")
+		}
 
 		settingsMutex.RLock()
 		generateCustomFields := settings.CustomFieldsEnable
@@ -250,6 +294,7 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 			GenerateCreatedDate:    strings.ToLower(autoGenerateCreatedDate) != "false",
 			GenerateCustomFields:   generateCustomFields,
 			IsAutoProcessing:       true,
+			WorkflowID:             workflowID,
 		}
 
 		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
@@ -276,7 +321,7 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 			err = fmt.Errorf("error updating document %d: %w", document.ID, err)
 			docLogger.Error(err.Error())
 			errs = append(errs, err)
-			recoverFromFailedUpdate(ctx, app.Client, app.Database, document, autoTag)
+			recoverFromFailedUpdate(ctx, app.Client, app.Database, document, triggerTag)
 			continue
 		}
 
