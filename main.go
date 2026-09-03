@@ -461,6 +461,12 @@ func main() {
 
 		// Get version information
 		api.GET("/version", getVersionHandler)
+
+		// Workflow CRUD
+		api.GET("/workflows", app.listWorkflowsHandler)
+		api.POST("/workflows", app.createWorkflowHandler)
+		api.PUT("/workflows/:id", app.updateWorkflowHandler)
+		api.DELETE("/workflows/:id", app.deleteWorkflowHandler)
 	}
 
 	// Serve frontend files
@@ -484,6 +490,9 @@ func main() {
 			c.File("web-app/dist/index.html")
 		})
 		router.GET("/adhoc-analysis", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
+		router.GET("/workflows", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
 		router.GET("/favicon.ico", func(c *gin.Context) {
@@ -522,6 +531,10 @@ func main() {
 		})
 		// adhoc-analysis route
 		router.GET("/adhoc-analysis", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		// workflows route
+		router.GET("/workflows", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
 	}
