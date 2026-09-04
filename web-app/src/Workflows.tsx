@@ -2,6 +2,8 @@ import {
   PlusIcon,
   TrashIcon,
   PencilSquareIcon,
+  DocumentDuplicateIcon,
+  MagnifyingGlassIcon,
   CheckIcon,
   XMarkIcon,
   InformationCircleIcon,
@@ -56,6 +58,20 @@ const emptyWorkflow = (): WorkflowConfig => ({
   completion_tag: "",
   prompts: {},
 });
+
+const hasCustomPrompt = (wf: WorkflowConfig): boolean =>
+  Object.values(wf.prompts ?? {}).some((p) => !!p?.trim());
+
+/** Deep-copy a workflow for create-from-duplicate; clears id and trigger_tag. */
+const cloneWorkflowForDuplicate = (wf: WorkflowConfig): WorkflowConfig => ({
+  ...wf,
+  id: "",
+  name: wf.name ? `${wf.name} (copy)` : "",
+  trigger_tag: "",
+  prompts: { ...(wf.prompts ?? {}) },
+});
+
+type PromptFilter = "all" | "custom" | "default";
 
 /** Tri-state flag selector: null = inherit global, true = enable, false = disable */
 const TriStateSelect: React.FC<{
@@ -242,8 +258,9 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
 const WorkflowCard: React.FC<{
   wf: WorkflowConfig;
   onEdit: () => void;
+  onDuplicate: () => void;
   onDelete: () => void;
-}> = ({ wf, onEdit, onDelete }) => {
+}> = ({ wf, onEdit, onDuplicate, onDelete }) => {
   const overriddenFlags = FLAG_KEYS.filter(({ key }) => wf[key] !== null && wf[key] !== undefined);
   const overriddenPrompts = Object.keys(wf.prompts ?? {}).filter(
     (k) => (wf.prompts ?? {})[k]?.trim()
@@ -272,6 +289,14 @@ const WorkflowCard: React.FC<{
             title="Edit"
           >
             <PencilSquareIcon className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onDuplicate}
+            className="rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-ink"
+            title="Duplicate"
+          >
+            <DocumentDuplicateIcon className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -318,7 +343,11 @@ const Workflows: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null); // null = none, "new" = creating
+  const [draft, setDraft] = useState<WorkflowConfig | null>(null);
+  const [editorKey, setEditorKey] = useState(0);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [promptFilter, setPromptFilter] = useState<PromptFilter>("all");
 
   const fetchWorkflows = async () => {
     try {
@@ -335,6 +364,18 @@ const Workflows: React.FC = () => {
     fetchWorkflows();
   }, []);
 
+  const openNew = (initial: WorkflowConfig = emptyWorkflow()) => {
+    setDraft(initial);
+    setEditorKey((k) => k + 1);
+    setEditingId("new");
+    setDeleteConfirmId(null);
+  };
+
+  const closeEditor = () => {
+    setEditingId(null);
+    setDraft(null);
+  };
+
   const handleSave = async (wf: WorkflowConfig) => {
     try {
       if (editingId === "new") {
@@ -344,7 +385,7 @@ const Workflows: React.FC = () => {
         const res = await axios.put<WorkflowConfig>(`./api/workflows/${wf.id}`, wf);
         setWorkflows((prev) => prev.map((w) => (w.id === wf.id ? res.data : w)));
       }
-      setEditingId(null);
+      closeEditor();
     } catch (e: unknown) {
       const msg =
         (e as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -364,10 +405,25 @@ const Workflows: React.FC = () => {
     }
   };
 
+  const filteredWorkflows = (() => {
+    const q = query.trim().toLowerCase();
+    return workflows.filter((wf) => {
+      if (q) {
+        const haystack = `${wf.name} ${wf.trigger_tag} ${wf.id}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      if (promptFilter === "custom" && !hasCustomPrompt(wf)) return false;
+      if (promptFilter === "default" && hasCustomPrompt(wf)) return false;
+      return true;
+    });
+  })();
+
   const editingWorkflow =
     editingId === "new"
-      ? emptyWorkflow()
+      ? (draft ?? emptyWorkflow())
       : workflows.find((w) => w.id === editingId) ?? null;
+
+  const filtersActive = query.trim() !== "" || promptFilter !== "all";
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6">
@@ -382,7 +438,7 @@ const Workflows: React.FC = () => {
         {editingId === null && (
           <button
             type="button"
-            onClick={() => setEditingId("new")}
+            onClick={() => openNew()}
             className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-white hover:bg-primary-dark"
           >
             <PlusIcon className="h-4 w-4" /> New workflow
@@ -406,12 +462,42 @@ const Workflows: React.FC = () => {
       {/* New / edit form */}
       {editingId !== null && editingWorkflow !== null && (
         <WorkflowEditor
-          key={editingId}
+          key={editorKey || editingId}
           initial={editingWorkflow}
           isNew={editingId === "new"}
           onSave={handleSave}
-          onCancel={() => setEditingId(null)}
+          onCancel={closeEditor}
         />
+      )}
+
+      {/* Filters */}
+      {!loading && workflows.length > 0 && editingId === null && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <MagnifyingGlassIcon
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter by name or trigger tag…"
+              aria-label="Filter workflows by name or trigger"
+              className="h-9 w-full rounded-md border border-line bg-surface pl-9 pr-3 text-sm"
+            />
+          </div>
+          <select
+            value={promptFilter}
+            onChange={(e) => setPromptFilter(e.target.value as PromptFilter)}
+            aria-label="Filter by custom prompts"
+            className="h-9 rounded-md border border-line bg-surface px-3 text-sm"
+          >
+            <option value="all">All prompts</option>
+            <option value="custom">Has custom prompt</option>
+            <option value="default">No custom prompt</option>
+          </select>
+        </div>
       )}
 
       {/* List */}
@@ -424,9 +510,14 @@ const Workflows: React.FC = () => {
             Create one to process documents with a custom prompt and settings.
           </p>
         </div>
+      ) : filteredWorkflows.length === 0 && editingId === null ? (
+        <p className="text-sm text-muted">
+          No workflows match
+          {filtersActive ? " the current filters" : ""}.
+        </p>
       ) : (
         <div className="space-y-4">
-          {workflows.map((wf) =>
+          {filteredWorkflows.map((wf) =>
             editingId === wf.id ? null : (
               <div key={wf.id}>
                 {deleteConfirmId === wf.id ? (
@@ -462,11 +553,14 @@ const Workflows: React.FC = () => {
                     wf={wf}
                     onEdit={() => {
                       setEditingId(wf.id);
+                      setDraft(null);
                       setDeleteConfirmId(null);
                     }}
+                    onDuplicate={() => openNew(cloneWorkflowForDuplicate(wf))}
                     onDelete={() => {
                       setDeleteConfirmId(wf.id);
                       setEditingId(null);
+                      setDraft(null);
                     }}
                   />
                 )}
