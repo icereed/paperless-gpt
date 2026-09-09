@@ -229,6 +229,8 @@ interface PaperlessTaskStatus {
   status: string;
 }
 
+const maxSuccessfulTaskWithoutDocumentIDPolls = 5;
+
 // Helper to upload a document via Paperless-ngx API
 export async function uploadDocument(
   baseUrl: string,
@@ -257,6 +259,7 @@ export async function uploadDocument(
   }
   
   const task_id = await uploadResponse.json();
+  let successfulTaskWithoutDocumentIDPolls = 0;
   
   // Poll the tasks endpoint until document is processed
   while (true) {
@@ -292,6 +295,12 @@ export async function uploadDocument(
     if (taskResult.status.toUpperCase() === 'SUCCESS') {
       const documentId = taskResult.result_data?.document_id ?? taskResult.related_document_ids?.[0];
       if (!documentId) {
+        successfulTaskWithoutDocumentIDPolls++;
+        if (successfulTaskWithoutDocumentIDPolls >= maxSuccessfulTaskWithoutDocumentIDPolls) {
+          throw new Error(
+            `Document processing reported SUCCESS without a document ID after ${successfulTaskWithoutDocumentIDPolls} polls: ${JSON.stringify(taskResultPayload)}`
+          );
+        }
         await new Promise(resolve => setTimeout(resolve, 1000));
         continue;
       }
@@ -315,6 +324,8 @@ export async function uploadDocument(
     if (taskResult.status.toUpperCase() === 'FAILED') {
       throw new Error(`Document processing failed: ${taskResult.result}`);
     }
+
+    successfulTaskWithoutDocumentIDPolls = 0;
     
     // Wait before polling again
     await new Promise(resolve => setTimeout(resolve, 1000));
