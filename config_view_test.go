@@ -29,6 +29,17 @@ func TestBuildConfigEntriesNeverExposesSecrets(t *testing.T) {
 	assert.Equal(t, "env", e.Source)
 }
 
+func TestBuildConfigEntriesNeverExposesOllamaHeaders(t *testing.T) {
+	t.Setenv("OLLAMA_HEADERS", "Authorization=Bearer private-token,X-API-Key=private-key")
+
+	e := findEntry(buildConfigEntries(), "OLLAMA_HEADERS")
+	require.NotNil(t, e)
+	assert.True(t, e.Secret)
+	assert.True(t, e.IsSet)
+	assert.Empty(t, e.Value, "credential-bearing headers must not appear in configuration responses")
+	assert.Equal(t, "env", e.Source)
+}
+
 func TestBuildConfigEntriesScrubsURLUserinfo(t *testing.T) {
 	t.Setenv("PAPERLESS_BASE_URL", "https://user:hunter2@paperless.example.com:8000")
 
