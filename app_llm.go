@@ -56,7 +56,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	prompt := promptBuffer.String()
 	log.Debugf("Correspondent suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+	completion, err := app.LLM.GenerateContent(withOllamaPrompt(ctx, "correspondent_prompt.tmpl"), []llms.MessageContent{
 		{
 			Parts: []llms.ContentPart{
 				llms.TextContent{
@@ -126,7 +126,7 @@ func (app *App) getSuggestedTags(
 	prompt := promptBuffer.String()
 	logger.Debugf("Tag suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+	completion, err := app.LLM.GenerateContent(withOllamaPrompt(ctx, "tag_prompt.tmpl"), []llms.MessageContent{
 		{
 			Parts: []llms.ContentPart{
 				llms.TextContent{
@@ -234,7 +234,7 @@ func (app *App) getSuggestedDocumentType(
 	prompt := promptBuffer.String()
 	logger.Debugf("Document type suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+	completion, err := app.LLM.GenerateContent(withOllamaPrompt(ctx, "document_type_prompt.tmpl"), []llms.MessageContent{
 		{
 			Parts: []llms.ContentPart{
 				llms.TextContent{
@@ -304,7 +304,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	prompt := promptBuffer.String()
 	logger.Debugf("Title suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+	completion, err := app.LLM.GenerateContent(withOllamaPrompt(ctx, "title_prompt.tmpl"), []llms.MessageContent{
 		{
 			Parts: []llms.ContentPart{
 				llms.TextContent{
@@ -360,7 +360,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	prompt := promptBuffer.String()
 	logger.Debugf("CreatedDate suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+	completion, err := app.LLM.GenerateContent(withOllamaPrompt(ctx, "created_date_prompt.tmpl"), []llms.MessageContent{
 		{
 			Parts: []llms.ContentPart{
 				llms.TextContent{
@@ -463,7 +463,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	prompt := promptBuffer.String()
 	logger.Debugf("Custom field suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+	completion, err := app.LLM.GenerateContent(withOllamaPrompt(ctx, "custom_field_prompt.tmpl"), []llms.MessageContent{
 		{
 			Role: llms.ChatMessageTypeHuman,
 			Parts: []llms.ContentPart{

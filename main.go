@@ -1030,8 +1030,15 @@ func getRateLimitConfig(isVision bool) RateLimitConfig {
 
 // createLLM creates the appropriate LLM client based on the provider
 func createLLM() (llms.Model, error) {
-	if temperature := os.Getenv("LLM_TEMPERATURE"); temperature != "" && strings.ToLower(llmProvider) != "ollama" {
-		log.Warn("LLM_TEMPERATURE only applies when LLM_PROVIDER=ollama; ignoring")
+	if strings.ToLower(llmProvider) != "ollama" {
+		if temperature := os.Getenv("LLM_TEMPERATURE"); temperature != "" {
+			log.Warn("LLM_TEMPERATURE only applies when LLM_PROVIDER=ollama; ignoring")
+		}
+		for _, name := range []string{"LLM_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_SETTINGS_FILE", "OLLAMA_THINK"} {
+			if value := os.Getenv(name); value != "" {
+				log.Warnf("%s only applies when LLM_PROVIDER=ollama; ignoring", name)
+			}
+		}
 	}
 
 	switch strings.ToLower(llmProvider) {
@@ -1089,35 +1096,12 @@ func createLLM() (llms.Model, error) {
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
-		temperature := 0.0
-		if temperatureString := os.Getenv("LLM_TEMPERATURE"); temperatureString != "" {
-			parsed, err := strconv.ParseFloat(temperatureString, 64)
-			if err != nil || parsed < 0 || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
-				log.Warnf("Invalid LLM_TEMPERATURE value %q, ignoring (must be a non-negative finite number)", temperatureString)
-			} else {
-				temperature = parsed
-			}
+		config, err := loadOllamaMetadataConfig()
+		if err != nil {
+			return nil, err
 		}
-		var contextLength int
-		if ctxLenStr := os.Getenv("OLLAMA_CONTEXT_LENGTH"); ctxLenStr != "" {
-			if parsed, err := strconv.Atoi(ctxLenStr); err == nil && parsed > 0 {
-				contextLength = parsed
-			} else if err != nil {
-				log.Warnf("Invalid OLLAMA_CONTEXT_LENGTH value: %v, ignoring", err)
-			}
-		}
-		var think *bool
-		if thinkStr := os.Getenv("OLLAMA_THINK"); thinkStr != "" {
-			// Allow disabling Ollama reasoning mode for tasks where format
-			// compliance matters more than chain-of-thought (closed-list
-			// classification, strict JSON). Unset = upstream default behavior.
-			if parsed, err := strconv.ParseBool(thinkStr); err == nil {
-				think = &parsed
-			} else {
-				log.Warnf("Invalid OLLAMA_THINK value: %v, ignoring (must be true/false)", err)
-			}
-		}
-		llm, err := newOllamaMetadataModel(host, llmModel, contextLength, think, temperature, ocr.OllamaHTTPClient())
+		applyOllamaMetadataEnvironment(&config)
+		llm, err := newOllamaMetadataModel(host, llmModel, 0, nil, 0, ocr.OllamaHTTPClient(), config)
 		if err != nil {
 			return nil, err
 		}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -15,16 +16,15 @@ import (
 // OllamaMetadataModel adapts Ollama's official client to the text-only
 // metadata path. Vision/OCR continues to use its existing provider.
 type OllamaMetadataModel struct {
-	client        *ollamaapi.Client
-	model         string
-	contextLength int
-	think         *bool
-	temperature   float64
+	client *ollamaapi.Client
+	model  string
+	legacy OllamaGenerationSettings
+	config OllamaMetadataConfig
 }
 
 var _ llms.Model = (*OllamaMetadataModel)(nil)
 
-func newOllamaMetadataModel(host, model string, contextLength int, think *bool, temperature float64, client *http.Client) (*OllamaMetadataModel, error) {
+func newOllamaMetadataModel(host, model string, contextLength int, think *bool, temperature float64, client *http.Client, configured ...OllamaMetadataConfig) (*OllamaMetadataModel, error) {
 	baseURL, err := url.Parse(host)
 	if err != nil {
 		return nil, fmt.Errorf("parse Ollama host: %w", err)
@@ -38,13 +38,32 @@ func newOllamaMetadataModel(host, model string, contextLength int, think *bool, 
 	if client == nil {
 		client = http.DefaultClient
 	}
+	if len(configured) > 1 {
+		return nil, fmt.Errorf("expected at most one Ollama metadata config")
+	}
+	config := OllamaMetadataConfig{}
+	if len(configured) == 1 {
+		config = configured[0]
+	}
+	if err := validateOllamaMetadataConfig(config); err != nil {
+		return nil, err
+	}
+	legacy := OllamaGenerationSettings{Temperature: &temperature}
+	if contextLength > 0 {
+		legacy.ContextLength = &contextLength
+	}
+	if think != nil {
+		legacy.Think = json.RawMessage("false")
+		if *think {
+			legacy.Think = json.RawMessage("true")
+		}
+	}
 
 	return &OllamaMetadataModel{
-		client:        ollamaapi.NewClient(baseURL, client),
-		model:         model,
-		contextLength: contextLength,
-		think:         think,
-		temperature:   temperature,
+		client: ollamaapi.NewClient(baseURL, client),
+		model:  model,
+		legacy: legacy,
+		config: config.clone(),
 	}, nil
 }
 
@@ -53,7 +72,7 @@ func (m *OllamaMetadataModel) Call(ctx context.Context, prompt string, options .
 }
 
 func (m *OllamaMetadataModel) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
-	callOptions := llms.CallOptions{Temperature: m.temperature}
+	callOptions := newOllamaCallOptionsSentinels()
 	for _, option := range options {
 		option(&callOptions)
 	}
@@ -70,19 +89,39 @@ func (m *OllamaMetadataModel) GenerateContent(ctx context.Context, messages []ll
 	if callOptions.Model != "" {
 		model = callOptions.Model
 	}
+	settings := m.legacy.overlay(m.config.Defaults)
+	if promptSettings, ok := m.config.Prompts[ollamaPromptFromContext(ctx)]; ok {
+		settings = settings.overlay(promptSettings)
+	}
+	settings = applyExplicitOllamaCallOptions(settings, callOptions)
+	if err := settings.Validate(); err != nil {
+		return nil, err
+	}
 
 	stream := callOptions.StreamingFunc != nil || callOptions.StreamingReasoningFunc != nil
 	request := &ollamaapi.ChatRequest{
 		Model:    model,
 		Messages: chatMessages,
-		Options:  ollamaOptions(callOptions, m.contextLength),
+		Options:  ollamaGenerationOptions(settings),
 		Stream:   &stream,
+	}
+	if settings.KeepAlive != nil {
+		request.KeepAlive, err = parseOllamaKeepAlive(*settings.KeepAlive)
+		if err != nil {
+			return nil, err // Constructor already validates, but retain this for defensive use.
+		}
+	}
+	if len(settings.Think) > 0 {
+		request.Think, err = ollamaThinkValue(settings.Think)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(settings.Format) > 0 {
+		request.Format = append(json.RawMessage(nil), settings.Format...)
 	}
 	if callOptions.JSONMode {
 		request.Format = []byte(`"json"`)
-	}
-	if m.think != nil {
-		request.Think = &ollamaapi.ThinkValue{Value: *m.think}
 	}
 
 	var content strings.Builder
@@ -117,6 +156,9 @@ func (m *OllamaMetadataModel) GenerateContent(ctx context.Context, messages []ll
 	}
 	if content.Len() == 0 {
 		return nil, fmt.Errorf("Ollama chat response contained no content")
+	}
+	if len(request.Format) > 0 && !json.Valid([]byte(content.String())) {
+		return nil, fmt.Errorf("Ollama structured response was not valid JSON")
 	}
 
 	return &llms.ContentResponse{Choices: []*llms.ContentChoice{{
@@ -165,36 +207,118 @@ func ollamaRole(role llms.ChatMessageType) (string, error) {
 	}
 }
 
-func ollamaOptions(options llms.CallOptions, contextLength int) map[string]any {
-	result := map[string]any{"temperature": options.Temperature}
-	if contextLength > 0 {
-		result["num_ctx"] = contextLength
+func ollamaGenerationOptions(settings OllamaGenerationSettings) map[string]any {
+	result := make(map[string]any)
+	if settings.Temperature != nil {
+		result["temperature"] = *settings.Temperature
 	}
-	if options.MaxTokens != 0 {
-		result["num_predict"] = options.MaxTokens
+	if settings.MaxTokens != nil {
+		result["num_predict"] = *settings.MaxTokens
 	}
-	if len(options.StopWords) > 0 {
-		result["stop"] = options.StopWords
+	if settings.ContextLength != nil {
+		result["num_ctx"] = *settings.ContextLength
 	}
-	if options.TopK != 0 {
-		result["top_k"] = options.TopK
+	if settings.TopK != nil {
+		result["top_k"] = *settings.TopK
 	}
-	if options.TopP != 0 {
-		result["top_p"] = options.TopP
+	if settings.TopP != nil {
+		result["top_p"] = *settings.TopP
 	}
-	if options.Seed != 0 {
-		result["seed"] = options.Seed
+	if settings.MinP != nil {
+		result["min_p"] = *settings.MinP
 	}
-	if options.RepetitionPenalty != 0 {
-		result["repeat_penalty"] = options.RepetitionPenalty
+	if settings.Seed != nil {
+		result["seed"] = *settings.Seed
 	}
-	if options.FrequencyPenalty != 0 {
-		result["frequency_penalty"] = options.FrequencyPenalty
+	if settings.RepeatPenalty != nil {
+		result["repeat_penalty"] = *settings.RepeatPenalty
 	}
-	if options.PresencePenalty != 0 {
-		result["presence_penalty"] = options.PresencePenalty
+	if settings.RepeatLastN != nil {
+		result["repeat_last_n"] = *settings.RepeatLastN
+	}
+	if settings.FrequencyPenalty != nil {
+		result["frequency_penalty"] = *settings.FrequencyPenalty
+	}
+	if settings.PresencePenalty != nil {
+		result["presence_penalty"] = *settings.PresencePenalty
+	}
+	if settings.Stop != nil {
+		stop := make([]string, len(*settings.Stop))
+		copy(stop, *settings.Stop)
+		result["stop"] = stop
 	}
 	return result
+}
+
+// langchaingo CallOption is an opaque function and does not record which
+// fields it changed. Apply options once to private sentinels rather than
+// inferring presence from their eventual zero values. This supports standard
+// llms.With* options, including explicit zero values. A custom option that
+// intentionally assigns a private sentinel is unsupported.
+const ollamaCallOptionIntSentinel = math.MinInt
+
+const ollamaCallOptionStopSentinel = "\x00ollama-call-option-sentinel"
+
+// Use a non-canonical NaN payload so normal NaN/+Inf CallOption values are
+// detected and rejected by final validation rather than being mistaken for an
+// untouched option.
+var ollamaCallOptionFloatSentinel = math.Float64frombits(0x7ff80000000000f1)
+
+func newOllamaCallOptionsSentinels() llms.CallOptions {
+	return llms.CallOptions{
+		Temperature:       ollamaCallOptionFloatSentinel,
+		MaxTokens:         ollamaCallOptionIntSentinel,
+		StopWords:         []string{ollamaCallOptionStopSentinel},
+		TopK:              ollamaCallOptionIntSentinel,
+		TopP:              ollamaCallOptionFloatSentinel,
+		Seed:              ollamaCallOptionIntSentinel,
+		RepetitionPenalty: ollamaCallOptionFloatSentinel,
+		FrequencyPenalty:  ollamaCallOptionFloatSentinel,
+		PresencePenalty:   ollamaCallOptionFloatSentinel,
+	}
+}
+
+func applyExplicitOllamaCallOptions(settings OllamaGenerationSettings, options llms.CallOptions) OllamaGenerationSettings {
+	if !isOllamaCallOptionFloatSentinel(options.Temperature) {
+		settings.Temperature = cloneFloat(&options.Temperature)
+	}
+	if options.MaxTokens != ollamaCallOptionIntSentinel {
+		if options.MaxTokens == 0 {
+			// langchaingo uses zero for an unset limit. An explicit call can use
+			// it to clear a configured num_predict without sending invalid zero.
+			settings.MaxTokens = nil
+		} else {
+			settings.MaxTokens = cloneInt(&options.MaxTokens)
+		}
+	}
+	if len(options.StopWords) != 1 || options.StopWords[0] != ollamaCallOptionStopSentinel {
+		stop := make([]string, len(options.StopWords))
+		copy(stop, options.StopWords)
+		settings.Stop = &stop
+	}
+	if options.TopK != ollamaCallOptionIntSentinel {
+		settings.TopK = cloneInt(&options.TopK)
+	}
+	if !isOllamaCallOptionFloatSentinel(options.TopP) {
+		settings.TopP = cloneFloat(&options.TopP)
+	}
+	if options.Seed != ollamaCallOptionIntSentinel {
+		settings.Seed = cloneInt(&options.Seed)
+	}
+	if !isOllamaCallOptionFloatSentinel(options.RepetitionPenalty) {
+		settings.RepeatPenalty = cloneFloat(&options.RepetitionPenalty)
+	}
+	if !isOllamaCallOptionFloatSentinel(options.FrequencyPenalty) {
+		settings.FrequencyPenalty = cloneFloat(&options.FrequencyPenalty)
+	}
+	if !isOllamaCallOptionFloatSentinel(options.PresencePenalty) {
+		settings.PresencePenalty = cloneFloat(&options.PresencePenalty)
+	}
+	return settings
+}
+
+func isOllamaCallOptionFloatSentinel(value float64) bool {
+	return math.Float64bits(value) == math.Float64bits(ollamaCallOptionFloatSentinel)
 }
 
 func unsupportedOllamaOptions(options llms.CallOptions) error {

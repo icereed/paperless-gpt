@@ -25,7 +25,7 @@ func TestOllamaMetadataModelWireRequestAndResponse(t *testing.T) {
 		require.Equal(t, "/api/chat", r.URL.Path)
 		receivedHeader = r.Header.Get("Authorization")
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
-		_, _ = io.WriteString(w, `{"message":{"role":"assistant","content":"answer","thinking":"reasoning"},"done":true,"done_reason":"stop","eval_count":4,"prompt_eval_count":6}`+"\n")
+		_, _ = io.WriteString(w, `{"message":{"role":"assistant","content":"{\"title\":\"answer\"}","thinking":"reasoning"},"done":true,"done_reason":"stop","eval_count":4,"prompt_eval_count":6}`+"\n")
 	}))
 	defer server.Close()
 
@@ -39,7 +39,7 @@ func TestOllamaMetadataModelWireRequestAndResponse(t *testing.T) {
 	}, llms.WithMaxTokens(200), llms.WithStopWords([]string{"END"}), llms.WithJSONMode(), llms.WithTopK(20), llms.WithTopP(0.8), llms.WithSeed(42), llms.WithRepetitionPenalty(1.1), llms.WithFrequencyPenalty(0.2), llms.WithPresencePenalty(0.3))
 	require.NoError(t, err)
 	require.Len(t, response.Choices, 1)
-	assert.Equal(t, "answer", response.Choices[0].Content)
+	assert.Equal(t, `{"title":"answer"}`, response.Choices[0].Content)
 	assert.Equal(t, "reasoning", response.Choices[0].ReasoningContent)
 	assert.Equal(t, "stop", response.Choices[0].StopReason)
 	assert.Equal(t, map[string]any{"CompletionTokens": 4, "PromptTokens": 6, "TotalTokens": 10}, response.Choices[0].GenerationInfo)
