@@ -10,8 +10,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"text/template"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tmc/langchaingo/llms"
@@ -263,6 +265,63 @@ func TestOllamaMetadataModelStreamingKeepsThinkingSeparate(t *testing.T) {
 	assert.Equal(t, "first second", response.Choices[0].ReasoningContent)
 }
 
+func TestOllamaMetadataModelAcceptsNormallyCompletedEmptyContent(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		body          string
+		wantReasoning string
+	}{
+		{name: "without reasoning", body: `{"message":{"content":""},"done":true,"done_reason":"stop"}`},
+		{name: "after streamed reasoning", body: `{"message":{"thinking":"no matching type"},"done":false}` + "\n" + `{"message":{"content":""},"done":true,"done_reason":"stop"}`, wantReasoning: "no matching type"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := testOllamaServer(t, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, testCase.body+"\n")
+			})
+			model, err := newOllamaMetadataModel(server.URL, "model", 0, nil, 0, nil)
+			require.NoError(t, err)
+
+			response, err := model.GenerateContent(context.Background(), []llms.MessageContent{llms.TextParts(llms.ChatMessageTypeHuman, "prompt")})
+			require.NoError(t, err)
+			require.Len(t, response.Choices, 1)
+			assert.Empty(t, response.Choices[0].Content)
+			assert.Equal(t, testCase.wantReasoning, response.Choices[0].ReasoningContent)
+			assert.Equal(t, "stop", response.Choices[0].StopReason)
+		})
+	}
+}
+
+func TestOllamaMetadataModelDocumentTypeAcceptsNoSuggestion(t *testing.T) {
+	server := testOllamaServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"message":{"content":""},"done":true,"done_reason":"stop"}`+"\n")
+	})
+	model, err := newOllamaMetadataModel(server.URL, "model", 0, nil, 0, nil)
+	require.NoError(t, err)
+
+	previousTemplate, previousTokenLimit := documentTypeTemplate, tokenLimit
+	t.Cleanup(func() {
+		documentTypeTemplate, tokenLimit = previousTemplate, previousTokenLimit
+	})
+	documentTypeTemplate = template.Must(template.New("document-type").Parse(`{{.Content}}`))
+	tokenLimit = 0
+
+	app := &App{LLM: model}
+	suggestion, err := app.getSuggestedDocumentType(context.Background(), "content", "title", []string{"Invoice"}, logrus.NewEntry(logrus.New()))
+	require.NoError(t, err)
+	assert.Empty(t, suggestion)
+}
+
+func TestOllamaMetadataModelRejectsNormallyCompletedEmptyStructuredContent(t *testing.T) {
+	server := testOllamaServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"message":{"content":""},"done":true,"done_reason":"stop"}`+"\n")
+	})
+	model, err := newOllamaMetadataModel(server.URL, "model", 0, nil, 0, nil)
+	require.NoError(t, err)
+
+	_, err = model.Call(context.Background(), "prompt", llms.WithJSONMode())
+	assert.ErrorContains(t, err, "structured response was not valid JSON")
+}
+
 func TestOllamaMetadataModelReturnsUsefulErrors(t *testing.T) {
 	t.Run("callback", func(t *testing.T) {
 		server := testOllamaServer(t, func(w http.ResponseWriter, _ *http.Request) {
@@ -283,6 +342,7 @@ func TestOllamaMetadataModelReturnsUsefulErrors(t *testing.T) {
 		{name: "invalid JSON", body: "not-json\n", want: "not-json"},
 		{name: "incomplete", body: `{"message":{"content":"partial"},"done":false}` + "\n", want: "ended before completion"},
 		{name: "thinking only", body: `{"message":{"thinking":"internal"},"done":true}` + "\n", want: "contained no content"},
+		{name: "empty token limit", body: `{"message":{"content":""},"done":true,"done_reason":"length"}` + "\n", want: "reached its token limit"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			server := testOllamaServer(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, testCase.body) })

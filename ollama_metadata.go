@@ -154,8 +154,17 @@ func (m *OllamaMetadataModel) GenerateContent(ctx context.Context, messages []ll
 	if !completed {
 		return nil, fmt.Errorf("Ollama chat response ended before completion")
 	}
-	if content.Len() == 0 {
-		return nil, fmt.Errorf("Ollama chat response contained no content")
+	// A stopped completion can deliberately contain no assistant text. This is
+	// used by the document-type prompt when none of the available types apply.
+	// Keep rejecting an empty response unless Ollama explicitly reports its
+	// normal stop reason: an absent reason is not enough to distinguish a
+	// completed empty choice from an incomplete response, and "length" means
+	// generation exhausted its budget before producing a choice.
+	if content.Len() == 0 && response.DoneReason != "stop" {
+		if response.DoneReason == "length" {
+			return nil, fmt.Errorf("Ollama chat response reached its token limit before producing content")
+		}
+		return nil, fmt.Errorf("Ollama chat response contained no content (done_reason %q)", response.DoneReason)
 	}
 	if len(request.Format) > 0 && !json.Valid([]byte(content.String())) {
 		return nil, fmt.Errorf("Ollama structured response was not valid JSON")
