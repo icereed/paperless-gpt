@@ -1085,31 +1085,26 @@ func createLLM() (llms.Model, error) {
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
-		opts := []ollama.Option{
-			ollama.WithModel(llmModel),
-			ollama.WithServerURL(host),
-		}
+		var contextLength int
 		if ctxLenStr := os.Getenv("OLLAMA_CONTEXT_LENGTH"); ctxLenStr != "" {
 			if parsed, err := strconv.Atoi(ctxLenStr); err == nil && parsed > 0 {
-				opts = append(opts, ollama.WithRunnerNumCtx(parsed))
+				contextLength = parsed
 			} else if err != nil {
 				log.Warnf("Invalid OLLAMA_CONTEXT_LENGTH value: %v, ignoring", err)
 			}
 		}
+		var think *bool
 		if thinkStr := os.Getenv("OLLAMA_THINK"); thinkStr != "" {
 			// Allow disabling Ollama reasoning mode for tasks where format
 			// compliance matters more than chain-of-thought (closed-list
 			// classification, strict JSON). Unset = upstream default behavior.
 			if parsed, err := strconv.ParseBool(thinkStr); err == nil {
-				opts = append(opts, ollama.WithThink(parsed))
+				think = &parsed
 			} else {
 				log.Warnf("Invalid OLLAMA_THINK value: %v, ignoring (must be true/false)", err)
 			}
 		}
-		if client := ocr.OllamaHTTPClient(); client != nil {
-			opts = append(opts, ollama.WithHTTPClient(client))
-		}
-		llm, err := ollama.New(opts...)
+		llm, err := newOllamaMetadataModel(host, llmModel, contextLength, think, 0, ocr.OllamaHTTPClient())
 		if err != nil {
 			return nil, err
 		}
@@ -1259,7 +1254,6 @@ func createVisionLLM() (llms.Model, error) {
 		return nil, nil
 	}
 }
-
 
 func createCustomHTTPClient() *http.Client {
 	// Create custom transport that adds headers
