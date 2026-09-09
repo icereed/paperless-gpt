@@ -142,6 +142,99 @@ func TestCreateLLMOllamaUsesNativeClientAndBaselineTemperature(t *testing.T) {
 	assert.Equal(t, 4096.0, request["options"].(map[string]any)["num_ctx"])
 }
 
+func TestCreateLLMOllamaTemperature(t *testing.T) {
+	for _, testCase := range []struct {
+		name  string
+		value string
+		want  float64
+	}{
+		{name: "unset", want: 0},
+		{name: "empty", value: "", want: 0},
+		{name: "zero", value: "0", want: 0},
+		{name: "override", value: "0.2", want: 0.2},
+		{name: "invalid", value: "not-a-number", want: 0},
+		{name: "negative", value: "-0.1", want: 0},
+		{name: "NaN", value: "NaN", want: 0},
+		{name: "Inf", value: "Inf", want: 0},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			var request map[string]any
+			server := testOllamaServer(t, func(w http.ResponseWriter, r *http.Request) {
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+				_, _ = io.WriteString(w, `{"message":{"content":"title"},"done":true}`+"\n")
+			})
+			t.Setenv("OLLAMA_HOST", server.URL)
+			t.Setenv("LLM_TEMPERATURE", testCase.value)
+			previousProvider, previousModel := llmProvider, llmModel
+			llmProvider, llmModel = "ollama", "test-model"
+			t.Cleanup(func() { llmProvider, llmModel = previousProvider, previousModel })
+
+			model, err := createLLM()
+			require.NoError(t, err)
+			_, err = model.Call(context.Background(), "Return a title")
+			require.NoError(t, err)
+			assert.Equal(t, testCase.want, request["options"].(map[string]any)["temperature"])
+		})
+	}
+}
+
+func TestOllamaMetadataModelCallTemperatureOverridesConfiguredValue(t *testing.T) {
+	var temperatures []float64
+	server := testOllamaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		temperatures = append(temperatures, request["options"].(map[string]any)["temperature"].(float64))
+		_, _ = io.WriteString(w, `{"message":{"content":"title"},"done":true}`+"\n")
+	})
+	model, err := newOllamaMetadataModel(server.URL, "model", 0, nil, 0.7, nil)
+	require.NoError(t, err)
+
+	for _, options := range [][]llms.CallOption{nil, {llms.WithTemperature(0)}, {llms.WithTemperature(0.2)}} {
+		_, err := model.Call(context.Background(), "Return a title", options...)
+		require.NoError(t, err)
+	}
+	assert.Equal(t, []float64{0.7, 0, 0.2}, temperatures)
+}
+
+func TestLLMTemperatureDoesNotAffectOllamaVision(t *testing.T) {
+	var request map[string]any
+	server := testOllamaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		_, _ = io.WriteString(w, `{"message":{"content":"OCR result"},"done":true}`+"\n")
+	})
+	t.Setenv("OLLAMA_HOST", server.URL)
+	t.Setenv("LLM_TEMPERATURE", "0.2")
+	previousProvider, previousModel := visionLlmProvider, visionLlmModel
+	visionLlmProvider, visionLlmModel = "ollama", "vision-model"
+	t.Cleanup(func() { visionLlmProvider, visionLlmModel = previousProvider, previousModel })
+
+	model, err := createVisionLLM()
+	require.NoError(t, err)
+	_, err = model.Call(context.Background(), "Read this image")
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, request["options"].(map[string]any)["temperature"])
+}
+
+func TestLLMTemperatureDoesNotAffectOpenAI(t *testing.T) {
+	var request map[string]any
+	server := testOllamaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"title"}}]}`)
+	})
+	t.Setenv("OPENAI_BASE_URL", server.URL)
+	t.Setenv("LLM_TEMPERATURE", "0.2")
+	previousProvider, previousModel, previousKey := llmProvider, llmModel, openaiAPIKey
+	llmProvider, llmModel, openaiAPIKey = "openai", "test-model", "test-key"
+	t.Cleanup(func() { llmProvider, llmModel, openaiAPIKey = previousProvider, previousModel, previousKey })
+
+	model, err := createLLM()
+	require.NoError(t, err)
+	_, err = model.Call(context.Background(), "Return a title")
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, request["temperature"])
+}
+
 func TestOllamaMetadataModelStreamingKeepsThinkingSeparate(t *testing.T) {
 	server := testOllamaServer(t, func(w http.ResponseWriter, r *http.Request) {
 		var request map[string]any

@@ -1030,6 +1030,10 @@ func getRateLimitConfig(isVision bool) RateLimitConfig {
 
 // createLLM creates the appropriate LLM client based on the provider
 func createLLM() (llms.Model, error) {
+	if temperature := os.Getenv("LLM_TEMPERATURE"); temperature != "" && strings.ToLower(llmProvider) != "ollama" {
+		log.Warn("LLM_TEMPERATURE only applies when LLM_PROVIDER=ollama; ignoring")
+	}
+
 	switch strings.ToLower(llmProvider) {
 	case "mistral":
 		mistralApiKey := os.Getenv("MISTRAL_API_KEY")
@@ -1085,6 +1089,15 @@ func createLLM() (llms.Model, error) {
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
+		temperature := 0.0
+		if temperatureString := os.Getenv("LLM_TEMPERATURE"); temperatureString != "" {
+			parsed, err := strconv.ParseFloat(temperatureString, 64)
+			if err != nil || parsed < 0 || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+				log.Warnf("Invalid LLM_TEMPERATURE value %q, ignoring (must be a non-negative finite number)", temperatureString)
+			} else {
+				temperature = parsed
+			}
+		}
 		var contextLength int
 		if ctxLenStr := os.Getenv("OLLAMA_CONTEXT_LENGTH"); ctxLenStr != "" {
 			if parsed, err := strconv.Atoi(ctxLenStr); err == nil && parsed > 0 {
@@ -1104,7 +1117,7 @@ func createLLM() (llms.Model, error) {
 				log.Warnf("Invalid OLLAMA_THINK value: %v, ignoring (must be true/false)", err)
 			}
 		}
-		llm, err := newOllamaMetadataModel(host, llmModel, contextLength, think, 0, ocr.OllamaHTTPClient())
+		llm, err := newOllamaMetadataModel(host, llmModel, contextLength, think, temperature, ocr.OllamaHTTPClient())
 		if err != nil {
 			return nil, err
 		}
