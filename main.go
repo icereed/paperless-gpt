@@ -1030,6 +1030,17 @@ func getRateLimitConfig(isVision bool) RateLimitConfig {
 
 // createLLM creates the appropriate LLM client based on the provider
 func createLLM() (llms.Model, error) {
+	if strings.ToLower(llmProvider) != "ollama" {
+		if temperature := os.Getenv("LLM_TEMPERATURE"); temperature != "" {
+			log.Warn("LLM_TEMPERATURE only applies when LLM_PROVIDER=ollama; ignoring")
+		}
+		for _, name := range []string{"LLM_MAX_TOKENS", "OLLAMA_KEEP_ALIVE", "OLLAMA_THINK"} {
+			if value := os.Getenv(name); value != "" {
+				log.Warnf("%s only applies when LLM_PROVIDER=ollama; ignoring", name)
+			}
+		}
+	}
+
 	switch strings.ToLower(llmProvider) {
 	case "mistral":
 		mistralApiKey := os.Getenv("MISTRAL_API_KEY")
@@ -1085,31 +1096,9 @@ func createLLM() (llms.Model, error) {
 		if host == "" {
 			host = "http://127.0.0.1:11434"
 		}
-		opts := []ollama.Option{
-			ollama.WithModel(llmModel),
-			ollama.WithServerURL(host),
-		}
-		if ctxLenStr := os.Getenv("OLLAMA_CONTEXT_LENGTH"); ctxLenStr != "" {
-			if parsed, err := strconv.Atoi(ctxLenStr); err == nil && parsed > 0 {
-				opts = append(opts, ollama.WithRunnerNumCtx(parsed))
-			} else if err != nil {
-				log.Warnf("Invalid OLLAMA_CONTEXT_LENGTH value: %v, ignoring", err)
-			}
-		}
-		if thinkStr := os.Getenv("OLLAMA_THINK"); thinkStr != "" {
-			// Allow disabling Ollama reasoning mode for tasks where format
-			// compliance matters more than chain-of-thought (closed-list
-			// classification, strict JSON). Unset = upstream default behavior.
-			if parsed, err := strconv.ParseBool(thinkStr); err == nil {
-				opts = append(opts, ollama.WithThink(parsed))
-			} else {
-				log.Warnf("Invalid OLLAMA_THINK value: %v, ignoring (must be true/false)", err)
-			}
-		}
-		if client := ocr.OllamaHTTPClient(); client != nil {
-			opts = append(opts, ollama.WithHTTPClient(client))
-		}
-		llm, err := ollama.New(opts...)
+		var config OllamaMetadataConfig
+		applyOllamaMetadataEnvironment(&config)
+		llm, err := newOllamaMetadataModel(host, llmModel, 0, nil, 0, ocr.OllamaHTTPClient(), config)
 		if err != nil {
 			return nil, err
 		}
@@ -1259,7 +1248,6 @@ func createVisionLLM() (llms.Model, error) {
 		return nil, nil
 	}
 }
-
 
 func createCustomHTTPClient() *http.Client {
 	// Create custom transport that adds headers
