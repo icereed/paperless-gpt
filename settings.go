@@ -4,12 +4,97 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 )
 
 const (
 	configDir    = "config"
 	settingsFile = "settings.json"
 )
+
+// effectiveOCRDefaults resolves the Run Options used when a run doesn't
+// specify its own: settings-persisted values (editable from the UI) override
+// the env-derived ones. Auto-OCR always runs with these defaults.
+func (app *App) effectiveOCRDefaults() OCROptions {
+	settingsMutex.RLock()
+	defer settingsMutex.RUnlock()
+
+	opts := OCROptions{
+		UploadPDF:       app.pdfUpload,
+		ReplaceOriginal: app.pdfReplace,
+		CopyMetadata:    app.pdfCopyMetadata,
+		LimitPages:      limitOcrPages,
+		ProcessMode:     app.ocrProcessMode,
+	}
+	o := settings.OCR
+	if o.LimitPages != nil {
+		opts.LimitPages = *o.LimitPages
+	}
+	if o.ProcessMode != nil && *o.ProcessMode != "" {
+		opts.ProcessMode = *o.ProcessMode
+	}
+	if o.UploadPDF != nil {
+		opts.UploadPDF = *o.UploadPDF
+	}
+	if o.ReplaceOriginal != nil {
+		opts.ReplaceOriginal = *o.ReplaceOriginal
+	}
+	if o.CopyMetadata != nil {
+		opts.CopyMetadata = *o.CopyMetadata
+	}
+	// Replace without upload is invalid; never let persisted defaults create it.
+	if !opts.UploadPDF {
+		opts.ReplaceOriginal = false
+	}
+	return opts
+}
+
+// updateOCRDefaults merges new OCR defaults into settings and persists them.
+func updateOCRDefaults(defaults OCRDefaults) error {
+	settingsMutex.Lock()
+	defer settingsMutex.Unlock()
+	settings.OCR = defaults
+	return saveSettingsLocked()
+}
+
+// ocrDefaultsSources reports, per run option, whether the effective value
+// comes from the environment or from UI-saved settings. Saved values shadow
+// env values; the shadowing must always be visible (UI, API, startup log) so
+// the environment never silently lies to the operator.
+func ocrDefaultsSources() map[string]string {
+	settingsMutex.RLock()
+	defer settingsMutex.RUnlock()
+
+	source := func(saved bool) string {
+		if saved {
+			return "saved"
+		}
+		return "env"
+	}
+	o := settings.OCR
+	return map[string]string{
+		"limit_pages":      source(o.LimitPages != nil),
+		"process_mode":     source(o.ProcessMode != nil && *o.ProcessMode != ""),
+		"upload_pdf":       source(o.UploadPDF != nil),
+		"replace_original": source(o.ReplaceOriginal != nil),
+		"copy_metadata":    source(o.CopyMetadata != nil),
+	}
+}
+
+// logOCRSettingsOverrides makes shadowed env values visible at startup.
+func logOCRSettingsOverrides() {
+	var overridden []string
+	for field, src := range ocrDefaultsSources() {
+		if src == "saved" {
+			overridden = append(overridden, field)
+		}
+	}
+	if len(overridden) > 0 {
+		sort.Strings(overridden)
+		log.Infof("OCR defaults from config/settings.json override env values for: %s (reset via the OCR page or DELETE /api/ocr/defaults)", strings.Join(overridden, ", "))
+	}
+}
 
 // saveSettings saves the current settings to the settings.json file.
 func saveSettings() error {

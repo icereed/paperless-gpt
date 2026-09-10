@@ -1,0 +1,110 @@
+name: E2E Tests (Real LLM)
+
+# Runs the full E2E suite with REAL LLM API keys against the PR's code.
+#
+# Security model:
+# - `pull_request_target` always executes THIS workflow definition from the
+#   base branch — a PR cannot modify what runs here.
+# - The e2e job is bound to the `e2e-llm` deployment environment, which is
+#   configured with a required reviewer (the maintainer). The job — and with
+#   it any access to secrets — does not start until the maintainer approves
+#   that specific run in the Actions UI. Every new commit needs a fresh
+#   approval.
+# - After approval, the PR's code DOES run with the API keys in scope, so:
+#   review the diff before approving, and keep the keys dedicated to CI with
+#   hard spending limits.
+#
+# This is advisory (not a required check): the secret-free mock-LLM E2E in
+# docker-build-and-push.yml covers every PR automatically; approve this one
+# for changes that touch LLM/OCR behavior.
+
+permissions:
+  contents: read
+
+on:
+  pull_request_target:
+    branches:
+      - main
+
+# A new push to the PR supersedes (cancels) any older run still waiting for
+# approval, so a stale commit can never be approved by accident.
+concurrency:
+  group: e2e-real-llm-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check-llm-secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      has_openai_key: ${{ steps.check.outputs.has_openai_key }}
+    steps:
+      - name: Check whether LLM API keys are configured
+        id: check
+        # No checkout here — this job must never run PR code. It only exposes
+        # whether keys exist, so forks running their own CI skip cleanly.
+        env:
+          OPENAI_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
+        run: echo "has_openai_key=${OPENAI_API_KEY_PRESENT}" >> $GITHUB_OUTPUT
+
+  e2e-real:
+    name: E2E Tests (Real LLM, maintainer approval)
+    needs: check-llm-secrets
+    if: needs.check-llm-secrets.outputs.has_openai_key == 'true'
+    # The approval gate: requires a review by the environment's required
+    # reviewer before the job starts.
+    environment: e2e-llm
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web-app
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v6
+        with:
+          # The exact commit the maintainer saw when approving — not a merge
+          # commit that could drift as main moves.
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Docker image locally
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          cache-from: type=gha
+          tags: icereed/paperless-gpt:e2e
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web-app/package-lock.json'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+      - name: Run Playwright tests
+        run: npm run test:e2e
+        env:
+          CI: true
+          DEBUG: testcontainers:containers
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PAPERLESS_GPT_IMAGE: icereed/paperless-gpt:e2e
+      - name: Upload Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-report-real-llm
+          path: web-app/playwright-report/
+          retention-days: 30
+      - name: Upload test screenshots
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-results-real-llm
+          path: web-app/test-results/
+          retention-days: 30

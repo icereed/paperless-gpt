@@ -260,6 +260,76 @@ func TestTokenLimitInTagGeneration(t *testing.T) {
 	assert.LessOrEqual(t, len(tokens), 50, "Final prompt should be within token limit")
 }
 
+func TestCreateNewTagsFiltering(t *testing.T) {
+	testLogger := logrus.WithField("test", "test")
+
+	// Initialize tag template for this test
+	var err error
+	tagTemplate, err = template.New("tag").Parse(testTagTemplate)
+	require.NoError(t, err)
+
+	// Save and restore createNewTags
+	originalCreateNewTags := createNewTags
+	defer func() { createNewTags = originalCreateNewTags }()
+
+	ctx := context.Background()
+	availableTags := []string{"invoice", "receipt", "tax"}
+	originalTags := []string{}
+
+	t.Run("default filters out new tags", func(t *testing.T) {
+		createNewTags = false
+		mockLLM := &mockLLM{Response: "invoice, new-tag, receipt"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		require.NoError(t, err)
+
+		assert.Contains(t, tags, "invoice")
+		assert.Contains(t, tags, "receipt")
+		assert.NotContains(t, tags, "new-tag")
+	})
+
+	t.Run("createNewTags allows new tags", func(t *testing.T) {
+		createNewTags = true
+		mockLLM := &mockLLM{Response: "invoice, new-tag, receipt"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		require.NoError(t, err)
+
+		assert.Contains(t, tags, "invoice")
+		assert.Contains(t, tags, "receipt")
+		assert.Contains(t, tags, "new-tag")
+	})
+
+	t.Run("createNewTags preserves existing tag casing", func(t *testing.T) {
+		createNewTags = true
+		mockLLM := &mockLLM{Response: "Invoice, NEW-TAG"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		require.NoError(t, err)
+
+		// Existing tag should use the available tag's casing
+		assert.Contains(t, tags, "invoice")
+		// New tag keeps its original casing
+		assert.Contains(t, tags, "NEW-TAG")
+	})
+
+	t.Run("createNewTags filters out empty tags", func(t *testing.T) {
+		createNewTags = true
+		mockLLM := &mockLLM{Response: "invoice, , receipt"}
+		app := &App{LLM: mockLLM}
+
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		require.NoError(t, err)
+
+		for _, tag := range tags {
+			assert.NotEmpty(t, tag)
+		}
+	})
+}
+
 func TestTokenLimitInTitleGeneration(t *testing.T) {
 	testLogger := logrus.WithField("test", "test")
 
@@ -332,36 +402,55 @@ func TestTokenLimitInCreatedDateGeneration(t *testing.T) {
 	assert.LessOrEqual(t, len(tokens), 50, "Final prompt should be within token limit")
 }
 
-func TestStripReasoning(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "No reasoning tags",
-			input:    "This is a test content without reasoning tags.",
-			expected: "This is a test content without reasoning tags.",
-		},
-		{
-			name:     "Reasoning tags at the start",
-			input:    "<think>Start reasoning</think>\n\nContent      \n\n",
-			expected: "Content",
+func TestPrepareSuggestionGenerationContextFetchesOnlyRequestedMetadata(t *testing.T) {
+	app := &App{
+		Client: &mockPaperlessClient{
+			TagsError:           fmt.Errorf("tags should not be fetched"),
+			CorrespondentsError: fmt.Errorf("correspondents should not be fetched"),
+			DocumentTypesError:  fmt.Errorf("document types should not be fetched"),
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := stripReasoning(tc.input)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
+	_, err := app.prepareSuggestionGenerationContext(context.Background(), GenerateSuggestionsRequest{
+		GenerateTitles:      true,
+		GenerateCreatedDate: true,
+	})
+	require.NoError(t, err)
+
+	client, ok := app.Client.(*mockPaperlessClient)
+	require.True(t, ok, "Client should be *mockPaperlessClient")
+	assert.Zero(t, client.GetAllTagsCalls)
+	assert.Zero(t, client.GetAllCorrespondentsCalls)
+	assert.Zero(t, client.GetAllDocumentTypesCalls)
+
+	app = &App{Client: &mockPaperlessClient{}}
+	contextData, err := app.prepareSuggestionGenerationContext(context.Background(), GenerateSuggestionsRequest{
+		GenerateTags:           true,
+		GenerateCorrespondents: true,
+		GenerateDocumentTypes:  true,
+	})
+	require.NoError(t, err)
+
+	client, ok = app.Client.(*mockPaperlessClient)
+	require.True(t, ok, "Client should be *mockPaperlessClient")
+	assert.Equal(t, 1, client.GetAllTagsCalls)
+	assert.Equal(t, 1, client.GetAllCorrespondentsCalls)
+	assert.Equal(t, 1, client.GetAllDocumentTypesCalls)
+	assert.Equal(t, []string{"invoice"}, contextData.availableTagNames)
+	assert.Equal(t, []string{"Vendor"}, contextData.availableCorrespondentNames)
+	assert.Equal(t, []string{"Invoice"}, contextData.availableDocumentTypeNames)
 }
 
 // mockPaperlessClient is a mock implementation of the ClientInterface for testing.
 type mockPaperlessClient struct {
-	CustomFields []CustomField
-	Error        error
+	CustomFields              []CustomField
+	Error                     error
+	TagsError                 error
+	CorrespondentsError       error
+	DocumentTypesError        error
+	GetAllTagsCalls           int
+	GetAllCorrespondentsCalls int
+	GetAllDocumentTypesCalls  int
 }
 
 func (m *mockPaperlessClient) GetCustomFields(ctx context.Context) ([]CustomField, error) {
@@ -384,14 +473,35 @@ func (m *mockPaperlessClient) UpdateDocuments(ctx context.Context, documents []D
 func (m *mockPaperlessClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
 	return Document{}, nil
 }
-func (m *mockPaperlessClient) GetAllTags(ctx context.Context) (map[string]int, error) {
+func (m *mockPaperlessClient) GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error) {
+	return nil, "", nil
+}
+func (m *mockPaperlessClient) SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error) {
 	return nil, nil
+}
+func (m *mockPaperlessClient) GetDocumentPageImage(ctx context.Context, documentID int, pageIndex int) ([]byte, error) {
+	return nil, nil
+}
+func (m *mockPaperlessClient) GetAllTags(ctx context.Context) (map[string]int, error) {
+	m.GetAllTagsCalls++
+	if m.TagsError != nil {
+		return nil, m.TagsError
+	}
+	return map[string]int{"invoice": 1, manualTag: 2}, nil
 }
 func (m *mockPaperlessClient) GetAllCorrespondents(ctx context.Context) (map[string]int, error) {
-	return nil, nil
+	m.GetAllCorrespondentsCalls++
+	if m.CorrespondentsError != nil {
+		return nil, m.CorrespondentsError
+	}
+	return map[string]int{"Vendor": 1}, nil
 }
 func (m *mockPaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
-	return nil, nil
+	m.GetAllDocumentTypesCalls++
+	if m.DocumentTypesError != nil {
+		return nil, m.DocumentTypesError
+	}
+	return []DocumentType{{ID: 1, Name: "Invoice"}}, nil
 }
 func (m *mockPaperlessClient) CreateTag(ctx context.Context, tagName string) (int, error) {
 	return 0, nil

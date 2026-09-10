@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,24 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// ocrSupportsPromptOverride reports whether the configured provider honors a
+// per-run prompt (only the LLM provider does). Used to reject overrides that
+// would otherwise be silently ignored.
+func (app *App) ocrSupportsPromptOverride() bool {
+	_, ok := app.ocrProvider.(*ocr.LLMProvider)
+	return ok
+}
+
+// replaceAfterUploadError signals that the searchable PDF was uploaded
+// successfully but deleting the original document (replace mode) then failed.
+// The upload must not be reported as failed — a retry would create a duplicate.
+type replaceAfterUploadError struct{ cause error }
+
+func (e *replaceAfterUploadError) Error() string {
+	return "PDF uploaded but original could not be deleted: " + e.cause.Error()
+}
+func (e *replaceAfterUploadError) Unwrap() error { return e.cause }
+
 // ProcessedDocument represents a document after OCR processing
 type ProcessedDocument struct {
 	ID               int
@@ -23,7 +42,9 @@ type ProcessedDocument struct {
 	HOCRStruct       *hocr.HOCR
 	HOCR             string
 	PDFData          []byte
-	ReplacedOriginal bool // true when the original document was successfully deleted and replaced
+	ReplacedOriginal bool   // true when the original document was successfully deleted and replaced
+	PDFAction        string // "none", "attached", "replaced", "skipped", "failed" — what happened to the searchable PDF
+	PDFDetail        string // human-readable reason for "skipped"/"failed"
 }
 
 // HOCRCapable defines an interface for OCR providers that can generate hOCR
@@ -53,6 +74,31 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		docLogger = docLogger.WithField("job_id", jobID)
 	}
 	docLogger.Info("Starting OCR processing")
+
+	// Render OCR prompt per-document with existing content (same pattern as title/tag/etc. prompts).
+	// A run-scoped Prompt Override takes precedence over the saved template.
+	// Use a call-scoped provider clone to avoid mutating the shared singleton.
+	provider := app.ocrProvider
+	var ocrPrompt string
+	var err error
+	if options.PromptOverride != "" {
+		ocrPrompt, err = renderOCRPromptOverride(options.PromptOverride, options.ExistingContent)
+		if err != nil {
+			// An override the user explicitly typed must not silently fall back.
+			return nil, fmt.Errorf("prompt override failed to render: %w", err)
+		}
+	} else {
+		ocrPrompt, err = renderOCRPrompt(options.ExistingContent)
+		if err != nil {
+			docLogger.WithError(err).Warn("Failed to render per-document OCR prompt, using provider default")
+			ocrPrompt = ""
+		}
+	}
+	if ocrPrompt != "" {
+		if llmProv, ok := provider.(*ocr.LLMProvider); ok {
+			provider = llmProv.WithPrompt(ocrPrompt)
+		}
+	}
 
 	// Determine the actual process mode to use
 	processMode := options.ProcessMode
@@ -115,7 +161,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	var hocrCapable HOCRCapable
 	var hasHOCR bool
 
-	hocrCapable, hasHOCR = app.ocrProvider.(HOCRCapable)
+	hocrCapable, hasHOCR = provider.(HOCRCapable)
 
 	// Reset hOCR if the provider supports it
 	if hasHOCR {
@@ -155,13 +201,23 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		// Store the PDF data in the outer variable
 		originalPDFData = pdfBytes
 
+		// Record the page total so progress reporting has a denominator
+		// (whole_pdf reports a single step, but the UI still divides by it).
+		if jobID != "" {
+			jobStore.Lock()
+			if job, exists := jobStore.jobs[jobID]; exists {
+				job.TotalPages = totalPdfPages
+			}
+			jobStore.Unlock()
+		}
+
 		docLogger.WithFields(logrus.Fields{
 			"pdf_size":         len(originalPDFData),
 			"total_page_count": totalPdfPages,
 		}).Debug("Processing whole PDF document")
 
 		// Process the whole PDF in one go
-		result, err := app.ocrProvider.ProcessImage(ctx, originalPDFData, 0) // Page 0 indicates entire document
+		result, err := provider.ProcessImage(ctx, originalPDFData, 0) // Page 0 indicates entire document
 		if err != nil {
 			return nil, fmt.Errorf("error performing OCR for document %d: %w", documentID, err)
 		}
@@ -176,6 +232,21 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			Debug("OCR completed for full document")
 
 		ocrTexts = append(ocrTexts, result.Text)
+
+		// whole_pdf yields one combined text; store it as a single page result
+		// so the Playground can show and compare it like any other run.
+		var genInfoJSON string
+		if result.GenerationInfo != nil {
+			if b, err := json.Marshal(result.GenerationInfo); err == nil {
+				genInfoJSON = string(b)
+			}
+		}
+		if saveErr := SaveSingleOcrPageResult(app.Database, documentID, jobID, 0, result.Text, result.OcrLimitHit, genInfoJSON); saveErr != nil {
+			docLogger.WithError(saveErr).Error("Failed to save OCR result to database")
+		}
+		if jobID != "" {
+			jobStore.updatePagesDone(jobID, totalPdfPages)
+		}
 	} else if processMode == "pdf" {
 		// Process PDF pages individually
 		pdfPaths, pdfData, pdfPageCount, err := app.Client.DownloadDocumentAsPDF(ctx, documentID, pageLimit, true)
@@ -219,7 +290,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			}
 
 			// Pass the page number (1-based index) to ProcessImage
-			result, err := app.ocrProvider.ProcessImage(ctx, pdfContent, i+1)
+			result, err := provider.ProcessImage(ctx, pdfContent, i+1)
 			if err != nil {
 				return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
 			}
@@ -233,6 +304,20 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				Debug("OCR completed for page")
 
 			ocrTexts = append(ocrTexts, result.Text)
+
+			if jobID != "" {
+				jobStore.updatePagesDone(jobID, i+1)
+			}
+
+			var genInfoJSON string
+			if result.GenerationInfo != nil {
+				if b, err := json.Marshal(result.GenerationInfo); err == nil {
+					genInfoJSON = string(b)
+				}
+			}
+			if saveErr := SaveSingleOcrPageResult(app.Database, documentID, jobID, i, result.Text, result.OcrLimitHit, genInfoJSON); saveErr != nil {
+				pageLogger.WithError(saveErr).Error("Failed to save OCR page result to database")
+			}
 		}
 	} else {
 		// Process pages as images
@@ -289,7 +374,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			imageDataList = append(imageDataList, imageContent)
 
 			// Pass the page number (1-based index) to ProcessImage
-			result, err := app.ocrProvider.ProcessImage(ctx, imageContent, i+1)
+			result, err := provider.ProcessImage(ctx, imageContent, i+1)
 			if err != nil {
 				return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
 			}
@@ -316,7 +401,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				}
 			}
 
-			saveErr := SaveSingleOcrPageResult(app.Database, documentID, i, result.Text, result.OcrLimitHit, genInfoJSON)
+			saveErr := SaveSingleOcrPageResult(app.Database, documentID, jobID, i, result.Text, result.OcrLimitHit, genInfoJSON)
 			if saveErr != nil {
 				pageLogger.WithError(saveErr).Error("Failed to save OCR page result to database")
 				// Continue processing other pages even if saving fails for one
@@ -328,8 +413,15 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 
 	// Create ProcessedDocument to hold all the results
 	processedDoc := &ProcessedDocument{
-		ID:   documentID,
-		Text: fullText,
+		ID:        documentID,
+		Text:      fullText,
+		PDFAction: "none",
+	}
+
+	if options.UploadPDF && !hasHOCR {
+		processedDoc.PDFAction = "skipped"
+		processedDoc.PDFDetail = "The configured OCR provider does not produce hOCR; searchable PDFs need an hOCR-capable provider."
+		docLogger.Warn("Searchable PDF requested but provider is not hOCR-capable")
 	}
 
 	// Generate complete hOCR if we have hOCR capability
@@ -357,8 +449,11 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 					}
 				}
 
-				// Apply OCR to PDF if the feature is enabled
-				if app.createLocalPDF && app.localPDFPath != "" {
+				// Generate the searchable PDF when a local copy is configured or
+				// this run wants to upload one. (Historically this was gated on
+				// CREATE_LOCAL_PDF alone; per-run uploads must not depend on it.)
+				wantLocalPDF := app.createLocalPDF && app.localPDFPath != ""
+				if wantLocalPDF || options.UploadPDF {
 					var processedPageCount int
 					if processMode == "pdf" || processMode == "whole_pdf" {
 						processedPageCount = len(ocrTexts)
@@ -374,6 +469,10 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 							"limit":           pageLimit,
 							"process_mode":    processMode,
 						}).Warn("Not generating PDF because fewer pages were processed than exist in the original document")
+						if options.UploadPDF {
+							processedDoc.PDFAction = "skipped"
+							processedDoc.PDFDetail = fmt.Sprintf("Only %d of %d pages were processed (page limit); a searchable PDF needs the whole document.", processedPageCount, totalPdfPages)
+						}
 					} else {
 						docLogger.Info("Applying OCR to PDF")
 
@@ -383,38 +482,68 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 						var pdfData []byte
 						var err error
 
-						// For both "pdf" and "whole_pdf" modes, use ApplyOCR with original PDF data
-						if (processMode == "pdf" || processMode == "whole_pdf") && originalPDFData != nil {
-							docLogger.Debug("Using ApplyOCR with original PDF data")
-							pdfData, err = pdfocr.ApplyOCR(originalPDFData, hocrDoc, pdfConfig)
-						} else if len(imageDataList) > 0 {
-							// Only for "image" mode, use AssembleWithOCR with image data
-							docLogger.Debug("Using AssembleWithOCR with image data")
-							pdfData, err = pdfocr.AssembleWithOCR(hocrDoc, imageDataList, pdfConfig)
-						} else {
-							docLogger.Error("No suitable data available for PDF generation")
-							err = fmt.Errorf("no suitable data available for PDF generation")
+						// For both "pdf" and "whole_pdf" modes, use ApplyOCR with original PDF data.
+						// pdfocr.ApplyOCR transitively calls into gofpdi which can panic on
+						// malformed PDFs (#945). Recover so the worker keeps draining the queue.
+						applyOCR := func() (data []byte, err error) {
+							defer func() {
+								if r := recover(); r != nil {
+									err = fmt.Errorf("apply OCR panicked: %v", r)
+								}
+							}()
+							if (processMode == "pdf" || processMode == "whole_pdf") && originalPDFData != nil {
+								docLogger.Debug("Using ApplyOCR with original PDF data")
+								return pdfocr.ApplyOCR(originalPDFData, hocrDoc, pdfConfig)
+							}
+							if len(imageDataList) > 0 {
+								docLogger.Debug("Using AssembleWithOCR with image data")
+								return pdfocr.AssembleWithOCR(hocrDoc, imageDataList, pdfConfig)
+							}
+							return nil, fmt.Errorf("no suitable data available for PDF generation")
 						}
+						pdfData, err = applyOCR()
 
 						if err != nil {
 							docLogger.WithError(err).Error("Failed to apply OCR to PDF")
+							if options.UploadPDF {
+								processedDoc.PDFAction = "failed"
+								processedDoc.PDFDetail = fmt.Sprintf("PDF generation failed: %v", err)
+							}
 						} else {
 							// Store PDF data in the processed document struct
 							processedDoc.PDFData = pdfData
 
-							// Save the PDF to a file
-							if err := app.savePDFToFile(ctx, documentID, pdfData); err != nil {
-								docLogger.WithError(err).Error("Failed to save PDF file")
-							} else {
-								docLogger.Info("Successfully generated and saved PDF")
+							// Save the PDF to a file when a local copy is configured
+							if wantLocalPDF {
+								if err := app.savePDFToFile(ctx, documentID, pdfData); err != nil {
+									docLogger.WithError(err).Error("Failed to save PDF file")
+								} else {
+									docLogger.Info("Successfully generated and saved PDF")
+								}
 							}
 
 							// Upload PDF to paperless-ngx if requested
 							if options.UploadPDF && pdfData != nil {
-								if err := app.uploadProcessedPDF(ctx, documentID, pdfData, options, docLogger); err != nil {
-									docLogger.WithError(err).Error("Failed to upload processed PDF")
-								} else if options.ReplaceOriginal {
+								err := app.uploadProcessedPDF(ctx, documentID, pdfData, options, docLogger)
+								var replaceErr *replaceAfterUploadError
+								switch {
+								case err == nil && options.ReplaceOriginal:
 									processedDoc.ReplacedOriginal = true
+									processedDoc.PDFAction = "replaced"
+								case err == nil:
+									processedDoc.PDFAction = "attached"
+								case errors.As(err, &replaceErr):
+									// The searchable PDF was uploaded; only deleting the
+									// original failed. Report it as attached-with-warning
+									// rather than "failed" so the user isn't misled into a
+									// retry that would create a duplicate.
+									docLogger.WithError(err).Error("PDF uploaded but original could not be replaced")
+									processedDoc.PDFAction = "attached"
+									processedDoc.PDFDetail = fmt.Sprintf("Searchable PDF was uploaded, but the original could not be deleted: %v", replaceErr.cause)
+								default:
+									docLogger.WithError(err).Error("Failed to upload processed PDF")
+									processedDoc.PDFAction = "failed"
+									processedDoc.PDFDetail = fmt.Sprintf("PDF upload failed: %v", err)
 								}
 							}
 						}
@@ -422,9 +551,17 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				}
 			} else {
 				docLogger.WithError(err).Error("Failed to generate hOCR")
+				if options.UploadPDF {
+					processedDoc.PDFAction = "failed"
+					processedDoc.PDFDetail = fmt.Sprintf("hOCR generation failed: %v", err)
+				}
 			}
 		} else if err != nil {
 			docLogger.WithError(err).Error("Failed to create hOCR document")
+			if options.UploadPDF {
+				processedDoc.PDFAction = "failed"
+				processedDoc.PDFDetail = fmt.Sprintf("hOCR document creation failed: %v", err)
+			}
 		}
 	}
 
@@ -598,9 +735,11 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 			}
 		}
 
-		// Delete original document
+		// Delete original document. The PDF is already uploaded at this point,
+		// so signal that distinctly: the caller must not report the whole upload
+		// as failed (a retry would create a duplicate).
 		if err := app.Client.DeleteDocument(ctx, documentID); err != nil {
-			return fmt.Errorf("error deleting original document: %w", err)
+			return &replaceAfterUploadError{cause: err}
 		}
 		logger.Info("Original document deleted successfully")
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"gorm.io/gorm"
 )
@@ -96,6 +97,7 @@ type GenerateSuggestionsRequest struct {
 	GenerateCreatedDate    bool       `json:"generate_created_date,omitempty"`
 	GenerateCustomFields   bool       `json:"generate_custom_fields,omitempty"`
 	GenerateDocumentTypes  bool       `json:"generate_document_types,omitempty"`
+	IsAutoProcessing       bool       `json:"-"` // internal flag; not exposed via API
 }
 
 // AnalyzeDocumentsRequest is the request payload for the ad-hoc analysis
@@ -106,9 +108,21 @@ type AnalyzeDocumentsRequest struct {
 
 // Settings defines the structure for server-side UI settings
 type Settings struct {
-	CustomFieldsEnable      bool   `json:"custom_fields_enable"`
-	CustomFieldsSelectedIDs []int  `json:"custom_fields_selected_ids"`
-	CustomFieldsWriteMode   string `json:"custom_fields_write_mode"` // "append" or "replace"
+	CustomFieldsEnable      bool        `json:"custom_fields_enable"`
+	CustomFieldsSelectedIDs []int       `json:"custom_fields_selected_ids"`
+	CustomFieldsWriteMode   string      `json:"custom_fields_write_mode"` // "append" or "replace"
+	OCR                     OCRDefaults `json:"ocr"`
+}
+
+// OCRDefaults are persisted run-option defaults, editable from the UI.
+// A nil field means "use the env-derived value". They drive Auto-OCR and
+// prefill the Playground — the ramp from manual runs to hands-off auto mode.
+type OCRDefaults struct {
+	LimitPages      *int    `json:"limit_pages,omitempty"`
+	ProcessMode     *string `json:"process_mode,omitempty"`
+	UploadPDF       *bool   `json:"upload_pdf,omitempty"`
+	ReplaceOriginal *bool   `json:"replace_original,omitempty"`
+	CopyMetadata    *bool   `json:"copy_metadata,omitempty"`
 }
 
 // DocumentSuggestion is the response payload for /generate-suggestions endpoint and the request payload for /update-documents endpoint (as an array)
@@ -134,7 +148,13 @@ type Correspondent struct {
 	MatchingAlgorithm int    `json:"matching_algorithm"`
 	Match             string `json:"match"`
 	IsInsensitive     bool   `json:"is_insensitive"`
-	Owner             *int   `json:"owner"`
+	// omitempty so nil owners are dropped from the JSON body; paperless-ngx
+	// then falls back to the request user (request.user) as the owner of
+	// the newly created object. Sending "owner": null overrides that and
+	// produces ownerless correspondents — they still appear in the
+	// correspondents list, but documents assigned to them are shown as
+	// "private" in the UI instead of the correspondent name.
+	Owner             *int   `json:"owner,omitempty"`
 	SetPermissions    struct {
 		View struct {
 			Users  []int `json:"users"`
@@ -154,6 +174,23 @@ type OCROptions struct {
 	CopyMetadata    bool   // Whether to copy metadata from the original document
 	LimitPages      int    // Limit on the number of pages to process (0 = no limit)
 	ProcessMode     string // OCR processing mode: "image" (default) or "pdf"
+	ExistingContent string // Existing document text (e.g., from Tesseract) to include in OCR prompt
+	PromptOverride  string // Run-scoped OCR prompt template; empty = use the saved template
+}
+
+// PartialUpdateError signals that a document update succeeded only after
+// paperless-gpt had to drop one or more fields that paperless-ngx rejected as
+// invalid. The PATCH eventually succeeded with the surviving fields; the
+// document has been written but is incomplete relative to what the LLM
+// suggested. Callers should treat this as a successful update but apply the
+// fail tag so the user knows the document needs review.
+type PartialUpdateError struct {
+	DocumentID    int
+	DroppedFields []string
+}
+
+func (e *PartialUpdateError) Error() string {
+	return fmt.Sprintf("document %d updated with %d field(s) dropped due to paperless-ngx validation errors: %v", e.DocumentID, len(e.DroppedFields), e.DroppedFields)
 }
 
 // ClientInterface defines the interface for PaperlessClient operations
@@ -162,6 +199,9 @@ type ClientInterface interface {
 	GetDocumentCountByTag(ctx context.Context, tag string) (int, error)
 	UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error
 	GetDocument(ctx context.Context, documentID int) (Document, error)
+	GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error)
+	SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error)
+	GetDocumentPageImage(ctx context.Context, documentID int, pageIndex int) ([]byte, error)
 	GetAllTags(ctx context.Context) (map[string]int, error)
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
 	GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error)
