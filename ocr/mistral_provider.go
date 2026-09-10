@@ -110,6 +110,16 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 			return nil, fmt.Errorf("failed to upload PDF file: %w", err)
 		}
 
+		// Delete the uploaded file once OCR is done — uploads otherwise stay
+		// in Mistral's cloud storage indefinitely. Deferred so cleanup also
+		// runs when getSignedURL or the OCR call fails; best-effort, a failed
+		// delete never affects the OCR result.
+		defer func() {
+			if err := p.deleteFile(fileID); err != nil {
+				logger.WithError(err).WithField("file_id", fileID).Warn("Failed to delete uploaded file from Mistral")
+			}
+		}()
+
 		// Get signed URL for the uploaded file
 		signedURL, err := p.getSignedURL(fileID)
 		if err != nil {
@@ -230,6 +240,44 @@ func (p *MistralOCRProvider) uploadFile(data []byte) (string, error) {
 
 	logger.WithField("file_id", uploadResp.ID).Info("File uploaded successfully")
 	return uploadResp.ID, nil
+}
+
+// deleteFile removes an uploaded file from Mistral's files API. Uploaded
+// documents are not expired by Mistral automatically, so every upload must
+// be deleted once it is no longer needed.
+func (p *MistralOCRProvider) deleteFile(fileID string) error {
+	logger := log.WithField("file_id", fileID)
+	logger.Debug("Deleting uploaded file from Mistral")
+
+	url := fmt.Sprintf("%s/%s", mistralFilesEndpoint, fileID)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	req.Header.Set("Accept", "application/json")
+
+	// Short timeout on purpose: cleanup is best-effort and must not hold up
+	// an already finished OCR result.
+	client := &http.Client{Timeout: time.Second * 10}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("file deletion failed with status: %d, response: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	logger.Debug("Deleted uploaded file from Mistral")
+	return nil
 }
 
 // getSignedURL gets a signed URL for an uploaded file

@@ -6,33 +6,79 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
+// testServerState records interactions with the mock Mistral API and lets
+// tests inject failures on individual endpoints (0 = respond normally).
+type testServerState struct {
+	deletedFileIDs  []string
+	ocrStatus       int
+	signedURLStatus int
+	deleteStatus    int
+}
+
 func setupTestServer() (*httptest.Server, func()) {
+	server, _, cleanup := setupTestServerWithState()
+	return server, cleanup
+}
+
+func setupTestServerWithState() (*httptest.Server, *testServerState, func()) {
 	origOCREndpoint := mistralOCREndpoint
 	origFilesEndpoint := mistralFilesEndpoint
 
+	state := &testServerState{}
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/ocr" {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/ocr":
+			if state.ocrStatus != 0 {
+				http.Error(w, `{"error": "injected failure"}`, state.ocrStatus)
+				return
+			}
 			handleOCRRequest(w, r)
-		} else if r.URL.Path == "/v1/files" {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/files":
 			handleFileUploadRequest(w, r)
-		} else if r.URL.Path == "/v1/files/test-file-id/url" {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/files/test-file-id/url":
+			if state.signedURLStatus != 0 {
+				http.Error(w, `{"error": "injected failure"}`, state.signedURLStatus)
+				return
+			}
 			handleGetSignedURLRequest(w, r)
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v1/files/"):
+			if state.deleteStatus != 0 {
+				http.Error(w, `{"error": "injected failure"}`, state.deleteStatus)
+				return
+			}
+			fileID := strings.TrimPrefix(r.URL.Path, "/v1/files/")
+			state.deletedFileIDs = append(state.deletedFileIDs, fileID)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id":      fileID,
+				"object":  "file",
+				"deleted": true,
+			})
+		default:
+			http.NotFound(w, r)
 		}
 	}))
 
 	mistralOCREndpoint = server.URL + "/v1/ocr"
 	mistralFilesEndpoint = server.URL + "/v1/files"
 
-	return server, func() {
+	return server, state, func() {
 		server.Close()
 		mistralOCREndpoint = origOCREndpoint
 		mistralFilesEndpoint = origFilesEndpoint
 	}
+}
+
+// minimalPDF returns bytes that mimetype.Detect identifies as application/pdf,
+// so ProcessImage takes the file-upload branch.
+func minimalPDF() []byte {
+	return []byte("%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF")
 }
 
 func handleOCRRequest(w http.ResponseWriter, r *http.Request) {
@@ -242,6 +288,112 @@ func TestMistralOCRProvider_ProcessDocument(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, "Test OCR output", text)
+}
+
+func TestMistralOCRProvider_ProcessImage_PDFUploadAndCleanup(t *testing.T) {
+	_, state, cleanup := setupTestServerWithState()
+	defer cleanup()
+
+	provider := &MistralOCRProvider{
+		apiKey: "test-key",
+		model:  "mistral-ocr-latest",
+	}
+
+	result, err := provider.ProcessImage(context.Background(), minimalPDF(), 1)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, "Test OCR output", result.Text)
+	assert.Equal(t, "application/pdf", result.Metadata["mime_type"])
+	assert.Equal(t, []string{"test-file-id"}, state.deletedFileIDs)
+}
+
+func TestMistralOCRProvider_PDFCleanupOnSignedURLFailure(t *testing.T) {
+	_, state, cleanup := setupTestServerWithState()
+	defer cleanup()
+	state.signedURLStatus = http.StatusInternalServerError
+
+	provider := &MistralOCRProvider{
+		apiKey: "test-key",
+		model:  "mistral-ocr-latest",
+	}
+
+	result, err := provider.ProcessImage(context.Background(), minimalPDF(), 1)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "signed URL")
+	assert.Nil(t, result)
+	// The uploaded file must be cleaned up even though OCR never ran
+	assert.Equal(t, []string{"test-file-id"}, state.deletedFileIDs)
+}
+
+func TestMistralOCRProvider_PDFCleanupOnOCRFailure(t *testing.T) {
+	_, state, cleanup := setupTestServerWithState()
+	defer cleanup()
+	state.ocrStatus = http.StatusInternalServerError
+
+	provider := &MistralOCRProvider{
+		apiKey: "test-key",
+		model:  "mistral-ocr-latest",
+	}
+
+	result, err := provider.ProcessImage(context.Background(), minimalPDF(), 1)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	// The uploaded file must be cleaned up even though the OCR call failed
+	assert.Equal(t, []string{"test-file-id"}, state.deletedFileIDs)
+}
+
+func TestMistralOCRProvider_PDFResultUnaffectedByDeleteFailure(t *testing.T) {
+	_, state, cleanup := setupTestServerWithState()
+	defer cleanup()
+	state.deleteStatus = http.StatusInternalServerError
+
+	provider := &MistralOCRProvider{
+		apiKey: "test-key",
+		model:  "mistral-ocr-latest",
+	}
+
+	result, err := provider.ProcessImage(context.Background(), minimalPDF(), 1)
+
+	// Cleanup is best-effort: a failed delete must never affect the result
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, "Test OCR output", result.Text)
+	assert.Empty(t, state.deletedFileIDs)
+}
+
+func TestMistralOCRProvider_DeleteFile(t *testing.T) {
+	_, state, cleanup := setupTestServerWithState()
+	defer cleanup()
+
+	provider := &MistralOCRProvider{
+		apiKey: "test-key",
+		model:  "mistral-ocr-latest",
+	}
+
+	err := provider.deleteFile("test-file-id")
+
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"test-file-id"}, state.deletedFileIDs)
+}
+
+func TestMistralOCRProvider_DeleteFile_Error(t *testing.T) {
+	_, state, cleanup := setupTestServerWithState()
+	defer cleanup()
+	state.deleteStatus = http.StatusNotFound
+
+	provider := &MistralOCRProvider{
+		apiKey: "test-key",
+		model:  "mistral-ocr-latest",
+	}
+
+	err := provider.deleteFile("test-file-id")
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "file deletion failed with status: 404")
+	assert.Empty(t, state.deletedFileIDs)
 }
 
 func TestMistralOCRProvider_ErrorHandling(t *testing.T) {
