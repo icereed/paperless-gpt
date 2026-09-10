@@ -88,9 +88,7 @@ func (app *App) getSuggestedTags(
 	defer templateMutex.RUnlock()
 
 	// Remove all paperless-gpt related tags from available tags
-	availableTags = removeTagFromList(availableTags, manualTag)
-	availableTags = removeTagFromList(availableTags, autoTag)
-	availableTags = removeTagFromList(availableTags, autoOcrTag)
+	availableTags = removeSystemTags(availableTags)
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
@@ -174,7 +172,11 @@ func (app *App) getSuggestedTags(
 				}
 			}
 		}
-		return filteredTags, nil
+		// The original tags were merged in above, and on a document being
+		// processed those include the trigger tag paperless-gpt is reacting to.
+		// With CREATE_NEW_TAGS on, nothing else here would drop them, so a
+		// system tag would come back out as a "suggestion" and be re-applied.
+		return removeSystemTags(filteredTags), nil
 	}
 
 	filteredTags := []string{}
@@ -187,7 +189,10 @@ func (app *App) getSuggestedTags(
 		}
 	}
 
-	return filteredTags, nil
+	// Belt and braces: availableTags is already system-tag-free, so this only
+	// matters if that ever regresses. paperless-gpt applies its own tags
+	// through AddTags/RemoveTags, never through a suggestion.
+	return removeSystemTags(filteredTags), nil
 }
 
 // getSuggestedDocumentType generates a suggested document type for a document using the LLM
@@ -376,6 +381,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	result := textsanitize.StripReasoning(completion.Choices[0].Content)
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
+
 var xmlAttrEscaper = strings.NewReplacer(
 	"&", "&amp;",
 	`"`, "&quot;",
@@ -392,6 +398,7 @@ var xmlTextEscaper = strings.NewReplacer(
 
 func escapeXMLAttr(s string) string { return xmlAttrEscaper.Replace(s) }
 func escapeXMLText(s string) string { return xmlTextEscaper.Replace(s) }
+
 // getSuggestedCustomFields generates suggested custom fields for a document using the LLM
 func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry) ([]CustomFieldSuggestion, error) {
 	// Fetch all available custom fields
