@@ -269,9 +269,16 @@ jobs:
             docker buildx imagetools create -t ${DOCKERHUB_REPO}:${VERSION} \
               ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
 
-            # Create manifests for GHCR
+            # Create manifests for GHCR. Sourced from the GHCR copies, not
+            # Docker Hub: build-amd64/build-arm64 push the identical image to
+            # both registries in one buildx invocation, so the digests match,
+            # and assembling from Docker Hub would make every push copy both
+            # architecture blobs across registries — burning Docker Hub pull
+            # quota for nothing. A batch of merges reliably hits
+            # "toomanyrequests: You have reached your unauthenticated pull
+            # rate limit" and the publish fails.
             docker buildx imagetools create -t ${GHCR_REPO}:${VERSION} \
-              ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
+              ${GHCR_REPO}@sha256:${AMD64_DIGEST} ${GHCR_REPO}@sha256:${ARM64_DIGEST}
 
             # Also push "latest" tag when on a tag
             if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
@@ -279,9 +286,9 @@ jobs:
               docker buildx imagetools create -t ${DOCKERHUB_REPO}:latest \
                 ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
 
-              # GHCR latest
+              # GHCR latest — same reasoning as above.
               docker buildx imagetools create -t ${GHCR_REPO}:latest \
-                ${DOCKERHUB_REPO}@sha256:${AMD64_DIGEST} ${DOCKERHUB_REPO}@sha256:${ARM64_DIGEST}
+                ${GHCR_REPO}@sha256:${AMD64_DIGEST} ${GHCR_REPO}@sha256:${ARM64_DIGEST}
             fi
           fi
       - name: Inspect manifest
