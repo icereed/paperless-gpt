@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 	"paperless-gpt/internal/textsanitize"
+	"strconv"
 	"strings"
+	"time"
 
 	_ "image/jpeg"
 
@@ -165,17 +167,54 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		callOpts = append(callOpts, llms.WithTopK(*p.ollamaTopK))
 	}
 
-	// Convert the image to text
+	// Convert the image to text, retrying transient upstream errors (429/5xx)
+	// so a brief provider congestion window doesn't fail the whole document.
+	// Reuses the VISION_LLM_* retry settings that already apply to suggestion LLM calls.
+	// Defaults are deliberately higher than the suggestion path's (3 retries / 30s in
+	// getRateLimitConfig): a failed page forfeits the whole document, and there is no
+	// page-level resume, so a 100-page document dying on page 99 re-buys 99 pages on
+	// the next attempt. The sunk cost grows with document length, so OCR tolerates
+	// much longer provider hiccups before giving up.
+	maxRetries := 8
+	if v, convErr := strconv.Atoi(os.Getenv("VISION_LLM_MAX_RETRIES")); convErr == nil && v >= 0 {
+		maxRetries = v
+	}
+	backoffMax := 90 * time.Second
+	if d, parseErr := time.ParseDuration(os.Getenv("VISION_LLM_BACKOFF_MAX_WAIT")); parseErr == nil && d > 0 {
+		backoffMax = d
+	}
+
 	logger.Debug("Sending request to vision model")
-	completion, err := p.llm.GenerateContent(ctx, []llms.MessageContent{
-		{
-			Parts: parts,
-			Role:  llms.ChatMessageTypeHuman,
-		},
-	}, callOpts...)
-	if err != nil {
-		logger.WithError(err).Error("Failed to get response from vision model")
-		return nil, fmt.Errorf("error getting response from LLM: %w", err)
+	var completion *llms.ContentResponse
+	var genErr error
+	for attempt := 0; ; attempt++ {
+		completion, genErr = p.llm.GenerateContent(ctx, []llms.MessageContent{
+			{
+				Parts: parts,
+				Role:  llms.ChatMessageTypeHuman,
+			},
+		}, callOpts...)
+		if genErr == nil {
+			break
+		}
+		msg := genErr.Error()
+		transient := strings.Contains(msg, "status code: 429") || strings.Contains(msg, "status code: 5")
+		if !transient || attempt >= maxRetries {
+			logger.WithError(genErr).Error("Failed to get response from vision model")
+			return nil, fmt.Errorf("error getting response from LLM: %w", genErr)
+		}
+		backoff := time.Duration(1<<uint(attempt)) * time.Second
+		if backoff <= 0 || backoff > backoffMax {
+			// <= 0 guards int64 overflow of the shift at high attempt counts,
+			// which would otherwise skip the backoff entirely.
+			backoff = backoffMax
+		}
+		logger.WithError(genErr).Warnf("Transient vision model error, retrying in %s (attempt %d/%d)", backoff, attempt+1, maxRetries)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
 	}
 
 	text := textsanitize.StripReasoning(completion.Choices[0].Content)

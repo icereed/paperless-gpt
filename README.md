@@ -104,6 +104,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Usage Recommendations](#usage-recommendations)
   - [Configuration](#configuration)
     - [Environment Variables](#environment-variables)
+    - [Using a Different AI Provider](#using-a-different-ai-provider)
     - [Custom Prompt Templates](#custom-prompt-templates)
       - [Template Variables](#template-variables)
   - [LLM-Based OCR: Compare for Yourself](#llm-based-ocr-compare-for-yourself)
@@ -568,14 +569,16 @@ For best results with the enhanced OCR features:
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
 | `AUTO_TAG`                          | Tag for auto processing.                                                                                                                                                                      | No       | paperless-gpt-auto         |
 | `FAIL_TAG`                          | Tag applied to a document when paperless-gpt could not apply the full LLM suggestion. Two cases trigger it: (1) **partial success** — paperless-ngx rejected one or more fields (e.g. an LLM-suggested date in an impossible format such as `2023-01-79`); paperless-gpt drops the rejected fields, retries the update with the rest, and applies this tag so the user knows the document needs review; (2) **hard failure** — the update could not be salvaged; paperless-gpt removes the auto tag (to break the processing loop) and applies this tag; (3) **repeated OCR failure** — OCR processing of the document failed `OCR_MAX_RETRIES` times in a row; paperless-gpt removes the auto OCR tag and applies this tag. The tag is created automatically in paperless-ngx at startup if it does not exist. | No       | paperless-gpt-failed       |
-| `AUTO_TAG_COMPLETE`                 | Tag added to documents after auto-processing is complete. Only applied during auto-processing, not manual review. Set to an empty string (`AUTO_TAG_COMPLETE=""`) to disable. When the variable is unset, the default tag is used. | No       | paperless-gpt-auto-complete |
+| `AUTO_TAG_COMPLETE`                 | Tag added to documents after auto-processing is complete. Only applied during auto-processing, not manual review. Set to an empty string (`AUTO_TAG_COMPLETE=""`) to disable. When the variable is unset, the default tag is used. The tag is created automatically in paperless-ngx at startup if it does not exist. | No       | paperless-gpt-auto-complete |
 | `LLM_PROVIDER`                      | AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`).                                                                                                                       | Yes      |                            |
 | `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`).                                                                                               | Yes      |                            |
 | `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                    | Cond.    |                            |
 | `MISTRAL_API_KEY`                   | Mistral API key (required if using Mistral).                                                                                                                                                  | Cond.    |                            |
+| `MISTRAL_OCR_IMAGE_LIMIT`           | Max images Mistral OCR extracts per document when `OCR_PROVIDER` is `mistral_ocr`. Unset uses the API default.                                                                               | No       |                            |
+| `MISTRAL_OCR_IMAGE_MIN_SIZE`        | Min height/width (px) for a region to be extracted as an image rather than transcribed, when `OCR_PROVIDER` is `mistral_ocr`. Raise this to stop small boxed fields (e.g. handwritten form entries) from being skipped as images. | No       |                            |
 | `ANTHROPIC_API_KEY`                 | Anthropic API key (required if using Anthropic/Claude).                                                                                                                                       | Cond.    |                            |
 | `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                                   | No       |                            |
-| `OPENAI_BASE_URL`                   | Base URL for OpenAI API. Use it to point to an OpenAI-compatible endpoint (e.g. OpenRouter, LiteLLM, vLLM). For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                            |
+| `OPENAI_BASE_URL`                   | Base URL for OpenAI API. Use it to point to any OpenAI-compatible endpoint (OpenRouter, LM Studio, vLLM, LiteLLM, llama.cpp, Groq, …) — see [OpenAI-compatible providers](docs/openai_compatible_providers.md) for ready-made configurations. For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                            |
 | `LLM_LANGUAGE`                      | Likely language for documents (e.g. `English`). Appears in the prompt to help the LLM.                                                                                                                                               | No       | English                    |
 | `LLM_TEMPERATURE`                   | (Ollama metadata only) Sampling temperature for title, tag, and other metadata generation. A non-negative finite value supplies the global setting; invalid, negative, `NaN`, and `Inf` values are ignored with a warning. The base fallback is `0`. An explicit per-call option still wins. It does not apply to other LLM providers or Vision OCR; use `VISION_LLM_TEMPERATURE` for supported vision providers. | No       | 0                          |
 | `LLM_MAX_TOKENS`                    | (Ollama metadata only) Positive integer or `-1`, mapped to Ollama `num_predict` as the output-token budget. When unset, paperless-gpt preserves the model/base setting. It is independent of `TOKEN_LIMIT` and `OLLAMA_CONTEXT_LENGTH`. | No | Model/base setting |
@@ -589,13 +592,13 @@ For best results with the enhanced OCR features:
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
 | `SUGGESTION_WORKERS`                | Number of async manual suggestion workers. Keep this at `1` for slow or local LLM backends to avoid concurrent generation overload.                                                           | No       | 1                          |
 | `SUGGESTION_JOB_TIMEOUT_SECONDS`    | Optional timeout for async manual suggestion jobs. Leave unset to disable; set a bounded value for slow local inference when jobs must not run forever.                                      | No       |                            |
-| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                      | No       | llm                        |
+| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, `google_docai`, `docling`, or `mistral_ocr`).                                                                                                             | No       | llm                        |
 | `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
 | `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                                                    | Cond.    |                            |
 | `VISION_LLM_MODEL`                  | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                                                                                                 | Cond.    |                            |
 | `VISION_LLM_REQUESTS_PER_MINUTE`    | Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load.                                                                                              | No       | 120                        |
-| `VISION_LLM_MAX_RETRIES`            | Maximum retry attempts for failed Vision LLM requests.                                                                                                                                        | No       | 3                          |
-| `VISION_LLM_BACKOFF_MAX_WAIT`       | Maximum wait time between retries for the Vision LLM (e.g., `30s`).                                                                                                                           | No       | 30s                        |
+| `VISION_LLM_MAX_RETRIES`            | Maximum retry attempts for failed Vision LLM requests. For OCR, only transient errors (HTTP 429/5xx) are retried, per page; `0` disables OCR retries.                                         | No       | 3 (suggestions), 8 (OCR)   |
+| `VISION_LLM_BACKOFF_MAX_WAIT`       | Maximum wait time between retries for the Vision LLM (e.g., `30s`).                                                                                                                           | No       | 30s (suggestions), 90s (OCR) |
 | `VISION_LLM_MAX_TOKENS`             | Maximum tokens for Vision LLM OCR output.                                                                                                                                                     | No       |                            |
 | `VISION_LLM_TEMPERATURE`            | Sampling temperature for Vision OCR generation. Lower is more deterministic. Important: For OpenAI GPT-5 it must be explicitly set to `1.0`.                                                  | No       |                            |
 | `OLLAMA_CONTEXT_LENGTH`             | (Ollama only) Integer. Sets NumCtx (context window) for the Ollama runner. If unset or 0, the model default is used.                                                                          | No       |                            |
@@ -622,7 +625,7 @@ For best results with the enhanced OCR features:
 | `PDF_REPLACE`                       | Whether to delete the original document after uploading the enhanced version (DANGEROUS).                                                                                                     | No       | false                      |
 | `PDF_COPY_METADATA`                 | Whether to copy metadata from the original document to the uploaded PDF. Only applicable when using PDF_UPLOAD.                                                                               | No       | true                       |
 | `PDF_OCR_TAGGING`                   | Whether to add a tag to mark documents as OCR-processed.                                                                                                                                      | No       | true                       |
-| `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed.                                                                                                                                                  | No       | paperless-gpt-ocr-complete |
+| `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed. The tag is created automatically in paperless-ngx at startup if it does not exist (when `PDF_OCR_TAGGING` is enabled).                                                                                                                                                  | No       | paperless-gpt-ocr-complete |
 | `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                        | No       | false                      |
 | `AUTO_OCR_TAG`                      | Tag for automatically processing docs with OCR.                                                                                                                                               | No       | paperless-gpt-ocr-auto     |
 | `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit. Not applied in `whole_pdf` mode (see [Whole PDF Mode](#whole-pdf-mode)), which always processes the entire document.              | No       | 5                          |
@@ -643,9 +646,37 @@ For best results with the enhanced OCR features:
 | `IMAGE_MAX_RENDER_DPI`              | Maximum DPI used when rendering document pages to images.                                                                                                                                     | No       | 600                        |
 | `IMAGE_MAX_FILE_BYTES`              | Maximum JPEG file size in bytes for rendered page images. Images exceeding this are compressed or resized.                                                                                     | No       | 10485760                   |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
+| `CORRESPONDENT_PROMPT_LIMIT`        | Maximum number of existing correspondents embedded into the correspondent suggestion prompt; names occurring in the document are preferred. `0` (default) sends the full list. Useful for large installations and local LLMs with small context windows. | No       | 0                          |
 
 > [!NOTE]
 > `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs. The **Active Configuration** panel on the Settings page shows each value's effective source (env / saved / default).
+
+### Using a Different AI Provider
+
+`LLM_PROVIDER` accepts `openai`, `ollama`, `googleai`, `mistral` and
+`anthropic`. That list is shorter than it looks: **any service that speaks the
+OpenAI chat-completions API works via `LLM_PROVIDER=openai` plus
+`OPENAI_BASE_URL`**, without a code change or a new release.
+
+```yaml
+environment:
+  LLM_PROVIDER: "openai"
+  OPENAI_BASE_URL: "https://openrouter.ai/api/v1" # any compatible endpoint
+  OPENAI_API_KEY: "<that vendor's key>"
+  LLM_MODEL: "<a model name that vendor accepts>"
+```
+
+This covers OpenRouter, LM Studio, vLLM, LiteLLM, llama.cpp, Groq, Together,
+Azure OpenAI and most other hosted or self-hosted gateways.
+
+See **[OpenAI-compatible providers](docs/openai_compatible_providers.md)** for
+copy-pasteable configurations per service, plus fixes for the common errors
+(`404 model not found`, `413`, SSE decode failures, `temperature` rejections).
+
+> [!TIP]
+> For Ollama, prefer the native `LLM_PROVIDER=ollama` over its OpenAI shim — the
+> native path exposes `OLLAMA_CONTEXT_LENGTH` and `OLLAMA_THINK`, which the shim
+> does not.
 
 ### Custom Prompt Templates
 
@@ -1006,6 +1037,27 @@ services:
       - PGID=10001
       # ... other variables
 ```
+
+#### Container Entrypoint Behavior
+
+The entrypoint behaves differently depending on whether the container
+runs as root or as a non-root user:
+
+**When running as root (default Docker behavior):**
+1. Creates the `paperless-gpt` user and group with the specified `PUID`/`PGID`
+2. Sets up required directories (`/app/config`, `/app/db`, `/app/prompts`, `/home/paperless-gpt`)
+3. Drops privileges to the unprivileged user via `su-exec`
+4. Starts the Go binary as `PUID`:`PGID`
+
+**When running as non-root** (e.g. `docker run --user`, Kubernetes
+`securityContext.runAsNonRoot: true`): the entrypoint detects it is not
+running as root, ensures required directories exist (`/app/config`,
+`/app/db`, `/app/prompts`), then starts the binary directly — skipping
+user/group creation and privilege drop. `PUID` and `PGID` are not used;
+the binary runs with the container's existing user/group (e.g.
+`securityContext.runAsUser`/`runAsGroup` in Kubernetes). The `/app`
+directory must be writable by that user for the directories to be
+created; any mounted volumes must also be writable by that user.
 
 ## Contributing
 

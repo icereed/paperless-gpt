@@ -39,6 +39,7 @@ var (
 	// Environment Variables
 	paperlessInsecureSkipVerify   = os.Getenv("PAPERLESS_INSECURE_SKIP_VERIFY") == "true"
 	correspondentBlackList        = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
+	correspondentPromptLimit      int // Will be read from CORRESPONDENT_PROMPT_LIMIT
 	paperlessBaseURL              = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken             = os.Getenv("PAPERLESS_API_TOKEN")
 	azureDocAIEndpoint            = os.Getenv("AZURE_DOCAI_ENDPOINT")
@@ -185,6 +186,28 @@ func main() {
 		log.Warnf("Failed to ensure fail tag %q exists: %v. Recovery from a failed document update will still remove the auto tag (loop break works), but the fail tag will not be added.", failTag, err)
 	}
 
+	// Same for the auto-processing completion tag. It is applied mechanically
+	// once auto-processing succeeds, and the tag update silently drops names
+	// that do not exist in paperless-ngx unless CREATE_NEW_TAGS is on — so
+	// without this, users who never created the tag by hand see the trigger
+	// tag disappear and no completion tag appear.
+	if autoTagComplete != "" {
+		if err := client.EnsureTagExists(ctx, autoTagComplete); err != nil {
+			log.Warnf("Failed to ensure auto tag complete %q exists: %v. Auto-processing will still work, but documents will not be marked as complete.", autoTagComplete, err)
+		}
+	}
+
+	// And the OCR completion tag, for the same reason. Beyond marking the
+	// document, this tag is what the skip check in ProcessDocumentOCR reads to
+	// recognise an already-processed document, and what users trigger their own
+	// paperless-ngx workflows on — so silently dropping it breaks more than a
+	// label.
+	if pdfOCRTagging && pdfOCRCompleteTag != "" {
+		if err := client.EnsureTagExists(ctx, pdfOCRCompleteTag); err != nil {
+			log.Warnf("Failed to ensure OCR complete tag %q exists: %v. OCR will still run, but documents will not be marked as OCR-processed.", pdfOCRCompleteTag, err)
+		}
+	}
+
 	// Initial fetch of custom fields
 	refreshCustomFieldsCache(client)
 
@@ -281,6 +304,32 @@ func main() {
 		}
 	}
 
+	var mistralImageLimit *int
+	if limitStr := os.Getenv("MISTRAL_OCR_IMAGE_LIMIT"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil {
+			if parsed >= 0 {
+				mistralImageLimit = &parsed
+			} else {
+				log.Warnf("Invalid MISTRAL_OCR_IMAGE_LIMIT value: must be >= 0, got %d, ignoring", parsed)
+			}
+		} else {
+			log.Warnf("Invalid MISTRAL_OCR_IMAGE_LIMIT value: %v, ignoring", err)
+		}
+	}
+
+	var mistralImageMinSize *int
+	if minSizeStr := os.Getenv("MISTRAL_OCR_IMAGE_MIN_SIZE"); minSizeStr != "" {
+		if parsed, err := strconv.Atoi(minSizeStr); err == nil {
+			if parsed >= 0 {
+				mistralImageMinSize = &parsed
+			} else {
+				log.Warnf("Invalid MISTRAL_OCR_IMAGE_MIN_SIZE value: must be >= 0, got %d, ignoring", parsed)
+			}
+		} else {
+			log.Warnf("Invalid MISTRAL_OCR_IMAGE_MIN_SIZE value: %v, ignoring", err)
+		}
+	}
+
 	if val, ok := os.LookupEnv("GOOGLEAI_THINKING_BUDGET"); ok {
 		if v, err := strconv.ParseInt(val, 10, 32); err == nil {
 			if v >= math.MinInt32 && v <= math.MaxInt32 {
@@ -306,6 +355,8 @@ func main() {
 		AzureOutputContentFormat: AzureDocAIOutputContentFormat,
 		MistralAPIKey:            os.Getenv("MISTRAL_API_KEY"),
 		MistralModel:             os.Getenv("MISTRAL_MODEL"),
+		MistralImageLimit:        mistralImageLimit,
+		MistralImageMinSize:      mistralImageMinSize,
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
 		DoclingOCRPipeline:       doclingOCRPipeline,
@@ -685,6 +736,17 @@ func validateOrDefaultEnvVars() {
 		fmt.Println("Auto tag complete is disabled")
 	}
 
+	rawCorrespondentPromptLimit := os.Getenv("CORRESPONDENT_PROMPT_LIMIT")
+	if rawCorrespondentPromptLimit == "" {
+		correspondentPromptLimit = 0
+	} else {
+		var err error
+		correspondentPromptLimit, err = strconv.Atoi(rawCorrespondentPromptLimit)
+		if err != nil || correspondentPromptLimit < 0 {
+			log.Fatalf("Invalid CORRESPONDENT_PROMPT_LIMIT value: %q (must be a non-negative integer, 0 sends the full list)", rawCorrespondentPromptLimit)
+		}
+	}
+
 	if paperlessBaseURL == "" {
 		log.Fatal("Please set the PAPERLESS_BASE_URL environment variable.")
 	}
@@ -889,6 +951,59 @@ func removeTagFromList(tags []string, tagToRemove string) []string {
 		}
 	}
 	return filteredTags
+}
+
+// systemTags returns every tag paperless-gpt manages itself: the triggers it
+// watches for and the markers it writes. None of them describe a document, so
+// none of them belong in a suggestion prompt.
+//
+// Configured-empty tags are skipped, because "" would otherwise match nothing
+// useful and only obscures intent.
+func systemTags() []string {
+	configured := []string{
+		manualTag,
+		autoTag,
+		autoOcrTag,
+		failTag,
+		autoTagComplete,
+		pdfOCRCompleteTag,
+	}
+	tags := make([]string, 0, len(configured))
+	for _, tag := range configured {
+		if tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	return tags
+}
+
+// removeSystemTags strips paperless-gpt's own tags from a list of tag names
+// before it reaches the LLM.
+//
+// Leaving any of them in has consequences beyond a cosmetically wrong
+// suggestion: the LLM offers the tag, paperless-gpt applies it, and the
+// document re-enters a processing queue. With a paperless-ngx workflow
+// chaining OCR to tagging, suggesting the OCR-complete tag produces an
+// unbounded loop that re-bills every LLM call on each pass (#877), and
+// suggesting the fail or completion tag makes a document lie about its own
+// state (#1015).
+//
+// Matching is case-insensitive: paperless-ngx tag names are case-preserving
+// but users routinely configure a different case than the tag actually has,
+// and a near-miss here reopens the loop.
+func removeSystemTags(tags []string) []string {
+	excluded := make(map[string]bool)
+	for _, tag := range systemTags() {
+		excluded[strings.ToLower(tag)] = true
+	}
+
+	filtered := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if !excluded[strings.ToLower(tag)] {
+			filtered = append(filtered, tag)
+		}
+	}
+	return filtered
 }
 
 // getLikelyLanguage determines the likely language of the document content
