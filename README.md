@@ -104,6 +104,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Usage Recommendations](#usage-recommendations)
   - [Configuration](#configuration)
     - [Environment Variables](#environment-variables)
+    - [Using a Different AI Provider](#using-a-different-ai-provider)
     - [Custom Prompt Templates](#custom-prompt-templates)
       - [Template Variables](#template-variables)
   - [LLM-Based OCR: Compare for Yourself](#llm-based-ocr-compare-for-yourself)
@@ -572,7 +573,7 @@ For best results with the enhanced OCR features:
 | `MISTRAL_API_KEY`                   | Mistral API key (required if using Mistral).                                                                                                                                                  | Cond.    |                            |
 | `ANTHROPIC_API_KEY`                 | Anthropic API key (required if using Anthropic/Claude).                                                                                                                                       | Cond.    |                            |
 | `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                                   | No       |                            |
-| `OPENAI_BASE_URL`                   | Base URL for OpenAI API. Use it to point to an OpenAI-compatible endpoint (e.g. OpenRouter, LiteLLM, vLLM). For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                            |
+| `OPENAI_BASE_URL`                   | Base URL for OpenAI API. Use it to point to any OpenAI-compatible endpoint (OpenRouter, LM Studio, vLLM, LiteLLM, llama.cpp, Groq, …) — see [OpenAI-compatible providers](docs/openai_compatible_providers.md) for ready-made configurations. For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                            |
 | `LLM_LANGUAGE`                      | Likely language for documents (e.g. `English`). Appears in the prompt to help the LLM.                                                                                                                                               | No       | English                    |
 | `GOOGLEAI_API_KEY`                  | Google Gemini API key (required if using `LLM_PROVIDER=googleai`).                                                                                                                            | Cond.    |                            |
 | `GOOGLEAI_THINKING_BUDGET`          | (Optional, googleai only) Integer. Controls Gemini "thinking" budget. If unset, model default is used (thinking enabled if supported). Set to `0` to disable thinking (if model supports it). | No       |                            |
@@ -640,6 +641,33 @@ For best results with the enhanced OCR features:
 
 > [!NOTE]
 > `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs. The **Active Configuration** panel on the Settings page shows each value's effective source (env / saved / default).
+
+### Using a Different AI Provider
+
+`LLM_PROVIDER` accepts `openai`, `ollama`, `googleai`, `mistral` and
+`anthropic`. That list is shorter than it looks: **any service that speaks the
+OpenAI chat-completions API works via `LLM_PROVIDER=openai` plus
+`OPENAI_BASE_URL`**, without a code change or a new release.
+
+```yaml
+environment:
+  LLM_PROVIDER: "openai"
+  OPENAI_BASE_URL: "https://openrouter.ai/api/v1" # any compatible endpoint
+  OPENAI_API_KEY: "<that vendor's key>"
+  LLM_MODEL: "<a model name that vendor accepts>"
+```
+
+This covers OpenRouter, LM Studio, vLLM, LiteLLM, llama.cpp, Groq, Together,
+Azure OpenAI and most other hosted or self-hosted gateways.
+
+See **[OpenAI-compatible providers](docs/openai_compatible_providers.md)** for
+copy-pasteable configurations per service, plus fixes for the common errors
+(`404 model not found`, `413`, SSE decode failures, `temperature` rejections).
+
+> [!TIP]
+> For Ollama, prefer the native `LLM_PROVIDER=ollama` over its OpenAI shim — the
+> native path exposes `OLLAMA_CONTEXT_LENGTH` and `OLLAMA_THINK`, which the shim
+> does not.
 
 ### Custom Prompt Templates
 
