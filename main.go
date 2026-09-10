@@ -185,6 +185,17 @@ func main() {
 		log.Warnf("Failed to ensure fail tag %q exists: %v. Recovery from a failed document update will still remove the auto tag (loop break works), but the fail tag will not be added.", failTag, err)
 	}
 
+	// Same for the auto-processing completion tag. It is applied mechanically
+	// once auto-processing succeeds, and the tag update silently drops names
+	// that do not exist in paperless-ngx unless CREATE_NEW_TAGS is on — so
+	// without this, users who never created the tag by hand see the trigger
+	// tag disappear and no completion tag appear.
+	if autoTagComplete != "" {
+		if err := client.EnsureTagExists(ctx, autoTagComplete); err != nil {
+			log.Warnf("Failed to ensure auto tag complete %q exists: %v. Auto-processing will still work, but documents will not be marked as complete.", autoTagComplete, err)
+		}
+	}
+
 	// Initial fetch of custom fields
 	refreshCustomFieldsCache(client)
 

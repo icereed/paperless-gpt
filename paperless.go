@@ -569,6 +569,14 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 		finalTagNames = cleanedTags
 
+		// Tags paperless-gpt adds mechanically to mark a document as done
+		// (AUTO_TAG_COMPLETE). These are applied *after* the RemoveTags pass on
+		// purpose: the trigger tag being removed and the completion tag being
+		// added are two halves of the same handover, and when a user configures
+		// both to the same name the completion tag has to win — otherwise the
+		// document ends up with neither and looks unprocessed.
+		finalTagNames = append(finalTagNames, document.AddTags...)
+
 		slices.Sort(finalTagNames)
 		finalTagNames = slices.Compact(finalTagNames)
 
@@ -716,12 +724,28 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			// Still need to remove the auto-tag if it exists
 			if slices.Contains(originalDoc.Tags, autoTag) || slices.Contains(originalDoc.Tags, manualTag) || slices.Contains(originalDoc.Tags, autoOcrTag) {
 				var finalTagIDs []int
+				seenTagIDs := make(map[int]bool)
+				appendTagID := func(tagName string) {
+					tagID, exists := availableTags[tagName]
+					if !exists || seenTagIDs[tagID] {
+						return
+					}
+					seenTagIDs[tagID] = true
+					finalTagIDs = append(finalTagIDs, tagID)
+				}
 				for _, tagName := range originalDoc.Tags {
 					if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) && !strings.EqualFold(tagName, autoOcrTag) {
-						if tagID, exists := availableTags[tagName]; exists {
-							finalTagIDs = append(finalTagIDs, tagID)
-						}
+						appendTagID(tagName)
 					}
+				}
+				// Tags paperless-gpt adds mechanically (AUTO_TAG_COMPLETE) have
+				// to be applied on this path too, and after the trigger-tag
+				// removal above so an added tag wins a name collision. Without
+				// this, a document whose suggestions happened to match what it
+				// already had would lose its trigger tag and never gain a
+				// completion tag — it just looks unprocessed.
+				for _, tagName := range document.AddTags {
+					appendTagID(tagName)
 				}
 				// Mark that we need to remove tags
 				// We'll send the tag update directly (even if empty) since there are no other field changes
