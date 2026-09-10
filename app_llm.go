@@ -611,7 +611,8 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	}
 
 	if suggestionRequest.GenerateCorrespondents {
-		suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, generationContext.availableCorrespondentNames, correspondentBlackList)
+		promptCorrespondents := filterCorrespondentsForPrompt(generationContext.availableCorrespondentNames, content, suggestedTitle, correspondentPromptLimit)
+		suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, promptCorrespondents, correspondentBlackList)
 		if err != nil {
 			log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
