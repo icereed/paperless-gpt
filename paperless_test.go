@@ -512,8 +512,13 @@ func TestUpdateDocuments_RemovingLastTag(t *testing.T) {
 	// document processing sends both the auto and manual
 	// versions of the tag to be removed. this is why you'll
 	// see the autoTag included in the RemoveTags but not in the original document.
+	//
+	// These are process globals, so restore them afterwards — leaking them
+	// makes later tests in this package depend on execution order.
+	previousManualTag, previousAutoTag := manualTag, autoTag
 	manualTag = "paperless-gpt"
 	autoTag = "paperless-gpt-auto"
+	t.Cleanup(func() { manualTag, autoTag = previousManualTag, previousAutoTag })
 
 	tests := []struct {
 		name              string
@@ -990,4 +995,108 @@ func TestCreatedDatePreValidation(t *testing.T) {
 		t.Errorf("PATCH must not include invalid created_date, but got %v", created)
 	}
 	assert.Equal(t, "Better Title", receivedPatch["title"], "valid fields must still be sent")
+}
+
+// TestUpdateDocuments_AddTagsApplied covers the AUTO_TAG_COMPLETE handover.
+//
+// app_llm.go marks a finished auto-processed document by putting the completion
+// tag in AddTags and the trigger tags in RemoveTags. UpdateDocuments used to
+// consume only RemoveTags, so the completion tag was logged as "adding" and
+// then silently dropped — the document lost its trigger tag and never gained a
+// completion tag, which is what #1006 (and the same symptom in #854 / #811)
+// reports.
+//
+// The second case pins the collision behaviour: when a user configures the
+// completion tag to the same name as the trigger tag, the addition has to win.
+// Applying RemoveTags last would leave the document with neither tag, i.e.
+// looking untouched. See #458.
+func TestUpdateDocuments_AddTagsApplied(t *testing.T) {
+	tests := []struct {
+		name       string
+		autoTag    string // the configured AUTO_TAG for this case
+		docTags    []string
+		addTags    []string
+		removeTags []string
+		wantTagIDs []interface{}
+	}{
+		{
+			name:       "completion tag is added while the trigger tag is removed",
+			autoTag:    "paperless-gpt-auto",
+			docTags:    []string{"paperless-gpt-auto", "keepMe"},
+			addTags:    []string{"paperless-gpt-auto-complete"},
+			removeTags: []string{"paperless-gpt-auto"},
+			wantTagIDs: []interface{}{float64(20), float64(30)}, // keepMe, complete
+		},
+		{
+			// The collision case from #458: the same name in both lists must
+			// end up applied, not stripped.
+			name:       "an added tag wins over the same name in RemoveTags",
+			autoTag:    "unrelated-auto-tag",
+			docTags:    []string{"keepMe"},
+			addTags:    []string{"paperless-gpt-auto"},
+			removeTags: []string{"paperless-gpt-auto"},
+			wantTagIDs: []interface{}{float64(10), float64(20)}, // auto, keepMe
+		},
+		{
+			// The #856 path: the suggestions matched what the document already
+			// had, so no ordinary field changed and UpdateDocuments falls into
+			// its "just strip the trigger tag" branch. That branch used to
+			// ignore AddTags entirely, so the document came out with the
+			// trigger tag gone and no completion tag — indistinguishable from
+			// never having been processed.
+			name:       "completion tag is applied even when no other field changed",
+			autoTag:    "paperless-gpt-auto",
+			docTags:    []string{"paperless-gpt-auto", "keepMe"},
+			addTags:    []string{"paperless-gpt-auto-complete"},
+			removeTags: []string{"paperless-gpt-auto"},
+			wantTagIDs: []interface{}{float64(20), float64(30)}, // keepMe, complete
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			defer env.teardown()
+
+			// These are process globals; other tests in this package set them
+			// without restoring, so pin every one this code path reads.
+			previousManualTag, previousAutoTag, previousAutoOcrTag := manualTag, autoTag, autoOcrTag
+			manualTag, autoTag, autoOcrTag = "manual", tt.autoTag, "paperless-gpt-ocr-auto"
+			t.Cleanup(func() {
+				manualTag, autoTag, autoOcrTag = previousManualTag, previousAutoTag, previousAutoOcrTag
+			})
+
+			env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
+					"results": []map[string]interface{}{
+						{"id": 10, "name": "paperless-gpt-auto"},
+						{"id": 20, "name": "keepMe"},
+						{"id": 30, "name": "paperless-gpt-auto-complete"},
+					},
+					"next": nil,
+				})
+			})
+
+			var patched map[string]interface{}
+			env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPatch {
+					_ = json.NewDecoder(r.Body).Decode(&patched)
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+			})
+
+			doc := DocumentSuggestion{
+				ID:               1,
+				OriginalDocument: Document{ID: 1, Tags: tt.docTags},
+				AddTags:          tt.addTags,
+				RemoveTags:       tt.removeTags,
+			}
+			require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{doc}, env.db, false))
+
+			require.Contains(t, patched, "tags", "the tag update must be sent")
+			assert.ElementsMatch(t, tt.wantTagIDs, patched["tags"])
+		})
+	}
 }
