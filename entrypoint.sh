@@ -1,6 +1,15 @@
 #!/bin/sh
 set -e
 
+# When not running as root, skip user/group creation and privilege drop.
+# This covers Kubernetes runAsNonRoot and docker run --user scenarios
+# where the entrypoint does not have permissions for addgroup/adduser/
+# mkdir/chown/su-exec. The binary runs directly as the container's user.
+if [ "$(id -u)" -ne 0 ]; then
+    mkdir -p /app/config /app/db /app/prompts
+    exec /app/paperless-gpt
+fi
+
 # Use environment variables PUID/PGID, otherwise default to 10001
 PUID=${PUID:-10001}
 PGID=${PGID:-10001}
