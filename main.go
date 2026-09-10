@@ -902,6 +902,59 @@ func removeTagFromList(tags []string, tagToRemove string) []string {
 	return filteredTags
 }
 
+// systemTags returns every tag paperless-gpt manages itself: the triggers it
+// watches for and the markers it writes. None of them describe a document, so
+// none of them belong in a suggestion prompt.
+//
+// Configured-empty tags are skipped, because "" would otherwise match nothing
+// useful and only obscures intent.
+func systemTags() []string {
+	configured := []string{
+		manualTag,
+		autoTag,
+		autoOcrTag,
+		failTag,
+		autoTagComplete,
+		pdfOCRCompleteTag,
+	}
+	tags := make([]string, 0, len(configured))
+	for _, tag := range configured {
+		if tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	return tags
+}
+
+// removeSystemTags strips paperless-gpt's own tags from a list of tag names
+// before it reaches the LLM.
+//
+// Leaving any of them in has consequences beyond a cosmetically wrong
+// suggestion: the LLM offers the tag, paperless-gpt applies it, and the
+// document re-enters a processing queue. With a paperless-ngx workflow
+// chaining OCR to tagging, suggesting the OCR-complete tag produces an
+// unbounded loop that re-bills every LLM call on each pass (#877), and
+// suggesting the fail or completion tag makes a document lie about its own
+// state (#1015).
+//
+// Matching is case-insensitive: paperless-ngx tag names are case-preserving
+// but users routinely configure a different case than the tag actually has,
+// and a near-miss here reopens the loop.
+func removeSystemTags(tags []string) []string {
+	excluded := make(map[string]bool)
+	for _, tag := range systemTags() {
+		excluded[strings.ToLower(tag)] = true
+	}
+
+	filtered := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if !excluded[strings.ToLower(tag)] {
+			filtered = append(filtered, tag)
+		}
+	}
+	return filtered
+}
+
 // getLikelyLanguage determines the likely language of the document content
 func getLikelyLanguage() string {
 	likelyLanguage := os.Getenv("LLM_LANGUAGE")
@@ -1270,7 +1323,6 @@ func createVisionLLM() (llms.Model, error) {
 		return nil, nil
 	}
 }
-
 
 func createCustomHTTPClient() *http.Client {
 	// Create custom transport that adds headers
