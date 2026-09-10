@@ -99,7 +99,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  await testEnv.cleanup();
+  await testEnv?.cleanup();
 });
 
 test.beforeEach(async ({ page: testPage }) => {

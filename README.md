@@ -80,6 +80,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
   - [Table of Contents](#table-of-contents)
   - [Getting Started](#getting-started)
     - [Prerequisites](#prerequisites)
+    - [Security](#security)
     - [Installation](#installation)
       - [Docker Compose](#docker-compose)
       - [Manual Setup](#manual-setup)
@@ -128,10 +129,16 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 ### Prerequisites
 
 - [Docker][docker-install] installed.
-- A running instance of [paperless-ngx][paperless-ngx].
+- A running instance of [paperless-ngx][paperless-ngx] — tested against the 2.20.x release series and the 3.0.0 beta (`v3.0.0-beta.rc1`). paperless-gpt only uses the stable `api/documents/`, `api/tags/`, `api/correspondents/`, `api/custom_fields/` and `api/document_types/` endpoints, none of which have documented breaking changes in the v3 migration guide.
 - Access to an LLM provider:
   - **OpenAI**: An API key with models like `gpt-4o` or `gpt-3.5-turbo`.
   - **Ollama**: A running Ollama server with models like `qwen3:8b`.
+
+### Security
+
+**paperless-gpt has no built-in authentication.** Its web UI and `/api/*` endpoints are open to anyone who can reach the port — by default it listens on all interfaces (`LISTEN_INTERFACE` defaults to `:8080`), so a plain `-p 8080:8080` (as in the example below) exposes it to your whole LAN/VPN, not just `localhost`. Anyone who can reach it can rewrite documents in your connected paperless-ngx instance, trigger LLM/OCR jobs against your API keys, and change settings — with zero credentials required.
+
+Do not expose it directly to the internet or an untrusted network. Put it behind a reverse proxy that adds authentication (e.g. Authelia, Authentik, a Basic Auth layer), restrict it to a VPN/Tailscale network, or otherwise limit who can reach the port.
 
 ### Installation
 
@@ -147,14 +154,16 @@ services:
 
   paperless-gpt:
     # Use one of these image sources:
-    image: icereed/paperless-gpt:latest # Docker Hub
-    # image: ghcr.io/icereed/paperless-gpt:latest  # GitHub Container Registry
+    image: icereed/paperless-gpt:latest # Docker Hub (upstream)
+    # image: ghcr.io/icereed/paperless-gpt:latest  # GitHub Container Registry (upstream)
+    # image: ghcr.io/hensing/paperless-gpt:latest  # This fork's GHCR image
     environment:
       PAPERLESS_BASE_URL: "http://paperless-ngx:8000"
       PAPERLESS_API_TOKEN: "your_paperless_api_token"
       PAPERLESS_PUBLIC_URL: "http://paperless.mydomain.com" # Optional
       MANUAL_TAG: "paperless-gpt" # Optional, default: paperless-gpt
       AUTO_TAG: "paperless-gpt-auto" # Optional, default: paperless-gpt-auto
+      FAIL_TAG: "paperless-gpt-failed" # Optional, default: paperless-gpt-failed. Applied to documents whose update is rejected by paperless-ngx or whose OCR keeps failing (see OCR_MAX_RETRIES), so they don't get re-processed in a loop. Auto-created at startup.
       # LLM Configuration - Choose one:
 
       # Option 1: Standard OpenAI
@@ -179,6 +188,7 @@ services:
       # LLM_MODEL: "qwen3:8b"
       # OLLAMA_HOST: "http://host.docker.internal:11434"
       # OLLAMA_CONTEXT_LENGTH: "8192" # Sets Ollama NumCtx (context window)
+      # OLLAMA_HEADERS: "Authorization=Bearer mytoken" # Optional headers for reverse-proxy auth
       # TOKEN_LIMIT: 1000 # Recommended for smaller models
 
       # Option 5: Anthropic/Claude
@@ -237,9 +247,11 @@ services:
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
+      OCR_MAX_RETRIES: "3" # Optional, default: 3. Failed OCR attempts per document before it is fail-tagged and removed from the queue. Set to 0 to retry forever.
       LOG_LEVEL: "info" # Optional: debug, warn, error
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
+      - ./config:/app/config # Mount the config directory
       # For Google Document AI:
       - ${HOME}/.config/gcloud/application_default_credentials.json:/app/credentials.json
       # For local hOCR and PDF saving:
@@ -247,6 +259,11 @@ services:
       - ./pdf:/app/pdf # Only if CREATE_LOCAL_PDF is true
     ports:
       - "8080:8080"
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.01'
+          memory: 20M
     depends_on:
       - paperless-ngx
 ```
@@ -405,6 +422,7 @@ paperless-gpt offers different methods for processing documents, giving you flex
 - **Best for**: Providers that handle multi-page documents efficiently, reduced API calls
 - **Configuration**: `OCR_PROCESS_MODE: "whole_pdf"`
 - **Note**: Processing large PDFs may cause you to hit the API limit of your OCR provider. If you encounter problems with large documents, consider switching to `pdf` mode, which processes pages individually.
+- **Note**: `OCR_LIMIT_PAGES` does **not** apply in this mode — the whole point of `whole_pdf` is to hand the OCR provider the entire document in one shot, so it always processes every page regardless of that setting. Use `pdf` or `image` mode if you need a page cap.
 
 ### Provider Compatibility
 
@@ -539,25 +557,32 @@ For best results with the enhanced OCR features:
 
 | Variable                            | Description                                                                                                                                                                                   | Required | Default                    |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | -------------------------- |
+| `PUID`                              | User ID to run the container as. See [Running as a Non-Root User](#running-as-a-non-root-user).                                                                                               | No       | 10001                      |
+| `PGID`                              | Group ID to run the container as. See [Running as a Non-Root User](#running-as-a-non-root-user).                                                                                              | No       | 10001                      |
 | `PAPERLESS_BASE_URL`                | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                                                                                                        | Yes      |                            |
 | `PAPERLESS_API_TOKEN`               | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                                                                                             | Yes      |                            |
 | `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                            | No       |                            |
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
 | `AUTO_TAG`                          | Tag for auto processing.                                                                                                                                                                      | No       | paperless-gpt-auto         |
+| `FAIL_TAG`                          | Tag applied to a document when paperless-gpt could not apply the full LLM suggestion. Two cases trigger it: (1) **partial success** — paperless-ngx rejected one or more fields (e.g. an LLM-suggested date in an impossible format such as `2023-01-79`); paperless-gpt drops the rejected fields, retries the update with the rest, and applies this tag so the user knows the document needs review; (2) **hard failure** — the update could not be salvaged; paperless-gpt removes the auto tag (to break the processing loop) and applies this tag; (3) **repeated OCR failure** — OCR processing of the document failed `OCR_MAX_RETRIES` times in a row; paperless-gpt removes the auto OCR tag and applies this tag. The tag is created automatically in paperless-ngx at startup if it does not exist. | No       | paperless-gpt-failed       |
+| `AUTO_TAG_COMPLETE`                 | Tag added to documents after auto-processing is complete. Only applied during auto-processing, not manual review. Set to an empty string (`AUTO_TAG_COMPLETE=""`) to disable. When the variable is unset, the default tag is used. | No       | paperless-gpt-auto-complete |
 | `LLM_PROVIDER`                      | AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`).                                                                                                                       | Yes      |                            |
 | `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`).                                                                                               | Yes      |                            |
 | `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                    | Cond.    |                            |
 | `MISTRAL_API_KEY`                   | Mistral API key (required if using Mistral).                                                                                                                                                  | Cond.    |                            |
 | `ANTHROPIC_API_KEY`                 | Anthropic API key (required if using Anthropic/Claude).                                                                                                                                       | Cond.    |                            |
 | `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                                   | No       |                            |
-| `OPENAI_BASE_URL`                   | Base URL for OpenAI API. For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`).                                                                       | No       |                            |
+| `OPENAI_BASE_URL`                   | Base URL for OpenAI API. Use it to point to an OpenAI-compatible endpoint (e.g. OpenRouter, LiteLLM, vLLM). For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                            |
 | `LLM_LANGUAGE`                      | Likely language for documents (e.g. `English`). Appears in the prompt to help the LLM.                                                                                                                                               | No       | English                    |
 | `GOOGLEAI_API_KEY`                  | Google Gemini API key (required if using `LLM_PROVIDER=googleai`).                                                                                                                            | Cond.    |                            |
 | `GOOGLEAI_THINKING_BUDGET`          | (Optional, googleai only) Integer. Controls Gemini "thinking" budget. If unset, model default is used (thinking enabled if supported). Set to `0` to disable thinking (if model supports it). | No       |                            |
 | `OLLAMA_HOST`                       | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                                                                                                 | No       |                            |
+| `OLLAMA_THINK`                      | (Ollama only) Set to `false` to disable Ollama reasoning ("think") mode, `true` to force it on. Recommended `false` for thinking-mode models (e.g. Qwen 3, Gemma 3) on tasks that need strict output formats — with thinking left on, these models can spend the whole token budget reasoning and return empty content. If unset, the model's default applies. | No       |                            |
 | `LLM_REQUESTS_PER_MINUTE`           | Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load.                                                                                                | No       | 120                        |
 | `LLM_MAX_RETRIES`                   | Maximum retry attempts for failed main LLM requests.                                                                                                                                          | No       | 3                          |
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
+| `SUGGESTION_WORKERS`                | Number of async manual suggestion workers. Keep this at `1` for slow or local LLM backends to avoid concurrent generation overload.                                                           | No       | 1                          |
+| `SUGGESTION_JOB_TIMEOUT_SECONDS`    | Optional timeout for async manual suggestion jobs. Leave unset to disable; set a bounded value for slow local inference when jobs must not run forever.                                      | No       |                            |
 | `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                      | No       | llm                        |
 | `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
 | `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                                                    | Cond.    |                            |
@@ -569,6 +594,7 @@ For best results with the enhanced OCR features:
 | `VISION_LLM_TEMPERATURE`            | Sampling temperature for Vision OCR generation. Lower is more deterministic. Important: For OpenAI GPT-5 it must be explicitly set to `1.0`.                                                  | No       |                            |
 | `OLLAMA_CONTEXT_LENGTH`             | (Ollama only) Integer. Sets NumCtx (context window) for the Ollama runner. If unset or 0, the model default is used.                                                                          | No       |                            |
 | `OLLAMA_OCR_TOP_K`                  | (Ollama only) Top-k token sampling for Vision OCR. Lower favors more likely tokens; higher increases diversity.                                                                               | No       |                            |
+| `OLLAMA_HEADERS`                    | (Ollama only) Comma-separated `Key=Value` pairs added as HTTP headers to every Ollama request. Useful for authorization when Ollama is behind a reverse proxy (e.g. `Authorization=Bearer mytoken`). | No       |                            |
 | `AZURE_DOCAI_ENDPOINT`              | Azure Document Intelligence endpoint. Required if OCR_PROVIDER is `azure`.                                                                                                                    | Cond.    |                            |
 | `AZURE_DOCAI_KEY`                   | Azure Document Intelligence API key. Required if OCR_PROVIDER is `azure`.                                                                                                                     | Cond.    |                            |
 | `AZURE_DOCAI_MODEL_ID`              | Azure Document Intelligence model ID. Optional if using `azure` provider.                                                                                                                     | No       | prebuilt-read              |
@@ -593,7 +619,8 @@ For best results with the enhanced OCR features:
 | `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed.                                                                                                                                                  | No       | paperless-gpt-ocr-complete |
 | `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                        | No       | false                      |
 | `AUTO_OCR_TAG`                      | Tag for automatically processing docs with OCR.                                                                                                                                               | No       | paperless-gpt-ocr-auto     |
-| `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit.                                                                                                                                   | No       | 5                          |
+| `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit. Not applied in `whole_pdf` mode (see [Whole PDF Mode](#whole-pdf-mode)), which always processes the entire document.              | No       | 5                          |
+| `OCR_MAX_RETRIES`                   | How many times OCR processing may fail for a document before paperless-gpt gives up on it: the auto OCR tag is removed and `FAIL_TAG` applied, so the document stops being retried (and re-billed) every poll cycle. Counted in memory — a restart resets the count. Set to `0` to keep the old retry-forever behavior.                                | No       | 3                          |
 | `LOG_LEVEL`                         | Application log level (`info`, `debug`, `warn`, `error`).                                                                                                                                     | No       | info                       |
 | `LISTEN_INTERFACE`                  | Network interface to listen on.                                                                                                                                                               | No       | 8080                       |
 | `AUTO_GENERATE_TITLE`               | Generate titles automatically if `paperless-gpt-auto` is used.                                                                                                                                | No       | true                       |
@@ -603,11 +630,16 @@ For best results with the enhanced OCR features:
 | `AUTO_GENERATE_DOCUMENT_TYPE`       | Generate document types automatically if `paperless-gpt-auto` is used. Only existing document types from paperless-ngx will be used.                                                          | No       | true                       |
 | `AUTO_GENERATE_CREATED_DATE`        | Generate the created dates automatically if `paperless-gpt-auto` is used.                                                                                                                     | No       | true                       |
 | `TOKEN_LIMIT`                       | Maximum tokens allowed for prompts/content. Set to `0` to disable limit. Useful for smaller LLMs.                                                                                             | No       |                            |
+| `REMOVE_FROM_CONTENT`               | Comma-separated list of literal strings removed from document content before it is sent to the LLM for suggestions/analysis. Useful for stripping boilerplate (e.g. scanner watermarks) that confuses the model.                    | No       |                            |
+| `REMOVE_FROM_CONTENT_REGEX`         | Semicolon-separated list of regular expressions removed from document content before it is sent to the LLM. Invalid patterns cause a startup error.                                          | No       |                            |
 | `IMAGE_MAX_PIXEL_DIMENSION`         | Maximum pixels along any side when rendering document pages to images.                                                                                                                        | No       | 10000                      |
 | `IMAGE_MAX_TOTAL_PIXELS`            | Maximum total pixel count (width × height) when rendering document pages to images.                                                                                                           | No       | 40000000                   |
 | `IMAGE_MAX_RENDER_DPI`              | Maximum DPI used when rendering document pages to images.                                                                                                                                     | No       | 600                        |
 | `IMAGE_MAX_FILE_BYTES`              | Maximum JPEG file size in bytes for rendered page images. Images exceeding this are compressed or resized.                                                                                     | No       | 10485760                   |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
+
+> [!NOTE]
+> `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs. The **Active Configuration** panel on the Settings page shows each value's effective source (env / saved / default).
 
 ### Custom Prompt Templates
 
@@ -648,6 +680,7 @@ Each template has access to specific variables:
 **ocr_prompt.tmpl**:
 
 - `{{.Language}}` - Target language
+- `{{.Content}}` - Text already extracted for the document (e.g. by paperless-ngx's basic OCR), truncated to 8,000 characters. Injected per document so the vision model can use it as a reference; empty if the document has no existing text.
 
 **correspondent_prompt.tmpl**:
 
@@ -917,6 +950,7 @@ When using local LLMs (like those through Ollama), you might need to adjust cert
 
 - Use `TOKEN_LIMIT` environment variable to control the maximum number of tokens sent to the LLM
 - For Ollama, set `OLLAMA_CONTEXT_LENGTH` to control the model's context window (NumCtx). This is independent of `TOKEN_LIMIT` and configures the server-side KV cache size. If unset or 0, the model default is used. Choose a value within the model's supported window (e.g., 8192).
+- If Ollama is behind a reverse proxy that requires authentication, set `OLLAMA_HEADERS` to a comma-separated list of `Key=Value` header pairs (e.g. `Authorization=Bearer mytoken`).
 - Smaller models might truncate content unexpectedly if given too much text
 - Start with a conservative limit (e.g., 1000 tokens) and adjust based on your model's capabilities
 - Set to `0` to disable the limit (use with caution)
@@ -949,6 +983,23 @@ Common issues and solutions:
 - **Feature Not Working**: If custom field suggestions are not being generated even though the feature is enabled, ensure you have selected at least one custom field in the settings. The feature requires at least one field to be selected to know what to process.
 
 ---
+
+### Running as a Non-Root User
+
+By default, the Docker container runs as a non-root user for enhanced security. You can control the user and group IDs using the `PUID` and `PGID` environment variables. This is highly recommended to avoid permission issues when mounting volumes from your host machine.
+
+To find your current user's ID, run `id -u`. To find your group's ID, run `id -g`.
+
+Example `docker-compose.yml` snippet:
+```yaml
+services:
+  paperless-gpt:
+    image: icereed/paperless-gpt:latest
+    environment:
+      - PUID=10001
+      - PGID=10001
+      # ... other variables
+```
 
 ## Contributing
 

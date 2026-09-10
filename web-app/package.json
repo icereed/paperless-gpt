@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "echo \"TODO\"",
     "test:e2e": "playwright test",
+    "test:e2e:mock": "E2E_LLM_MODE=mock playwright test e2e/document-processing.spec.ts",
     "test:e2e:ui": "playwright test --ui",
     "docker:test:up": "docker compose -f docker-compose.test.yml up -d",
     "docker:test:down": "docker compose -f docker-compose.test.yml down -v"
