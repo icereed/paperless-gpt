@@ -196,6 +196,17 @@ func main() {
 		}
 	}
 
+	// And the OCR completion tag, for the same reason. Beyond marking the
+	// document, this tag is what the skip check in ProcessDocumentOCR reads to
+	// recognise an already-processed document, and what users trigger their own
+	// paperless-ngx workflows on — so silently dropping it breaks more than a
+	// label.
+	if pdfOCRTagging && pdfOCRCompleteTag != "" {
+		if err := client.EnsureTagExists(ctx, pdfOCRCompleteTag); err != nil {
+			log.Warnf("Failed to ensure OCR complete tag %q exists: %v. OCR will still run, but documents will not be marked as OCR-processed.", pdfOCRCompleteTag, err)
+		}
+	}
+
 	// Initial fetch of custom fields
 	refreshCustomFieldsCache(client)
 

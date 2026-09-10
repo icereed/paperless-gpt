@@ -96,7 +96,7 @@ var envRegistry = []EnvVar{
 	{Name: "PAPERLESS_INSECURE_SKIP_VERIFY", Category: "Connection", Secret: false, Default: "false", Description: "Set to true to skip TLS certificate verification when talking to paperless-ngx. Only for self-signed setups; weakens transport security."},
 	{Name: "PAPERLESS_PUBLIC_URL", Category: "Connection", Secret: false, Default: "", Description: "Public URL for Paperless (if different from `PAPERLESS_BASE_URL`)."},
 	{Name: "PDF_COPY_METADATA", Category: "PDF & hOCR", Secret: false, Default: "true", Description: "Whether to copy metadata from the original document to the uploaded PDF. Only applicable when using PDF_UPLOAD."},
-	{Name: "PDF_OCR_COMPLETE_TAG", Category: "PDF & hOCR", Secret: false, Default: "paperless-gpt-ocr-complete", Description: "Tag used to mark documents as OCR-processed."},
+	{Name: "PDF_OCR_COMPLETE_TAG", Category: "PDF & hOCR", Secret: false, Default: "paperless-gpt-ocr-complete", Description: "Tag used to mark documents as OCR-processed. Created automatically in paperless-ngx at startup if it does not exist (when `PDF_OCR_TAGGING` is enabled)."},
 	{Name: "PDF_OCR_TAGGING", Category: "PDF & hOCR", Secret: false, Default: "true", Description: "Whether to add a tag to mark documents as OCR-processed."},
 	{Name: "PDF_REPLACE", Category: "PDF & hOCR", Secret: false, Default: "false", Description: "Whether to delete the original document after uploading the enhanced version (DANGEROUS)."},
 	{Name: "PDF_SKIP_EXISTING_OCR", Category: "PDF & hOCR", Secret: false, Default: "false", Description: "Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`)."},
