@@ -1,10 +1,14 @@
+import { ArrowPathIcon } from "@heroicons/react/24/outline";
 import axios from "axios";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import "react-tag-autocomplete/example/src/styles.css"; // Ensure styles are loaded
+import Button from "./components/ui/Button";
+import Toast, { ToastData } from "./components/ui/Toast";
 import DocumentsToProcess from "./components/DocumentsToProcess";
+import GenerationOptions, {
+  GenerationFlags,
+} from "./components/GenerationOptions";
+import JobProgress from "./components/JobProgress";
 import NoDocuments from "./components/NoDocuments";
-import ArrowPathIcon from "@heroicons/react/24/outline/ArrowPathIcon";
-import SuccessModal from "./components/SuccessModal";
 import SuggestionsReview from "./components/SuggestionsReview";
 
 export interface Document {
@@ -13,6 +17,8 @@ export interface Document {
   content: string;
   tags: string[];
   correspondent: string;
+  created_date?: string;
+  document_type_name?: string;
 }
 
 export interface GenerateSuggestionsRequest {
@@ -29,7 +35,7 @@ export interface GenerateSuggestionsRequest {
 
 export interface CustomFieldSuggestion {
   id: number;
-  value: any;
+  value: unknown;
   name: string;
   isSelected: boolean;
 }
@@ -51,44 +57,81 @@ export interface TagOption {
   name: string;
 }
 
+export interface SuggestionJobFailedDocument {
+  document_id: number;
+  document_title: string;
+  error: string;
+}
+
+export interface SuggestionJobStatus {
+  job_id: string;
+  status: "pending" | "in_progress" | "completed" | "failed" | "cancelled";
+  documents_done: number;
+  total_documents: number;
+  current_document_id: number;
+  result?: DocumentSuggestion[];
+  error?: string;
+  failed_documents?: SuggestionJobFailedDocument[];
+}
+
 interface CustomField {
   id: number;
   name: string;
   data_type: string;
 }
 
+const ACTIVE_JOB_KEY = "pgpt-active-suggestion-job";
+const POLL_INTERVAL_MS = 1500;
+
 const DocumentProcessor: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [suggestions, setSuggestions] = useState<DocumentSuggestion[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [suggestions, setSuggestions] = useState<DocumentSuggestion[] | null>(
+    null
+  );
   const [availableTags, setAvailableTags] = useState<TagOption[]>([]);
   const [allCustomFields, setAllCustomFields] = useState<CustomField[]>([]);
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const [updating, setUpdating] = useState(false);
-  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [filterTag, setFilterTag] = useState<string | null>(null);
-  const [generateTitles, setGenerateTitles] = useState(true);
-  const [generateTags, setGenerateTags] = useState(true);
-  const [generateCorrespondents, setGenerateCorrespondents] = useState(true);
-  const [generateDocumentTypes, setGenerateDocumentTypes] = useState(true);
-  const [generateCreatedDate, setGenerateCreatedDate] = useState(true);
-  const [generateCustomFields, setGenerateCustomFields] = useState(true);
+  const [flags, setFlags] = useState<GenerationFlags>({
+    titles: true,
+    tags: true,
+    correspondents: true,
+    documentTypes: true,
+    createdDate: true,
+    customFields: true,
+  });
+  const [job, setJob] = useState<SuggestionJobStatus | null>(null);
+  const [failedDocuments, setFailedDocuments] = useState<
+    SuggestionJobFailedDocument[]
+  >([]);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastData | null>(null);
   const pollingDocumentsRef = useRef(false);
+  const consumedJobsRef = useRef<Set<string>>(new Set());
 
-  // Custom hook to fetch initial data
+  const jobRunning =
+    job !== null && (job.status === "pending" || job.status === "in_progress");
+  const phase: "select" | "generating" | "review" = jobRunning
+    ? "generating"
+    : suggestions
+      ? "review"
+      : "select";
+
   const fetchInitialData = useCallback(async () => {
     try {
-      const [filterTagRes, documentsRes, tagsRes, customFieldsRes] = await Promise.all([
-        axios.get<{ tag: string }>("./api/filter-tag"),
-        axios.get<Document[]>("./api/documents"),
-        axios.get<Record<string, number>>("./api/tags"),
-        axios.get<CustomField[]>('./api/custom_fields'),
-      ]);
+      const [filterTagRes, documentsRes, tagsRes, customFieldsRes] =
+        await Promise.all([
+          axios.get<{ tag: string }>("./api/filter-tag"),
+          axios.get<Document[]>("./api/documents"),
+          axios.get<Record<string, number>>("./api/tags"),
+          axios.get<CustomField[]>("./api/custom_fields"),
+        ]);
 
       setFilterTag(filterTagRes.data.tag);
       setAllCustomFields(customFieldsRes.data || []);
       setDocuments(documentsRes.data);
+      setSelectedIds(new Set(documentsRes.data.map((doc) => doc.id)));
       const tags = Object.keys(tagsRes.data).map((tag) => ({
         id: tag,
         name: tag,
@@ -96,7 +139,9 @@ const DocumentProcessor: React.FC = () => {
       setAvailableTags(tags);
     } catch (err) {
       console.error("Error fetching initial data:", err);
-      setError("Failed to fetch initial data.");
+      setError(
+        "Could not reach the paperless-gpt backend. Check that the service is running, then retry."
+      );
     } finally {
       setLoading(false);
     }
@@ -106,145 +151,172 @@ const DocumentProcessor: React.FC = () => {
     fetchInitialData();
   }, [fetchInitialData]);
 
-  const handleProcessDocuments = async () => {
-    setProcessing(true);
-    setError(null);
-    try {
-      const requestPayload: GenerateSuggestionsRequest = {
-        documents,
-        generate_titles: generateTitles,
-        generate_tags: generateTags,
-        generate_correspondents: generateCorrespondents,
-        generate_document_types: generateDocumentTypes,
-        generate_created_date: generateCreatedDate,
-        generate_custom_fields: generateCustomFields,
-      };
+  // Attach custom-field names to a job result and hand it to the review phase.
+  const consumeJobResult = useCallback(
+    (finishedJob: SuggestionJobStatus) => {
+      if (consumedJobsRef.current.has(finishedJob.job_id)) return;
+      consumedJobsRef.current.add(finishedJob.job_id);
 
-      const { data } = await axios.post<DocumentSuggestion[]>(
-        "./api/generate-suggestions",
-        requestPayload
+      const customFieldMap = new Map(
+        (allCustomFields || []).map((cf) => [cf.id, cf.name])
       );
-
-      // Post-process suggestions to add names and isSelected flag
-      const customFieldMap = new Map((allCustomFields || []).map(cf => [cf.id, cf.name]));
-      const processedSuggestions = data.map(suggestion => ({
+      const processed = (finishedJob.result || []).map((suggestion) => ({
         ...suggestion,
-        suggested_custom_fields: suggestion.suggested_custom_fields?.map(cf => ({
-          ...cf,
-          name: customFieldMap.get(cf.id) || 'Unknown Field',
-          isSelected: true,
-        })),
+        suggested_custom_fields: suggestion.suggested_custom_fields?.map(
+          (cf) => ({
+            ...cf,
+            name: customFieldMap.get(cf.id) || "Unknown Field",
+            isSelected: true,
+          })
+        ),
       }));
 
-      setSuggestions(processedSuggestions);
-    } catch (err) {
-      console.error("Error generating suggestions:", err);
-      setError("Failed to generate suggestions.");
-    } finally {
-      setProcessing(false);
-    }
-  };
+      setFailedDocuments(finishedJob.failed_documents || []);
+      setSuggestions((prev) => (prev ? [...prev, ...processed] : processed));
+    },
+    [allCustomFields]
+  );
 
-  const handleUpdateDocuments = async () => {
-    setUpdating(true);
+  // Resume a job after a reload: the job id survives in localStorage and the
+  // full result (including original documents) lives on the server. Wait for
+  // the initial data (custom fields) before consuming a completed result —
+  // otherwise every custom field name resolves to "Unknown Field" and the job
+  // is marked consumed, so the names never recover.
+  useEffect(() => {
+    if (loading) return;
+    const storedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
+    if (!storedJobId) return;
+    (async () => {
+      try {
+        const { data } = await axios.get<SuggestionJobStatus>(
+          `./api/jobs/suggestions/${storedJobId}`
+        );
+        if (data.status === "pending" || data.status === "in_progress") {
+          setJob(data);
+        } else if (data.status === "completed") {
+          consumeJobResult(data);
+        } else {
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+        }
+      } catch {
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+      }
+    })();
+  }, [loading, consumeJobResult]);
+
+  // Poll the active job until it reaches a terminal state.
+  useEffect(() => {
+    if (!jobRunning || !job) return;
+    const interval = setInterval(async () => {
+      try {
+        const { data } = await axios.get<SuggestionJobStatus>(
+          `./api/jobs/suggestions/${job.job_id}`
+        );
+        setJob(data);
+        if (data.status === "completed") {
+          consumeJobResult(data);
+          if ((data.failed_documents || []).length === 0) {
+            localStorage.setItem(ACTIVE_JOB_KEY, data.job_id);
+          }
+        } else if (data.status === "failed") {
+          setError(data.error || "Suggestion generation failed.");
+          setFailedDocuments(data.failed_documents || []);
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+        } else if (data.status === "cancelled") {
+          setToast({
+            kind: "info",
+            message: "Generation cancelled. Nothing was changed.",
+          });
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+        }
+      } catch (err) {
+        console.error("Error polling suggestion job:", err);
+        setError(
+          "Lost track of the generation job — the backend may have restarted. Start a new generation to continue."
+        );
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+        setJob(null);
+      }
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [job, jobRunning, consumeJobResult]);
+
+  const startGeneration = async (docsToProcess: Document[]) => {
     setError(null);
+    setFailedDocuments([]);
     try {
-      // Filter out deselected custom fields before sending
-      const payload = suggestions.map(suggestion => {
-        const { suggested_custom_fields, ...rest } = suggestion;
-        return {
-          ...rest,
-          suggested_custom_fields: suggested_custom_fields?.filter(cf => cf.isSelected),
-        };
+      const payload: GenerateSuggestionsRequest = {
+        documents: docsToProcess,
+        generate_titles: flags.titles,
+        generate_tags: flags.tags,
+        generate_correspondents: flags.correspondents,
+        generate_document_types: flags.documentTypes,
+        generate_created_date: flags.createdDate,
+        generate_custom_fields: flags.customFields,
+      };
+      const { data } = await axios.post<{ job_id: string }>(
+        "./api/jobs/suggestions",
+        payload
+      );
+      localStorage.setItem(ACTIVE_JOB_KEY, data.job_id);
+      setJob({
+        job_id: data.job_id,
+        status: "pending",
+        documents_done: 0,
+        total_documents: docsToProcess.length,
+        current_document_id: 0,
       });
-
-      await axios.patch("./api/update-documents", payload);
-      setIsSuccessModalOpen(true);
-      setSuggestions([]);
     } catch (err) {
-      console.error("Error updating documents:", err);
-      setError("Failed to update documents.");
-    } finally {
-      setUpdating(false);
+      console.error("Error starting suggestion job:", err);
+      setError(
+        "Could not start generating suggestions. Check the backend connection, then retry."
+      );
     }
   };
 
-  const handleTagAddition = (docId: number, tag: TagOption) => {
-    setSuggestions((prevSuggestions) =>
-      prevSuggestions.map((doc) =>
-        doc.id === docId
-          ? {
-              ...doc,
-              suggested_tags: [...(doc.suggested_tags || []), tag.name],
-            }
-          : doc
-      )
-    );
+  const handleGenerateClick = () => {
+    const docsToProcess = documents.filter((doc) => selectedIds.has(doc.id));
+    if (docsToProcess.length === 0) return;
+    startGeneration(docsToProcess);
   };
 
-  const handleCustomFieldSuggestionToggle = (docId: number, fieldId: number) => {
-    setSuggestions(prevSuggestions =>
-      prevSuggestions.map(doc =>
-        doc.id === docId
-          ? {
-              ...doc,
-              suggested_custom_fields: doc.suggested_custom_fields?.map(cf =>
-                cf.id === fieldId ? { ...cf, isSelected: !cf.isSelected } : cf
-              ),
-            }
-          : doc
-      )
-    );
+  const handleRetryFailed = () => {
+    const failedIds = new Set(failedDocuments.map((f) => f.document_id));
+    const docsToRetry = documents.filter((doc) => failedIds.has(doc.id));
+    if (docsToRetry.length === 0) {
+      setFailedDocuments([]);
+      return;
+    }
+    startGeneration(docsToRetry);
   };
 
-  const handleTagDeletion = (docId: number, index: number) => {
-    setSuggestions((prevSuggestions) =>
-      prevSuggestions.map((doc) =>
-        doc.id === docId
-          ? {
-              ...doc,
-              suggested_tags: doc.suggested_tags?.filter((_, i) => i !== index),
-            }
-          : doc
-      )
-    );
+  const handleCancelJob = async () => {
+    if (!job) return;
+    try {
+      await axios.post(`./api/jobs/suggestions/${job.job_id}/stop`);
+    } catch (err) {
+      console.error("Error stopping suggestion job:", err);
+    }
   };
 
-
-  const handleTitleChange = (docId: number, title: string) => {
-    setSuggestions((prevSuggestions) =>
-      prevSuggestions.map((doc) =>
-        doc.id === docId ? { ...doc, suggested_title: title } : doc
-      )
-    );
+  const handleToggleDocument = (documentId: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(documentId)) {
+        next.delete(documentId);
+      } else {
+        next.add(documentId);
+      }
+      return next;
+    });
   };
 
-  const handleCorrespondentChange = (docId: number, correspondent: string) => {
-    setSuggestions((prevSuggestions) =>
-      prevSuggestions.map((doc) =>
-        doc.id === docId ? { ...doc, suggested_correspondent: correspondent } : doc
-      )
+  const handleToggleAll = () => {
+    setSelectedIds((prev) =>
+      prev.size === documents.length
+        ? new Set()
+        : new Set(documents.map((doc) => doc.id))
     );
-  }
-
-  const handleDocumentTypeChange = (docId: number, documentType: string) => {
-    setSuggestions((prevSuggestions) =>
-      prevSuggestions.map((doc) =>
-        doc.id === docId ? { ...doc, suggested_document_type: documentType } : doc
-      )
-    );
-  }
-
-  const handleCreatedDateChange = (docId: number, createdDate: string) => {
-    setSuggestions((prevSuggestions) =>
-      prevSuggestions.map((doc) =>
-        doc.id === docId ? { ...doc, suggested_created_date: createdDate } : doc
-      )
-    );
-  }
-
-  const resetSuggestions = () => {
-    setSuggestions([]);
   };
 
   const reloadDocuments = async () => {
@@ -253,168 +325,179 @@ const DocumentProcessor: React.FC = () => {
     try {
       const { data } = await axios.get<Document[]>("./api/documents");
       setDocuments(data);
+      setSelectedIds(new Set(data.map((doc) => doc.id)));
     } catch (err) {
       console.error("Error reloading documents:", err);
-      setError("Failed to reload documents.");
+      setError("Could not reload documents. Check the backend connection.");
     } finally {
       setLoading(false);
     }
   };
 
+  // While the queue is empty, watch for newly tagged documents.
   useEffect(() => {
-    if (documents.length === 0) {
+    if (documents.length === 0 && phase === "select") {
       const interval = setInterval(async () => {
-        if (pollingDocumentsRef.current) {
-          return;
-        }
-
+        if (pollingDocumentsRef.current) return;
         pollingDocumentsRef.current = true;
-        setError(null);
         try {
           const { data } = await axios.get<Document[]>("./api/documents");
-          setDocuments(data);
+          if (data.length > 0) {
+            setDocuments(data);
+            setSelectedIds(new Set(data.map((doc) => doc.id)));
+            setError(null);
+          }
         } catch (err) {
-          console.error("Error reloading documents:", err);
-          setError("Failed to reload documents.");
+          console.error("Error polling documents:", err);
         } finally {
           pollingDocumentsRef.current = false;
         }
       }, 5000);
       return () => clearInterval(interval);
     }
-  }, [documents]);
+  }, [documents, phase]);
 
-  if (loading) {
+  const finishReview = (appliedCount: number, fieldChanges: number) => {
+    localStorage.removeItem(ACTIVE_JOB_KEY);
+    setSuggestions(null);
+    setJob(null);
+    setFailedDocuments([]);
+    setToast({
+      kind: "success",
+      message:
+        appliedCount === 0
+          ? "Review closed. No documents were changed."
+          : `Applied ${fieldChanges} field ${fieldChanges === 1 ? "change" : "changes"} to ${appliedCount} ${appliedCount === 1 ? "document" : "documents"}.`,
+      action:
+        appliedCount > 0
+          ? { label: "Review in History", to: "/history" }
+          : undefined,
+    });
+    reloadDocuments();
+  };
+
+  const discardReview = () => {
+    localStorage.removeItem(ACTIVE_JOB_KEY);
+    setSuggestions(null);
+    setJob(null);
+    setFailedDocuments([]);
+  };
+
+  if (loading && documents.length === 0 && phase === "select") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-white dark:bg-gray-900">
-        <div className="text-xl font-semibold text-gray-800 dark:text-gray-200">
-          Loading documents...
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6" aria-busy="true">
+        <div className="h-7 w-72 animate-pulse rounded bg-surface-2" />
+        <div className="mt-2 h-4 w-96 animate-pulse rounded bg-surface-2" />
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-40 animate-pulse rounded-lg border border-line bg-surface"
+            />
+          ))}
         </div>
+        <span className="sr-only">Loading documents…</span>
       </div>
     );
   }
 
   return (
-    <div className="max-w-5xl mx-auto p-6 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200">
-      <header className="text-center">
-        <h1 className="text-4xl font-bold mb-8">Paperless GPT</h1>
-      </header>
-
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       {error && (
-        <div className="mb-4 p-4 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 rounded">
-          {error}
+        <div
+          role="alert"
+          className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-neg bg-neg-tint px-4 py-3 text-sm text-neg"
+        >
+          <span>{error}</span>
+          <div className="flex gap-2">
+            {failedDocuments.length > 0 && (
+              <Button size="sm" variant="secondary" onClick={handleRetryFailed}>
+                Retry failed documents
+              </Button>
+            )}
+            <Button size="sm" variant="secondary" onClick={() => setError(null)}>
+              Dismiss
+            </Button>
+          </div>
         </div>
       )}
 
-      {documents.length === 0 ? (
-        <NoDocuments
-          filterTag={filterTag}
-          onReload={reloadDocuments}
-          processing={processing}
-        />
-      ) : suggestions.length === 0 ? (
-        <DocumentsToProcess documents={documents}>
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-200">Documents to Process</h2>
-            <div className="flex space-x-2">
-              <button
-                onClick={reloadDocuments}
-                disabled={processing}
-                className="bg-blue-600 text-white dark:bg-blue-800 dark:text-gray-200 px-4 py-2 rounded hover:bg-blue-700 dark:hover:bg-blue-900 focus:outline-none"
-              >
-                <ArrowPathIcon className="h-5 w-5" />
-              </button>
-              <button
-                onClick={handleProcessDocuments}
-                disabled={processing}
-                className="bg-blue-600 text-white dark:bg-blue-800 dark:text-gray-200 px-4 py-2 rounded hover:bg-blue-700 dark:hover:bg-blue-900 focus:outline-none"
-              >
-                {processing ? "Processing..." : "Generate Suggestions"}
-              </button>
-            </div>
-          </div>
-
-          <div className="flex space-x-4 mb-6">
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={generateTitles}
-                onChange={(e) => setGenerateTitles(e.target.checked)}
-                className="dark:bg-gray-700 dark:border-gray-600"
-              />
-              <span className="text-gray-700 dark:text-gray-200">Generate Titles</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={generateTags}
-                onChange={(e) => setGenerateTags(e.target.checked)}
-                className="dark:bg-gray-700 dark:border-gray-600"
-              />
-              <span className="text-gray-700 dark:text-gray-200">Generate Tags</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={generateCorrespondents}
-                onChange={(e) => setGenerateCorrespondents(e.target.checked)}
-                className="dark:bg-gray-700 dark:border-gray-600"
-              />
-              <span className="text-gray-700 dark:text-gray-200">Generate Correspondents</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={generateDocumentTypes}
-                onChange={(e) => setGenerateDocumentTypes(e.target.checked)}
-                className="dark:bg-gray-700 dark:border-gray-600"
-              />
-              <span className="text-gray-700 dark:text-gray-200">Generate Document Types</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={generateCreatedDate}
-                onChange={(e) => setGenerateCreatedDate(e.target.checked)}
-                className="dark:bg-gray-700 dark:border-gray-600"
-              />
-              <span className="text-gray-700 dark:text-gray-200">Generate Created Date</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={generateCustomFields}
-                onChange={(e) => setGenerateCustomFields(e.target.checked)}
-                className="dark:bg-gray-700 dark:border-gray-600"
-              />
-              <span className="text-gray-700 dark:text-gray-200">Generate Custom Fields</span>
-            </label>
-          </div>
-        </DocumentsToProcess>
-      ) : (
+      {phase === "review" && suggestions ? (
         <SuggestionsReview
           suggestions={suggestions}
           availableTags={availableTags}
-          onTitleChange={handleTitleChange}
-          onTagAddition={handleTagAddition}
-          onTagDeletion={handleTagDeletion}
-          onCorrespondentChange={handleCorrespondentChange}
-          onDocumentTypeChange={handleDocumentTypeChange}
-          onCreatedDateChange={handleCreatedDateChange}
-          onCustomFieldSuggestionToggle={handleCustomFieldSuggestionToggle}
-          onBack={resetSuggestions}
-          onUpdate={handleUpdateDocuments}
-          updating={updating}
+          filterTag={filterTag}
+          failedDocuments={failedDocuments}
+          onRetryFailed={handleRetryFailed}
+          onFinished={finishReview}
+          onDiscard={discardReview}
         />
+      ) : documents.length === 0 && phase === "select" ? (
+        <NoDocuments
+          filterTag={filterTag}
+          onReload={reloadDocuments}
+          reloading={loading}
+        />
+      ) : (
+        <section aria-label="Documents to process">
+          <header className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-xl font-semibold">
+                {documents.length}{" "}
+                {documents.length === 1 ? "document" : "documents"} waiting for
+                review
+              </h1>
+              <p className="mt-1 text-sm text-muted">
+                Tagged with{" "}
+                {filterTag ? (
+                  <span className="rounded-full bg-primary-tint px-2 py-0.5 text-xs font-medium text-ink">
+                    {filterTag}
+                  </span>
+                ) : (
+                  "the filter tag"
+                )}{" "}
+                in paperless-ngx. Generate suggestions, review, then apply.
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              onClick={reloadDocuments}
+              disabled={phase === "generating" || loading}
+            >
+              <ArrowPathIcon className="h-4 w-4" aria-hidden="true" />
+              Refresh
+            </Button>
+          </header>
+
+          {phase === "generating" && job ? (
+            <JobProgress
+              job={job}
+              documents={documents}
+              onCancel={handleCancelJob}
+            />
+          ) : (
+            <GenerationOptions
+              flags={flags}
+              onChange={setFlags}
+              selectedCount={selectedIds.size}
+              onGenerate={handleGenerateClick}
+            />
+          )}
+
+          <div className="mt-6">
+            <DocumentsToProcess
+              documents={documents}
+              selectedDocuments={Array.from(selectedIds)}
+              onSelectDocument={
+                phase === "generating" ? undefined : handleToggleDocument
+              }
+              onToggleAll={phase === "generating" ? undefined : handleToggleAll}
+            />
+          </div>
+        </section>
       )}
 
-      <SuccessModal
-        isOpen={isSuccessModalOpen}
-        onClose={() => {
-          setIsSuccessModalOpen(false);
-          reloadDocuments();
-        }}
-      />
+      {toast && <Toast toast={toast} onDismiss={() => setToast(null)} />}
     </div>
   );
 };

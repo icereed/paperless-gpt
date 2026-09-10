@@ -367,6 +367,33 @@ func (client *PaperlessClient) DownloadPDF(ctx context.Context, document Documen
 	return io.ReadAll(resp.Body)
 }
 
+// GetDocumentThumbnail fetches the rendered thumbnail image for a document and
+// returns the raw image bytes together with the upstream content type.
+func (client *PaperlessClient) GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error) {
+	path := fmt.Sprintf("api/documents/%d/thumb/", documentID)
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, "", fmt.Errorf("error fetching thumbnail for document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/png"
+	}
+	return data, contentType, nil
+}
+
 func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
 	// TODO: This function can be optimized by caching the results of GetAllTags, GetAllCorrespondents, and GetCustomFields.
 	// A simple time-based cache could be implemented in the PaperlessClient to avoid fetching this data on every call.
