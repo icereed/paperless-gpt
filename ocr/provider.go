@@ -40,8 +40,10 @@ type Config struct {
 	Provider string
 
 	// Mistral OCR settings
-	MistralAPIKey string
-	MistralModel  string // Optional, defaults to "mistral-ocr-latest"
+	MistralAPIKey       string
+	MistralModel        string // Optional, defaults to "mistral-ocr-latest"
+	MistralImageLimit   *int   // Optional, max images extracted per document
+	MistralImageMinSize *int   // Optional, min height/width (px) for a region to be extracted as an image rather than transcribed
 
 	// Generic Vision LLM settings
 	VisionLLMMaxTokens   int
