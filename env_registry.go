@@ -93,6 +93,7 @@ var envRegistry = []EnvVar{
 	{Name: "OLLAMA_HOST", Category: "LLM", Secret: false, Default: "", Description: "Ollama server URL (e.g. `http://host.docker.internal:11434`)."},
 	{Name: "OLLAMA_KEEP_ALIVE", Category: "LLM", Secret: false, Default: "", Description: "(Ollama metadata only) How long to retain the loaded model. Accepts a non-negative Go duration, `0` to unload immediately, or `-1` to keep it loaded."},
 	{Name: "OLLAMA_OCR_TOP_K", Category: "OCR", Secret: false, Default: "", Description: "(Ollama only) Top-k token sampling for Vision OCR. Lower favors more likely tokens; higher increases diversity."},
+	{Name: "OLLAMA_TIMEOUT_SECONDS", Category: "LLM", Secret: false, Default: "300", Description: "(Ollama only) Per-request HTTP timeout in seconds for calls to the Ollama server, covering both metadata generation and Vision OCR. Without it a single stalled generation blocks the background loop indefinitely and only a restart recovers it. Set to `0` or a negative value to disable the timeout."},
 	{Name: "OLLAMA_THINK", Category: "LLM", Secret: false, Default: "", Description: "(Ollama metadata only) Set `false` to disable reasoning, `true` to enable it, or `low`, `medium`, or `high` for a supported reasoning level. If unset, the model default applies."},
 	{Name: "OPENAI_API_KEY", Category: "LLM", Secret: true, Default: "", Description: "OpenAI API key (required if using OpenAI)."},
 	{Name: "OPENAI_API_TYPE", Category: "LLM", Secret: false, Default: "", Description: "Set to `azure` to use Azure OpenAI Service."},
