@@ -19,6 +19,16 @@ import (
 	"github.com/tmc/langchaingo/llms"
 )
 
+func configuredLLMCallOptions() []llms.CallOption {
+	options := []llms.CallOption{llms.WithModel(llmModel)}
+	if strings.EqualFold(llmProvider, "openai") {
+		// Some compatible gateways stream unless stream=false is explicit. The
+		// LangChain client omits false, so enable its SSE parser deliberately.
+		options = append(options, llms.WithStreamingFunc(func(context.Context, []byte) error { return nil }))
+	}
+	return options
+}
+
 // getSuggestedCorrespondent generates a suggested correspondent for a document using the LLM
 func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, suggestedTitle string, availableCorrespondents []string, correspondentBlackList []string) (string, error) {
 	likelyLanguage := getLikelyLanguage()
@@ -65,7 +75,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 			},
 			Role: llms.ChatMessageTypeHuman,
 		},
-	})
+	}, configuredLLMCallOptions()...)
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
@@ -133,7 +143,7 @@ func (app *App) getSuggestedTags(
 			},
 			Role: llms.ChatMessageTypeHuman,
 		},
-	})
+	}, configuredLLMCallOptions()...)
 	if err != nil {
 		logger.Errorf("Error getting response from LLM: %v", err)
 		return nil, fmt.Errorf("error getting response from LLM: %v", err)
@@ -248,7 +258,7 @@ func (app *App) getSuggestedDocumentType(
 			},
 			Role: llms.ChatMessageTypeHuman,
 		},
-	})
+	}, configuredLLMCallOptions()...)
 	if err != nil {
 		logger.Errorf("Error getting response from LLM: %v", err)
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
@@ -318,7 +328,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 			},
 			Role: llms.ChatMessageTypeHuman,
 		},
-	})
+	}, configuredLLMCallOptions()...)
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
@@ -374,7 +384,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 			},
 			Role: llms.ChatMessageTypeHuman,
 		},
-	})
+	}, configuredLLMCallOptions()...)
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
@@ -477,7 +487,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 				llms.TextContent{Text: prompt},
 			},
 		},
-	})
+	}, configuredLLMCallOptions()...)
 	if err != nil {
 		return nil, fmt.Errorf("error getting response from LLM for custom fields: %v", err)
 	}

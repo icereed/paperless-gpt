@@ -1069,7 +1069,7 @@ func (app *App) analyzeDocumentsHandler(c *gin.Context) {
 	finalPrompt := promptBuffer.String()
 
 	// Call LLM with the custom prompt and document contexts
-	llmResponse, err := app.LLM.Call(ctx, finalPrompt)
+	llmResponse, err := app.LLM.Call(ctx, finalPrompt, configuredLLMCallOptions()...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error calling LLM"})
 		log.Errorf("Error calling LLM: %v", err)
