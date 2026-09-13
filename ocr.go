@@ -170,11 +170,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		docLogger.Debug("OCR provider does not support hOCR")
 	}
 
-	// Use the page limit from options if provided, otherwise use the global setting
-	pageLimit := limitOcrPages
-	if options.LimitPages > 0 {
-		pageLimit = options.LimitPages
-	}
+	// Run options are resolved against saved/env defaults before processing.
+	// Keep an explicit zero here: it means process every page.
+	pageLimit := options.LimitPages
 
 	var ocrTexts []string
 	var imageDataList [][]byte

@@ -33,6 +33,15 @@ environment:
 - Maximum page count: 1,000 pages
 - Supported formats: PDF, images (JPEG, PNG)
 
+## Data Retention
+
+When `OCR_PROCESS_MODE` is `pdf` or `whole_pdf`, each document (or page) is
+uploaded to Mistral's Files API before OCR. Mistral does not expire these
+uploads automatically, so paperless-gpt deletes each uploaded file right
+after the OCR call completes (also when it fails). The deletion is
+best-effort: if it fails, a warning is logged and the OCR result is not
+affected. In the default `image` mode nothing is uploaded to the Files API.
+
 ## Best Practices
 
 1. **Performance Optimization**

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"text/template"
 
@@ -596,4 +597,88 @@ func findFieldByID(fields []CustomFieldSuggestion, id int) (CustomFieldSuggestio
 		}
 	}
 	return CustomFieldSuggestion{}, false
+}
+
+// TestGetSuggestedTags_SystemTagsNeverSuggested pins the tag-loop fix.
+//
+// paperless-gpt's own tags — the triggers it watches for and the markers it
+// writes — must never reach the LLM as candidates, and must never come back
+// out as suggestions. #877 shows why: with a paperless-ngx workflow chaining
+// OCR to tagging, one suggested `paperless-gpt-ocr-complete` re-triggers the
+// workflow, which re-adds the auto tag, which re-runs tagging, forever — and
+// every pass bills another round of LLM calls. #1015 reports the same leak for
+// FAIL_TAG and the completion tags.
+//
+// Two paths need covering, because they filter differently: with
+// CREATE_NEW_TAGS off, suggestions are intersected with the available list;
+// with it on, arbitrary suggestions are kept. The second path is the dangerous
+// one, since getSuggestedTags merges the document's original tags into its
+// suggestions — and on a document being processed those include the trigger
+// tag itself.
+func TestGetSuggestedTags_SystemTagsNeverSuggested(t *testing.T) {
+	systemTagNames := []string{
+		"paperless-gpt",               // MANUAL_TAG
+		"paperless-gpt-auto",          // AUTO_TAG
+		"paperless-gpt-ocr-auto",      // AUTO_OCR_TAG
+		"paperless-gpt-failed",        // FAIL_TAG
+		"paperless-gpt-auto-complete", // AUTO_TAG_COMPLETE
+		"paperless-gpt-ocr-complete",  // PDF_OCR_COMPLETE_TAG
+	}
+
+	for _, createNew := range []bool{false, true} {
+		name := "CREATE_NEW_TAGS off"
+		if createNew {
+			name = "CREATE_NEW_TAGS on"
+		}
+		t.Run(name, func(t *testing.T) {
+			previous := struct{ manual, auto, ocrAuto, fail, complete, ocrComplete string }{
+				manualTag, autoTag, autoOcrTag, failTag, autoTagComplete, pdfOCRCompleteTag,
+			}
+			manualTag, autoTag, autoOcrTag = "paperless-gpt", "paperless-gpt-auto", "paperless-gpt-ocr-auto"
+			failTag, autoTagComplete, pdfOCRCompleteTag = "paperless-gpt-failed", "paperless-gpt-auto-complete", "paperless-gpt-ocr-complete"
+			previousCreateNewTags := createNewTags
+			createNewTags = createNew
+			t.Cleanup(func() {
+				manualTag, autoTag, autoOcrTag = previous.manual, previous.auto, previous.ocrAuto
+				failTag, autoTagComplete, pdfOCRCompleteTag = previous.fail, previous.complete, previous.ocrComplete
+				createNewTags = previousCreateNewTags
+			})
+
+			previousTemplate := tagTemplate
+			tagTemplate = template.Must(template.New("tag").Parse(testTagTemplate))
+			t.Cleanup(func() { tagTemplate = previousTemplate })
+
+			// The model echoes back every system tag plus one real one — the
+			// worst case, and what actually happens when the system tags are
+			// visible in the prompt.
+			mockLLM := &mockLLM{Response: strings.Join(append(systemTagNames, "Invoice"), ",")}
+			app := &App{LLM: mockLLM}
+
+			// Available tags as paperless-ngx would report them: real tags and
+			// paperless-gpt's own, since they all live in the same namespace.
+			availableTags := append([]string{"Invoice", "Insurance"}, systemTagNames...)
+			// The document carries the trigger tag it is being processed under.
+			originalTags := []string{"Insurance", "paperless-gpt-auto"}
+
+			suggested, err := app.getSuggestedTags(
+				context.Background(), "Some document content", "A Title",
+				availableTags, originalTags, logrus.WithField("test", "system-tags"),
+			)
+			require.NoError(t, err)
+
+			for _, systemTag := range systemTagNames {
+				assert.NotContains(t, suggested, systemTag,
+					"system tag %q must never be suggested", systemTag)
+			}
+			// The real tags must still survive the filtering.
+			assert.Contains(t, suggested, "Invoice")
+			assert.Contains(t, suggested, "Insurance")
+
+			// And they must not have been offered to the model either.
+			for _, systemTag := range systemTagNames {
+				assert.NotContains(t, mockLLM.lastPrompt, systemTag,
+					"system tag %q must not appear in the prompt", systemTag)
+			}
+		})
+	}
 }
