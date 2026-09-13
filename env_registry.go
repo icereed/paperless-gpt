@@ -72,6 +72,7 @@ var envRegistry = []EnvVar{
 	{Name: "LLM_LANGUAGE", Category: "Processing & limits", Secret: false, Default: "English", Description: "Likely language for documents (e.g. `English`). Appears in the prompt to help the LLM."},
 	{Name: "LLM_MAX_RETRIES", Category: "LLM", Secret: false, Default: "3", Description: "Maximum retry attempts for failed main LLM requests."},
 	{Name: "LLM_MAX_TOKENS", Category: "LLM", Secret: false, Default: "", Description: "(Ollama metadata only) Maximum generated tokens. Set a positive integer or `-1` for no limit; invalid values are ignored."},
+	{Name: "LLM_METADATA_GROUPING", Category: "LLM", Secret: false, Default: "false", Description: "Experimental title-first metadata grouping. Requires all five standard fields, unchanged default prompts, available candidates, custom fields disabled and TOKEN_LIMIT=0. A failed grouped request falls back to individual calls and can increase cost; live quality and savings are unmeasured."},
 	{Name: "LLM_MODEL", Category: "LLM", Secret: false, Default: "", Description: "AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`)."},
 	{Name: "LLM_PROVIDER", Category: "LLM", Secret: false, Default: "", Description: "AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`)."},
 	{Name: "LLM_REQUESTS_PER_MINUTE", Category: "LLM", Secret: false, Default: "120", Description: "Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load."},
