@@ -149,7 +149,7 @@ func validateGroupedMetadata(metadata groupedMetadata, input groupedMetadataInpu
 			return groupedMetadata{}, fmt.Errorf("grouped metadata contains an invalid tag")
 		}
 	}
-	if metadata.Correspondent == "" || canonicalMetadataValue(metadata.Correspondent, input.BlacklistedCorrespondents) != "" {
+	if metadata.Correspondent == "" || isBlacklistedCorrespondent(metadata.Correspondent, input.BlacklistedCorrespondents) {
 		return groupedMetadata{}, fmt.Errorf("grouped metadata correspondent is empty or blacklisted")
 	}
 	if metadata.DocumentType != "" {

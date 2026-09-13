@@ -45,6 +45,30 @@ func TestMetadataGroupingPreservesUpstreamFilters(t *testing.T) {
 	require.Equal(t, []string{"invoice"}, input.AvailableTags)
 }
 
+func TestCorrespondentBlacklistConfigTrimsEntries(t *testing.T) {
+	require.Equal(t, []string{"John Doe", "Jane Smith"}, parseCorrespondentBlacklist(" John Doe, Jane Smith, ,  "))
+}
+
+func TestSpacedCorrespondentBlacklistStopsGroupedFallback(t *testing.T) {
+	prepareGroupingFixture(t)
+	correspondentBlackList = parseCorrespondentBlacklist("John Doe, Jane Smith")
+	doc := Document{ID: 1, Content: "Synthetic invoice from Jane Smith.", Tags: []string{"invoice"}}
+	provider := &groupingTestModel{replies: []string{
+		"Invoice",
+		`{"tags":["invoice"],"correspondent":"jane smith","document_type":"Invoice","created_date":"2026-09-01"}`,
+		"invoice",
+		" Jane Smith ",
+	}}
+	app := &App{LLM: provider, Client: &mockPaperlessClient{}}
+	request := GenerateSuggestionsRequest{GenerateTitles: true, GenerateTags: true, GenerateCorrespondents: true, GenerateDocumentTypes: true, GenerateCreatedDate: true}
+	candidates := suggestionGenerationContext{availableTagNames: []string{"invoice"}, availableCorrespondentNames: []string{"Vendor"}, availableDocumentTypeNames: []string{"Invoice"}}
+
+	suggestion, err := app.generateSingleDocumentSuggestion(context.Background(), request, doc, candidates, log.WithField("test", "spaced correspondent blacklist"))
+
+	require.ErrorContains(t, err, "suggested correspondent is blacklisted")
+	require.Equal(t, DocumentSuggestion{}, suggestion)
+}
+
 type groupingTestModel struct {
 	replies []string
 	calls   []groupingTestReply

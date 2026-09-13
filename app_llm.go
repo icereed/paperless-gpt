@@ -71,7 +71,31 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	}
 
 	response := textsanitize.StripReasoning(strings.TrimSpace(completion.Choices[0].Content))
+	if isBlacklistedCorrespondent(response, correspondentBlackList) {
+		return "", fmt.Errorf("suggested correspondent is blacklisted")
+	}
 	return response, nil
+}
+
+func parseCorrespondentBlacklist(value string) []string {
+	entries := strings.Split(value, ",")
+	blacklist := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			blacklist = append(blacklist, entry)
+		}
+	}
+	return blacklist
+}
+
+func isBlacklistedCorrespondent(proposed string, blacklist []string) bool {
+	proposed = strings.TrimSpace(proposed)
+	for _, blocked := range blacklist {
+		if strings.EqualFold(proposed, strings.TrimSpace(blocked)) {
+			return true
+		}
+	}
+	return false
 }
 
 // getSuggestedTags generates suggested tags for a document using the LLM
