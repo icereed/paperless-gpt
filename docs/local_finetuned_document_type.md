@@ -47,7 +47,7 @@ extra_hosts:
 
 ## License
 
-The base model is Gemma 4 E4B (Apache-2.0 style Gemma terms, "Built with Gemma"). The adapter and GGUF are on Hugging Face under the same terms. The benchmark data is CC-BY-4.0.
+The base model, adapter, and GGUF are licensed under Apache License 2.0. The benchmark data is CC-BY-4.0.
 
 ## Support and resources
 
