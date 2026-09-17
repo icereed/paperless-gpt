@@ -61,6 +61,34 @@ type DocumentType struct {
 	Name string `json:"name"`
 }
 
+// lookupTagID resolves a tag name to its paperless-ngx id, ignoring case.
+//
+// paperless-ngx preserves the case a tag was created with, while the names
+// paperless-gpt matches against are typed by a user into MANUAL_TAG, AUTO_TAG,
+// AUTO_TAG_COMPLETE and friends. An exact map index makes a tag that exists look
+// missing, and both outcomes are bad: with CREATE_NEW_TAGS off the tag is
+// silently dropped, so a processed document keeps no completion marker and is
+// indistinguishable from one that was never touched; with it on, a second tag is
+// created that differs from the existing one only by case.
+//
+// The rest of the tag handling already ignores case -- the RemoveTags pass below
+// and the suggestion filtering in app_llm.go both use strings.EqualFold -- so an
+// exact lookup here is the odd one out.
+//
+// The stored spelling is returned alongside the id so callers record what
+// paperless-ngx actually holds rather than the user's variant.
+func lookupTagID(availableTags map[string]int, tagName string) (string, int, bool) {
+	if tagID, exists := availableTags[tagName]; exists {
+		return tagName, tagID, true
+	}
+	for availableName, tagID := range availableTags {
+		if strings.EqualFold(availableName, tagName) {
+			return availableName, tagID, true
+		}
+	}
+	return "", 0, false
+}
+
 func hasSameTags(original, suggested []string) bool {
 	if len(original) != len(suggested) {
 		return false
@@ -586,7 +614,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		if !hasSameTags(originalDoc.Tags, finalTagNames) {
 			var finalTagIDs []int
 			for _, tagName := range finalTagNames {
-				if tagID, exists := availableTags[tagName]; exists {
+				if _, tagID, exists := lookupTagID(availableTags, tagName); exists {
 					finalTagIDs = append(finalTagIDs, tagID)
 				} else if createNewTags {
 					// Create the new tag in paperless-ngx
@@ -734,7 +762,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 				var finalTagIDs []int
 				seenTagIDs := make(map[int]bool)
 				appendTagID := func(tagName string) {
-					tagID, exists := availableTags[tagName]
+					_, tagID, exists := lookupTagID(availableTags, tagName)
 					if !exists || seenTagIDs[tagID] {
 						return
 					}
