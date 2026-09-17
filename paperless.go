@@ -81,12 +81,33 @@ func lookupTagID(availableTags map[string]int, tagName string) (string, int, boo
 	if tagID, exists := availableTags[tagName]; exists {
 		return tagName, tagID, true
 	}
+
+	// GetAllTags keys this map by the exact name paperless-ngx returned, so a
+	// database that already contains case variants ("Foo" and "foo") holds both
+	// as separate entries. Ranging a map would let Go's randomised iteration
+	// order decide which id wins, making the resulting PATCH nondeterministic
+	// across runs. Settle it on the lowest id instead: ids increase with
+	// creation, so the lowest is the original tag and any case-variant
+	// duplicate -- exactly what the CREATE_NEW_TAGS path used to mint -- sorts
+	// after it.
+	matchedName, matchedID, matches := "", 0, 0
 	for availableName, tagID := range availableTags {
-		if strings.EqualFold(availableName, tagName) {
-			return availableName, tagID, true
+		if !strings.EqualFold(availableName, tagName) {
+			continue
+		}
+		matches++
+		if matches == 1 || tagID < matchedID {
+			matchedName, matchedID = availableName, tagID
 		}
 	}
-	return "", 0, false
+	if matches == 0 {
+		return "", 0, false
+	}
+	if matches > 1 {
+		log.Warnf("Tag %q matches %d tags in paperless-ngx that differ only by case; using %q (id %d). Merge the duplicates to make this unambiguous.",
+			tagName, matches, matchedName, matchedID)
+	}
+	return matchedName, matchedID, true
 }
 
 func hasSameTags(original, suggested []string) bool {

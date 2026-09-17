@@ -1270,3 +1270,34 @@ func TestUpdateDocuments_TagIDLookupIsCaseInsensitive(t *testing.T) {
 		assert.Empty(t, created, "must not create a case-variant duplicate of an existing tag")
 	})
 }
+
+// A paperless-ngx database can hold tags that differ only by case, and
+// GetAllTags keys them by their exact names, so a case-insensitive lookup can
+// match more than one. Ranging the map would let Go's randomised iteration
+// order pick the id, so the same document could be PATCHed with a different
+// tag on each run.
+func TestLookupTagID_AmbiguousMatchIsDeterministic(t *testing.T) {
+	availableTags := map[string]int{
+		"Foo":       30,
+		"foo":       10,
+		"FOO":       20,
+		"unrelated": 40,
+	}
+
+	// Repeat well past the point where map iteration order would have varied.
+	for i := 0; i < 200; i++ {
+		name, id, exists := lookupTagID(availableTags, "fOo")
+		require.True(t, exists)
+		assert.Equal(t, 10, id, "must settle on the lowest id every time")
+		assert.Equal(t, "foo", name, "must report the stored spelling of the chosen tag")
+	}
+
+	// An exact hit still wins outright, even though other variants match.
+	name, id, exists := lookupTagID(availableTags, "Foo")
+	require.True(t, exists)
+	assert.Equal(t, 30, id)
+	assert.Equal(t, "Foo", name)
+
+	_, _, exists = lookupTagID(availableTags, "absent")
+	assert.False(t, exists)
+}
