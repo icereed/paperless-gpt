@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1183,4 +1184,120 @@ func TestUpdateDocuments_PreserveExistingMetadata(t *testing.T) {
 			}
 		})
 	}
+}
+
+// paperless-ngx preserves the case a tag was created with, while the tag names
+// paperless-gpt acts on come from env vars typed by a user. app_llm.go already
+// compares the two with strings.EqualFold, and the RemoveTags pass in
+// UpdateDocuments does too -- but resolving a name to a tag ID is an exact map
+// index, so a case difference makes a tag that exists look missing.
+func TestUpdateDocuments_TagIDLookupIsCaseInsensitive(t *testing.T) {
+	// storedTags is what paperless-ngx holds, lowercase as created.
+	run := func(t *testing.T, allowCreate bool) (map[string]interface{}, []string) {
+		env := newTestEnv(t)
+		t.Cleanup(env.teardown)
+
+		previousManualTag, previousAutoTag, previousAutoOcrTag := manualTag, autoTag, autoOcrTag
+		manualTag, autoTag, autoOcrTag = "manual", "paperless-gpt-auto", "paperless-gpt-ocr-auto"
+		previousCreateNewTags := createNewTags
+		createNewTags = allowCreate
+		t.Cleanup(func() {
+			manualTag, autoTag, autoOcrTag = previousManualTag, previousAutoTag, previousAutoOcrTag
+			createNewTags = previousCreateNewTags
+		})
+
+		var mu sync.Mutex
+		var created []string
+		env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost {
+				var body struct {
+					Name string `json:"name"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				mu.Lock()
+				created = append(created, body.Name)
+				mu.Unlock()
+				w.WriteHeader(http.StatusCreated)
+				_, _ = w.Write([]byte(`{"id": 99, "name": "` + body.Name + `"}`))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"results": []map[string]interface{}{
+					{"id": 10, "name": "paperless-gpt-auto"},
+					{"id": 20, "name": "keepMe"},
+					{"id": 30, "name": "paperless-gpt-auto-complete"},
+				},
+				"next": nil,
+			})
+		})
+
+		var patched map[string]interface{}
+		env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPatch {
+				_ = json.NewDecoder(r.Body).Decode(&patched)
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		})
+
+		doc := DocumentSuggestion{
+			ID:               1,
+			OriginalDocument: Document{ID: 1, Tags: []string{"paperless-gpt-auto", "keepMe"}},
+			// AUTO_TAG_COMPLETE as the user configured it: same tag, different case.
+			AddTags:    []string{"Paperless-GPT-Auto-Complete"},
+			RemoveTags: []string{"paperless-gpt-auto"},
+		}
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{doc}, env.db, false))
+		mu.Lock()
+		defer mu.Unlock()
+		return patched, append([]string(nil), created...)
+	}
+
+	// Default config. The completion tag exists, so it must be applied by id.
+	// Dropping it leaves the document indistinguishable from never-processed.
+	t.Run("existing tag is matched despite differing case", func(t *testing.T) {
+		patched, created := run(t, false)
+		require.Contains(t, patched, "tags")
+		assert.ElementsMatch(t, []interface{}{float64(20), float64(30)}, patched["tags"])
+		assert.Empty(t, created, "no tag should be created; it already exists")
+	})
+
+	// With CREATE_NEW_TAGS the miss is not silent -- it mints a second tag that
+	// differs from the existing one only by case.
+	t.Run("no near-duplicate tag is created when one already exists", func(t *testing.T) {
+		_, created := run(t, true)
+		assert.Empty(t, created, "must not create a case-variant duplicate of an existing tag")
+	})
+}
+
+// A paperless-ngx database can hold tags that differ only by case, and
+// GetAllTags keys them by their exact names, so a case-insensitive lookup can
+// match more than one. Ranging the map would let Go's randomised iteration
+// order pick the id, so the same document could be PATCHed with a different
+// tag on each run.
+func TestLookupTagID_AmbiguousMatchIsDeterministic(t *testing.T) {
+	availableTags := map[string]int{
+		"Foo":       30,
+		"foo":       10,
+		"FOO":       20,
+		"unrelated": 40,
+	}
+
+	// Repeat well past the point where map iteration order would have varied.
+	for i := 0; i < 200; i++ {
+		name, id, exists := lookupTagID(availableTags, "fOo")
+		require.True(t, exists)
+		assert.Equal(t, 10, id, "must settle on the lowest id every time")
+		assert.Equal(t, "foo", name, "must report the stored spelling of the chosen tag")
+	}
+
+	// An exact hit still wins outright, even though other variants match.
+	name, id, exists := lookupTagID(availableTags, "Foo")
+	require.True(t, exists)
+	assert.Equal(t, 30, id)
+	assert.Equal(t, "Foo", name)
+
+	_, _, exists = lookupTagID(availableTags, "absent")
+	assert.False(t, exists)
 }
