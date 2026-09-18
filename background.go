@@ -12,18 +12,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// ocrFailureTracker counts consecutive OCR-processing failures per document so
-// the poll loop can stop retrying a document that keeps failing (and re-paying
-// the OCR provider for it every cycle). Counts are in-memory only: a restart
+// documentFailureTracker counts consecutive processing failures per document so
+// a poll loop can stop retrying a document that keeps failing (and re-paying the
+// provider for it every cycle). Used by the auto-OCR poll (ocrMaxRetries) and by
+// the auto-tag poll (autoTagMaxRetries). Counts are in-memory only: a restart
 // resets them, which at worst grants a persistently failing document another
-// ocrMaxRetries attempts. The zero value is ready to use.
-type ocrFailureTracker struct {
+// round of attempts. The zero value is ready to use.
+type documentFailureTracker struct {
 	mu       sync.Mutex
 	failures map[int]int
 }
 
 // recordFailure increments and returns the failure count for a document.
-func (t *ocrFailureTracker) recordFailure(documentID int) int {
+func (t *documentFailureTracker) recordFailure(documentID int) int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.failures == nil {
@@ -37,7 +38,7 @@ func (t *ocrFailureTracker) recordFailure(documentID int) int {
 // trigger tag was removed externally before reaching the limit are never
 // cleaned up; that leak is bounded by the number of such documents and
 // accepted for simplicity.
-func (t *ocrFailureTracker) reset(documentID int) {
+func (t *documentFailureTracker) reset(documentID int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.failures, documentID)
@@ -256,9 +257,41 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 		if err != nil {
 			err = fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
 			docLogger.Error(err.Error())
+
+			// Without a loop-break here the auto tag stays on the document and
+			// it is picked up again every poll cycle, forever. A permanent LLM
+			// error (a prompt that cannot fit the context, a model that no
+			// longer exists) therefore re-bills the same request indefinitely,
+			// and because GetDocumentsByTag fetches one unordered page, enough
+			// such documents fill that page and starve every document behind
+			// them — silently, since the container stays healthy. See #1071.
+			//
+			// A canceled poll-loop context is a shutdown, not a document
+			// problem, so it must never count against the document. Same
+			// reasoning as the auto-OCR poll below.
+			if autoTagMaxRetries > 0 && ctx.Err() == nil {
+				attempts := app.suggestionFailures.recordFailure(document.ID)
+				if attempts >= autoTagMaxRetries {
+					reason := fmt.Sprintf("suggestion generation failed %d times", attempts)
+					if recErr := markProcessingFailed(ctx, app.Client, app.Database, document, autoTag, reason); recErr != nil {
+						// Keep the failure count so the tag removal is retried
+						// on the next poll cycle.
+						docLogger.Errorf("Removing %q tag after repeated suggestion failures also failed: %v. The document will be retried on the next poll cycle.", autoTag, recErr)
+						errs = append(errs, err)
+						continue
+					}
+					app.suggestionFailures.reset(document.ID)
+					// The document is out of the queue now; don't let its
+					// handled error keep the whole loop in backoff.
+					continue
+				}
+			}
 			errs = append(errs, err)
 			continue
 		}
+		// Suggestions came back — a previous failure streak is over, whatever
+		// the update below does.
+		app.suggestionFailures.reset(document.ID)
 
 		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 		if err != nil {

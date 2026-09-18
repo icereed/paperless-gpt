@@ -69,6 +69,7 @@ var (
 	preserveExistingMetadata      = os.Getenv("PRESERVE_EXISTING_METADATA") == "true"
 	limitOcrPages                 int // Will be read from OCR_LIMIT_PAGES
 	ocrMaxRetries                 int // Will be read from OCR_MAX_RETRIES
+	autoTagMaxRetries             int // Will be read from AUTO_TAG_MAX_RETRIES
 	tokenLimit                    = 0 // Will be read from TOKEN_LIMIT
 	imageMaxPixelDimension        int // Will be read from IMAGE_MAX_PIXEL_DIMENSION
 	imageMaxTotalPixels           int // Will be read from IMAGE_MAX_TOTAL_PIXELS
@@ -128,22 +129,23 @@ type App struct {
 	Database           *gorm.DB
 	LLM                llms.Model
 	VisionLLM          llms.Model
-	ocrProvider        ocr.Provider      // OCR provider interface
-	ocrProcessMode     string            // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
-	docProcessor       DocumentProcessor // Optional: Can be used for mocking
-	localHOCRPath      string            // Path for saving hOCR files locally
-	localPDFPath       string            // Path for saving PDF files locally
-	createLocalHOCR    bool              // Whether to save hOCR files locally
-	createLocalPDF     bool              // Whether to create PDF files locally
-	pdfUpload          bool              // Whether to upload processed PDFs to paperless-ngx
-	pdfReplace         bool              // Whether to replace original document after upload
-	pdfCopyMetadata    bool              // Whether to copy metadata from original to uploaded PDF
-	pdfOCRCompleteTag  string            // Tag to add to documents that have been OCR processed
-	pdfOCRTagging      bool              // Whether to add the OCR complete tag to processed PDFs
-	pdfSkipExistingOCR bool              // Whether to skip processing PDFs that already have OCR detected
-	autoTagComplete    string            // Tag to add to documents after auto-processing is complete
-	ocrProviderLabel   string            // Human-readable provider description for run records ("llm (ollama/minicpm-v)")
-	ocrFailures        ocrFailureTracker // Per-document OCR failure counts for the auto-OCR poll
+	ocrProvider        ocr.Provider           // OCR provider interface
+	ocrProcessMode     string                 // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
+	docProcessor       DocumentProcessor      // Optional: Can be used for mocking
+	localHOCRPath      string                 // Path for saving hOCR files locally
+	localPDFPath       string                 // Path for saving PDF files locally
+	createLocalHOCR    bool                   // Whether to save hOCR files locally
+	createLocalPDF     bool                   // Whether to create PDF files locally
+	pdfUpload          bool                   // Whether to upload processed PDFs to paperless-ngx
+	pdfReplace         bool                   // Whether to replace original document after upload
+	pdfCopyMetadata    bool                   // Whether to copy metadata from original to uploaded PDF
+	pdfOCRCompleteTag  string                 // Tag to add to documents that have been OCR processed
+	pdfOCRTagging      bool                   // Whether to add the OCR complete tag to processed PDFs
+	pdfSkipExistingOCR bool                   // Whether to skip processing PDFs that already have OCR detected
+	autoTagComplete    string                 // Tag to add to documents after auto-processing is complete
+	ocrProviderLabel   string                 // Human-readable provider description for run records ("llm (ollama/minicpm-v)")
+	ocrFailures        documentFailureTracker // Per-document OCR failure counts for the auto-OCR poll
+	suggestionFailures documentFailureTracker // Per-document suggestion failure counts for the auto-tag poll
 }
 
 func main() {
@@ -418,6 +420,17 @@ func main() {
 		pdfSkipExistingOCR: pdfSkipExistingOCR,
 		autoTagComplete:    autoTagComplete,
 		ocrProviderLabel:   ocrProviderLabel(),
+	}
+
+	rawAutoTagMaxRetries := os.Getenv("AUTO_TAG_MAX_RETRIES")
+	if rawAutoTagMaxRetries == "" {
+		autoTagMaxRetries = 3
+	} else {
+		var err error
+		autoTagMaxRetries, err = strconv.Atoi(rawAutoTagMaxRetries)
+		if err != nil || autoTagMaxRetries < 0 {
+			log.Fatalf("Invalid AUTO_TAG_MAX_RETRIES value: %q (must be a non-negative integer, 0 disables the limit)", rawAutoTagMaxRetries)
+		}
 	}
 
 	if app.isOcrEnabled() {
