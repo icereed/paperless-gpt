@@ -99,6 +99,7 @@ var envRegistry = []EnvVar{
 	{Name: "OPENAI_API_KEY", Category: "LLM", Secret: true, Default: "", Description: "OpenAI API key (required if using OpenAI)."},
 	{Name: "OPENAI_API_TYPE", Category: "LLM", Secret: false, Default: "", Description: "Set to `azure` to use Azure OpenAI Service."},
 	{Name: "OPENAI_BASE_URL", Category: "LLM", Secret: false, Default: "", Description: "Base URL for OpenAI API. Use it to point to an OpenAI-compatible endpoint (e.g. OpenRouter, LiteLLM, vLLM). For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`)."},
+	{Name: "OPENAI_HEADERS", Category: "LLM", Secret: true, Default: "", Description: "Comma-separated `Key=Value` pairs added as HTTP headers to every OpenAI-compatible request (e.g. `OPENAI_HEADERS=User-Agent=paperless-gpt/1.0`)."},
 	{Name: "PAPERLESS_API_TOKEN", Category: "Connection", Secret: true, Default: "", Description: "API token for paperless-ngx. Generate one in paperless-ngx admin."},
 	{Name: "PAPERLESS_BASE_URL", Category: "Connection", Secret: false, Default: "", Description: "URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`)."},
 	{Name: "PAPERLESS_GPT_CACHE_DIR", Category: "Connection", Secret: false, Default: "OS temp directory", Description: "Base directory for the page-image cache (rendered previews and OCR page images)."},
