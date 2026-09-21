@@ -951,6 +951,32 @@ func (app *App) getModificationHistoryHandler(c *gin.Context) {
 	})
 }
 
+// parseTagHistoryValue decodes tag lists stored in ModificationHistory.
+// New rows are JSON (e.g. ["a","b"]); rows written before the #842 fix used
+// Go fmt.Sprintf("%v") syntax (e.g. "[a b]" or "[3 2]"), which is parsed
+// best-effort so undo keeps working for old history entries.
+func parseTagHistoryValue(s string) ([]string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return []string{}, nil
+	}
+	var tags []string
+	if err := json.Unmarshal([]byte(s), &tags); err == nil {
+		if tags == nil {
+			return []string{}, nil
+		}
+		return tags, nil
+	}
+	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
+		inner := strings.TrimSpace(s[1 : len(s)-1])
+		if inner == "" {
+			return []string{}, nil
+		}
+		return strings.Fields(inner), nil
+	}
+	return []string{s}, nil
+}
+
 func (app *App) undoModificationHandler(c *gin.Context) {
 	id := c.Param("id")
 	modID, err := strconv.Atoi(id)
@@ -989,8 +1015,7 @@ func (app *App) undoModificationHandler(c *gin.Context) {
 	case "title":
 		suggestion.SuggestedTitle = modification.PreviousValue
 	case "tags":
-		var tags []string
-		err := json.Unmarshal([]byte(modification.PreviousValue), &tags)
+		tags, err := parseTagHistoryValue(modification.PreviousValue)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unmarshal previous tags"})
 			log.Errorf("Failed to unmarshal previous tags: %v", err)
