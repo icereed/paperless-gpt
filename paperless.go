@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/disintegration/imaging"
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/gen2brain/go-fitz"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/sirupsen/logrus"
@@ -1076,7 +1077,23 @@ func stripFailedFields(updatedFields map[string]interface{}, scalarFields map[st
 	return dropped
 }
 
-// DownloadDocumentAsImages downloads the PDF file of the specified document and converts it to images
+// isPDFData reports whether downloaded bytes look like a PDF by magic number.
+// Paperless-ngx may serve the original file instead of an archived PDF (e.g.
+// when PAPERLESS_ARCHIVE_FILE_GENERATION=never), so the download is not
+// always a PDF.
+func isPDFData(data []byte) bool {
+	return len(data) >= 4 && bytes.HasPrefix(data, []byte("%PDF"))
+}
+
+// describeDownload builds a short description of downloaded bytes for errors.
+func describeDownload(data []byte) string {
+	mime := mimetype.Detect(data)
+	return mime.String()
+}
+
+// DownloadDocumentAsImages downloads the specified document and converts it to images.
+// Single images pass through as one page; other non-PDF downloads fail with a
+// descriptive error instead of a fitz failure.
 // If limitPages > 0, only the first N pages will be processed
 // Returns the image paths and the total number of pages in the original document
 func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentID int, limitPages int) ([]string, int, error) {
@@ -1105,6 +1122,22 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 	pdfData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, 0, err
+	}
+
+	// The download is not always a PDF: with
+	// PAPERLESS_ARCHIVE_FILE_GENERATION=never paperless-ngx serves the
+	// original file, which may be an image or another type.
+	if !isPDFData(pdfData) {
+		mime := describeDownload(pdfData)
+		if strings.HasPrefix(mime, "image/") {
+			log.Warnf("Document %d download is %s, not a PDF; processing as a single image", documentID, mime)
+			imagePath := filepath.Join(docDir, "page000.jpg")
+			if err := os.WriteFile(imagePath, pdfData, 0644); err != nil {
+				return nil, 0, err
+			}
+			return []string{imagePath}, 1, nil
+		}
+		return nil, 0, fmt.Errorf("document %d download is %s (%d bytes), not a PDF (hint: with PAPERLESS_ARCHIVE_FILE_GENERATION=never paperless-ngx serves the original file); image OCR mode supports images, PDF modes require a PDF", documentID, mime, len(pdfData))
 	}
 
 	tmpFile, err := os.CreateTemp("", "document-*.pdf")
@@ -1267,7 +1300,9 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 	return imagePaths, totalPages, nil
 }
 
-// DownloadDocumentAsPDF downloads the PDF file of the specified document and splits it into individual PDFs if needed
+// DownloadDocumentAsPDF downloads the original file of the specified document and splits it into individual PDFs if needed.
+// Non-PDF originals fail with a descriptive error (images pass through only
+// when split=false, for whole-document consumers that sniff the content)
 // If limitPages > 0, only the first N pages will be processed
 // Returns the PDF paths, original PDF data, and the total number of pages in the original document
 func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error) {
@@ -1296,6 +1331,18 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	pdfData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, nil, 0, err
+	}
+
+	// The original file is not necessarily a PDF (images, office docs, ...).
+	if !isPDFData(pdfData) {
+		mime := describeDownload(pdfData)
+		if strings.HasPrefix(mime, "image/") && !split {
+			// Whole-document consumers sniff the content (providers accept
+			// image bytes), so let them proceed with a single page.
+			log.Warnf("Document %d original is %s, not a PDF; proceeding with a single page", documentID, mime)
+			return []string{}, pdfData, 1, nil
+		}
+		return nil, nil, 0, fmt.Errorf("document %d original is %s (%d bytes), not a PDF; PDF OCR modes require a PDF, use image mode for images", documentID, mime, len(pdfData))
 	}
 
 	// Save the original PDF
