@@ -1,0 +1,130 @@
+// Zero Data Retention (ZDR) enforcement for OpenRouter.
+//
+// When OPENROUTER_ENFORCE_ZDR is set to "true", every request sent to
+// openrouter.ai through the "openai" LLM/VisionLLM provider path gets
+//
+//	{"provider": {"data_collection": "deny"}}
+//
+// merged into its JSON body. This tells OpenRouter to route only to upstream
+// model providers that offer a Zero Data Retention guarantee (no logging, no
+// training on the request/response). See:
+// https://openrouter.ai/docs/guides/features/zdr
+//
+// # Why this exists
+//
+// Documents processed by paperless-gpt often contain personal or sensitive
+// data (letters, invoices, medical correspondence). For deployments that
+// route through OpenRouter, there was previously no way to guarantee that
+// the upstream model provider doesn't retain that content, short of manually
+// verifying every model's provider list before each config change. Enforcing
+// ZDR at the HTTP transport level makes the guarantee hold even if an
+// operator later switches models or misconfigures something.
+//
+// # Trade-off (why this is opt-in, not the default)
+//
+// Restricting routing to ZDR-capable providers can shrink the pool of
+// upstream providers for a given model. If a model has only one upstream
+// provider willing to offer ZDR, that provider becoming rate-limited or
+// unavailable produces a 429/5xx with no fallback. This is expected once
+// enabled, not a bug — but it's a real behavior change that shouldn't be
+// forced on deployments that haven't opted in. Check
+// https://openrouter.ai/<model>/providers before relying on a
+// single-provider model with this flag on.
+//
+// # Scope
+//
+// Only requests whose destination host contains "openrouter.ai" are
+// affected. Every other endpoint (OpenAI itself, Azure OpenAI, self-hosted
+// OpenAI-compatible gateways, etc.) is untouched, so this flag is safe to
+// leave set even if OPENAI_BASE_URL later changes to a non-OpenRouter
+// endpoint.
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+)
+
+// openRouterEnforceZDR reports whether OPENROUTER_ENFORCE_ZDR is enabled.
+// Read once per RoundTrip rather than cached at startup so a change is
+// picked up without a restart in tests; the cost is one os.Getenv call per
+// outgoing OpenRouter request, which is negligible next to the network call
+// it wraps.
+func openRouterEnforceZDR() bool {
+	return strings.ToLower(os.Getenv("OPENROUTER_ENFORCE_ZDR")) == "true"
+}
+
+// zdrTransport wraps an http.RoundTripper and, when enabled, injects
+// OpenRouter's Zero Data Retention provider preference into every request
+// body sent to openrouter.ai. Requests to any other host, or all requests
+// when disabled, pass through unmodified.
+type zdrTransport struct {
+	next http.RoundTripper
+}
+
+// newZDRTransport wraps next so that, when OPENROUTER_ENFORCE_ZDR=true,
+// requests to openrouter.ai get {"provider": {"data_collection": "deny"}}
+// merged into their JSON body. Pass http.DefaultTransport (or any other
+// RoundTripper) as next.
+func newZDRTransport(next http.RoundTripper) http.RoundTripper {
+	if next == nil {
+		next = http.DefaultTransport
+	}
+	return &zdrTransport{next: next}
+}
+
+func (t *zdrTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if !openRouterEnforceZDR() || req.Body == nil || req.URL == nil || !strings.Contains(req.URL.Host, "openrouter.ai") {
+		return t.next.RoundTrip(req)
+	}
+
+	bodyBytes, err := io.ReadAll(req.Body)
+	req.Body.Close()
+	if err != nil {
+		// Body already partially consumed and unreadable: fail closed by
+		// returning the error rather than silently dropping the ZDR
+		// guarantee. Callers see a clear transport error instead of a
+		// request that quietly lost its data-retention preference.
+		req.Body = io.NopCloser(bytes.NewReader(nil))
+		return nil, err
+	}
+
+	newBody, injectErr := injectZDRPreference(bodyBytes)
+	if injectErr != nil {
+		// Malformed/non-JSON body: send the original bytes unchanged rather
+		// than corrupting the request. This can only happen for a non-JSON
+		// payload, which the chat-completions request path in this codebase
+		// does not produce.
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		req.ContentLength = int64(len(bodyBytes))
+		return t.next.RoundTrip(req)
+	}
+
+	req.Body = io.NopCloser(bytes.NewReader(newBody))
+	req.ContentLength = int64(len(newBody))
+	return t.next.RoundTrip(req)
+}
+
+// injectZDRPreference parses body as a JSON object and merges in
+// "provider": {"data_collection": "deny"}, preserving any existing
+// "provider" object's other fields (e.g. an operator-configured "order" or
+// "allow_fallbacks").
+func injectZDRPreference(body []byte) ([]byte, error) {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+
+	provider, _ := payload["provider"].(map[string]interface{})
+	if provider == nil {
+		provider = map[string]interface{}{}
+	}
+	provider["data_collection"] = "deny"
+	payload["provider"] = provider
+
+	return json.Marshal(payload)
+}

@@ -1381,7 +1381,9 @@ func createVisionLLM() (llms.Model, error) {
 func createCustomHTTPClient() *http.Client {
 	// Create custom transport that adds headers
 	customTransport := &headerTransport{
-		transport: http.DefaultTransport,
+		// newZDRTransport is a no-op passthrough unless OPENROUTER_ENFORCE_ZDR
+		// is set; see openrouter_zdr.go for rationale and trade-offs.
+		transport: newZDRTransport(http.DefaultTransport),
 		headers: map[string]string{
 			"X-Title": "paperless-gpt",
 		},
