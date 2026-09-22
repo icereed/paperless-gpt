@@ -11,6 +11,13 @@ Be sure to choose a correspondent that is most relevant to the document.
 Try to avoid any legal or financial suffixes like "GmbH" or "AG" in the correspondent name.
 For example use "Microsoft" instead of "Microsoft Ireland Operations Limited" or "Amazon" instead of "Amazon EU S.a.r.l.".
 
+CRITICAL: The correspondent is the ORGANIZATION OR PERSON WHO SENT/ISSUED this document
+(the letterhead, the issuing authority, the company billing you, the clinic/hospital/office
+that wrote it) - NEVER the patient, customer, employee, or other subject named inside the
+document who is merely being written about. For example, a hospital confirmation letter
+about a patient's treatment has the HOSPITAL as correspondent, not the patient's name, even
+if the patient's name appears prominently in the document.
+
 If you can't find a suitable correspondent, you can respond with "Unknown".
 
 The data will be provided using an XML-like format for clarity:
@@ -18,6 +25,8 @@ The data will be provided using an XML-like format for clarity:
 Important constraints:
 - Prefer an exact or normalized match from <example_correspondents> where possible.
 - Never return a name that appears in <blacklisted_correspondents>.
+- Never return more than the bare correspondent name - no explanations, no "Okay, based on...",
+  no markdown formatting, no preamble of any kind. Just the name, nothing else.
 
 <example_correspondents>
 {{.AvailableCorrespondents | join ", "}}
