@@ -78,7 +78,7 @@ func newZDRTransport(next http.RoundTripper) http.RoundTripper {
 }
 
 func (t *zdrTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if !openRouterEnforceZDR() || req.Body == nil || req.URL == nil || !strings.Contains(req.URL.Host, "openrouter.ai") {
+	if !openRouterEnforceZDR() || req.Body == nil || req.URL == nil || !isOpenRouterHost(req.URL.Hostname()) {
 		return t.next.RoundTrip(req)
 	}
 
@@ -109,10 +109,30 @@ func (t *zdrTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.next.RoundTrip(req)
 }
 
+// isOpenRouterHost reports whether host (as returned by url.URL.Hostname(),
+// i.e. without a port) is openrouter.ai or a subdomain of it. Comparison is
+// case-insensitive per RFC 4343. Using an exact/suffix label match instead of
+// a raw substring check avoids both false negatives (e.g. "OpenRouter.ai",
+// which strings.Contains would miss due to case) and false positives (e.g.
+// "openrouter.ai.attacker.example", which a plain substring check would
+// wrongly match).
+func isOpenRouterHost(host string) bool {
+	host = strings.ToLower(host)
+	return host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai")
+}
+
 // injectZDRPreference parses body as a JSON object and merges in
-// "provider": {"data_collection": "deny"}, preserving any existing
-// "provider" object's other fields (e.g. an operator-configured "order" or
-// "allow_fallbacks").
+// "provider": {"data_collection": "deny", "zdr": true}, preserving any
+// existing "provider" object's other fields (e.g. an operator-configured
+// "order" or "allow_fallbacks").
+//
+// Both fields are set because they control related but distinct things:
+// data_collection excludes providers that store/train on data non-transiently,
+// while zdr additionally restricts routing to providers with a documented
+// Zero Data Retention policy. Setting only data_collection would still allow
+// routing to a provider that doesn't collect data long-term but also doesn't
+// carry a formal ZDR guarantee. See
+// https://openrouter.ai/docs/guides/features/zdr
 func injectZDRPreference(body []byte) ([]byte, error) {
 	var payload map[string]interface{}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -124,6 +144,7 @@ func injectZDRPreference(body []byte) ([]byte, error) {
 		provider = map[string]interface{}{}
 	}
 	provider["data_collection"] = "deny"
+	provider["zdr"] = true
 	payload["provider"] = provider
 
 	return json.Marshal(payload)

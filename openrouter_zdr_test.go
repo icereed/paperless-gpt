@@ -47,6 +47,7 @@ func TestInjectZDRPreference(t *testing.T) {
 		provider, ok := got["provider"].(map[string]interface{})
 		require.True(t, ok, "expected provider object")
 		assert.Equal(t, "deny", provider["data_collection"])
+		assert.Equal(t, true, provider["zdr"])
 		assert.Equal(t, "anthropic/claude-sonnet-4-5", got["model"])
 	})
 
@@ -61,6 +62,7 @@ func TestInjectZDRPreference(t *testing.T) {
 		provider, ok := got["provider"].(map[string]interface{})
 		require.True(t, ok)
 		assert.Equal(t, "deny", provider["data_collection"])
+		assert.Equal(t, true, provider["zdr"])
 		assert.Equal(t, false, provider["allow_fallbacks"])
 		order, ok := provider["order"].([]interface{})
 		require.True(t, ok)
@@ -71,6 +73,30 @@ func TestInjectZDRPreference(t *testing.T) {
 		_, err := injectZDRPreference([]byte(`not json`))
 		assert.Error(t, err)
 	})
+}
+
+func TestIsOpenRouterHost(t *testing.T) {
+	cases := []struct {
+		name string
+		host string
+		want bool
+	}{
+		{"exact match", "openrouter.ai", true},
+		{"uppercase", "OpenRouter.AI", true},
+		{"mixed case", "OpenRouter.ai", true},
+		{"subdomain", "eu.openrouter.ai", true},
+		{"subdomain mixed case", "EU.OpenRouter.AI", true},
+		{"lookalike suffix domain", "openrouter.ai.example.com", false},
+		{"lookalike prefix domain", "myopenrouter.ai", false},
+		{"unrelated host", "example.com", false},
+		{"empty", "", false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, isOpenRouterHost(c.host))
+		})
+	}
 }
 
 func TestZDRTransport(t *testing.T) {
@@ -125,6 +151,54 @@ func TestZDRTransport(t *testing.T) {
 		provider, ok := captured["provider"].(map[string]interface{})
 		require.True(t, ok, "expected provider object in request sent upstream")
 		assert.Equal(t, "deny", provider["data_collection"])
+		assert.Equal(t, true, provider["zdr"])
+	})
+
+	t.Run("enabled: mixed-case openrouter.ai host still matches", func(t *testing.T) {
+		t.Setenv("OPENROUTER_ENFORCE_ZDR", "true")
+
+		captured := map[string]interface{}{}
+		next := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			require.NoError(t, json.Unmarshal(body, &captured))
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}, nil
+		})
+
+		transport := newZDRTransport(next)
+		req, err := http.NewRequest(http.MethodPost, "https://OpenRouter.AI/api/v1/chat/completions", bytes.NewBufferString(`{"model":"m"}`))
+		require.NoError(t, err)
+
+		resp, err := transport.RoundTrip(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		provider, ok := captured["provider"].(map[string]interface{})
+		require.True(t, ok, "expected provider object in request sent upstream")
+		assert.Equal(t, "deny", provider["data_collection"])
+	})
+
+	t.Run("enabled but lookalike host: passes through unmodified", func(t *testing.T) {
+		t.Setenv("OPENROUTER_ENFORCE_ZDR", "true")
+
+		var captured []byte
+		next := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			body, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			captured = body
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}, nil
+		})
+
+		transport := newZDRTransport(next)
+		reqBody := `{"model":"m"}`
+		req, err := http.NewRequest(http.MethodPost, "https://openrouter.ai.attacker.example/api/v1/chat/completions", bytes.NewBufferString(reqBody))
+		require.NoError(t, err)
+
+		resp, err := transport.RoundTrip(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		assert.JSONEq(t, reqBody, string(captured))
 	})
 
 	t.Run("enabled but non-OpenRouter host: passes through unmodified", func(t *testing.T) {
