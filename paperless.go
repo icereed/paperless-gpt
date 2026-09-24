@@ -714,14 +714,17 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			// a correctly-formatted string. time.Parse rejects impossible dates
 			// like "2023-01-79" (day 79) that the regex `^\d{4}-\d{2}-\d{2}$`
 			// would accept. Dropped pre-flight rather than after a 400 to avoid
-			// an unnecessary round-trip, but the effect on the user is the same:
-			// the field is skipped and the fail tag is applied.
+			// an unnecessary round-trip. A date the model cannot produce is a
+			// deterministic outcome — retrying the document will yield the same
+			// answer every time — so the field is skipped like an empty
+			// suggestion, not recorded as a dropped field for the fail tag.
+			// The fail tag stays reserved for fields paperless-ngx actually
+			// rejected.
 			if _, err := time.Parse("2006-01-02", suggestedCreatedDate); err == nil {
 				originalFields["created_date"] = document.OriginalDocument.CreatedDate
 				updatedFields["created_date"] = suggestedCreatedDate
 			} else {
 				log.Warnf("Document %d: created_date %q is not a valid calendar date, skipping. (%v)", documentID, suggestedCreatedDate, err)
-				partialDroppedFields = append(partialDroppedFields, "created_date")
 			}
 		}
 
