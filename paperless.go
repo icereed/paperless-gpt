@@ -742,15 +742,17 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			// endpoint, which returns no custom fields, and a manual
 			// suggestion can be stale by the time it is applied. Merging
 			// against an empty or outdated list silently deletes every field
-			// we did not process, so fetch the current state first. "replace"
-			// needs no merge base — it discards existing fields by design.
+			// we did not process, so fetch the current state first — and
+			// refuse the update if that fetch fails, since the fallback
+			// would carry the same silent-deletion risk. "replace" needs no
+			// merge base — it discards existing fields by design.
 			existingFields := originalDoc.CustomFields
 			if document.CustomFieldsWriteMode != "replace" {
-				if currentDoc, err := client.GetDocument(ctx, documentID); err == nil {
-					existingFields = currentDoc.CustomFields
-				} else {
-					log.Warnf("Document %d: could not load current custom fields, merging against suggestion-time state: %v", documentID, err)
+				currentDoc, err := client.GetDocument(ctx, documentID)
+				if err != nil {
+					return fmt.Errorf("error updating document %d: could not fetch current custom fields for merge: %w", documentID, err)
 				}
+				existingFields = currentDoc.CustomFields
 			}
 			finalCustomFields := slices.Clone(existingFields)
 			originalCustomFieldsJSON, _ := json.Marshal(existingFields)

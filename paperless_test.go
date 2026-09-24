@@ -1120,6 +1120,59 @@ func TestUpdateDocuments_CustomFieldsMergeUsesCurrentState(t *testing.T) {
 	}
 }
 
+// TestUpdateDocuments_CustomFieldsMergeFailsWithoutCurrentState verifies that
+// append/update modes abort the update when the document's current state
+// cannot be fetched. Falling back to the suggestion's snapshot would merge
+// against a nil or stale field list and PATCH a replacement array that
+// silently deletes fields that were never selected for processing.
+func TestUpdateDocuments_CustomFieldsMergeFailsWithoutCurrentState(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	ctx := context.Background()
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{{"id": 1, "name": autoTag}},
+			"next":    nil,
+		})
+	})
+
+	env.setMockResponse("/api/custom_fields/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{"id": 1, "name": "Haus", "data_type": "string"},
+			},
+			"next": nil,
+		})
+	})
+
+	patchSent := false
+	env.setMockResponse("/api/documents/460/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if r.Method == "PATCH" {
+			patchSent = true
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{"id": 460})
+		}
+	})
+
+	suggestion := DocumentSuggestion{
+		ID:                    460,
+		OriginalDocument:      Document{ID: 460, Title: "Test Doc", Tags: []string{autoTag}},
+		SuggestedCustomFields: []CustomFieldSuggestion{{ID: 1, Name: "Haus", Value: "Muster"}},
+		CustomFieldsWriteMode: "append",
+	}
+
+	err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, env.db, false)
+	require.Error(t, err, "must not fall back to suggestion-time state when the current document cannot be fetched")
+	assert.Contains(t, err.Error(), "could not fetch current custom fields")
+	assert.False(t, patchSent, "no PATCH may be sent when the merge base is unknown")
+}
+
 // TestUpdateDocuments_AddTagsApplied covers the AUTO_TAG_COMPLETE handover.
 //
 // app_llm.go marks a finished auto-processed document by putting the completion
