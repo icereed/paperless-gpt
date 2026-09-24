@@ -1,9 +1,11 @@
-// Zero Data Retention (ZDR) enforcement for OpenRouter.
+// Package openrouterzdr implements opt-in Zero Data Retention (ZDR)
+// enforcement for OpenRouter.
 //
 // When OPENROUTER_ENFORCE_ZDR is set to "true", every request sent to
-// openrouter.ai through the "openai" LLM/VisionLLM provider path gets
+// openrouter.ai through any OpenAI-compatible client in this codebase (the
+// main/metadata LLM, the Vision LLM, and the LLM-based OCR provider) gets
 //
-//	{"provider": {"data_collection": "deny"}}
+//	{"provider": {"data_collection": "deny", "zdr": true}}
 //
 // merged into its JSON body. This tells OpenRouter to route only to upstream
 // model providers that offer a Zero Data Retention guarantee (no logging, no
@@ -33,12 +35,22 @@
 //
 // # Scope
 //
-// Only requests whose destination host contains "openrouter.ai" are
-// affected. Every other endpoint (OpenAI itself, Azure OpenAI, self-hosted
-// OpenAI-compatible gateways, etc.) is untouched, so this flag is safe to
-// leave set even if OPENAI_BASE_URL later changes to a non-OpenRouter
-// endpoint.
-package main
+// Only requests whose destination host is openrouter.ai (or a subdomain of
+// it) are affected. Every other endpoint (OpenAI itself, Azure OpenAI,
+// self-hosted OpenAI-compatible gateways, etc.) is untouched, so this flag is
+// safe to leave set even if OPENAI_BASE_URL later changes to a
+// non-OpenRouter endpoint.
+//
+// # Why this is a separate internal package
+//
+// paperless-gpt builds three independent OpenAI-compatible clients: the main
+// metadata LLM and the Vision LLM (both constructed in package main), and
+// the LLM-based OCR provider (constructed in package ocr). All three need
+// the same transport wrapping to make the ZDR guarantee hold regardless of
+// which client an operator happens to configure with OPENAI_BASE_URL
+// pointed at OpenRouter. Living in package main would make it unimportable
+// from package ocr; this package is shared by both.
+package openrouterzdr
 
 import (
 	"bytes"
@@ -49,36 +61,36 @@ import (
 	"strings"
 )
 
-// openRouterEnforceZDR reports whether OPENROUTER_ENFORCE_ZDR is enabled.
+// Enforced reports whether OPENROUTER_ENFORCE_ZDR is enabled.
 // Read once per RoundTrip rather than cached at startup so a change is
 // picked up without a restart in tests; the cost is one os.Getenv call per
 // outgoing OpenRouter request, which is negligible next to the network call
 // it wraps.
-func openRouterEnforceZDR() bool {
+func Enforced() bool {
 	return strings.ToLower(os.Getenv("OPENROUTER_ENFORCE_ZDR")) == "true"
 }
 
-// zdrTransport wraps an http.RoundTripper and, when enabled, injects
+// transport wraps an http.RoundTripper and, when enabled, injects
 // OpenRouter's Zero Data Retention provider preference into every request
 // body sent to openrouter.ai. Requests to any other host, or all requests
 // when disabled, pass through unmodified.
-type zdrTransport struct {
+type transport struct {
 	next http.RoundTripper
 }
 
-// newZDRTransport wraps next so that, when OPENROUTER_ENFORCE_ZDR=true,
-// requests to openrouter.ai get {"provider": {"data_collection": "deny"}}
+// NewTransport wraps next so that, when OPENROUTER_ENFORCE_ZDR=true, requests
+// to openrouter.ai get {"provider": {"data_collection": "deny", "zdr": true}}
 // merged into their JSON body. Pass http.DefaultTransport (or any other
 // RoundTripper) as next.
-func newZDRTransport(next http.RoundTripper) http.RoundTripper {
+func NewTransport(next http.RoundTripper) http.RoundTripper {
 	if next == nil {
 		next = http.DefaultTransport
 	}
-	return &zdrTransport{next: next}
+	return &transport{next: next}
 }
 
-func (t *zdrTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if !openRouterEnforceZDR() || req.Body == nil || req.URL == nil || !isOpenRouterHost(req.URL.Hostname()) {
+func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if !Enforced() || req.Body == nil || req.URL == nil || !isOpenRouterHost(req.URL.Hostname()) {
 		return t.next.RoundTrip(req)
 	}
 

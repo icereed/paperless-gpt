@@ -8,6 +8,7 @@ import (
 	"image"
 	"net/http"
 	"os"
+	"paperless-gpt/internal/openrouterzdr"
 	"paperless-gpt/internal/textsanitize"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/sirupsen/logrus"
+	"github.com/tmc/langchaingo/httputil"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
 	"github.com/tmc/langchaingo/llms/mistral"
@@ -254,6 +256,17 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	return result, nil
 }
 
+// openrouterHTTPClient returns an *http.Client that wraps langchaingo's own
+// default transport (which adds its User-Agent header) with the
+// OPENROUTER_ENFORCE_ZDR transport. This is a no-op passthrough unless that
+// env var is set to "true" and OPENAI_BASE_URL points at openrouter.ai; see
+// internal/openrouterzdr/openrouterzdr.go for full rationale.
+func openrouterHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: openrouterzdr.NewTransport(httputil.DefaultTransport),
+	}
+}
+
 // createOpenAIClient creates a new OpenAI vision model client
 func createOpenAIClient(config Config) (llms.Model, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
@@ -263,6 +276,16 @@ func createOpenAIClient(config Config) (llms.Model, error) {
 	return openai.New(
 		openai.WithModel(config.VisionLLMModel),
 		openai.WithToken(apiKey),
+		// Without an explicit HTTP client, langchaingo falls back to its own
+		// httputil.DefaultClient, which the OPENROUTER_ENFORCE_ZDR transport
+		// wrapping in package main never touches. That transport wrapping
+		// only covers the clients main.go builds directly (the metadata LLM
+		// and the non-OCR Vision LLM), so without this option, OCR requests
+		// that end up routed to openrouter.ai via OPENAI_BASE_URL (picked up
+		// automatically by langchaingo's openai client from the environment)
+		// would silently skip ZDR enforcement. See
+		// internal/openrouterzdr/openrouterzdr.go.
+		openai.WithHTTPClient(openrouterHTTPClient()),
 	)
 }
 

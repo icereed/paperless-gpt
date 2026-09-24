@@ -1,4 +1,4 @@
-package main
+package openrouterzdr
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOpenRouterEnforceZDR(t *testing.T) {
+func TestEnforced(t *testing.T) {
 	cases := []struct {
 		name string
 		env  string
@@ -30,7 +30,7 @@ func TestOpenRouterEnforceZDR(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("OPENROUTER_ENFORCE_ZDR", c.env)
-			assert.Equal(t, c.want, openRouterEnforceZDR())
+			assert.Equal(t, c.want, Enforced())
 		})
 	}
 }
@@ -99,7 +99,7 @@ func TestIsOpenRouterHost(t *testing.T) {
 	}
 }
 
-func TestZDRTransport(t *testing.T) {
+func TestTransport(t *testing.T) {
 	newRecordingServer := func(t *testing.T) (*httptest.Server, *[]byte) {
 		t.Helper()
 		var captured []byte
@@ -116,7 +116,7 @@ func TestZDRTransport(t *testing.T) {
 	t.Run("disabled by default: body passes through unmodified", func(t *testing.T) {
 		server, captured := newRecordingServer(t)
 		// OPENROUTER_ENFORCE_ZDR intentionally left unset.
-		client := &http.Client{Transport: newZDRTransport(http.DefaultTransport)}
+		client := &http.Client{Transport: NewTransport(http.DefaultTransport)}
 
 		reqBody := `{"model":"m"}`
 		resp, err := client.Post(server.URL, "application/json", bytes.NewBufferString(reqBody))
@@ -129,8 +129,8 @@ func TestZDRTransport(t *testing.T) {
 	t.Run("enabled: injects provider preference for openrouter.ai host only", func(t *testing.T) {
 		t.Setenv("OPENROUTER_ENFORCE_ZDR", "true")
 
-		// Host matching is done via req.URL.Host, so a local test server
-		// (127.0.0.1:PORT) never matches "openrouter.ai" — verify the
+		// Host matching is done via req.URL.Hostname(), so a local test
+		// server (127.0.0.1:PORT) never matches "openrouter.ai" — verify the
 		// injection logic directly against a request whose Host we control.
 		captured := map[string]interface{}{}
 		next := roundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -140,7 +140,7 @@ func TestZDRTransport(t *testing.T) {
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}, nil
 		})
 
-		transport := newZDRTransport(next)
+		transport := NewTransport(next)
 		req, err := http.NewRequest(http.MethodPost, "https://openrouter.ai/api/v1/chat/completions", bytes.NewBufferString(`{"model":"m"}`))
 		require.NoError(t, err)
 
@@ -165,7 +165,7 @@ func TestZDRTransport(t *testing.T) {
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}, nil
 		})
 
-		transport := newZDRTransport(next)
+		transport := NewTransport(next)
 		req, err := http.NewRequest(http.MethodPost, "https://OpenRouter.AI/api/v1/chat/completions", bytes.NewBufferString(`{"model":"m"}`))
 		require.NoError(t, err)
 
@@ -189,7 +189,7 @@ func TestZDRTransport(t *testing.T) {
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}, nil
 		})
 
-		transport := newZDRTransport(next)
+		transport := NewTransport(next)
 		reqBody := `{"model":"m"}`
 		req, err := http.NewRequest(http.MethodPost, "https://openrouter.ai.attacker.example/api/v1/chat/completions", bytes.NewBufferString(reqBody))
 		require.NoError(t, err)
@@ -204,7 +204,7 @@ func TestZDRTransport(t *testing.T) {
 	t.Run("enabled but non-OpenRouter host: passes through unmodified", func(t *testing.T) {
 		t.Setenv("OPENROUTER_ENFORCE_ZDR", "true")
 		server, captured := newRecordingServer(t)
-		client := &http.Client{Transport: newZDRTransport(http.DefaultTransport)}
+		client := &http.Client{Transport: NewTransport(http.DefaultTransport)}
 
 		reqBody := `{"model":"m"}`
 		resp, err := client.Post(server.URL, "application/json", bytes.NewBufferString(reqBody))
