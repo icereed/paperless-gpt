@@ -536,6 +536,20 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	}, nil
 }
 
+// marshalTagsForHistory encodes tag names as JSON for ModificationHistory storage.
+// JSON keeps the History display (JSON.parse) and undo (json.Unmarshal) working,
+// unlike fmt.Sprintf("%v") which produces Go syntax like "[a b]".
+func marshalTagsForHistory(tags []string) string {
+	if tags == nil {
+		tags = []string{}
+	}
+	b, err := json.Marshal(tags)
+	if err != nil {
+		return fmt.Sprintf("%v", tags)
+	}
+	return string(b)
+}
+
 // UpdateDocuments updates the specified documents with suggested changes
 func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
 	availableTags, err := client.GetAllTags(ctx)
@@ -632,12 +646,18 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 
 		log.Debugf("Document %d: Final tag names after compacting: %v", documentID, finalTagNames)
 
+		// appliedTagNames tracks the tag names actually sent via PATCH, for
+		// human-readable history (#842). It can differ from finalTagNames when
+		// a suggested tag does not exist and CREATE_NEW_TAGS is disabled, or
+		// when creation fails.
+		var appliedTagNames []string
 		// NOTE: this will dump the OCR complete tag if it doesn't exist in paperless-ngx
 		if !hasSameTags(originalDoc.Tags, finalTagNames) {
 			var finalTagIDs []int
 			for _, tagName := range finalTagNames {
 				if _, tagID, exists := lookupTagID(availableTags, tagName); exists {
 					finalTagIDs = append(finalTagIDs, tagID)
+					appliedTagNames = append(appliedTagNames, tagName)
 				} else if createNewTags {
 					// Create the new tag in paperless-ngx
 					newTagID, err := client.CreateTag(ctx, tagName)
@@ -648,6 +668,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					log.Infof("Document %d: Created new tag '%s' with ID %d", documentID, tagName, newTagID)
 					availableTags[tagName] = newTagID
 					finalTagIDs = append(finalTagIDs, newTagID)
+					appliedTagNames = append(appliedTagNames, tagName)
 				}
 			}
 			// Only update tags if there are remaining tags after changes
@@ -941,8 +962,8 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 								mod := ModificationHistory{
 									DocumentID:    uint(documentID),
 									ModField:      "tags",
-									PreviousValue: fmt.Sprintf("%v", originalDoc.Tags),
-									NewValue:      fmt.Sprintf("%v", remainingTagNames),
+									PreviousValue: marshalTagsForHistory(originalDoc.Tags),
+									NewValue:      marshalTagsForHistory(remainingTagNames),
 								}
 								if err := InsertModification(db, &mod); err != nil {
 									log.Warnf("Error inserting tag modification record: %v", err)
@@ -958,22 +979,47 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 
 		for field, value := range originalFields {
-			// Skip tags if we handled it separately above
-			if field == "tags" {
-				if _, tagsSent := updatedFields["tags"]; !tagsSent {
-					continue // Already handled in separate update above
-				}
+			// Only record what was actually sent: fields stripped after a
+			// paperless-ngx 400 were not applied. Tags handled separately
+			// above fall into the same rule.
+			if _, ok := updatedFields[field]; !ok {
+				continue
 			}
 			if field == "content" {
 				log.Debugf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
 			} else {
 				log.Printf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
 			}
+			// History must show human-readable names on both sides (fix #842).
+			// updatedFields holds IDs for tags/correspondent/document_type
+			// (needed for the PATCH), while originalFields holds names.
+			var prevStr, newStr string
+			switch field {
+			case "tags":
+				prevStr = marshalTagsForHistory(originalDoc.Tags)
+				newStr = marshalTagsForHistory(appliedTagNames)
+			case "correspondent":
+				prevStr = fmt.Sprintf("%v", value)
+				newStr = document.SuggestedCorrespondent
+			case "document_type":
+				prevStr = fmt.Sprintf("%v", value)
+				newStr = document.SuggestedDocumentType
+			case "custom_fields":
+				prevStr = fmt.Sprintf("%v", value)
+				if b, err := json.Marshal(updatedFields[field]); err == nil {
+					newStr = string(b)
+				} else {
+					newStr = fmt.Sprintf("%v", updatedFields[field])
+				}
+			default:
+				prevStr = fmt.Sprintf("%v", value)
+				newStr = fmt.Sprintf("%v", updatedFields[field])
+			}
 			mod := ModificationHistory{
 				DocumentID:    uint(documentID),
 				ModField:      field,
-				PreviousValue: fmt.Sprintf("%v", value),
-				NewValue:      fmt.Sprintf("%v", updatedFields[field]),
+				PreviousValue: prevStr,
+				NewValue:      newStr,
 			}
 			if err := InsertModification(db, &mod); err != nil {
 				return fmt.Errorf("error inserting modification record for document %d: %w", documentID, err)
