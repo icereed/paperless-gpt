@@ -1066,6 +1066,65 @@ func TestUpdateDocuments_PreservesInvisibleTags(t *testing.T) {
 	assert.NotContains(t, gotIDs, 1, "replaced visible tag must be gone")
 }
 
+// TestUpdateDocuments_PreservesTagThatBecameVisible covers a timing edge of
+// the same fix: a tag the API user could not see when the document was
+// fetched may become visible by the time the update runs (permissions were
+// granted in between). Visibility for preservation must come from the
+// original snapshot — the absence of a resolved name — not from the tag
+// catalog fetched at update time, or such a tag would still be dropped.
+func TestUpdateDocuments_PreservesTagThatBecameVisible(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	ctx := context.Background()
+
+	// The catalog now knows tag 99, but the snapshot did not: the document's
+	// Tags carry no name for it.
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{"id": 1, "name": autoTag},
+				{"id": 3, "name": "other-tag"},
+				{"id": 99, "name": "newly-visible"},
+			},
+			"next": nil,
+		})
+	})
+
+	var receivedPatch map[string]interface{}
+	env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "PATCH" {
+			json.NewDecoder(r.Body).Decode(&receivedPatch)
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{"id": 1})
+		}
+	})
+
+	suggestion := DocumentSuggestion{
+		ID: 1,
+		OriginalDocument: Document{
+			ID:     1,
+			Title:  "Test Doc",
+			Tags:   []string{autoTag}, // 99 had no name when the doc was fetched
+			TagIDs: []int{1, 99},
+		},
+		SuggestedTags: []string{"other-tag"},
+	}
+
+	err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, env.db, false)
+	require.NoError(t, err)
+
+	rawTags, ok := receivedPatch["tags"].([]interface{})
+	require.True(t, ok, "PATCH must contain a tags array")
+	gotIDs := make([]int, 0, len(rawTags))
+	for _, raw := range rawTags {
+		gotIDs = append(gotIDs, int(raw.(float64)))
+	}
+	assert.Contains(t, gotIDs, 99, "tag that had no name in the snapshot must be preserved")
+	assert.Contains(t, gotIDs, 3, "suggested tag must be applied")
+	assert.NotContains(t, gotIDs, 1, "replaced visible tag must be gone")
+}
+
 // TestUpdateDocuments_AddTagsApplied covers the AUTO_TAG_COMPLETE handover.
 //
 // app_llm.go marks a finished auto-processed document by putting the completion

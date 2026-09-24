@@ -571,14 +571,14 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		availableDocumentTypes[dt.Name] = dt.ID
 	}
 
-	// IDs of every tag the API user can see. A document's TagIDs that are
-	// missing from this set are invisible to the API user (e.g. owned by a
-	// different paperless-ngx user) and must be preserved verbatim in tag
-	// updates — they cannot be resolved to names, so every name-driven path
-	// below would otherwise silently drop them.
-	visibleTagIDs := make(map[int]bool, len(availableTags))
-	for _, tagID := range availableTags {
-		visibleTagIDs[tagID] = true
+	// Reverse lookup for the tag catalog, used to decide which of a
+	// document's tag IDs were resolvable to a name when the document was
+	// fetched: an ID whose name is absent from originalDoc.Tags was never
+	// nameable for this suggestion, so it must be preserved verbatim in tag
+	// updates rather than inferred from the catalog state at update time.
+	idToTagName := make(map[int]string, len(availableTags))
+	for name, tagID := range availableTags {
+		idToTagName[tagID] = name
 	}
 
 	// Build a field-id -> data_type map once per call, lazily — only fetch
@@ -617,6 +617,15 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		updatedFields := make(map[string]interface{})
 		originalFields := make(map[string]interface{})
 		var partialDroppedFields []string
+
+		// The tag names the original snapshot resolved. Tag IDs in
+		// originalDoc.TagIDs whose (current) catalog name is not in this set
+		// were invisible when the document was fetched and are preserved
+		// verbatim by every tag-writing path below.
+		originalTagNames := make(map[string]bool, len(originalDoc.Tags))
+		for _, tagName := range originalDoc.Tags {
+			originalTagNames[tagName] = true
+		}
 
 		// --- TAGS ---
 		finalTagNames := originalDoc.Tags
@@ -673,11 +682,14 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					finalTagIDs = append(finalTagIDs, newTagID)
 				}
 			}
-			// Re-attach tags the API user cannot see: they never resolved to
-			// a name, so they cannot appear in finalTagNames, but they are
-			// still on the document and were never meant to be touched.
+			// Re-attach tag IDs that had no name in the original snapshot:
+			// they cannot appear in finalTagNames, but they are still on the
+			// document and were never meant to be touched. Checking against
+			// the snapshot's names (not current visibility) also preserves a
+			// tag that became visible between the fetch and this update.
 			for _, tagID := range originalDoc.TagIDs {
-				if !visibleTagIDs[tagID] {
+				name, known := idToTagName[tagID]
+				if !known || !originalTagNames[name] {
 					finalTagIDs = append(finalTagIDs, tagID)
 				}
 			}
@@ -827,10 +839,11 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 						appendTagID(tagName)
 					}
 				}
-				// Preserve tags the API user cannot see — they have no
-				// resolvable name, so the loop above could never keep them.
+				// Preserve tag IDs that had no name in the original
+				// snapshot — the name loop above could never keep them.
 				for _, tagID := range originalDoc.TagIDs {
-					if !visibleTagIDs[tagID] && !seenTagIDs[tagID] {
+					name, known := idToTagName[tagID]
+					if (!known || !originalTagNames[name]) && !seenTagIDs[tagID] {
 						seenTagIDs[tagID] = true
 						finalTagIDs = append(finalTagIDs, tagID)
 					}
@@ -964,11 +977,8 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 							continue
 						}
 						remainingTagIDs = append(remainingTagIDs, tagID)
-						for tagName, id := range availableTags {
-							if id == tagID {
-								remainingTagNames = append(remainingTagNames, tagName)
-								break
-							}
+						if tagName, ok := idToTagName[tagID]; ok {
+							remainingTagNames = append(remainingTagNames, tagName)
 						}
 					}
 
