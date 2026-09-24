@@ -946,8 +946,9 @@ func TestStripFailedFields(t *testing.T) {
 func TestCreatedDatePreValidation(t *testing.T) {
 	// Verify that UpdateDocuments rejects impossible dates like "2023-01-79"
 	// before sending the PATCH, so the bad date never reaches paperless-ngx.
-	// The field should appear in partialDroppedFields so the caller applies
-	// the fail tag.
+	// A locally-skipped invalid date is deterministic — the model will answer
+	// the same way on every retry — so it is treated like an empty suggestion
+	// rather than a rejected field: no PartialUpdateError, no fail tag.
 	env := setupTest(t)
 	defer env.teardown()
 
@@ -988,9 +989,7 @@ func TestCreatedDatePreValidation(t *testing.T) {
 
 	err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, env.db, false)
 
-	var partial *PartialUpdateError
-	require.ErrorAs(t, err, &partial, "UpdateDocuments must return PartialUpdateError when created_date is invalid")
-	assert.Contains(t, partial.DroppedFields, "created_date", "created_date must be in DroppedFields")
+	require.NoError(t, err, "a locally-skipped invalid created_date must not produce a PartialUpdateError")
 	require.True(t, patchCalled, "PATCH must still be sent (with the valid fields)")
 	if created, ok := receivedPatch["created_date"]; ok {
 		t.Errorf("PATCH must not include invalid created_date, but got %v", created)
