@@ -58,14 +58,9 @@ func (client *PaperlessClient) SearchDocuments(ctx context.Context, query string
 
 	documents := make([]Document, 0, len(documentsResponse.Results))
 	for _, result := range documentsResponse.Results {
-		tagNames := make([]string, len(result.Tags))
-		for i, resultTagID := range result.Tags {
-			for tagName, tagID := range allTags {
-				if resultTagID == tagID {
-					tagNames[i] = tagName
-					break
-				}
-			}
+		tagNames, invisibleTagIDs := resolveTagNames(result.Tags, allTags)
+		if len(invisibleTagIDs) > 0 {
+			log.Warnf("Document %d has tag IDs %v that are not visible to the API user; they will be preserved but cannot be managed.", result.ID, invisibleTagIDs)
 		}
 
 		correspondentName := ""
@@ -84,6 +79,7 @@ func (client *PaperlessClient) SearchDocuments(ctx context.Context, query string
 			Content:       result.Content,
 			Correspondent: correspondentName,
 			Tags:          tagNames,
+			TagIDs:        result.Tags,
 			CreatedDate:   result.CreatedDate,
 		})
 	}

@@ -76,11 +76,18 @@ type GetDocumentApiResponse struct {
 
 // Document is a stripped down version of the document object from paperless-ngx.
 // Response payload for /documents endpoint and part of request payload for /generate-suggestions endpoint
+//
+// Tags holds the names of the document's tags that are visible to the
+// configured API user, while TagIDs holds the raw tag IDs paperless-ngx
+// reports — including tags the API user cannot see, which resolve to no
+// name. Keeping the IDs around lets updates preserve invisible tags instead
+// of silently dropping them.
 type Document struct {
 	ID               int                   `json:"id"`
 	Title            string                `json:"title"`
 	Content          string                `json:"content"`
 	Tags             []string              `json:"tags"`
+	TagIDs           []int                 `json:"tag_ids,omitempty"`
 	Correspondent    string                `json:"correspondent"`
 	CreatedDate      string                `json:"created_date"`
 	OriginalFileName string                `json:"original_file_name"`

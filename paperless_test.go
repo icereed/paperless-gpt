@@ -305,6 +305,7 @@ func TestGetDocumentsByTag(t *testing.T) {
 			Title:         "Document 1",
 			Content:       "Content 1",
 			Tags:          []string{"tag1", "tag2"},
+			TagIDs:        []int{1, 2},
 			Correspondent: "Alpha",
 			CreatedDate:   "1999-09-01",
 		},
@@ -313,6 +314,7 @@ func TestGetDocumentsByTag(t *testing.T) {
 			Title:         "Document 2",
 			Content:       "Content 2",
 			Tags:          []string{"tag2", "tag3"},
+			TagIDs:        []int{2, 3},
 			Correspondent: "Beta",
 			CreatedDate:   "1999-09-02",
 		},
@@ -390,6 +392,7 @@ func TestGetDocumentsByTagWithEmoji(t *testing.T) {
 			Title:         "AI Document",
 			Content:       "Content about AI",
 			Tags:          []string{"🤖 AI-Queue"},
+			TagIDs:        []int{1},
 			Correspondent: "Alpha",
 			CreatedDate:   "2024-01-01",
 		},
@@ -996,6 +999,71 @@ func TestCreatedDatePreValidation(t *testing.T) {
 		t.Errorf("PATCH must not include invalid created_date, but got %v", created)
 	}
 	assert.Equal(t, "Better Title", receivedPatch["title"], "valid fields must still be sent")
+}
+
+// TestUpdateDocuments_PreservesInvisibleTags verifies that tag IDs the API
+// user cannot resolve to a name (e.g. tags owned by another paperless-ngx
+// user when a scoped-down token is used) survive a tag update. They used to
+// be silently dropped: the PATCH rewrote the document's tag list from the
+// resolvable names only, wiping every invisible tag off the document.
+func TestUpdateDocuments_PreservesInvisibleTags(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	ctx := context.Background()
+
+	// The API user can only see tag IDs 1 (autoTag) and 3 ("other-tag").
+	// Tag ID 99 exists on the document but is invisible to the API user.
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{"id": 1, "name": autoTag},
+				{"id": 3, "name": "other-tag"},
+			},
+			"next": nil,
+		})
+	})
+
+	var receivedPatch map[string]interface{}
+	env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			json.NewEncoder(w).Encode(GetDocumentApiResponse{
+				ID: 1, Title: "Test Doc", Tags: []int{1, 99}, Content: "content",
+			})
+			return
+		}
+		if r.Method == "PATCH" {
+			json.NewDecoder(r.Body).Decode(&receivedPatch)
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id": 1, "title": "Test Doc", "tags": []int{3, 99},
+			})
+		}
+	})
+
+	suggestion := DocumentSuggestion{
+		ID: 1,
+		OriginalDocument: Document{
+			ID:     1,
+			Title:  "Test Doc",
+			Tags:   []string{autoTag}, // only the visible tag has a name
+			TagIDs: []int{1, 99},      // the raw IDs the server reported
+		},
+		SuggestedTags: []string{"other-tag"}, // replaces the visible tag set
+	}
+
+	err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, env.db, false)
+	require.NoError(t, err)
+
+	rawTags, ok := receivedPatch["tags"].([]interface{})
+	require.True(t, ok, "PATCH must contain a tags array")
+	gotIDs := make([]int, 0, len(rawTags))
+	for _, raw := range rawTags {
+		gotIDs = append(gotIDs, int(raw.(float64)))
+	}
+	assert.Contains(t, gotIDs, 3, "suggested tag must be applied")
+	assert.Contains(t, gotIDs, 99, "invisible tag ID must be preserved")
+	assert.NotContains(t, gotIDs, 1, "replaced visible tag must be gone")
 }
 
 // TestUpdateDocuments_AddTagsApplied covers the AUTO_TAG_COMPLETE handover.
