@@ -734,8 +734,26 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// --- CUSTOM FIELDS ---
 		if len(document.SuggestedCustomFields) > 0 {
 			log.Infof("Processing custom fields for document %d with mode: '%s'", documentID, document.CustomFieldsWriteMode)
-			finalCustomFields := slices.Clone(originalDoc.CustomFields)
-			originalCustomFieldsJSON, _ := json.Marshal(originalDoc.CustomFields)
+
+			// append and update merge the suggestion into the document's
+			// existing custom fields, and paperless-ngx replaces the whole
+			// custom_fields array on PATCH. OriginalDocument does not always
+			// carry that state — auto-tag documents arrive via the list
+			// endpoint, which returns no custom fields, and a manual
+			// suggestion can be stale by the time it is applied. Merging
+			// against an empty or outdated list silently deletes every field
+			// we did not process, so fetch the current state first. "replace"
+			// needs no merge base — it discards existing fields by design.
+			existingFields := originalDoc.CustomFields
+			if document.CustomFieldsWriteMode != "replace" {
+				if currentDoc, err := client.GetDocument(ctx, documentID); err == nil {
+					existingFields = currentDoc.CustomFields
+				} else {
+					log.Warnf("Document %d: could not load current custom fields, merging against suggestion-time state: %v", documentID, err)
+				}
+			}
+			finalCustomFields := slices.Clone(existingFields)
+			originalCustomFieldsJSON, _ := json.Marshal(existingFields)
 
 			switch document.CustomFieldsWriteMode {
 			case "replace":
