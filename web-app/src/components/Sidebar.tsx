@@ -5,13 +5,12 @@ import {
   DocumentMagnifyingGlassIcon,
   HomeIcon,
   Bars3Icon,
-  PuzzlePieceIcon,
 } from "@heroicons/react/24/outline";
 import classNames from "classnames";
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import logo from "../assets/logo.svg";
-import { useExtensionPages } from "../hooks/useExtensionPages";
+import extension from "../extension";
 import ThemeToggle from "./ThemeToggle";
 
 const COLLAPSE_KEY = "pgpt-sidebar-collapsed";
@@ -30,7 +29,6 @@ const Sidebar: React.FC = () => {
       window.matchMedia("(max-width: 767px)").matches
   );
   const location = useLocation();
-  const extensionPages = useExtensionPages();
 
   // Small screens force the rail; the toggle can still expand it on demand.
   useEffect(() => {
@@ -66,13 +64,12 @@ const Sidebar: React.FC = () => {
       title: "Ad-hoc Analysis",
     },
     { name: "history", path: "./history", icon: ClockIcon, title: "History" },
-    // Pages of linked-in extensions, if any.
-    ...extensionPages.map((page) => ({
-      name: `extension:${page.id}`,
-      path: `./extension?page=${encodeURIComponent(page.id)}`,
-      icon: PuzzlePieceIcon,
-      title: page.title,
-    })),
+    // Pages of a linked-in UI extension, if any.
+    ...(extension.routes ?? []).flatMap((route) =>
+      route.nav
+        ? [{ name: route.path, path: `./${route.path}`, icon: route.nav.icon, title: route.nav.title }]
+        : []
+    ),
     {
       name: "settings",
       path: "./settings",
@@ -96,12 +93,15 @@ const Sidebar: React.FC = () => {
           collapsed ? "justify-center" : "justify-between"
         )}
       >
-        {!collapsed && (
-          <span className="flex min-w-0 items-center gap-2">
-            <img src={logo} alt="" className="h-7 w-7 shrink-0 object-contain" />
-            <span className="truncate text-sm font-semibold">paperless-gpt</span>
-          </span>
-        )}
+        {!collapsed &&
+          (extension.SidebarBrand ? (
+            <extension.SidebarBrand />
+          ) : (
+            <span className="flex min-w-0 items-center gap-2">
+              <img src={logo} alt="" className="h-7 w-7 shrink-0 object-contain" />
+              <span className="truncate text-sm font-semibold">paperless-gpt</span>
+            </span>
+          ))}
         <button
           type="button"
           onClick={toggleSidebar}
@@ -121,11 +121,7 @@ const Sidebar: React.FC = () => {
             const isActive =
               item.name === "ocr"
                 ? location.pathname.includes("/ocr")
-                : item.name.startsWith("extension:")
-                  ? currentSegment === "extension" &&
-                    new URLSearchParams(location.search).get("page") ===
-                      item.name.slice("extension:".length)
-                  : currentSegment === item.path.split("/").at(-1);
+                : currentSegment === item.path.split("/").at(-1);
             const Icon = item.icon;
             return (
               <li key={item.name}>
@@ -152,6 +148,7 @@ const Sidebar: React.FC = () => {
       </nav>
 
       <div className="border-t border-line p-2">
+        {extension.SidebarFooter && <extension.SidebarFooter collapsed={collapsed} />}
         <ThemeToggle showLabel={!collapsed} />
       </div>
     </div>

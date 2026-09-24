@@ -534,9 +534,6 @@ func main() {
 
 		// Get version information
 		api.GET("/version", getVersionHandler)
-
-		// Pages contributed by linked-in extensions (sidebar entries)
-		api.GET("/extensions/pages", getExtensionPagesHandler)
 	}
 
 	// Endpoints and pages of linked-in extensions
@@ -565,9 +562,10 @@ func main() {
 		router.GET("/adhoc-analysis", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
-		router.GET("/extension", func(c *gin.Context) {
+		// Client-side routes without a server route, e.g. extension pages
+		router.NoRoute(spaFallback(func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
-		})
+		}))
 		router.GET("/favicon.ico", func(c *gin.Context) {
 			c.File("web-app/dist/favicon.ico")
 		})
@@ -606,10 +604,10 @@ func main() {
 		router.GET("/adhoc-analysis", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
-		// extension page route (the page is chosen by query param)
-		router.GET("/extension", func(c *gin.Context) {
+		// Client-side routes without a server route, e.g. extension pages
+		router.NoRoute(spaFallback(func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
-		})
+		}))
 	}
 
 	// Start OCR worker pool

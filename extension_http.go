@@ -13,16 +13,6 @@ import (
 // extensionNamePattern keeps extension mount points URL-safe.
 var extensionNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
-// ExtensionPageView is one sidebar entry for a page an extension contributes.
-type ExtensionPageView struct {
-	// ID identifies the page in the /extension?page= route.
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	// URL is relative to the app's base path, so it survives reverse-proxy
-	// prefixes.
-	URL string `json:"url"`
-}
-
 // mountableExtensions returns the HTTP extensions whose name can be used as
 // a mount point; the others are skipped with an error log.
 func mountableExtensions() []extension.HTTPExtension {
@@ -48,23 +38,21 @@ func registerExtensionRoutes(router *gin.Engine) {
 	}
 }
 
-// extensionPages lists the pages of all mounted extensions.
-func extensionPages() []ExtensionPageView {
-	pages := []ExtensionPageView{}
-	for _, e := range mountableExtensions() {
-		for _, p := range e.Pages() {
-			path := strings.TrimPrefix(p.Path, "/")
-			pages = append(pages, ExtensionPageView{
-				ID:    e.Name() + "/" + path,
-				Title: p.Title,
-				URL:   "extensions/" + e.Name() + "/" + path,
-			})
+// spaFallback serves the web app's index.html for client-side routes that
+// have no explicit server route, such as pages contributed by a UI extension.
+// Only plain single-segment page paths qualify; API, extension, asset and
+// file-like paths keep their 404.
+func spaFallback(serveIndex gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := strings.Trim(c.Request.URL.Path, "/")
+		if c.Request.Method == http.MethodGet && spaRoutePattern.MatchString(path) &&
+			path != "api" && path != "extensions" && path != "assets" &&
+			strings.Contains(c.GetHeader("Accept"), "text/html") {
+			serveIndex(c)
+			return
 		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 	}
-	return pages
 }
 
-// getExtensionPagesHandler serves GET /api/extensions/pages for the sidebar.
-func getExtensionPagesHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, extensionPages())
-}
+var spaRoutePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)

@@ -94,22 +94,14 @@ type Extension interface {
 	Start(ctx context.Context) error
 }
 
-// Page is a UI page an extension contributes. paperless-gpt lists it in the
-// sidebar and shows it embedded in its own layout.
-type Page struct {
-	// Title is the sidebar label.
-	Title string
-	// Path is relative to the extension's mount point, e.g. "" for its root.
-	Path string
-}
-
-// HTTPExtension is an Extension that serves its own HTTP endpoints and pages.
-// paperless-gpt mounts Handler at "/extensions/<Name()>/" and strips that
-// prefix; Name must therefore be URL-safe.
+// HTTPExtension is an Extension that serves its own HTTP endpoints (e.g. a
+// JSON API for its UI). paperless-gpt mounts Handler at
+// "/extensions/<Name()>/" and strips that prefix; Name must therefore be
+// URL-safe. UI pages are contributed at build time through the web app's
+// extension entry point, not over HTTP.
 type HTTPExtension interface {
 	Extension
 	Handler() http.Handler
-	Pages() []Page
 }
 
 var (

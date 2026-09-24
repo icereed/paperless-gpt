@@ -76,7 +76,6 @@ func TestNoExtensionsIsNoop(t *testing.T) {
 type fakeHTTPExtension struct{ fakeExtension }
 
 func (fakeHTTPExtension) Handler() http.Handler { return http.NotFoundHandler() }
-func (fakeHTTPExtension) Pages() []Page         { return []Page{{Title: "Page"}} }
 
 func TestHTTPExtensions(t *testing.T) {
 	t.Cleanup(Reset)

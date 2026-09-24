@@ -6,14 +6,14 @@ import OCR from './OCR';
 import History from './History';
 import Settings from './components/Settings';
 import AdhocAnalysis from './AdhocAnalysis';
-import ExtensionPage from './ExtensionPage';
+import extension from './extension';
 
 const App: React.FC = () => {
   // Keep the base path (path prefix from reverse-proxy) and remove the app path,
   // convert "/" to "" so Router basename is empty at root.
   const rawBasename = window.location.pathname.replace(/(\/[^/]+)$/, "/");
   const basename = rawBasename === "/" ? "" : rawBasename;
-  return (
+  const app = (
     <Router basename={basename}>
       <div className="flex h-full">
         <Sidebar />
@@ -28,14 +28,17 @@ const App: React.FC = () => {
             <Route path="/experimental-ocr" element={<Navigate to="/ocr" replace />} />
             <Route path="/history" element={<History />} />
             <Route path="/settings" element={<Settings />} />
-            {/* Pages of linked-in extensions; chosen by ?page= for the same
-                reverse-proxy reason as the OCR tabs. */}
-            <Route path="/extension" element={<ExtensionPage />} />
+            {extension.routes?.map((route) => (
+              <Route key={route.path} path={`/${route.path}`} element={route.element} />
+            ))}
           </Routes>
         </main>
       </div>
     </Router>
   );
+  // A linked-in UI extension may wrap the app (shared state, theme, title).
+  const Provider = extension.Provider;
+  return Provider ? <Provider>{app}</Provider> : app;
 };
 
 export default App;
