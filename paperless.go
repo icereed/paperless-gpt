@@ -676,7 +676,11 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			// never blocked.
 			correspondentName := document.SuggestedCorrespondent
 			if !isUndo {
-				resolution, err := resolveVocabularyValue(ctx, extension.FieldCorrespondent, correspondentName)
+				resolution, err := resolveVocabularyValue(ctx, extension.ResolveRequest{
+					Field:      extension.FieldCorrespondent,
+					DocumentID: documentID,
+					Proposed:   correspondentName,
+				})
 				if err != nil {
 					return fmt.Errorf("error checking correspondent for document %d: %w", documentID, err)
 				}

@@ -6,6 +6,7 @@ import OCR from './OCR';
 import History from './History';
 import Settings from './components/Settings';
 import AdhocAnalysis from './AdhocAnalysis';
+import ExtensionPage from './ExtensionPage';
 
 const App: React.FC = () => {
   // Keep the base path (path prefix from reverse-proxy) and remove the app path,
@@ -27,6 +28,9 @@ const App: React.FC = () => {
             <Route path="/experimental-ocr" element={<Navigate to="/ocr" replace />} />
             <Route path="/history" element={<History />} />
             <Route path="/settings" element={<Settings />} />
+            {/* Pages of linked-in extensions; chosen by ?page= for the same
+                reverse-proxy reason as the OCR tabs. */}
+            <Route path="/extension" element={<ExtensionPage />} />
           </Routes>
         </main>
       </div>

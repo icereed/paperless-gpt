@@ -534,7 +534,13 @@ func main() {
 
 		// Get version information
 		api.GET("/version", getVersionHandler)
+
+		// Pages contributed by linked-in extensions (sidebar entries)
+		api.GET("/extensions/pages", getExtensionPagesHandler)
 	}
+
+	// Endpoints and pages of linked-in extensions
+	registerExtensionRoutes(router)
 
 	// Serve frontend files
 	// Check if the web-app/dist directory exists for local development
@@ -557,6 +563,9 @@ func main() {
 			c.File("web-app/dist/index.html")
 		})
 		router.GET("/adhoc-analysis", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
+		router.GET("/extension", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
 		router.GET("/favicon.ico", func(c *gin.Context) {
@@ -595,6 +604,10 @@ func main() {
 		})
 		// adhoc-analysis route
 		router.GET("/adhoc-analysis", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		// extension page route (the page is chosen by query param)
+		router.GET("/extension", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
 	}

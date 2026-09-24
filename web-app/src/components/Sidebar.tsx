@@ -5,11 +5,13 @@ import {
   DocumentMagnifyingGlassIcon,
   HomeIcon,
   Bars3Icon,
+  PuzzlePieceIcon,
 } from "@heroicons/react/24/outline";
 import classNames from "classnames";
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import logo from "../assets/logo.svg";
+import { useExtensionPages } from "../hooks/useExtensionPages";
 import ThemeToggle from "./ThemeToggle";
 
 const COLLAPSE_KEY = "pgpt-sidebar-collapsed";
@@ -28,6 +30,7 @@ const Sidebar: React.FC = () => {
       window.matchMedia("(max-width: 767px)").matches
   );
   const location = useLocation();
+  const extensionPages = useExtensionPages();
 
   // Small screens force the rail; the toggle can still expand it on demand.
   useEffect(() => {
@@ -63,6 +66,13 @@ const Sidebar: React.FC = () => {
       title: "Ad-hoc Analysis",
     },
     { name: "history", path: "./history", icon: ClockIcon, title: "History" },
+    // Pages of linked-in extensions, if any.
+    ...extensionPages.map((page) => ({
+      name: `extension:${page.id}`,
+      path: `./extension?page=${encodeURIComponent(page.id)}`,
+      icon: PuzzlePieceIcon,
+      title: page.title,
+    })),
     {
       name: "settings",
       path: "./settings",
@@ -111,7 +121,11 @@ const Sidebar: React.FC = () => {
             const isActive =
               item.name === "ocr"
                 ? location.pathname.includes("/ocr")
-                : currentSegment === item.path.split("/").at(-1);
+                : item.name.startsWith("extension:")
+                  ? currentSegment === "extension" &&
+                    new URLSearchParams(location.search).get("page") ===
+                      item.name.slice("extension:".length)
+                  : currentSegment === item.path.split("/").at(-1);
             const Icon = item.icon;
             return (
               <li key={item.name}>

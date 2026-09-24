@@ -3,6 +3,7 @@ package extension
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,8 +12,10 @@ import (
 
 type fakeVocabulary struct{}
 
-func (fakeVocabulary) Candidates(context.Context) ([]string, error) { return nil, nil }
-func (fakeVocabulary) Resolve(context.Context, string) (Resolution, error) {
+func (fakeVocabulary) Candidates(context.Context, CandidatesRequest) (Candidates, error) {
+	return Candidates{}, nil
+}
+func (fakeVocabulary) Resolve(context.Context, ResolveRequest) (Resolution, error) {
 	return Resolution{}, nil
 }
 
@@ -66,4 +69,22 @@ func TestNoExtensionsIsNoop(t *testing.T) {
 	require.NoError(t, Start(context.Background()))
 	assert.Empty(t, EnvVars())
 	assert.Empty(t, Extensions())
+}
+
+type fakeHTTPExtension struct{ fakeExtension }
+
+func (fakeHTTPExtension) Handler() http.Handler { return http.NotFoundHandler() }
+func (fakeHTTPExtension) Pages() []Page         { return []Page{{Title: "Page"}} }
+
+func TestHTTPExtensions(t *testing.T) {
+	t.Cleanup(Reset)
+	Reset()
+
+	var started []string
+	Register(fakeExtension{name: "plain", started: &started})
+	Register(fakeHTTPExtension{fakeExtension{name: "web", started: &started}})
+
+	httpExts := HTTPExtensions()
+	require.Len(t, httpExts, 1)
+	assert.Equal(t, "web", httpExts[0].Name())
 }

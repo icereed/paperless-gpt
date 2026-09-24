@@ -18,25 +18,34 @@ import (
 )
 
 // fakeVocabulary accepts the listed values case-insensitively, maps
-// "Unknown" to no value and rejects everything else.
+// "Unknown" to no value and rejects everything else. With unrestricted set it
+// constrains nothing.
 type fakeVocabulary struct {
-	values []string
-	err    error
+	values       []string
+	unrestricted bool
+	err          error
+	lastRequest  *extension.CandidatesRequest
 }
 
-func (f fakeVocabulary) Candidates(context.Context) ([]string, error) {
-	return f.values, f.err
+func (f fakeVocabulary) Candidates(_ context.Context, req extension.CandidatesRequest) (extension.Candidates, error) {
+	if f.lastRequest != nil {
+		*f.lastRequest = req
+	}
+	return extension.Candidates{Unrestricted: f.unrestricted, Values: f.values}, f.err
 }
 
-func (f fakeVocabulary) Resolve(_ context.Context, proposed string) (extension.Resolution, error) {
+func (f fakeVocabulary) Resolve(_ context.Context, req extension.ResolveRequest) (extension.Resolution, error) {
 	if f.err != nil {
 		return extension.Resolution{}, f.err
 	}
-	if proposed == "" || strings.EqualFold(proposed, "Unknown") {
+	if f.unrestricted {
+		return extension.Resolution{Accepted: true, Value: req.Proposed}, nil
+	}
+	if req.Proposed == "" || strings.EqualFold(req.Proposed, "Unknown") {
 		return extension.Resolution{Accepted: true}, nil
 	}
 	for _, v := range f.values {
-		if strings.EqualFold(v, proposed) {
+		if strings.EqualFold(v, req.Proposed) {
 			return extension.Resolution{Accepted: true, Value: v}, nil
 		}
 	}
@@ -61,23 +70,51 @@ func setCorrespondentTestTemplate(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestVocabularyReplacesPromptCandidates(t *testing.T) {
-	registerCorrespondentVocabulary(t, fakeVocabulary{values: []string{"Acme", "Globex"}})
-
-	app := &App{Client: &mockPaperlessClient{}}
-	generationContext, err := app.prepareSuggestionGenerationContext(context.Background(), GenerateSuggestionsRequest{GenerateCorrespondents: true})
+// generateCorrespondent runs correspondent generation for one document.
+func generateCorrespondent(t *testing.T, llm *mockLLM) (DocumentSuggestion, error) {
+	t.Helper()
+	app := &App{LLM: llm, Client: &mockPaperlessClient{}}
+	request := GenerateSuggestionsRequest{GenerateCorrespondents: true}
+	generationContext, err := app.prepareSuggestionGenerationContext(context.Background(), request)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"Acme", "Globex"}, generationContext.availableCorrespondentNames,
-		"the vocabulary, not paperless-ngx (\"Vendor\"), defines the candidates")
+	return app.generateSingleDocumentSuggestion(context.Background(), request,
+		Document{ID: 1, Title: "Invoice 42", Content: "Invoice from ACME"}, generationContext, logrus.NewEntry(logrus.New()))
+}
+
+func TestVocabularyCandidatesSeeTheDocument(t *testing.T) {
+	setCorrespondentTestTemplate(t)
+	var got extension.CandidatesRequest
+	registerCorrespondentVocabulary(t, fakeVocabulary{values: []string{"Acme"}, lastRequest: &got})
+
+	_, err := generateCorrespondent(t, &mockLLM{Response: "Acme"})
+	require.NoError(t, err)
+	assert.Equal(t, extension.CandidatesRequest{
+		Field:      extension.FieldCorrespondent,
+		DocumentID: 1,
+		Title:      "Invoice 42",
+		Content:    "Invoice from ACME",
+	}, got)
 }
 
 func TestVocabularyUnavailableFailsGeneration(t *testing.T) {
+	setCorrespondentTestTemplate(t)
 	registerCorrespondentVocabulary(t, fakeVocabulary{err: errors.New("source never loaded")})
 
-	app := &App{Client: &mockPaperlessClient{}}
-	_, err := app.prepareSuggestionGenerationContext(context.Background(), GenerateSuggestionsRequest{GenerateCorrespondents: true})
+	_, err := generateCorrespondent(t, &mockLLM{Response: "Acme"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "source never loaded")
+}
+
+func TestUnrestrictedVocabularyKeepsDefaultBehaviour(t *testing.T) {
+	setCorrespondentTestTemplate(t)
+	registerCorrespondentVocabulary(t, fakeVocabulary{unrestricted: true})
+
+	llm := &mockLLM{Response: "Brand New Corp"}
+	suggestion, err := generateCorrespondent(t, llm)
+	require.NoError(t, err)
+	assert.Contains(t, llm.lastPrompt, "Candidates: Vendor", "paperless-ngx values are used")
+	assert.Equal(t, "Brand New Corp", suggestion.SuggestedCorrespondent)
+	assert.Empty(t, suggestion.RejectedFields)
 }
 
 func TestVocabularyResolvesGeneratedCorrespondent(t *testing.T) {
@@ -97,13 +134,7 @@ func TestVocabularyResolvesGeneratedCorrespondent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			llm := &mockLLM{Response: tt.llmResponse}
-			app := &App{LLM: llm, Client: &mockPaperlessClient{}}
-			request := GenerateSuggestionsRequest{GenerateCorrespondents: true}
-			generationContext, err := app.prepareSuggestionGenerationContext(context.Background(), request)
-			require.NoError(t, err)
-
-			suggestion, err := app.generateSingleDocumentSuggestion(context.Background(), request,
-				Document{ID: 1, Content: "Invoice from ACME"}, generationContext, logrus.NewEntry(logrus.New()))
+			suggestion, err := generateCorrespondent(t, llm)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantValue, suggestion.SuggestedCorrespondent)

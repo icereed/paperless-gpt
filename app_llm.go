@@ -563,10 +563,6 @@ func (app *App) prepareSuggestionGenerationContext(ctx context.Context, suggesti
 		for correspondentName := range availableCorrespondentsMap {
 			generationContext.availableCorrespondentNames = append(generationContext.availableCorrespondentNames, correspondentName)
 		}
-		generationContext.availableCorrespondentNames, err = vocabularyCandidates(ctx, extension.FieldCorrespondent, generationContext.availableCorrespondentNames)
-		if err != nil {
-			return suggestionGenerationContext{}, err
-		}
 	}
 
 	if suggestionRequest.GenerateDocumentTypes {
@@ -617,14 +613,29 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	}
 
 	if suggestionRequest.GenerateCorrespondents {
-		promptCorrespondents := filterCorrespondentsForPrompt(generationContext.availableCorrespondentNames, content, suggestedTitle, correspondentPromptLimit)
+		var candidates []string
+		candidates, err = vocabularyCandidates(ctx, extension.CandidatesRequest{
+			Field:      extension.FieldCorrespondent,
+			DocumentID: documentID,
+			Title:      suggestedTitle,
+			Content:    content,
+		}, generationContext.availableCorrespondentNames)
+		if err != nil {
+			docLogger.Errorf("Error preparing correspondents for document %d: %v", documentID, err)
+			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+		}
+		promptCorrespondents := filterCorrespondentsForPrompt(candidates, content, suggestedTitle, correspondentPromptLimit)
 		suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, promptCorrespondents, correspondentBlackList)
 		if err != nil {
 			log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
 		}
 		var resolution extension.Resolution
-		resolution, err = resolveVocabularyValue(ctx, extension.FieldCorrespondent, suggestedCorrespondent)
+		resolution, err = resolveVocabularyValue(ctx, extension.ResolveRequest{
+			Field:      extension.FieldCorrespondent,
+			DocumentID: documentID,
+			Proposed:   suggestedCorrespondent,
+		})
 		if err != nil {
 			docLogger.Errorf("Error checking correspondent for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)

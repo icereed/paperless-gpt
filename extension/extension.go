@@ -13,6 +13,7 @@ package extension
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 )
 
@@ -21,6 +22,32 @@ type Field string
 
 // FieldCorrespondent is the correspondent of a document.
 const FieldCorrespondent Field = "correspondent"
+
+// CandidatesRequest describes the document a Suggestion is generated for,
+// so a Vocabulary can narrow its candidates to the document at hand.
+type CandidatesRequest struct {
+	Field      Field
+	DocumentID int
+	Title      string
+	Content    string
+}
+
+// Candidates is a Vocabulary's answer to CandidatesRequest.
+type Candidates struct {
+	// Unrestricted means the Vocabulary does not constrain the field right
+	// now (e.g. no value list is configured yet): the paperless-ngx values
+	// are used and every value is accepted.
+	Unrestricted bool
+	// Values are offered to the LLM instead of the paperless-ngx values.
+	Values []string
+}
+
+// ResolveRequest asks a Vocabulary to decide on one proposed value.
+type ResolveRequest struct {
+	Field      Field
+	DocumentID int // 0 when the value is not tied to a document
+	Proposed   string
+}
 
 // Resolution is a Vocabulary's decision on one proposed value.
 type Resolution struct {
@@ -40,11 +67,10 @@ type Resolution struct {
 // vocabulary cannot decide (e.g. its source never loaded); callers fail
 // closed rather than falling back to unconstrained behaviour.
 type Vocabulary interface {
-	// Candidates returns the values offered to the LLM for this field. They
-	// replace the values that exist in paperless-ngx.
-	Candidates(ctx context.Context) ([]string, error)
+	// Candidates returns the values offered to the LLM for this field.
+	Candidates(ctx context.Context, req CandidatesRequest) (Candidates, error)
 	// Resolve maps a proposed value to its canonical form or rejects it.
-	Resolve(ctx context.Context, proposed string) (Resolution, error)
+	Resolve(ctx context.Context, req ResolveRequest) (Resolution, error)
 }
 
 // EnvVar documents one environment variable an extension reads, so it shows
@@ -66,6 +92,24 @@ type Extension interface {
 	// Start runs once at startup, after logging is configured and before
 	// any document is processed. An error aborts startup.
 	Start(ctx context.Context) error
+}
+
+// Page is a UI page an extension contributes. paperless-gpt lists it in the
+// sidebar and shows it embedded in its own layout.
+type Page struct {
+	// Title is the sidebar label.
+	Title string
+	// Path is relative to the extension's mount point, e.g. "" for its root.
+	Path string
+}
+
+// HTTPExtension is an Extension that serves its own HTTP endpoints and pages.
+// paperless-gpt mounts Handler at "/extensions/<Name()>/" and strips that
+// prefix; Name must therefore be URL-safe.
+type HTTPExtension interface {
+	Extension
+	Handler() http.Handler
+	Pages() []Page
 }
 
 var (
@@ -105,6 +149,17 @@ func Extensions() []Extension {
 	mu.RLock()
 	defer mu.RUnlock()
 	return append([]Extension(nil), extensions...)
+}
+
+// HTTPExtensions returns the registered extensions that serve HTTP.
+func HTTPExtensions() []HTTPExtension {
+	var result []HTTPExtension
+	for _, e := range Extensions() {
+		if h, ok := e.(HTTPExtension); ok {
+			result = append(result, h)
+		}
+	}
+	return result
 }
 
 // EnvVars returns the environment variables of all registered extensions.
