@@ -1,5 +1,7 @@
 package main
 
+import "paperless-gpt/extension"
+
 // EnvVar describes one environment variable paperless-gpt understands. The
 // registry is the single structured source of truth for the /api/config
 // diagnostics view; a drift test (env_registry_test.go) fails the build if the
@@ -124,4 +126,32 @@ var envRegistry = []EnvVar{
 	{Name: "VISION_LLM_PROVIDER", Category: "OCR", Secret: false, Default: "", Description: "AI backend for LLM OCR (`openai`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`."},
 	{Name: "VISION_LLM_REQUESTS_PER_MINUTE", Category: "OCR", Secret: false, Default: "120", Description: "Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load."},
 	{Name: "VISION_LLM_TEMPERATURE", Category: "OCR", Secret: false, Default: "", Description: "Sampling temperature for Vision OCR generation. Lower is more deterministic. Important: For OpenAI GPT-5 it must be explicitly set to `1.0`."},
+}
+
+// allEnvVars returns the core registry followed by the variables of all
+// linked-in extensions. Extensions document their own variables; the drift
+// test only covers the core tree.
+func allEnvVars() []EnvVar {
+	vars := append([]EnvVar(nil), envRegistry...)
+	for _, e := range extension.EnvVars() {
+		vars = append(vars, EnvVar(e))
+	}
+	return vars
+}
+
+// configCategories returns envCategoryOrder plus any category that only
+// extensions use, in first-seen order.
+func configCategories() []string {
+	categories := append([]string(nil), envCategoryOrder...)
+	seen := make(map[string]bool, len(categories))
+	for _, c := range categories {
+		seen[c] = true
+	}
+	for _, e := range extension.EnvVars() {
+		if !seen[e.Category] {
+			seen[e.Category] = true
+			categories = append(categories, e.Category)
+		}
+	}
+	return categories
 }

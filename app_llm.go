@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"paperless-gpt/extension"
 	"paperless-gpt/internal/textsanitize"
 	"slices"
 	"strings"
@@ -562,6 +563,10 @@ func (app *App) prepareSuggestionGenerationContext(ctx context.Context, suggesti
 		for correspondentName := range availableCorrespondentsMap {
 			generationContext.availableCorrespondentNames = append(generationContext.availableCorrespondentNames, correspondentName)
 		}
+		generationContext.availableCorrespondentNames, err = vocabularyCandidates(ctx, extension.FieldCorrespondent, generationContext.availableCorrespondentNames)
+		if err != nil {
+			return suggestionGenerationContext{}, err
+		}
 	}
 
 	if suggestionRequest.GenerateDocumentTypes {
@@ -592,6 +597,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	var suggestedDocumentType string
 	var suggestedCreatedDate string
 	var suggestedCustomFields []CustomFieldSuggestion
+	var rejectedFields []string
 	var err error
 
 	if suggestionRequest.GenerateTitles {
@@ -616,6 +622,19 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		if err != nil {
 			log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+		}
+		var resolution extension.Resolution
+		resolution, err = resolveVocabularyValue(ctx, extension.FieldCorrespondent, suggestedCorrespondent)
+		if err != nil {
+			docLogger.Errorf("Error checking correspondent for document %d: %v", documentID, err)
+			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+		}
+		if resolution.Accepted {
+			suggestedCorrespondent = resolution.Value
+		} else {
+			docLogger.Warnf("Rejected suggested correspondent %q for document %d: %s", suggestedCorrespondent, documentID, resolution.Reason)
+			suggestedCorrespondent = ""
+			rejectedFields = append(rejectedFields, string(extension.FieldCorrespondent))
 		}
 	}
 
@@ -658,6 +677,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	suggestion := DocumentSuggestion{
 		ID:               documentID,
 		OriginalDocument: doc,
+		RejectedFields:   rejectedFields,
 	}
 	settingsMutex.RLock()
 	suggestion.CustomFieldsWriteMode = settings.CustomFieldsWriteMode

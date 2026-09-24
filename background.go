@@ -313,6 +313,14 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 			continue
 		}
 
+		// A registered vocabulary cleared some generated values; the rest was
+		// applied, but the document needs a human to fill the gap.
+		for _, suggestion := range suggestions {
+			if len(suggestion.RejectedFields) > 0 {
+				applyFailTagAfterPartialSuccess(ctx, app.Client, app.Database, suggestion.ID, suggestion.RejectedFields)
+			}
+		}
+
 		docLogger.Info("Successfully processed document")
 		processedCount++
 	}

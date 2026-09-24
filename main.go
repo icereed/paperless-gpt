@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"paperless-gpt/extension"
 	"paperless-gpt/ocr"
 	"paperless-gpt/sanitize"
 	"path/filepath"
@@ -176,6 +177,13 @@ func main() {
 
 	// Print version
 	printVersion()
+
+	// Start linked-in extensions (none by default) before any
+	// document is processed, so a misconfigured one stops startup instead of
+	// letting documents through unchecked.
+	if err := extension.Start(ctx); err != nil {
+		log.Fatalf("Failed to start extension: %v", err)
+	}
 
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
