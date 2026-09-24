@@ -118,6 +118,18 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	req.Body = io.NopCloser(bytes.NewReader(newBody))
 	req.ContentLength = int64(len(newBody))
+	// Some http.RoundTrippers (notably http.Transport) retry a request after
+	// a failed connection reuse by calling GetBody to obtain a fresh Body
+	// reader, rather than reusing req.Body directly. Without updating
+	// GetBody here, such a retry would read the pre-injection bytes and
+	// silently skip the ZDR provider preference on that attempt. See
+	// https://github.com/golang/go/blob/go1.25.5/src/net/http/transport.go
+	// for the retry path that consults GetBody.
+	if req.GetBody != nil {
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(newBody)), nil
+		}
+	}
 	return t.next.RoundTrip(req)
 }
 
@@ -147,7 +159,16 @@ func isOpenRouterHost(host string) bool {
 // https://openrouter.ai/docs/guides/features/zdr
 func injectZDRPreference(body []byte) ([]byte, error) {
 	var payload map[string]interface{}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	// A plain json.Unmarshal into map[string]interface{} decodes all JSON
+	// numbers as float64, which loses precision for integers outside
+	// float64's 53-bit mantissa (e.g. a large "seed" value). Using
+	// json.Decoder with UseNumber preserves those as json.Number (an
+	// unparsed string form), which json.Marshal re-encodes as the original
+	// numeric literal, so untouched fields round-trip byte-for-byte instead
+	// of silently losing precision.
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&payload); err != nil {
 		return nil, err
 	}
 

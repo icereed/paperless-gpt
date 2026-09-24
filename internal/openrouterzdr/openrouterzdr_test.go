@@ -73,6 +73,18 @@ func TestInjectZDRPreference(t *testing.T) {
 		_, err := injectZDRPreference([]byte(`not json`))
 		assert.Error(t, err)
 	})
+
+	t.Run("preserves large integer precision in untouched fields", func(t *testing.T) {
+		// 9007199254740993 is 2^53 + 1, the smallest positive integer that
+		// cannot be represented exactly as a float64. A naive
+		// json.Unmarshal into map[string]interface{} decodes all numbers as
+		// float64 and would silently round this down to 9007199254740992
+		// on re-marshal.
+		body := []byte(`{"model":"m","seed":9007199254740993}`)
+		out, err := injectZDRPreference(body)
+		require.NoError(t, err)
+		assert.Contains(t, string(out), `"seed":9007199254740993`)
+	})
 }
 
 func TestIsOpenRouterHost(t *testing.T) {
@@ -150,6 +162,45 @@ func TestTransport(t *testing.T) {
 
 		provider, ok := captured["provider"].(map[string]interface{})
 		require.True(t, ok, "expected provider object in request sent upstream")
+		assert.Equal(t, "deny", provider["data_collection"])
+		assert.Equal(t, true, provider["zdr"])
+	})
+
+	t.Run("enabled: GetBody is updated so retries also carry the injected preference", func(t *testing.T) {
+		t.Setenv("OPENROUTER_ENFORCE_ZDR", "true")
+
+		// http.Transport rewinds a request for a retry via GetBody rather
+		// than reusing req.Body directly. Simulate that by building a
+		// request the same way http.NewRequest does for a bytes.Buffer
+		// body (which populates GetBody), running it through the
+		// transport once, and then confirming a *second* read via
+		// GetBody() also observes the injected provider preference.
+		reqBody := `{"model":"m"}`
+		req, err := http.NewRequest(http.MethodPost, "https://openrouter.ai/api/v1/chat/completions", bytes.NewBufferString(reqBody))
+		require.NoError(t, err)
+		require.NotNil(t, req.GetBody, "http.NewRequest with a *bytes.Buffer body should populate GetBody")
+
+		next := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			// Drain but discard; this test only cares about GetBody below.
+			_, _ = io.ReadAll(req.Body)
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}, nil
+		})
+
+		transport := NewTransport(next)
+		resp, err := transport.RoundTrip(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		require.NotNil(t, req.GetBody, "GetBody should still be set after RoundTrip")
+		retryBody, err := req.GetBody()
+		require.NoError(t, err)
+		retryBytes, err := io.ReadAll(retryBody)
+		require.NoError(t, err)
+
+		var got map[string]interface{}
+		require.NoError(t, json.Unmarshal(retryBytes, &got))
+		provider, ok := got["provider"].(map[string]interface{})
+		require.True(t, ok, "expected provider object in the body a retry would read via GetBody")
 		assert.Equal(t, "deny", provider["data_collection"])
 		assert.Equal(t, true, provider["zdr"])
 	})
