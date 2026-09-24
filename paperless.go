@@ -680,6 +680,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					Field:      extension.FieldCorrespondent,
 					DocumentID: documentID,
 					Proposed:   correspondentName,
+					Stage:      extension.StageApply,
 				})
 				if err != nil {
 					return fmt.Errorf("error checking correspondent for document %d: %w", documentID, err)

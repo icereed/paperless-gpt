@@ -635,6 +635,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 			Field:      extension.FieldCorrespondent,
 			DocumentID: documentID,
 			Proposed:   suggestedCorrespondent,
+			Stage:      extension.StageGenerate,
 		})
 		if err != nil {
 			docLogger.Errorf("Error checking correspondent for document %d: %v", documentID, err)

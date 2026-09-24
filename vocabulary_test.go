@@ -25,6 +25,7 @@ type fakeVocabulary struct {
 	unrestricted bool
 	err          error
 	lastRequest  *extension.CandidatesRequest
+	resolved     *[]extension.ResolveRequest
 }
 
 func (f fakeVocabulary) Candidates(_ context.Context, req extension.CandidatesRequest) (extension.Candidates, error) {
@@ -35,6 +36,9 @@ func (f fakeVocabulary) Candidates(_ context.Context, req extension.CandidatesRe
 }
 
 func (f fakeVocabulary) Resolve(_ context.Context, req extension.ResolveRequest) (extension.Resolution, error) {
+	if f.resolved != nil {
+		*f.resolved = append(*f.resolved, req)
+	}
 	if f.err != nil {
 		return extension.Resolution{}, f.err
 	}
@@ -246,4 +250,32 @@ func TestAutoTagAppliesFailTagForRejectedField(t *testing.T) {
 	assert.Empty(t, client.calls[0].SuggestedCorrespondent, "the rejected value is never applied")
 	assert.Equal(t, 21, client.calls[1].ID)
 	assert.Equal(t, []string{failTag}, client.calls[1].SuggestedTags)
+}
+
+func TestResolveRequestsCarryTheStage(t *testing.T) {
+	setCorrespondentTestTemplate(t)
+	var resolved []extension.ResolveRequest
+	registerCorrespondentVocabulary(t, fakeVocabulary{values: []string{"Alpha", "Beta"}, resolved: &resolved})
+
+	_, err := generateCorrespondent(t, &mockLLM{Response: "Alpha"})
+	require.NoError(t, err)
+
+	env := newTestEnv(t)
+	defer env.teardown()
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results": []}`))
+	})
+	env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{{
+		ID: 1, OriginalDocument: Document{ID: 1, Title: "Old"}, SuggestedTitle: "New", SuggestedCorrespondent: "Beta",
+	}}, env.db, false))
+
+	require.Len(t, resolved, 2)
+	assert.Equal(t, extension.StageGenerate, resolved[0].Stage)
+	assert.Equal(t, extension.StageApply, resolved[1].Stage)
+	assert.Equal(t, 1, resolved[1].DocumentID)
 }

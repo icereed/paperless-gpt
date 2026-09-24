@@ -47,7 +47,21 @@ type ResolveRequest struct {
 	Field      Field
 	DocumentID int // 0 when the value is not tied to a document
 	Proposed   string
+	// Stage says where the value comes from, so a vocabulary can tell an
+	// invented LLM answer from a value a person entered.
+	Stage Stage
 }
+
+// Stage is the point in the suggestion flow where a value is checked.
+type Stage string
+
+const (
+	// StageGenerate: the LLM just proposed the value.
+	StageGenerate Stage = "generate"
+	// StageApply: the value is about to be written to paperless-ngx; it may
+	// have been edited during Review or sent directly to the API.
+	StageApply Stage = "apply"
+)
 
 // Resolution is a Vocabulary's decision on one proposed value.
 type Resolution struct {
