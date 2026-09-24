@@ -23,9 +23,9 @@ import (
 	"time"
 
 	"paperless-gpt/extension"
+	"paperless-gpt/internal/pdfrender"
 
 	"github.com/disintegration/imaging"
-	"github.com/gen2brain/go-fitz"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -1131,25 +1131,13 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 		return nil, 0, err
 	}
 
-	tmpFile, err := os.CreateTemp("", "document-*.pdf")
-	if err != nil {
-		return nil, 0, err
-	}
-	defer os.Remove(tmpFile.Name())
-
-	_, err = tmpFile.Write(pdfData)
-	if err != nil {
-		return nil, 0, err
-	}
-	tmpFile.Close()
-
-	doc, err := fitz.New(tmpFile.Name())
+	doc, err := pdfrender.Open(ctx, pdfData)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer doc.Close()
 
-	totalPages := doc.NumPage()
+	totalPages := doc.NumPages()
 	pagesToProcess := totalPages
 
 	if limitPages > 0 && limitPages < totalPages {
@@ -1183,16 +1171,12 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 			// DPI calculation constants
 			const minDPI = 72 // Minimum DPI to ensure readable text
 
-			mu.Lock() // MuPDF is not thread-safe
-			rect, err := doc.Bound(n)
+			mu.Lock() // a PDFium document is not safe for concurrent use
+			wPts, hPts, err := doc.PageSize(n)
 			if err != nil {
 				mu.Unlock()
 				return err
 			}
-
-			// Calculate optimal DPI based on page dimensions (in points)
-			wPts := float64(rect.Dx())
-			hPts := float64(rect.Dy())
 
 			// Calculate DPI limits based on maximum allowed dimension and total pixels
 			dpiSide := float64(imageMaxPixelDimension*72) / math.Max(wPts, hPts)
@@ -1207,7 +1191,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 
 			// Render the page at calculated DPI
 			var img image.Image
-			img, err = doc.ImageDPI(n, dpi)
+			img, err = doc.RenderDPI(n, dpi)
 			mu.Unlock()
 			if err != nil {
 				return err
@@ -1330,25 +1314,13 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 
 	// Get the number of pages in the PDF
-	tmpFile, err := os.CreateTemp("", "document-*.pdf")
+	doc, err := pdfrender.Open(ctx, pdfData)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	defer os.Remove(tmpFile.Name())
-
-	_, err = tmpFile.Write(pdfData)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	tmpFile.Close()
-
-	doc, err := fitz.New(tmpFile.Name())
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	defer doc.Close()
-
-	totalPages := doc.NumPage()
+	totalPages := doc.NumPages()
+	// Only the page count is needed here; free the PDFium instance early.
+	doc.Close()
 	pagesToProcess := totalPages
 
 	if limitPages > 0 && limitPages < totalPages {
