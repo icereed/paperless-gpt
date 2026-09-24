@@ -1379,12 +1379,20 @@ func createVisionLLM() (llms.Model, error) {
 }
 
 func createCustomHTTPClient() *http.Client {
+	headers := map[string]string{
+		"X-Title": "paperless-gpt",
+	}
+
+	// Allow extra headers for OpenAI-compatible endpoints, e.g.
+	// OPENAI_HEADERS="User-Agent=paperless-gpt/1.0".
+	for key, value := range parseHeaderList(os.Getenv("OPENAI_HEADERS")) {
+		headers[key] = value
+	}
+
 	// Create custom transport that adds headers
 	customTransport := &headerTransport{
 		transport: http.DefaultTransport,
-		headers: map[string]string{
-			"X-Title": "paperless-gpt",
-		},
+		headers:   headers,
 	}
 
 	// Create custom client with the transport
@@ -1435,6 +1443,19 @@ func ollamaHTTPClientWithTimeout() *http.Client {
 type headerTransport struct {
 	transport http.RoundTripper
 	headers   map[string]string
+}
+
+// parseHeaderList parses a comma-separated list of Key=Value pairs into a map,
+// using the same format as OLLAMA_HEADERS. Malformed pairs are ignored.
+func parseHeaderList(raw string) map[string]string {
+	headers := make(map[string]string)
+	for _, pair := range strings.Split(raw, ",") {
+		parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+		if len(parts) == 2 && parts[0] != "" {
+			headers[parts[0]] = parts[1]
+		}
+	}
+	return headers
 }
 
 // RoundTrip implements the http.RoundTripper interface
