@@ -43,6 +43,8 @@ func TestVocabularyRegistry(t *testing.T) {
 	assert.NotNil(t, VocabularyFor(FieldCorrespondent))
 
 	assert.Panics(t, func() { RegisterVocabulary(FieldCorrespondent, fakeVocabulary{}) })
+	assert.Panics(t, func() { RegisterVocabulary("other", nil) })
+	assert.Nil(t, VocabularyFor("other"))
 }
 
 func TestStartRunsInOrderAndStopsAtFirstError(t *testing.T) {

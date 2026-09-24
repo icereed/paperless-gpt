@@ -127,8 +127,12 @@ func Register(e Extension) {
 
 // RegisterVocabulary installs the Vocabulary for a field. Registering a
 // second Vocabulary for the same field panics: two competing sources of
-// truth would make enforcement ambiguous.
+// truth would make enforcement ambiguous. A nil Vocabulary panics too, as it
+// would silently leave the field unconstrained.
 func RegisterVocabulary(field Field, v Vocabulary) {
+	if v == nil {
+		panic(fmt.Sprintf("extension: nil vocabulary registered for field %q", field))
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	if _, exists := vocabularies[field]; exists {

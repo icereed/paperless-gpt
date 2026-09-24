@@ -130,10 +130,21 @@ var envRegistry = []EnvVar{
 
 // allEnvVars returns the core registry followed by the variables of all
 // linked-in extensions. Extensions document their own variables; the drift
-// test only covers the core tree.
+// test only covers the core tree. A name that is already known (from the core
+// registry or an earlier extension) is skipped, so an extension can never
+// override core metadata such as the secret flag.
 func allEnvVars() []EnvVar {
 	vars := append([]EnvVar(nil), envRegistry...)
+	seen := make(map[string]bool, len(vars))
+	for _, v := range vars {
+		seen[v.Name] = true
+	}
 	for _, e := range extension.EnvVars() {
+		if seen[e.Name] {
+			log.Warnf("Ignoring extension env var %s: it is already documented", e.Name)
+			continue
+		}
+		seen[e.Name] = true
 		vars = append(vars, EnvVar(e))
 	}
 	return vars
@@ -147,7 +158,7 @@ func configCategories() []string {
 	for _, c := range categories {
 		seen[c] = true
 	}
-	for _, e := range extension.EnvVars() {
+	for _, e := range allEnvVars() {
 		if !seen[e.Category] {
 			seen[e.Category] = true
 			categories = append(categories, e.Category)
