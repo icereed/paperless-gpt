@@ -1108,7 +1108,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 		return nil, 0, err
 	}
 
-	doc, err := pdfrender.Open(pdfData)
+	doc, err := pdfrender.Open(ctx, pdfData)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1291,7 +1291,7 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 
 	// Get the number of pages in the PDF
-	doc, err := pdfrender.Open(pdfData)
+	doc, err := pdfrender.Open(ctx, pdfData)
 	if err != nil {
 		return nil, nil, 0, err
 	}

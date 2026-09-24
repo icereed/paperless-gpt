@@ -6,6 +6,7 @@
 package pdfrender
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/draw"
@@ -24,7 +25,8 @@ import (
 // PDFium instance has its own WebAssembly memory.
 const maxInstances = 4
 
-// instanceTimeout is how long Open waits for a free PDFium instance.
+// instanceTimeout bounds how long Open waits for a free PDFium instance, even
+// when the caller's context has no deadline.
 const instanceTimeout = 2 * time.Minute
 
 var (
@@ -47,13 +49,21 @@ type Document struct {
 	pages    int
 }
 
-// Open parses a PDF held in memory.
-func Open(data []byte) (*Document, error) {
+// Open parses a PDF held in memory. Waiting for a free PDFium instance stops
+// when ctx is done.
+func Open(ctx context.Context, data []byte) (*Document, error) {
+	// A free instance is handed out without looking at ctx, so a request
+	// that is already canceled must not start work.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	p, err := getPool()
 	if err != nil {
 		return nil, fmt.Errorf("initializing PDFium: %w", err)
 	}
-	instance, err := p.GetInstance(instanceTimeout)
+	waitCtx, cancel := context.WithTimeout(ctx, instanceTimeout)
+	defer cancel()
+	instance, err := p.GetInstanceWithContext(waitCtx)
 	if err != nil {
 		return nil, fmt.Errorf("getting a PDFium instance: %w", err)
 	}
@@ -94,8 +104,9 @@ func (d *Document) PageSize(index int) (width, height float64, err error) {
 	return size.Width, size.Height, nil
 }
 
-// RenderDPI renders a page (0-based) with annotations at the given
-// resolution. Transparent areas are rendered on white, like a PDF viewer.
+// RenderDPI renders a page (0-based) with annotations and form-field values
+// at the given resolution. Transparent areas are rendered on white, like a
+// PDF viewer.
 func (d *Document) RenderDPI(index int, dpi float64) (*image.RGBA, error) {
 	page, err := d.page(index)
 	if err != nil {
@@ -105,6 +116,10 @@ func (d *Document) RenderDPI(index int, dpi float64) (*image.RGBA, error) {
 		Page:        page,
 		DPI:         int(math.Round(dpi)),
 		RenderFlags: enums.FPDF_RENDER_FLAG_ANNOT,
+		// Draw form fields and their values too; MuPDF did, and filled-in
+		// forms must reach OCR.
+		RenderForm: true,
+		Document:   &d.doc,
 	})
 	if err != nil {
 		return nil, err

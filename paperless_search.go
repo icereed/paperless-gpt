@@ -125,7 +125,7 @@ func (client *PaperlessClient) GetDocumentPageImage(ctx context.Context, documen
 		return nil, err
 	}
 
-	doc, err := pdfrender.Open(pdfData)
+	doc, err := pdfrender.Open(ctx, pdfData)
 	if err != nil {
 		return nil, err
 	}
