@@ -61,6 +61,7 @@ COPY *.go .
 COPY ocr ./ocr
 COPY sanitize ./sanitize
 COPY internal ./internal
+COPY default_prompts ./default_prompts
 
 # Import ARGs from top level
 ARG VERSION

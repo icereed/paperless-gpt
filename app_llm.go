@@ -71,7 +71,31 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	}
 
 	response := textsanitize.StripReasoning(strings.TrimSpace(completion.Choices[0].Content))
+	if isBlacklistedCorrespondent(response, correspondentBlackList) {
+		return "", fmt.Errorf("suggested correspondent is blacklisted")
+	}
 	return response, nil
+}
+
+func parseCorrespondentBlacklist(value string) []string {
+	entries := strings.Split(value, ",")
+	blacklist := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			blacklist = append(blacklist, entry)
+		}
+	}
+	return blacklist
+}
+
+func isBlacklistedCorrespondent(proposed string, blacklist []string) bool {
+	proposed = strings.TrimSpace(proposed)
+	for _, blocked := range blacklist {
+		if strings.EqualFold(proposed, strings.TrimSpace(blocked)) {
+			return true
+		}
+	}
+	return false
 }
 
 // getSuggestedTags generates suggested tags for a document using the LLM
@@ -141,6 +165,10 @@ func (app *App) getSuggestedTags(
 
 	response := textsanitize.StripReasoning(completion.Choices[0].Content)
 
+	return normalizeSuggestedTags(response, availableTags, originalTags), nil
+}
+
+func normalizeSuggestedTags(response string, availableTags, originalTags []string) []string {
 	suggestedTags := strings.Split(response, ",")
 	for i, tag := range suggestedTags {
 		suggestedTags[i] = strings.TrimSpace(tag)
@@ -176,7 +204,7 @@ func (app *App) getSuggestedTags(
 		// processed those include the trigger tag paperless-gpt is reacting to.
 		// With CREATE_NEW_TAGS on, nothing else here would drop them, so a
 		// system tag would come back out as a "suggestion" and be re-applied.
-		return removeSystemTags(filteredTags), nil
+		return removeSystemTags(filteredTags)
 	}
 
 	filteredTags := []string{}
@@ -192,7 +220,7 @@ func (app *App) getSuggestedTags(
 	// Belt and braces: availableTags is already system-tag-free, so this only
 	// matters if that ever regresses. paperless-gpt applies its own tags
 	// through AddTags/RemoveTags, never through a suggestion.
-	return removeSystemTags(filteredTags), nil
+	return removeSystemTags(filteredTags)
 }
 
 // getSuggestedDocumentType generates a suggested document type for a document using the LLM
@@ -602,7 +630,24 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		}
 	}
 
-	if suggestionRequest.GenerateTags {
+	grouped := false
+	if metadataGroupingEligible(suggestionRequest, generationContext) {
+		metadata, groupErr := app.getGroupedMetadata(ctx, groupedMetadataInput{
+			Title: suggestedTitle, Content: content, Language: getLikelyLanguage(), Today: getTodayDate(),
+			AvailableTags: metadataTags(generationContext.availableTagNames), OriginalTags: doc.Tags, CreateNewTags: createNewTags,
+			Correspondents: filterCorrespondentsForPrompt(generationContext.availableCorrespondentNames, content, suggestedTitle, correspondentPromptLimit), BlacklistedCorrespondents: correspondentBlackList,
+			DocumentTypes: generationContext.availableDocumentTypeNames,
+		})
+		if groupErr != nil {
+			docLogger.Warnf("Grouped metadata failed; falling back to individual generators: %v", groupErr)
+		} else {
+			suggestedTags, suggestedCorrespondent = metadata.Tags, metadata.Correspondent
+			suggestedDocumentType, suggestedCreatedDate = metadata.DocumentType, metadata.CreatedDate
+			grouped = true
+		}
+	}
+
+	if suggestionRequest.GenerateTags && !grouped {
 		suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, generationContext.availableTagNames, doc.Tags, docLogger)
 		if err != nil {
 			logger.Errorf("Error generating tags for document %d: %v", documentID, err)
@@ -610,7 +655,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		}
 	}
 
-	if suggestionRequest.GenerateCorrespondents {
+	if suggestionRequest.GenerateCorrespondents && !grouped {
 		promptCorrespondents := filterCorrespondentsForPrompt(generationContext.availableCorrespondentNames, content, suggestedTitle, correspondentPromptLimit)
 		suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, promptCorrespondents, correspondentBlackList)
 		if err != nil {
@@ -619,7 +664,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		}
 	}
 
-	if suggestionRequest.GenerateDocumentTypes {
+	if suggestionRequest.GenerateDocumentTypes && !grouped {
 		if len(generationContext.availableDocumentTypeNames) == 0 {
 			docLogger.Debug("Document type generation is enabled, but no document types are available in paperless-ngx.")
 		} else {
@@ -631,7 +676,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		}
 	}
 
-	if suggestionRequest.GenerateCreatedDate {
+	if suggestionRequest.GenerateCreatedDate && !grouped {
 		suggestedCreatedDate, err = app.getSuggestedCreatedDate(ctx, content, docLogger)
 		if err != nil {
 			log.Errorf("Error generating createdDate for document %d: %v", documentID, err)

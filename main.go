@@ -38,7 +38,7 @@ var (
 
 	// Environment Variables
 	paperlessInsecureSkipVerify   = os.Getenv("PAPERLESS_INSECURE_SKIP_VERIFY") == "true"
-	correspondentBlackList        = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
+	correspondentBlackList        = parseCorrespondentBlacklist(os.Getenv("CORRESPONDENT_BLACK_LIST"))
 	correspondentPromptLimit      int // Will be read from CORRESPONDENT_PROMPT_LIMIT
 	paperlessBaseURL              = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken             = os.Getenv("PAPERLESS_API_TOKEN")
