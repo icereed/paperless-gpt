@@ -536,6 +536,29 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	}, nil
 }
 
+// getCurrentCustomFields fetches only the document's custom fields. Unlike
+// GetDocument it does not resolve tag, correspondent or document-type names,
+// so a failure in those auxiliary lookups cannot block a custom-fields merge.
+func (client *PaperlessClient) getCurrentCustomFields(ctx context.Context, documentID int) ([]CustomFieldResponse, error) {
+	path := fmt.Sprintf("api/documents/%d/", documentID)
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error fetching document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+	}
+
+	var documentResponse GetDocumentApiResponse
+	if err := json.NewDecoder(resp.Body).Decode(&documentResponse); err != nil {
+		return nil, err
+	}
+	return documentResponse.CustomFields, nil
+}
+
 // UpdateDocuments updates the specified documents with suggested changes
 func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
 	availableTags, err := client.GetAllTags(ctx)
@@ -748,11 +771,14 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			// merge base — it discards existing fields by design.
 			existingFields := originalDoc.CustomFields
 			if document.CustomFieldsWriteMode != "replace" {
-				currentDoc, err := client.GetDocument(ctx, documentID)
+				// GetDocument would also work here, but it hard-fails on
+				// auxiliary lookups (tags, correspondents, document types)
+				// that this merge does not need — fetch just the fields.
+				currentFields, err := client.getCurrentCustomFields(ctx, documentID)
 				if err != nil {
 					return fmt.Errorf("error updating document %d: could not fetch current custom fields for merge: %w", documentID, err)
 				}
-				existingFields = currentDoc.CustomFields
+				existingFields = currentFields
 			}
 			finalCustomFields := slices.Clone(existingFields)
 			originalCustomFieldsJSON, _ := json.Marshal(existingFields)
