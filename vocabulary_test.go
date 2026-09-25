@@ -22,6 +22,7 @@ import (
 // constrains nothing.
 type fakeVocabulary struct {
 	values       []string
+	hints        map[string]string
 	unrestricted bool
 	err          error
 	lastRequest  *extension.CandidatesRequest
@@ -32,7 +33,7 @@ func (f fakeVocabulary) Candidates(_ context.Context, req extension.CandidatesRe
 	if f.lastRequest != nil {
 		*f.lastRequest = req
 	}
-	return extension.Candidates{Unrestricted: f.unrestricted, Values: f.values}, f.err
+	return extension.Candidates{Unrestricted: f.unrestricted, Values: f.values, Hints: f.hints}, f.err
 }
 
 func (f fakeVocabulary) Resolve(_ context.Context, req extension.ResolveRequest) (extension.Resolution, error) {
@@ -278,4 +279,101 @@ func TestResolveRequestsCarryTheStage(t *testing.T) {
 	assert.Equal(t, extension.StageGenerate, resolved[0].Stage)
 	assert.Equal(t, extension.StageApply, resolved[1].Stage)
 	assert.Equal(t, 1, resolved[1].DocumentID)
+}
+
+// docTypeVocabulary is unrestricted, contributes hints, records resolve
+// requests and rejects one value.
+type docTypeVocabulary struct {
+	hints    map[string]string
+	reject   string
+	resolved *[]extension.ResolveRequest
+}
+
+func (v docTypeVocabulary) Candidates(context.Context, extension.CandidatesRequest) (extension.Candidates, error) {
+	return extension.Candidates{Unrestricted: true, Hints: v.hints}, nil
+}
+
+func (v docTypeVocabulary) Resolve(_ context.Context, req extension.ResolveRequest) (extension.Resolution, error) {
+	*v.resolved = append(*v.resolved, req)
+	if req.Proposed == v.reject {
+		return extension.Resolution{Reason: "not wanted"}, nil
+	}
+	return extension.Resolution{Accepted: true, Value: req.Proposed}, nil
+}
+
+func generateDocumentType(t *testing.T, llm *mockLLM) (DocumentSuggestion, error) {
+	t.Helper()
+	app := &App{LLM: llm, Client: &mockPaperlessClient{}}
+	request := GenerateSuggestionsRequest{GenerateDocumentTypes: true}
+	generationContext, err := app.prepareSuggestionGenerationContext(context.Background(), request)
+	require.NoError(t, err)
+	return app.generateSingleDocumentSuggestion(context.Background(), request,
+		Document{ID: 7, Title: "Rechnung 42", Content: "Rechnungsnummer 42"}, generationContext, logrus.NewEntry(logrus.New()))
+}
+
+func setDocumentTypeTemplate(t *testing.T, text string) {
+	t.Helper()
+	prev, prevLimit := documentTypeTemplate, tokenLimit
+	t.Cleanup(func() { documentTypeTemplate, tokenLimit = prev, prevLimit })
+	tokenLimit = 0
+	documentTypeTemplate = template.Must(template.New("document_type").Funcs(sprig.FuncMap()).Parse(text))
+}
+
+func TestDocumentTypeHintsReachThePrompt(t *testing.T) {
+	var resolved []extension.ResolveRequest
+	extension.Reset()
+	t.Cleanup(extension.Reset)
+	extension.RegisterVocabulary(extension.FieldDocumentType, docTypeVocabulary{
+		hints: map[string]string{"Invoice": "Bill with an amount due"}, resolved: &resolved})
+
+	// A template that places the hints itself.
+	setDocumentTypeTemplate(t, "Types: {{.AvailableDocumentTypes | join \", \"}}{{range $k, $v := .DocumentTypeHints}} [{{$k}}={{$v}}]{{end}}\n{{.Content}}")
+	llm := &mockLLM{Response: "invoice"}
+	suggestion, err := generateDocumentType(t, llm)
+	require.NoError(t, err)
+	assert.Equal(t, "Invoice", suggestion.SuggestedDocumentType)
+	assert.Contains(t, llm.lastPrompt, "[Invoice=Bill with an amount due]")
+	assert.NotContains(t, llm.lastPrompt, "<document_type_descriptions>", "not appended twice")
+
+	require.Len(t, resolved, 1)
+	assert.Equal(t, extension.ResolveRequest{Field: extension.FieldDocumentType, DocumentID: 7, Proposed: "invoice",
+		Known: []string{"Invoice"}, Stage: extension.StageGenerate}, resolved[0], "the raw answer and the known types")
+
+	// A customized template from before hints existed: they are appended.
+	setDocumentTypeTemplate(t, "Types: {{.AvailableDocumentTypes | join \", \"}}\n{{.Content}}")
+	llm = &mockLLM{Response: "Invoice"}
+	_, err = generateDocumentType(t, llm)
+	require.NoError(t, err)
+	assert.Contains(t, llm.lastPrompt, "<document_type_descriptions>\n- Invoice: Bill with an amount due\n</document_type_descriptions>")
+}
+
+func TestDocumentTypeRejectionClearsTheSuggestion(t *testing.T) {
+	var resolved []extension.ResolveRequest
+	extension.Reset()
+	t.Cleanup(extension.Reset)
+	extension.RegisterVocabulary(extension.FieldDocumentType, docTypeVocabulary{reject: "Invoice", resolved: &resolved})
+	setDocumentTypeTemplate(t, "{{.Content}}")
+
+	suggestion, err := generateDocumentType(t, &mockLLM{Response: "Invoice"})
+	require.NoError(t, err)
+	assert.Empty(t, suggestion.SuggestedDocumentType)
+	assert.Equal(t, []string{"document_type"}, suggestion.RejectedFields)
+
+	// An invented type is not applied either way, but the vocabulary sees it.
+	resolved = nil
+	suggestion, err = generateDocumentType(t, &mockLLM{Response: "Space Travel Voucher"})
+	require.NoError(t, err)
+	assert.Empty(t, suggestion.SuggestedDocumentType)
+	require.Len(t, resolved, 1)
+	assert.Equal(t, "Space Travel Voucher", resolved[0].Proposed)
+}
+
+func TestExtensionHostReadsPaperless(t *testing.T) {
+	h := extensionHost{client: &mockPaperlessClient{}}
+	correspondents, err := h.Correspondents(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Vendor"}, correspondents)
+	types, err := h.DocumentTypes(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Invoice"}, types)
 }

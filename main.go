@@ -187,6 +187,8 @@ func main() {
 
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
+	// Linked-in extensions read paperless-ngx through this client.
+	extension.SetHost(extensionHost{client: client})
 
 	// Ensure the fail tag exists in paperless-ngx. paperless-gpt applies this
 	// tag mechanically when document processing fails (see processAutoTagDocuments),

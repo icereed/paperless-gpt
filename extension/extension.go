@@ -20,8 +20,14 @@ import (
 // Field identifies a metadata field of a Suggestion.
 type Field string
 
-// FieldCorrespondent is the correspondent of a document.
-const FieldCorrespondent Field = "correspondent"
+const (
+	// FieldCorrespondent is the correspondent of a document.
+	FieldCorrespondent Field = "correspondent"
+	// FieldDocumentType is the document type of a document. paperless-gpt
+	// never creates document types, so its vocabulary mainly contributes
+	// hints and observes the decisions.
+	FieldDocumentType Field = "document_type"
+)
 
 // CandidatesRequest describes the document a Suggestion is generated for,
 // so a Vocabulary can narrow its candidates to the document at hand.
@@ -40,6 +46,10 @@ type Candidates struct {
 	Unrestricted bool
 	// Values are offered to the LLM instead of the paperless-ngx values.
 	Values []string
+	// Hints are short descriptions per value (e.g. what makes a document an
+	// "Invoice") that go into the prompt. They apply to unrestricted fields
+	// too.
+	Hints map[string]string
 }
 
 // ResolveRequest asks a Vocabulary to decide on one proposed value.
@@ -47,6 +57,9 @@ type ResolveRequest struct {
 	Field      Field
 	DocumentID int // 0 when the value is not tied to a document
 	Proposed   string
+	// Known are the values that exist in paperless-ngx, for fields where
+	// paperless-gpt only picks existing values (document types).
+	Known []string
 	// Stage says where the value comes from, so a vocabulary can tell an
 	// invented LLM answer from a value a person entered.
 	Stage Stage
@@ -198,4 +211,32 @@ func Reset() {
 	defer mu.Unlock()
 	extensions = nil
 	vocabularies = map[Field]Vocabulary{}
+	host = nil
+}
+
+// Host is what paperless-gpt offers extensions at runtime: read access to
+// paperless-ngx through the configured client, so an extension does not need
+// its own connection settings.
+type Host interface {
+	// Correspondents returns the names of all correspondents in paperless-ngx.
+	Correspondents(ctx context.Context) ([]string, error)
+	// DocumentTypes returns the names of all document types in paperless-ngx.
+	DocumentTypes(ctx context.Context) ([]string, error)
+}
+
+var host Host
+
+// SetHost installs the Host. paperless-gpt calls it once its paperless-ngx
+// client is ready.
+func SetHost(h Host) {
+	mu.Lock()
+	defer mu.Unlock()
+	host = h
+}
+
+// CurrentHost returns the Host, or nil before paperless-gpt has set it.
+func CurrentHost() Host {
+	mu.RLock()
+	defer mu.RUnlock()
+	return host
 }

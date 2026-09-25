@@ -89,3 +89,18 @@ func TestHTTPExtensions(t *testing.T) {
 	require.Len(t, httpExts, 1)
 	assert.Equal(t, "web", httpExts[0].Name())
 }
+
+type fakeHost struct{}
+
+func (fakeHost) Correspondents(context.Context) ([]string, error) { return []string{"Acme"}, nil }
+func (fakeHost) DocumentTypes(context.Context) ([]string, error)  { return nil, nil }
+
+func TestHost(t *testing.T) {
+	t.Cleanup(Reset)
+	Reset()
+	assert.Nil(t, CurrentHost())
+	SetHost(fakeHost{})
+	names, err := CurrentHost().Correspondents(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Acme"}, names)
+}
