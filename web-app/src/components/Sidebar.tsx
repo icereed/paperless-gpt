@@ -10,6 +10,7 @@ import classNames from "classnames";
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import logo from "../assets/logo.svg";
+import extension from "../extension";
 import ThemeToggle from "./ThemeToggle";
 
 const COLLAPSE_KEY = "pgpt-sidebar-collapsed";
@@ -63,6 +64,12 @@ const Sidebar: React.FC = () => {
       title: "Ad-hoc Analysis",
     },
     { name: "history", path: "./history", icon: ClockIcon, title: "History" },
+    // Pages of a linked-in UI extension, if any.
+    ...(extension.routes ?? []).flatMap((route) =>
+      route.nav
+        ? [{ name: route.path, path: `./${route.path}`, icon: route.nav.icon, title: route.nav.title }]
+        : []
+    ),
     {
       name: "settings",
       path: "./settings",
@@ -86,12 +93,15 @@ const Sidebar: React.FC = () => {
           collapsed ? "justify-center" : "justify-between"
         )}
       >
-        {!collapsed && (
-          <span className="flex min-w-0 items-center gap-2">
-            <img src={logo} alt="" className="h-7 w-7 shrink-0 object-contain" />
-            <span className="truncate text-sm font-semibold">paperless-gpt</span>
-          </span>
-        )}
+        {!collapsed &&
+          (extension.SidebarBrand ? (
+            <extension.SidebarBrand />
+          ) : (
+            <span className="flex min-w-0 items-center gap-2">
+              <img src={logo} alt="" className="h-7 w-7 shrink-0 object-contain" />
+              <span className="truncate text-sm font-semibold">paperless-gpt</span>
+            </span>
+          ))}
         <button
           type="button"
           onClick={toggleSidebar}
@@ -138,6 +148,7 @@ const Sidebar: React.FC = () => {
       </nav>
 
       <div className="border-t border-line p-2">
+        {extension.SidebarFooter && <extension.SidebarFooter collapsed={collapsed} />}
         <ThemeToggle showLabel={!collapsed} />
       </div>
     </div>

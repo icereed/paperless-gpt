@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"paperless-gpt/extension"
 	"paperless-gpt/internal/pdfrender"
 
 	"github.com/disintegration/imaging"
@@ -670,16 +671,38 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// not have a correspondent yet.
 		if document.SuggestedCorrespondent != "" && document.SuggestedCorrespondent != originalDoc.Correspondent &&
 			!(preserveExistingMetadata && originalDoc.Correspondent != "") {
-			originalFields["correspondent"] = originalDoc.Correspondent
-			if corrID, exists := availableCorrespondents[document.SuggestedCorrespondent]; exists {
-				updatedFields["correspondent"] = corrID
-			} else {
-				newCorr := instantiateCorrespondent(document.SuggestedCorrespondent)
-				newCorrID, err := client.CreateOrGetCorrespondent(ctx, newCorr)
+			// A registered vocabulary gets the final say, also over values a
+			// user typed during Review. Undo restores a previous state and is
+			// never blocked.
+			correspondentName := document.SuggestedCorrespondent
+			if !isUndo {
+				resolution, err := resolveVocabularyValue(ctx, extension.ResolveRequest{
+					Field:      extension.FieldCorrespondent,
+					DocumentID: documentID,
+					Proposed:   correspondentName,
+					Stage:      extension.StageApply,
+				})
 				if err != nil {
-					return fmt.Errorf("error creating correspondent '%s': %w", document.SuggestedCorrespondent, err)
+					return fmt.Errorf("error checking correspondent for document %d: %w", documentID, err)
 				}
-				updatedFields["correspondent"] = newCorrID
+				if !resolution.Accepted {
+					log.Warnf("Document %d: not applying correspondent %q: %s", documentID, correspondentName, resolution.Reason)
+					partialDroppedFields = append(partialDroppedFields, string(extension.FieldCorrespondent))
+				}
+				correspondentName = resolution.Value
+			}
+			if correspondentName != "" && correspondentName != originalDoc.Correspondent {
+				originalFields["correspondent"] = originalDoc.Correspondent
+				if corrID, exists := availableCorrespondents[correspondentName]; exists {
+					updatedFields["correspondent"] = corrID
+				} else {
+					newCorr := instantiateCorrespondent(correspondentName)
+					newCorrID, err := client.CreateOrGetCorrespondent(ctx, newCorr)
+					if err != nil {
+						return fmt.Errorf("error creating correspondent '%s': %w", correspondentName, err)
+					}
+					updatedFields["correspondent"] = newCorrID
+				}
 			}
 		}
 

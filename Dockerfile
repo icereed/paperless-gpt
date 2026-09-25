@@ -61,6 +61,7 @@ COPY *.go .
 COPY ocr ./ocr
 COPY sanitize ./sanitize
 COPY internal ./internal
+COPY extension ./extension
 
 # Import ARGs from top level
 ARG VERSION
