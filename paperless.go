@@ -536,6 +536,29 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	}, nil
 }
 
+// getCurrentCustomFields fetches only the document's custom fields. Unlike
+// GetDocument it does not resolve tag, correspondent or document-type names,
+// so a failure in those auxiliary lookups cannot block a custom-fields merge.
+func (client *PaperlessClient) getCurrentCustomFields(ctx context.Context, documentID int) ([]CustomFieldResponse, error) {
+	path := fmt.Sprintf("api/documents/%d/", documentID)
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error fetching document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+	}
+
+	var documentResponse GetDocumentApiResponse
+	if err := json.NewDecoder(resp.Body).Decode(&documentResponse); err != nil {
+		return nil, err
+	}
+	return documentResponse.CustomFields, nil
+}
+
 // UpdateDocuments updates the specified documents with suggested changes
 func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
 	availableTags, err := client.GetAllTags(ctx)
@@ -734,8 +757,31 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// --- CUSTOM FIELDS ---
 		if len(document.SuggestedCustomFields) > 0 {
 			log.Infof("Processing custom fields for document %d with mode: '%s'", documentID, document.CustomFieldsWriteMode)
-			finalCustomFields := slices.Clone(originalDoc.CustomFields)
-			originalCustomFieldsJSON, _ := json.Marshal(originalDoc.CustomFields)
+
+			// append and update merge the suggestion into the document's
+			// existing custom fields, and paperless-ngx replaces the whole
+			// custom_fields array on PATCH. OriginalDocument does not always
+			// carry that state — auto-tag documents arrive via the list
+			// endpoint, which returns no custom fields, and a manual
+			// suggestion can be stale by the time it is applied. Merging
+			// against an empty or outdated list silently deletes every field
+			// we did not process, so fetch the current state first — and
+			// refuse the update if that fetch fails, since the fallback
+			// would carry the same silent-deletion risk. "replace" needs no
+			// merge base — it discards existing fields by design.
+			existingFields := originalDoc.CustomFields
+			if document.CustomFieldsWriteMode != "replace" {
+				// GetDocument would also work here, but it hard-fails on
+				// auxiliary lookups (tags, correspondents, document types)
+				// that this merge does not need — fetch just the fields.
+				currentFields, err := client.getCurrentCustomFields(ctx, documentID)
+				if err != nil {
+					return fmt.Errorf("error updating document %d: could not fetch current custom fields for merge: %w", documentID, err)
+				}
+				existingFields = currentFields
+			}
+			finalCustomFields := slices.Clone(existingFields)
+			originalCustomFieldsJSON, _ := json.Marshal(existingFields)
 
 			switch document.CustomFieldsWriteMode {
 			case "replace":

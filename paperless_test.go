@@ -998,6 +998,181 @@ func TestCreatedDatePreValidation(t *testing.T) {
 	assert.Equal(t, "Better Title", receivedPatch["title"], "valid fields must still be sent")
 }
 
+// TestUpdateDocuments_CustomFieldsMergeUsesCurrentState verifies that append
+// and update write modes merge suggestions into the custom fields the
+// document currently has on the server, not into the suggestion's snapshot.
+// Auto-tag documents arrive via the list endpoint, which returns no custom
+// fields, so OriginalDocument.CustomFields is empty — merging against it and
+// PATCHing the result used to delete every field that was not selected for
+// processing.
+func TestUpdateDocuments_CustomFieldsMergeUsesCurrentState(t *testing.T) {
+	tests := []struct {
+		name           string
+		writeMode      string
+		serverFields   []map[string]interface{}
+		suggested      []CustomFieldSuggestion
+		wantFieldIDs   []int
+		wantFieldValue map[int]interface{}
+	}{
+		{
+			name:      "append keeps fields that were not selected",
+			writeMode: "append",
+			serverFields: []map[string]interface{}{
+				{"field": 7, "value": "Betrag"},
+				{"field": 8, "value": "2024"},
+			},
+			suggested:    []CustomFieldSuggestion{{ID: 1, Name: "Haus", Value: "Muster"}},
+			wantFieldIDs: []int{7, 8, 1},
+			wantFieldValue: map[int]interface{}{
+				7: "Betrag", // untouched, must survive
+				8: "2024",
+				1: "Muster",
+			},
+		},
+		{
+			name:      "update overwrites selected field and keeps the rest",
+			writeMode: "update",
+			serverFields: []map[string]interface{}{
+				{"field": 7, "value": "old"},
+				{"field": 8, "value": "2024"},
+			},
+			suggested:    []CustomFieldSuggestion{{ID: 7, Name: "Betrag", Value: "new"}},
+			wantFieldIDs: []int{7, 8},
+			wantFieldValue: map[int]interface{}{
+				7: "new",
+				8: "2024",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			defer env.teardown()
+
+			ctx := context.Background()
+
+			env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"results": []map[string]interface{}{{"id": 1, "name": autoTag}},
+					"next":    nil,
+				})
+			})
+
+			env.setMockResponse("/api/custom_fields/", func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"results": []map[string]interface{}{
+						{"id": 1, "name": "Haus", "data_type": "string"},
+						{"id": 7, "name": "Betrag", "data_type": "string"},
+						{"id": 8, "name": "Jahr", "data_type": "string"},
+					},
+					"next": nil,
+				})
+			})
+
+			var receivedPatch map[string]interface{}
+			env.setMockResponse("/api/documents/460/", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "GET" {
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"id":            460,
+						"title":         "Test Doc",
+						"tags":          []int{1},
+						"custom_fields": tt.serverFields,
+						"content":       "content",
+					})
+					return
+				}
+				if r.Method == "PATCH" {
+					json.NewDecoder(r.Body).Decode(&receivedPatch)
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode(map[string]interface{}{"id": 460})
+				}
+			})
+
+			suggestion := DocumentSuggestion{
+				ID: 460,
+				// The list endpoint never populated CustomFields, so the
+				// suggestion carries none — exactly what the auto-tag
+				// pipeline hands to UpdateDocuments.
+				OriginalDocument:      Document{ID: 460, Title: "Test Doc", Tags: []string{autoTag}},
+				SuggestedTitle:        "New Title",
+				SuggestedCustomFields: tt.suggested,
+				CustomFieldsWriteMode: tt.writeMode,
+			}
+
+			err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, env.db, false)
+			require.NoError(t, err)
+
+			rawFields, ok := receivedPatch["custom_fields"].([]interface{})
+			require.True(t, ok, "PATCH must contain a custom_fields array")
+			gotFields := make(map[int]interface{}, len(rawFields))
+			for _, raw := range rawFields {
+				entry := raw.(map[string]interface{})
+				gotFields[int(entry["field"].(float64))] = entry["value"]
+			}
+			for _, id := range tt.wantFieldIDs {
+				assert.Contains(t, gotFields, id, "field %d must survive the update", id)
+			}
+			for id, want := range tt.wantFieldValue {
+				assert.Equal(t, want, gotFields[id], "field %d has wrong value", id)
+			}
+		})
+	}
+}
+
+// TestUpdateDocuments_CustomFieldsMergeFailsWithoutCurrentState verifies that
+// append/update modes abort the update when the document's current state
+// cannot be fetched. Falling back to the suggestion's snapshot would merge
+// against a nil or stale field list and PATCH a replacement array that
+// silently deletes fields that were never selected for processing.
+func TestUpdateDocuments_CustomFieldsMergeFailsWithoutCurrentState(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	ctx := context.Background()
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{{"id": 1, "name": autoTag}},
+			"next":    nil,
+		})
+	})
+
+	env.setMockResponse("/api/custom_fields/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{"id": 1, "name": "Haus", "data_type": "string"},
+			},
+			"next": nil,
+		})
+	})
+
+	patchSent := false
+	env.setMockResponse("/api/documents/460/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if r.Method == "PATCH" {
+			patchSent = true
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{"id": 460})
+		}
+	})
+
+	suggestion := DocumentSuggestion{
+		ID:                    460,
+		OriginalDocument:      Document{ID: 460, Title: "Test Doc", Tags: []string{autoTag}},
+		SuggestedCustomFields: []CustomFieldSuggestion{{ID: 1, Name: "Haus", Value: "Muster"}},
+		CustomFieldsWriteMode: "append",
+	}
+
+	err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, env.db, false)
+	require.Error(t, err, "must not fall back to suggestion-time state when the current document cannot be fetched")
+	assert.Contains(t, err.Error(), "could not fetch current custom fields")
+	assert.False(t, patchSent, "no PATCH may be sent when the merge base is unknown")
+}
+
 // TestUpdateDocuments_AddTagsApplied covers the AUTO_TAG_COMPLETE handover.
 //
 // app_llm.go marks a finished auto-processed document by putting the completion
