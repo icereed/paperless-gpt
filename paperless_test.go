@@ -1143,6 +1143,7 @@ func TestUpdateDocuments_AddTagsApplied(t *testing.T) {
 		name       string
 		autoTag    string // the configured AUTO_TAG for this case
 		docTags    []string
+		docTagIDs  []int // raw IDs the server reported; may exceed docTags
 		addTags    []string
 		removeTags []string
 		wantTagIDs []interface{}
@@ -1175,9 +1176,10 @@ func TestUpdateDocuments_AddTagsApplied(t *testing.T) {
 			name:       "completion tag is applied even when no other field changed",
 			autoTag:    "paperless-gpt-auto",
 			docTags:    []string{"paperless-gpt-auto", "keepMe"},
+			docTagIDs:  []int{10, 20, 99}, // 99 is invisible to the API user
 			addTags:    []string{"paperless-gpt-auto-complete"},
 			removeTags: []string{"paperless-gpt-auto"},
-			wantTagIDs: []interface{}{float64(20), float64(30)}, // keepMe, complete
+			wantTagIDs: []interface{}{float64(20), float64(30), float64(99)}, // keepMe, complete, invisible
 		},
 	}
 
@@ -1217,7 +1219,7 @@ func TestUpdateDocuments_AddTagsApplied(t *testing.T) {
 
 			doc := DocumentSuggestion{
 				ID:               1,
-				OriginalDocument: Document{ID: 1, Tags: tt.docTags},
+				OriginalDocument: Document{ID: 1, Tags: tt.docTags, TagIDs: tt.docTagIDs},
 				AddTags:          tt.addTags,
 				RemoveTags:       tt.removeTags,
 			}
@@ -1227,6 +1229,70 @@ func TestUpdateDocuments_AddTagsApplied(t *testing.T) {
 			assert.ElementsMatch(t, tt.wantTagIDs, patched["tags"])
 		})
 	}
+}
+
+// TestUpdateDocuments_CleanupPatchPreservesInvisibleTags covers the separate
+// tag-removal PATCH: when a tag change leaves no tags to send in the main
+// update, UpdateDocuments re-fetches the document and PATCHes away only the
+// workflow tags. A tag the API user cannot see has no resolvable name and
+// used to be dropped by that name-driven rebuild — it must survive by ID.
+func TestUpdateDocuments_CleanupPatchPreservesInvisibleTags(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	previousManualTag, previousAutoTag, previousAutoOcrTag := manualTag, autoTag, autoOcrTag
+	manualTag, autoTag, autoOcrTag = "manual", "paperless-gpt-auto", "paperless-gpt-ocr-auto"
+	t.Cleanup(func() {
+		manualTag, autoTag, autoOcrTag = previousManualTag, previousAutoTag, previousAutoOcrTag
+	})
+
+	// Only the workflow tag is visible to the API user. Tag 99 sits on the
+	// document (and is still there when the cleanup PATCH re-fetches it) but
+	// resolves to no name.
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{"id": 10, "name": "paperless-gpt-auto"},
+			},
+			"next": nil,
+		})
+	})
+
+	var patches []map[string]interface{}
+	env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(GetDocumentApiResponse{
+				ID: 1, Title: "Test Doc", Tags: []int{10, 99},
+			})
+			return
+		}
+		if r.Method == http.MethodPatch {
+			var body map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			patches = append(patches, body)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	doc := DocumentSuggestion{
+		ID:               1,
+		OriginalDocument: Document{ID: 1, Tags: []string{"paperless-gpt-auto"}, TagIDs: []int{10}},
+		SuggestedTitle:   "New Title", // keeps the main PATCH non-empty so tags defer to the cleanup PATCH
+		RemoveTags:       []string{"paperless-gpt-auto"},
+	}
+	require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{doc}, env.db, false))
+
+	var tagPatch map[string]interface{}
+	for _, p := range patches {
+		if _, hasTags := p["tags"]; hasTags {
+			tagPatch = p
+		}
+	}
+	require.NotNil(t, tagPatch, "the cleanup tag PATCH must be sent")
+	assert.ElementsMatch(t, []interface{}{float64(99)}, tagPatch["tags"],
+		"cleanup PATCH must keep the invisible tag and drop only the workflow tag")
 }
 
 // TestUpdateDocuments_PreserveExistingMetadata verifies that PRESERVE_EXISTING_METADATA
