@@ -85,6 +85,17 @@ func TestInjectZDRPreference(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(out), `"seed":9007199254740993`)
 	})
+
+	t.Run("errors on trailing data after the top-level JSON value", func(t *testing.T) {
+		// json.Decoder.Decode reads exactly one JSON value and stops,
+		// unlike json.Unmarshal, which rejects any input with data left
+		// over after the value. Without an explicit trailing-data check,
+		// a body like this would "succeed", silently keeping only the
+		// first object and dropping the second one on re-marshal.
+		body := []byte(`{"model":"m"}{"messages":[]}`)
+		_, err := injectZDRPreference(body)
+		assert.Error(t, err)
+	})
 }
 
 func TestIsOpenRouterHost(t *testing.T) {

@@ -55,6 +55,7 @@ package openrouterzdr
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -169,6 +170,19 @@ func injectZDRPreference(body []byte) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(&payload); err != nil {
+		return nil, err
+	}
+	// Decode reads exactly one JSON value and stops; unlike json.Unmarshal,
+	// it doesn't itself reject trailing bytes after that value. A body like
+	// `{"model":"m"}{"messages":[]}` would otherwise decode "successfully"
+	// (keeping only the first object) and silently drop the rest when
+	// re-marshaled below. Confirm nothing follows the first value so such a
+	// malformed body still hits the caller's unchanged-body fallback, same
+	// as it did under json.Unmarshal.
+	if _, err := decoder.Token(); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("unexpected data after top-level JSON value")
+		}
 		return nil, err
 	}
 
