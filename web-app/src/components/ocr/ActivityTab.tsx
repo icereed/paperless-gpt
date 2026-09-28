@@ -98,9 +98,11 @@ const ActivityTab: React.FC<ActivityTabProps> = ({ config }) => {
                 defaults: {defaults.process_mode},{" "}
                 {defaults.limit_pages > 0 ? `max ${defaults.limit_pages} pages` : "all pages"}
                 {defaults.upload_pdf
-                  ? defaults.replace_original
-                    ? ", PDF replaces original"
-                    : ", PDF attached"
+                  ? defaults.upload_mode === "version"
+                    ? ", PDF added as new version"
+                    : defaults.replace_original
+                      ? ", PDF replaces original"
+                      : ", PDF attached"
                   : ""}
                 .
               </p>

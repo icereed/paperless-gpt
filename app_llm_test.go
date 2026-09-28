@@ -532,6 +532,9 @@ func (m *mockPaperlessClient) DownloadDocumentAsPDF(ctx context.Context, documen
 func (m *mockPaperlessClient) UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error) {
 	return "", nil
 }
+func (m *mockPaperlessClient) UploadDocumentVersion(ctx context.Context, documentID int, data []byte, filename string, versionLabel string) (string, error) {
+	return "", nil
+}
 func (m *mockPaperlessClient) GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error) {
 	return nil, nil
 }

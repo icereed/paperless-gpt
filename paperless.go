@@ -2091,3 +2091,69 @@ func (client *PaperlessClient) UploadDocument(ctx context.Context, pdfData []byt
 	log.Infof("Successfully uploaded document, received task ID: %s", taskID)
 	return taskID, nil
 }
+
+// maxVersionLabelLength mirrors paperless-ngx's DocumentVersionSerializer.
+const maxVersionLabelLength = 64
+
+// UploadDocumentVersion adds data as a new version of an existing document
+// (paperless-ngx 3.0+, POST /api/documents/{id}/update_version/). The document
+// keeps its id, metadata and earlier versions; downloads serve the newest one.
+// Returns the consume task ID.
+func (client *PaperlessClient) UploadDocumentVersion(ctx context.Context, documentID int, data []byte, filename string, versionLabel string) (string, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	part, err := writer.CreateFormFile("document", filename)
+	if err != nil {
+		return "", fmt.Errorf("error creating form file: %w", err)
+	}
+	if _, err := io.Copy(part, bytes.NewReader(data)); err != nil {
+		return "", fmt.Errorf("error copying file data: %w", err)
+	}
+
+	if versionLabel != "" {
+		if runes := []rune(versionLabel); len(runes) > maxVersionLabelLength {
+			versionLabel = string(runes[:maxVersionLabelLength])
+		}
+		if err := writer.WriteField("version_label", versionLabel); err != nil {
+			return "", fmt.Errorf("error adding version label: %w", err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return "", fmt.Errorf("error closing multipart writer: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s/api/documents/%d/update_version/", client.BaseURL, documentID)
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, body)
+	if err != nil {
+		return "", fmt.Errorf("error creating request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", fmt.Sprintf("Token %s", client.APIToken))
+
+	resp, err := client.HTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error sending request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response: %w", err)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return "", fmt.Errorf("error uploading document version: document %d not found, or paperless-ngx is older than 3.0 (no version support): %s", documentID, string(bodyBytes))
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("error uploading document version: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	taskID := strings.Trim(strings.TrimSpace(string(bodyBytes)), "\"")
+	if taskID == "" {
+		return "", fmt.Errorf("empty task ID returned")
+	}
+
+	log.Infof("Successfully uploaded new version of document %d, received task ID: %s", documentID, taskID)
+	return taskID, nil
+}

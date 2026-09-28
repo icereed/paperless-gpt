@@ -81,6 +81,7 @@ var (
 	localHOCRPath                 = os.Getenv("LOCAL_HOCR_PATH")
 	localPDFPath                  = os.Getenv("LOCAL_PDF_PATH")
 	pdfUpload                     = os.Getenv("PDF_UPLOAD") == "true"
+	pdfUploadMode                 = strings.ToLower(strings.TrimSpace(os.Getenv("PDF_UPLOAD_MODE")))
 	pdfReplace                    = os.Getenv("PDF_REPLACE") == "true"
 	pdfCopyMetadata               = os.Getenv("PDF_COPY_METADATA") == "true"
 	pdfOCRCompleteTag             = os.Getenv("PDF_OCR_COMPLETE_TAG")
@@ -138,6 +139,7 @@ type App struct {
 	createLocalHOCR    bool                   // Whether to save hOCR files locally
 	createLocalPDF     bool                   // Whether to create PDF files locally
 	pdfUpload          bool                   // Whether to upload processed PDFs to paperless-ngx
+	pdfUploadMode      string                 // PDFUploadModeNew or PDFUploadModeVersion
 	pdfReplace         bool                   // Whether to replace original document after upload
 	pdfCopyMetadata    bool                   // Whether to copy metadata from original to uploaded PDF
 	pdfOCRCompleteTag  string                 // Tag to add to documents that have been OCR processed
@@ -424,6 +426,7 @@ func main() {
 		createLocalHOCR:    createLocalHOCR,
 		createLocalPDF:     createLocalPDF,
 		pdfUpload:          pdfUpload,
+		pdfUploadMode:      pdfUploadMode,
 		pdfReplace:         pdfReplace,
 		pdfCopyMetadata:    pdfCopyMetadata,
 		pdfOCRCompleteTag:  pdfOCRCompleteTag,
@@ -880,6 +883,19 @@ func validateOrDefaultEnvVars() {
 		}
 	}
 
+	switch pdfUploadMode {
+	case "":
+		pdfUploadMode = PDFUploadModeNew
+	case PDFUploadModeNew, PDFUploadModeVersion:
+	default:
+		// No silent fallback: "new" would add a duplicate document for every PDF.
+		log.Fatalf("Invalid PDF_UPLOAD_MODE value: %q (must be %q or %q)", pdfUploadMode, PDFUploadModeNew, PDFUploadModeVersion)
+	}
+	if pdfUploadMode == PDFUploadModeVersion && pdfReplace {
+		log.Warnf("PDF_REPLACE is ignored when PDF_UPLOAD_MODE=%s: versions never delete anything", PDFUploadModeVersion)
+		pdfReplace = false
+	}
+
 	if ocrProcessMode == "" {
 		ocrProcessMode = "image"
 		log.Infof("OCR_PROCESS_MODE not set, defaulting to %s", ocrProcessMode)
@@ -978,7 +994,11 @@ func validateOrDefaultEnvVars() {
 		}
 	}
 	if pdfUpload {
-		log.Infof("PDF upload to paperless-ngx is enabled")
+		if pdfUploadMode == PDFUploadModeVersion {
+			log.Infof("PDF upload to paperless-ngx is enabled: searchable PDFs are added as new versions of the same document")
+		} else {
+			log.Infof("PDF upload to paperless-ngx is enabled")
+		}
 		if pdfReplace {
 			log.Infof("Original documents will be replaced after OCR upload")
 		}

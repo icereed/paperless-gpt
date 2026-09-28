@@ -22,6 +22,7 @@ type OCRRun struct {
 	LimitPages       int    `json:"limit_pages"`
 	ProcessMode      string `gorm:"size:16" json:"process_mode"`
 	UploadPDF        bool   `json:"upload_pdf"`
+	UploadMode       string `gorm:"size:16" json:"upload_mode,omitempty"`
 	ReplaceOriginal  bool   `json:"replace_original"`
 	CopyMetadata     bool   `json:"copy_metadata"`
 	PromptOverridden bool   `json:"prompt_overridden"`
@@ -32,7 +33,7 @@ type OCRRun struct {
 	PagesDone  int `json:"pages_done"`
 	TotalPages int `json:"total_pages"`
 
-	// What happened to the searchable PDF: "none", "attached", "replaced",
+	// What happened to the searchable PDF: "none", "attached", "versioned", "replaced",
 	// "skipped" (e.g. page limit below document length), or "failed".
 	PDFAction string `gorm:"size:16" json:"pdf_action"`
 	PDFDetail string `gorm:"size:1024" json:"pdf_detail,omitempty"`

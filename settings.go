@@ -22,6 +22,7 @@ func (app *App) effectiveOCRDefaults() OCROptions {
 
 	opts := OCROptions{
 		UploadPDF:       app.pdfUpload,
+		UploadMode:      app.pdfUploadMode,
 		ReplaceOriginal: app.pdfReplace,
 		CopyMetadata:    app.pdfCopyMetadata,
 		LimitPages:      limitOcrPages,
@@ -44,7 +45,8 @@ func (app *App) effectiveOCRDefaults() OCROptions {
 		opts.CopyMetadata = *o.CopyMetadata
 	}
 	// Replace without upload is invalid; never let persisted defaults create it.
-	if !opts.UploadPDF {
+	// A new version never deletes anything, so replace has no meaning there.
+	if !opts.UploadPDF || opts.UploadMode == PDFUploadModeVersion {
 		opts.ReplaceOriginal = false
 	}
 	return opts
