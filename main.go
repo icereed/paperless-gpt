@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"paperless-gpt/internal/openrouterzdr"
 	"paperless-gpt/ocr"
 	"paperless-gpt/sanitize"
 	"path/filepath"
@@ -1381,7 +1382,11 @@ func createVisionLLM() (llms.Model, error) {
 func createCustomHTTPClient() *http.Client {
 	// Create custom transport that adds headers
 	customTransport := &headerTransport{
-		transport: http.DefaultTransport,
+		// openrouterzdr.NewTransport is a no-op passthrough unless
+		// OPENROUTER_ENFORCE_ZDR is set; see
+		// internal/openrouterzdr/openrouterzdr.go for rationale and
+		// trade-offs.
+		transport: openrouterzdr.NewTransport(http.DefaultTransport),
 		headers: map[string]string{
 			"X-Title": "paperless-gpt",
 		},
