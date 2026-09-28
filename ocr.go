@@ -718,12 +718,12 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 				break
 			}
 
-			if status == "SUCCESS" {
+			if strings.EqualFold(status, "SUCCESS") {
 				logger.Info("Document processing completed successfully")
 				break
 			}
 
-			if status == "FAILURE" {
+			if strings.EqualFold(status, "FAILURE") {
 				return fmt.Errorf("document processing failed, not deleting original document")
 			}
 

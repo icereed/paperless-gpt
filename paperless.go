@@ -1921,12 +1921,38 @@ func (client *PaperlessClient) GetTaskStatus(ctx context.Context, taskID string)
 		return nil, fmt.Errorf("error checking task status: %d, %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	var raw interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("error parsing response: %w", err)
 	}
 
-	return result, nil
+	return taskFromTasksResponse(raw, taskID)
+}
+
+// taskFromTasksResponse returns the task object from a /api/tasks/?task_id=
+// response. paperless-ngx has answered with a bare object, a JSON list, and
+// (3.0) a paginated {"count", "results": [...]} envelope; status values have
+// been upper case ("SUCCESS") and lower case ("success").
+func taskFromTasksResponse(raw interface{}, taskID string) (map[string]interface{}, error) {
+	switch v := raw.(type) {
+	case []interface{}:
+		if len(v) == 0 {
+			return nil, fmt.Errorf("task %s not found", taskID)
+		}
+		task, ok := v[0].(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("unexpected task list entry for task %s", taskID)
+		}
+		return task, nil
+	case map[string]interface{}:
+		results, paginated := v["results"].([]interface{})
+		if !paginated {
+			return v, nil
+		}
+		return taskFromTasksResponse(results, taskID)
+	default:
+		return nil, fmt.Errorf("unexpected task status response for task %s", taskID)
+	}
 }
 
 // CreateTag creates a new tag and returns its ID
