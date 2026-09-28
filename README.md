@@ -544,7 +544,20 @@ volumes:
 
 ### PDF Upload to paperless-ngx
 
-Due to limitations in paperless-ngx's API, it's not possible to directly update existing documents with their OCR-enhanced versions. As a workaround, paperless-gpt can:
+paperless-gpt can hand the enhanced PDF back to paperless-ngx in one of two ways, chosen with `PDF_UPLOAD_MODE`:
+
+- **`version` (paperless-ngx 3.0+, recommended):** the enhanced PDF is added as a **new version of the same document** through paperless-ngx's document versions API. The document keeps its id, tags, custom fields, notes and storage path, the original file stays available as the previous version, and downloads serve the searchable PDF. Nothing is deleted, so `PDF_REPLACE` and `PDF_COPY_METADATA` do not apply.
+- **`new` (default, any paperless-ngx version):** older paperless-ngx releases cannot update an existing document's file, so paperless-gpt uploads the enhanced PDF as a new document, copies some metadata to it, and can optionally delete the original.
+
+```yaml
+environment:
+  PDF_UPLOAD: "true"
+  PDF_UPLOAD_MODE: "version" # Add the searchable PDF as a new version (paperless-ngx 3.0+)
+```
+
+> **Note**: in `version` mode paperless-ngx runs its normal consumption on the new version. With paperless-ngx's OCR mode set to `redo`, it would re-OCR the file with Tesseract and use that text for search instead of the text layer paperless-gpt wrote; set the OCR mode to `auto` (Settings → OCR) so files that already have text are left alone.
+
+In `new` mode paperless-gpt will:
 
 1. Upload the enhanced PDF as a new document
 2. Copy metadata from the original document to the new one
@@ -681,6 +694,7 @@ For best results with the enhanced OCR features:
 | `CREATE_LOCAL_PDF`                  | Whether to save enhanced PDFs locally.                                                                                                                                                        | No       | false                      |
 | `LOCAL_PDF_PATH`                    | Path where PDF files will be saved when PDF generation is enabled.                                                                                                                            | No       | /app/pdf                   |
 | `PDF_UPLOAD`                        | Whether to upload enhanced PDFs to paperless-ngx.                                                                                                                                             | No       | false                      |
+| `PDF_UPLOAD_MODE`                   | How `PDF_UPLOAD` hands back the PDF: `new` uploads a new document (optionally replacing the original); `version` adds it as a new version of the same document (paperless-ngx 3.0+), keeping id and metadata. `PDF_REPLACE` is ignored in `version` mode. | No       | new                        |
 | `PDF_REPLACE`                       | Whether to delete the original document after uploading the enhanced version (DANGEROUS).                                                                                                     | No       | false                      |
 | `PDF_COPY_METADATA`                 | Whether to copy metadata from the original document to the uploaded PDF. Only applicable when using PDF_UPLOAD.                                                                               | No       | true                       |
 | `PDF_OCR_TAGGING`                   | Whether to add a tag to mark documents as OCR-processed.                                                                                                                                      | No       | true                       |

@@ -568,6 +568,7 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			LimitPages:      options.LimitPages,
 			ProcessMode:     options.ProcessMode,
 			UploadPDF:       options.UploadPDF,
+			UploadMode:      options.UploadMode,
 			ReplaceOriginal: options.ReplaceOriginal,
 			CopyMetadata:    options.CopyMetadata,
 			Provider:        app.ocrProviderLabel,

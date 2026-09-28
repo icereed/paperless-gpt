@@ -43,7 +43,7 @@ type ProcessedDocument struct {
 	HOCR             string
 	PDFData          []byte
 	ReplacedOriginal bool   // true when the original document was successfully deleted and replaced
-	PDFAction        string // "none", "attached", "replaced", "skipped", "failed" — what happened to the searchable PDF
+	PDFAction        string // "none", "attached", "versioned", "replaced", "skipped", "failed" — what happened to the searchable PDF
 	PDFDetail        string // human-readable reason for "skipped"/"failed"
 }
 
@@ -67,6 +67,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	// Validate options for safety
 	if !options.UploadPDF && options.ReplaceOriginal {
 		return nil, fmt.Errorf("invalid OCROptions: cannot set ReplaceOriginal=true when UploadPDF=false")
+	}
+	if options.UploadMode == PDFUploadModeVersion && options.ReplaceOriginal {
+		return nil, fmt.Errorf("invalid OCROptions: cannot set ReplaceOriginal=true when UploadMode=%s", PDFUploadModeVersion)
 	}
 
 	docLogger := documentLogger(documentID)
@@ -524,7 +527,13 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 							if options.UploadPDF && pdfData != nil {
 								err := app.uploadProcessedPDF(ctx, documentID, pdfData, options, docLogger)
 								var replaceErr *replaceAfterUploadError
+								var unconfirmedErr *versionUnconfirmedError
 								switch {
+								case err == nil && options.UploadMode == PDFUploadModeVersion:
+									processedDoc.PDFAction = "versioned"
+								case errors.As(err, &unconfirmedErr):
+									processedDoc.PDFAction = "versioned"
+									processedDoc.PDFDetail = fmt.Sprintf("Uploaded, but paperless-ngx had not confirmed the new version when paperless-gpt stopped waiting; check task %s in paperless-ngx.", unconfirmedErr.taskID)
 								case err == nil && options.ReplaceOriginal:
 									processedDoc.ReplacedOriginal = true
 									processedDoc.PDFAction = "replaced"
@@ -610,6 +619,10 @@ func (app *App) savePDFToFile(ctx context.Context, documentID int, pdfData []byt
 
 // Upload PDF to Paperless
 func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData []byte, options OCROptions, logger *logrus.Entry) error {
+	if options.UploadMode == PDFUploadModeVersion {
+		return app.uploadProcessedPDFAsVersion(ctx, documentID, pdfData, logger)
+	}
+
 	// Get the original document metadata
 	originalDoc, err := app.Client.GetDocument(ctx, documentID)
 	if err != nil {
@@ -743,4 +756,86 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 	}
 
 	return nil
+}
+
+// uploadProcessedPDFAsVersion adds the searchable PDF as a new version of the
+// same document. Unlike a new-document upload there is no metadata to copy and
+// nothing to delete: tags, custom fields, notes and the id stay on the document,
+// and paperless-ngx keeps the original file as the previous version.
+func (app *App) uploadProcessedPDFAsVersion(ctx context.Context, documentID int, pdfData []byte, logger *logrus.Entry) error {
+	filename := fmt.Sprintf("%08d_paperless-gpt_ocr.pdf", documentID)
+	taskID, err := app.Client.UploadDocumentVersion(ctx, documentID, pdfData, filename, "paperless-gpt OCR")
+	if err != nil {
+		return fmt.Errorf("error uploading PDF as new version: %w", err)
+	}
+	taskLogger := logger.WithField("task_id", taskID)
+	taskLogger.Info("Searchable PDF uploaded; waiting for paperless-ngx to add it as a new version")
+
+	// paperless-ngx only queues the import. Report a rejected import as a
+	// failure instead of as a new version that never appears. An unknown
+	// outcome (status unreadable, still pending) is not a failure: the upload
+	// was accepted and retrying would add a second version.
+	var lastErr error
+	for attempt := 0; attempt < taskPollAttempts; attempt++ {
+		task, err := app.Client.GetTaskStatus(ctx, taskID)
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = nil
+			status, _ := task["status"].(string)
+			switch {
+			case strings.EqualFold(status, "SUCCESS"):
+				taskLogger.Info("paperless-ngx added the searchable PDF as a new version")
+				return nil
+			case strings.EqualFold(status, "FAILURE"):
+				return fmt.Errorf("paperless-ngx rejected the new version: %v", taskResultDetail(task))
+			}
+		}
+		if attempt < taskPollAttempts-1 {
+			select {
+			case <-ctx.Done():
+				return &versionUnconfirmedError{taskID: taskID, cause: ctx.Err()}
+			case <-time.After(taskPollInterval):
+			}
+		}
+	}
+	if lastErr != nil {
+		taskLogger.WithError(lastErr).Warn("Could not check whether paperless-ngx added the new version")
+	} else {
+		taskLogger.Warn("paperless-ngx has not finished adding the new version; not waiting longer")
+	}
+	return &versionUnconfirmedError{taskID: taskID, cause: lastErr}
+}
+
+// versionUnconfirmedError means the searchable PDF was accepted for import as a
+// new version, but paperless-ngx had not confirmed it when paperless-gpt stopped
+// waiting. It is not a failure: retrying would add a second version.
+type versionUnconfirmedError struct {
+	taskID string
+	cause  error
+}
+
+func (e *versionUnconfirmedError) Error() string {
+	if e.cause != nil {
+		return fmt.Sprintf("paperless-ngx has not confirmed the new version (task %s): %v", e.taskID, e.cause)
+	}
+	return fmt.Sprintf("paperless-ngx has not confirmed the new version yet (task %s)", e.taskID)
+}
+
+func (e *versionUnconfirmedError) Unwrap() error { return e.cause }
+
+// Waiting on paperless-ngx to import a new version; tests shorten these.
+var (
+	taskPollAttempts = 12
+	taskPollInterval = 5 * time.Second
+)
+
+// taskResultDetail picks the most useful failure detail from a task object.
+func taskResultDetail(task map[string]interface{}) interface{} {
+	for _, key := range []string{"result_data", "result"} {
+		if detail, ok := task[key]; ok && detail != nil {
+			return detail
+		}
+	}
+	return "no detail from paperless-ngx"
 }

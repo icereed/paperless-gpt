@@ -384,6 +384,10 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "replace_original requires upload_pdf"})
 		return
 	}
+	if options.ReplaceOriginal && options.UploadMode == PDFUploadModeVersion {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "replace_original is not available when PDF_UPLOAD_MODE=version: the PDF is added as a new version and nothing is deleted"})
+		return
+	}
 	if options.UploadPDF && !app.ocrSupportsHOCR() {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Searchable PDFs need an hOCR-capable OCR provider (enable hOCR for the LLM provider)"})
 		return
@@ -429,6 +433,7 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 		LimitPages:       options.LimitPages,
 		ProcessMode:      options.ProcessMode,
 		UploadPDF:        options.UploadPDF,
+		UploadMode:       options.UploadMode,
 		ReplaceOriginal:  options.ReplaceOriginal,
 		CopyMetadata:     options.CopyMetadata,
 		PromptOverridden: options.PromptOverride != "",
@@ -488,6 +493,7 @@ func (app *App) getOCRConfigHandler(c *gin.Context) {
 			"limit_pages":      defaults.LimitPages,
 			"process_mode":     defaults.ProcessMode,
 			"upload_pdf":       defaults.UploadPDF,
+			"upload_mode":      defaults.UploadMode,
 			"replace_original": defaults.ReplaceOriginal,
 			"copy_metadata":    defaults.CopyMetadata,
 		},
@@ -535,6 +541,10 @@ func (app *App) updateOCRDefaultsHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "replace_original requires upload_pdf"})
 		return
 	}
+	if defaults.ReplaceOriginal != nil && *defaults.ReplaceOriginal && app.pdfUploadMode == PDFUploadModeVersion {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "replace_original is not available when PDF_UPLOAD_MODE=version"})
+		return
+	}
 	// Mirror the submit-time guard: a saved upload_pdf default without an
 	// hOCR-capable provider would break every run that inherits it.
 	if uploadEnabled && !app.ocrSupportsHOCR() {
@@ -569,6 +579,7 @@ func (app *App) respondWithOCRDefaults(c *gin.Context) {
 			"limit_pages":      effective.LimitPages,
 			"process_mode":     effective.ProcessMode,
 			"upload_pdf":       effective.UploadPDF,
+			"upload_mode":      effective.UploadMode,
 			"replace_original": effective.ReplaceOriginal,
 			"copy_metadata":    effective.CopyMetadata,
 		},

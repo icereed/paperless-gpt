@@ -134,7 +134,22 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
     }
   };
 
-  const pdfChoices: { value: PDFChoice; label: string; description: string; disabled?: boolean }[] = [
+  const versionMode = config.defaults.upload_mode === "version";
+  // Versions never delete anything. A replace carried in from an older run
+  // (e.g. "Re-run…" in Activity) would only be rejected by the server.
+  useEffect(() => {
+    if (versionMode && options.replace_original) {
+      onChange({ ...options, replace_original: false });
+    }
+  }, [versionMode, options, onChange]);
+
+  const pdfChoices: {
+    value: PDFChoice;
+    label: string;
+    description: string;
+    disabled?: boolean;
+    disabledReason?: string;
+  }[] = [
     {
       value: "none",
       label: "No PDF",
@@ -142,15 +157,20 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
     },
     {
       value: "attach",
-      label: "Attach as new document",
-      description: "Uploads a searchable PDF next to the original.",
+      label: versionMode ? "Add as new version" : "Attach as new document",
+      description: versionMode
+        ? "Adds a searchable PDF as a new version of this document. Nothing is deleted."
+        : "Uploads a searchable PDF next to the original.",
       disabled: !config.hocr_capable,
     },
     {
       value: "replace",
       label: "Replace original",
       description: "Deletes the original — permanent, not undoable.",
-      disabled: !config.hocr_capable,
+      disabled: !config.hocr_capable || versionMode,
+      disabledReason: versionMode
+        ? "Not available with PDF_UPLOAD_MODE=version: versions never delete anything"
+        : undefined,
     },
   ];
 
@@ -211,7 +231,7 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
                   key={choice.value}
                   title={
                     choice.disabled
-                      ? "Needs an hOCR-capable OCR provider"
+                      ? (choice.disabledReason ?? "Needs an hOCR-capable OCR provider")
                       : choice.description
                   }
                   className={classNames(
