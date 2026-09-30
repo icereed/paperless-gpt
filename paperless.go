@@ -22,8 +22,9 @@ import (
 	"sync"
 	"time"
 
+	"paperless-gpt/internal/pdfrender"
+
 	"github.com/disintegration/imaging"
-	"github.com/gen2brain/go-fitz"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -59,6 +60,55 @@ type CustomField struct {
 type DocumentType struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
+}
+
+// lookupTagID resolves a tag name to its paperless-ngx id, ignoring case.
+//
+// paperless-ngx preserves the case a tag was created with, while the names
+// paperless-gpt matches against are typed by a user into MANUAL_TAG, AUTO_TAG,
+// AUTO_TAG_COMPLETE and friends. An exact map index makes a tag that exists look
+// missing, and both outcomes are bad: with CREATE_NEW_TAGS off the tag is
+// silently dropped, so a processed document keeps no completion marker and is
+// indistinguishable from one that was never touched; with it on, a second tag is
+// created that differs from the existing one only by case.
+//
+// The rest of the tag handling already ignores case -- the RemoveTags pass below
+// and the suggestion filtering in app_llm.go both use strings.EqualFold -- so an
+// exact lookup here is the odd one out.
+//
+// The stored spelling is returned alongside the id so callers record what
+// paperless-ngx actually holds rather than the user's variant.
+func lookupTagID(availableTags map[string]int, tagName string) (string, int, bool) {
+	if tagID, exists := availableTags[tagName]; exists {
+		return tagName, tagID, true
+	}
+
+	// GetAllTags keys this map by the exact name paperless-ngx returned, so a
+	// database that already contains case variants ("Foo" and "foo") holds both
+	// as separate entries. Ranging a map would let Go's randomised iteration
+	// order decide which id wins, making the resulting PATCH nondeterministic
+	// across runs. Settle it on the lowest id instead: ids increase with
+	// creation, so the lowest is the original tag and any case-variant
+	// duplicate -- exactly what the CREATE_NEW_TAGS path used to mint -- sorts
+	// after it.
+	matchedName, matchedID, matches := "", 0, 0
+	for availableName, tagID := range availableTags {
+		if !strings.EqualFold(availableName, tagName) {
+			continue
+		}
+		matches++
+		if matches == 1 || tagID < matchedID {
+			matchedName, matchedID = availableName, tagID
+		}
+	}
+	if matches == 0 {
+		return "", 0, false
+	}
+	if matches > 1 {
+		log.Warnf("Tag %q matches %d tags in paperless-ngx that differ only by case; using %q (id %d). Merge the duplicates to make this unambiguous.",
+			tagName, matches, matchedName, matchedID)
+	}
+	return matchedName, matchedID, true
 }
 
 func hasSameTags(original, suggested []string) bool {
@@ -569,6 +619,14 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 		finalTagNames = cleanedTags
 
+		// Tags paperless-gpt adds mechanically to mark a document as done
+		// (AUTO_TAG_COMPLETE). These are applied *after* the RemoveTags pass on
+		// purpose: the trigger tag being removed and the completion tag being
+		// added are two halves of the same handover, and when a user configures
+		// both to the same name the completion tag has to win — otherwise the
+		// document ends up with neither and looks unprocessed.
+		finalTagNames = append(finalTagNames, document.AddTags...)
+
 		slices.Sort(finalTagNames)
 		finalTagNames = slices.Compact(finalTagNames)
 
@@ -578,7 +636,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		if !hasSameTags(originalDoc.Tags, finalTagNames) {
 			var finalTagIDs []int
 			for _, tagName := range finalTagNames {
-				if tagID, exists := availableTags[tagName]; exists {
+				if _, tagID, exists := lookupTagID(availableTags, tagName); exists {
 					finalTagIDs = append(finalTagIDs, tagID)
 				} else if createNewTags {
 					// Create the new tag in paperless-ngx
@@ -606,7 +664,12 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 
 		// --- CORRESPONDENT ---
-		if document.SuggestedCorrespondent != "" && document.SuggestedCorrespondent != originalDoc.Correspondent {
+		// With PRESERVE_EXISTING_METADATA, a correspondent that is already set
+		// wins over the suggestion. That leaves paperless-ngx' own classifier (or
+		// a manual correction) in charge and limits the LLM to documents that do
+		// not have a correspondent yet.
+		if document.SuggestedCorrespondent != "" && document.SuggestedCorrespondent != originalDoc.Correspondent &&
+			!(preserveExistingMetadata && originalDoc.Correspondent != "") {
 			originalFields["correspondent"] = originalDoc.Correspondent
 			if corrID, exists := availableCorrespondents[document.SuggestedCorrespondent]; exists {
 				updatedFields["correspondent"] = corrID
@@ -621,7 +684,10 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 
 		// --- DOCUMENT TYPE ---
-		if document.SuggestedDocumentType != "" && document.SuggestedDocumentType != originalDoc.DocumentTypeName {
+		// Same as above: an existing document type is kept when
+		// PRESERVE_EXISTING_METADATA is enabled.
+		if document.SuggestedDocumentType != "" && document.SuggestedDocumentType != originalDoc.DocumentTypeName &&
+			!(preserveExistingMetadata && originalDoc.DocumentTypeName != "") {
 			originalFields["document_type"] = originalDoc.DocumentTypeName
 			if docTypeID, exists := availableDocumentTypes[document.SuggestedDocumentType]; exists {
 				updatedFields["document_type"] = docTypeID
@@ -716,12 +782,28 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			// Still need to remove the auto-tag if it exists
 			if slices.Contains(originalDoc.Tags, autoTag) || slices.Contains(originalDoc.Tags, manualTag) || slices.Contains(originalDoc.Tags, autoOcrTag) {
 				var finalTagIDs []int
+				seenTagIDs := make(map[int]bool)
+				appendTagID := func(tagName string) {
+					_, tagID, exists := lookupTagID(availableTags, tagName)
+					if !exists || seenTagIDs[tagID] {
+						return
+					}
+					seenTagIDs[tagID] = true
+					finalTagIDs = append(finalTagIDs, tagID)
+				}
 				for _, tagName := range originalDoc.Tags {
 					if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) && !strings.EqualFold(tagName, autoOcrTag) {
-						if tagID, exists := availableTags[tagName]; exists {
-							finalTagIDs = append(finalTagIDs, tagID)
-						}
+						appendTagID(tagName)
 					}
+				}
+				// Tags paperless-gpt adds mechanically (AUTO_TAG_COMPLETE) have
+				// to be applied on this path too, and after the trigger-tag
+				// removal above so an added tag wins a name collision. Without
+				// this, a document whose suggestions happened to match what it
+				// already had would lose its trigger tag and never gain a
+				// completion tag — it just looks unprocessed.
+				for _, tagName := range document.AddTags {
+					appendTagID(tagName)
 				}
 				// Mark that we need to remove tags
 				// We'll send the tag update directly (even if empty) since there are no other field changes
@@ -882,7 +964,11 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					continue // Already handled in separate update above
 				}
 			}
-			log.Printf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
+			if field == "content" {
+				log.Debugf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
+			} else {
+				log.Printf("Document %d: Updated %s from %v to %v", documentID, field, value, updatedFields[field])
+			}
 			mod := ModificationHistory{
 				DocumentID:    uint(documentID),
 				ModField:      field,
@@ -1022,25 +1108,13 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 		return nil, 0, err
 	}
 
-	tmpFile, err := os.CreateTemp("", "document-*.pdf")
-	if err != nil {
-		return nil, 0, err
-	}
-	defer os.Remove(tmpFile.Name())
-
-	_, err = tmpFile.Write(pdfData)
-	if err != nil {
-		return nil, 0, err
-	}
-	tmpFile.Close()
-
-	doc, err := fitz.New(tmpFile.Name())
+	doc, err := pdfrender.Open(ctx, pdfData)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer doc.Close()
 
-	totalPages := doc.NumPage()
+	totalPages := doc.NumPages()
 	pagesToProcess := totalPages
 
 	if limitPages > 0 && limitPages < totalPages {
@@ -1074,16 +1148,12 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 			// DPI calculation constants
 			const minDPI = 72 // Minimum DPI to ensure readable text
 
-			mu.Lock() // MuPDF is not thread-safe
-			rect, err := doc.Bound(n)
+			mu.Lock() // a PDFium document is not safe for concurrent use
+			wPts, hPts, err := doc.PageSize(n)
 			if err != nil {
 				mu.Unlock()
 				return err
 			}
-
-			// Calculate optimal DPI based on page dimensions (in points)
-			wPts := float64(rect.Dx())
-			hPts := float64(rect.Dy())
 
 			// Calculate DPI limits based on maximum allowed dimension and total pixels
 			dpiSide := float64(imageMaxPixelDimension*72) / math.Max(wPts, hPts)
@@ -1098,7 +1168,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 
 			// Render the page at calculated DPI
 			var img image.Image
-			img, err = doc.ImageDPI(n, dpi)
+			img, err = doc.RenderDPI(n, dpi)
 			mu.Unlock()
 			if err != nil {
 				return err
@@ -1112,7 +1182,9 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 
 			// Try moderate quality reduction first to avoid OCR-affecting artifacts
 			// More granular steps (85, 80, 75, 70, 65, 60)
+			quality := jpeg.DefaultQuality
 			for q := 85; buf.Len() > imageMaxFileBytes && q >= 60; q -= 5 {
+				quality = q
 				buf.Reset()
 				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: q}); err != nil {
 					return err
@@ -1130,7 +1202,7 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 					int(float64(img.Bounds().Dy())*scale),
 					imaging.Lanczos)
 				buf.Reset()
-				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: jpeg.DefaultQuality}); err != nil {
+				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: quality}); err != nil {
 					return err
 				}
 			}
@@ -1219,25 +1291,13 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 
 	// Get the number of pages in the PDF
-	tmpFile, err := os.CreateTemp("", "document-*.pdf")
+	doc, err := pdfrender.Open(ctx, pdfData)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	defer os.Remove(tmpFile.Name())
-
-	_, err = tmpFile.Write(pdfData)
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	tmpFile.Close()
-
-	doc, err := fitz.New(tmpFile.Name())
-	if err != nil {
-		return nil, nil, 0, err
-	}
-	defer doc.Close()
-
-	totalPages := doc.NumPage()
+	totalPages := doc.NumPages()
+	// Only the page count is needed here; free the PDFium instance early.
+	doc.Close()
 	pagesToProcess := totalPages
 
 	if limitPages > 0 && limitPages < totalPages {

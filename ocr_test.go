@@ -11,10 +11,58 @@ import (
 	"testing"
 	"time"
 
+	"paperless-gpt/ocr"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type recordingOCRProvider struct {
+	pages []int
+}
+
+func (p *recordingOCRProvider) ProcessImage(_ context.Context, _ []byte, pageNumber int) (*ocr.OCRResult, error) {
+	p.pages = append(p.pages, pageNumber)
+	return &ocr.OCRResult{Text: fmt.Sprintf("page %d", pageNumber)}, nil
+}
+
+func TestProcessDocumentOCR_ExplicitZeroPageLimitProcessesAllPages(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+	require.NoError(t, env.db.AutoMigrate(&OCRPageResult{}))
+
+	pdfContent, err := os.ReadFile("tests/pdf/five-pager.pdf")
+	require.NoError(t, err)
+
+	const documentID = 1037
+	env.setMockResponse(fmt.Sprintf("/api/documents/%d/download/", documentID), func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(pdfContent)
+	})
+	env.client.CacheFolder = t.TempDir()
+
+	previousGlobalLimit := limitOcrPages
+	limitOcrPages = 2
+	t.Cleanup(func() { limitOcrPages = previousGlobalLimit })
+
+	provider := &recordingOCRProvider{}
+	app := &App{
+		Client:             env.client,
+		Database:           env.db,
+		ocrProvider:        provider,
+		ocrProcessMode:     "image",
+		pdfSkipExistingOCR: false,
+	}
+
+	_, err = app.ProcessDocumentOCR(context.Background(), documentID, OCROptions{
+		LimitPages:     0,
+		ProcessMode:    "image",
+		PromptOverride: "OCR",
+	}, "")
+	require.NoError(t, err)
+	assert.Equal(t, []int{1, 2, 3, 4, 5}, provider.pages)
+}
 
 // This test focuses on verifying the PDF safety feature without using mocks that implement interfaces
 func TestProcessDocumentOCR_SafetyFeature(t *testing.T) {

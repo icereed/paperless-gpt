@@ -562,6 +562,7 @@ type recordingClient struct {
 	updateErr       error                 // returned by UpdateDocuments while non-nil
 	failAfterNCalls int                   // 0 = always succeed, N>0 = fail first N calls then succeed
 	taggedDocuments map[string][]Document // served by GetDocumentsByTag
+	getAllTagsErr   error                 // when set, GetAllTags fails — used to make suggestion generation fail
 }
 
 func (r *recordingClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
@@ -577,6 +578,30 @@ func (r *recordingClient) UpdateDocuments(ctx context.Context, documents []Docum
 
 func (r *recordingClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
 	return r.taggedDocuments[tag], nil
+}
+
+// GetDocument serves the same documents GetDocumentsByTag returns, so the
+// auto-tag poll can fetch full details for one it just listed.
+func (r *recordingClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
+	for _, docs := range r.taggedDocuments {
+		for _, d := range docs {
+			if d.ID == documentID {
+				return d, nil
+			}
+		}
+	}
+	return Document{}, fmt.Errorf("document %d not found", documentID)
+}
+
+func (r *recordingClient) GetCustomFields(ctx context.Context) ([]CustomField, error) {
+	return nil, nil
+}
+
+func (r *recordingClient) GetAllTags(ctx context.Context) (map[string]int, error) {
+	if r.getAllTagsErr != nil {
+		return nil, r.getAllTagsErr
+	}
+	return map[string]int{}, nil
 }
 
 // callsFor filters the recorded UpdateDocuments suggestions by document ID.
@@ -823,5 +848,90 @@ func TestProcessAutoOcrTagDocuments_FailTagAfterMaxRetries(t *testing.T) {
 		brokenCalls := client.callsFor(12)
 		require.Len(t, brokenCalls, 1, "broken document fail-tagged exactly once, on round 3")
 		assert.Equal(t, []string{failTag}, brokenCalls[0].SuggestedTags)
+	})
+}
+
+// TestProcessAutoTagDocuments_FailTagAfterMaxRetries covers the last failure
+// path in the auto pipeline that had no loop-break (#1071).
+//
+// When suggestion generation fails, the old code logged and `continue`d with
+// AUTO_TAG still on the document, so it was picked up again every poll cycle
+// forever. A permanently failing document (a prompt that cannot fit the model's
+// context, a model that no longer exists) therefore re-billed the same request
+// indefinitely — the reporter measured ~12,000 rejected LLM requests over seven
+// days. Worse, GetDocumentsByTag fetches one unordered page of 25, so enough
+// such documents fill that page and starve every document behind them; in that
+// report 67 documents were never processed, with the container still reporting
+// healthy.
+//
+// The failure is triggered here through the client rather than the LLM because
+// the code path under test is the same — generateDocumentSuggestions returning
+// an error — and this is the cheaper trigger to set up deterministically.
+func TestProcessAutoTagDocuments_FailTagAfterMaxRetries(t *testing.T) {
+	prevFailTag, prevAutoTag, prevMaxRetries := failTag, autoTag, autoTagMaxRetries
+	t.Cleanup(func() {
+		failTag, autoTag, autoTagMaxRetries = prevFailTag, prevAutoTag, prevMaxRetries
+	})
+	failTag = "paperless-gpt-failed"
+	autoTag = "paperless-gpt-auto"
+
+	newClient := func(id int) *recordingClient {
+		return &recordingClient{
+			taggedDocuments: map[string][]Document{autoTag: {{ID: id, Title: "Broken Doc", Tags: []string{autoTag}}}},
+			getAllTagsErr:   errors.New("exceeds the available context size"),
+		}
+	}
+
+	t.Run("fail tag applied on the configured attempt", func(t *testing.T) {
+		autoTagMaxRetries = 3
+		client := newClient(11)
+		app := &App{Client: client}
+
+		// Attempts 1 and 2: the failure is counted, nothing is written, and the
+		// error still surfaces so the loop's backoff applies.
+		for round := 1; round <= 2; round++ {
+			count, err := app.processAutoTagDocuments(context.Background())
+			assert.Error(t, err, "round %d should surface the suggestion error", round)
+			assert.Equal(t, 0, count)
+			assert.Empty(t, client.calls, "no PATCH before the limit is reached")
+		}
+
+		// Attempt 3: limit reached — trigger tag removed, fail tag applied, and
+		// the handled error no longer surfaces to the loop.
+		count, err := app.processAutoTagDocuments(context.Background())
+		assert.NoError(t, err, "a fail-tagged document must not keep the loop in backoff")
+		assert.Equal(t, 0, count)
+		require.Len(t, client.calls, 1, "exactly one recovery PATCH expected")
+		got := client.calls[0]
+		assert.Equal(t, 11, got.ID)
+		assert.Equal(t, []string{autoTag}, got.RemoveTags, "auto tag must be removed to break the loop")
+		assert.Equal(t, []string{failTag}, got.SuggestedTags, "fail tag must be added as a marker")
+		assert.True(t, got.KeepOriginalTags)
+	})
+
+	t.Run("zero disables the limit and retries forever", func(t *testing.T) {
+		autoTagMaxRetries = 0
+		client := newClient(12)
+		app := &App{Client: client}
+
+		for round := 1; round <= 5; round++ {
+			_, err := app.processAutoTagDocuments(context.Background())
+			assert.Error(t, err, "round %d should keep surfacing the error", round)
+		}
+		assert.Empty(t, client.calls, "with the limit disabled the document is never taken out of the queue")
+	})
+
+	t.Run("a cancelled context does not count against the document", func(t *testing.T) {
+		autoTagMaxRetries = 1
+		client := newClient(13)
+		app := &App{Client: client}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := app.processAutoTagDocuments(ctx)
+		assert.Error(t, err)
+		assert.Empty(t, client.calls,
+			"shutdown is not a document problem — it must not burn an attempt or fail-tag the document")
 	})
 }

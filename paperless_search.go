@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gen2brain/go-fitz"
+	"paperless-gpt/internal/pdfrender"
 )
 
 // SearchDocuments finds documents for the Playground picker. An empty query
@@ -125,35 +125,24 @@ func (client *PaperlessClient) GetDocumentPageImage(ctx context.Context, documen
 		return nil, err
 	}
 
-	tmpFile, err := os.CreateTemp("", "document-preview-*.pdf")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(tmpFile.Name())
-	if _, err := tmpFile.Write(pdfData); err != nil {
-		tmpFile.Close()
-		return nil, err
-	}
-	tmpFile.Close()
-
-	doc, err := fitz.New(tmpFile.Name())
+	doc, err := pdfrender.Open(ctx, pdfData)
 	if err != nil {
 		return nil, err
 	}
 	defer doc.Close()
 
-	if pageIndex >= doc.NumPage() {
-		return nil, fmt.Errorf("page %d out of range: document has %d pages", pageIndex+1, doc.NumPage())
+	if pageIndex >= doc.NumPages() {
+		return nil, fmt.Errorf("page %d out of range: document has %d pages", pageIndex+1, doc.NumPages())
 	}
 
 	// Render at a DPI that keeps the preview readable but bounded in size.
-	rect, err := doc.Bound(pageIndex)
+	widthPts, _, err := doc.PageSize(pageIndex)
 	if err != nil {
 		return nil, err
 	}
 	const targetWidth = 1200.0
-	dpi := math.Min(150, math.Max(72, targetWidth/(float64(rect.Dx())/72.0)))
-	img, err := doc.ImageDPI(pageIndex, dpi)
+	dpi := math.Min(150, math.Max(72, targetWidth/(widthPts/72.0)))
+	img, err := doc.RenderDPI(pageIndex, dpi)
 	if err != nil {
 		return nil, err
 	}

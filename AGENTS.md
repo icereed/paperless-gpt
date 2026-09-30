@@ -20,7 +20,7 @@ paperless-gpt/
 
 ## Setup and build
 
-System dependency: mupdf (`apt-get install -y mupdf libmupdf-dev` on Debian/Ubuntu, `brew install mupdf` on macOS).
+No system PDF library is needed: PDF pages are rendered with PDFium through go-pdfium's WebAssembly runtime (`internal/pdfrender`). A C compiler is still required for CGO (go-sqlite3).
 
 Build the frontend first — the Go binary embeds it from `dist/` at the repo root:
 
@@ -71,7 +71,6 @@ To validate a change end-to-end: start the app, verify the web server comes up o
 ## Common pitfalls
 
 - **Frontend changes not visible**: re-run `npm run build` and `cp -r dist ../` — the Go binary serves the copied `dist/`, not `web-app/dist/`.
-- **mupdf build errors**: install the `mupdf`/`libmupdf-dev` system packages.
 - **Docker build fails**: needs external network access (Alpine repositories); `docker build -t paperless-gpt .` takes 5+ minutes.
 
 ## CI and PR guidelines
