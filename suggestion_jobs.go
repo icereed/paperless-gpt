@@ -125,6 +125,9 @@ func cloneDocuments(documents []Document) []Document {
 		if doc.Tags != nil {
 			documentCopies[i].Tags = append([]string(nil), doc.Tags...)
 		}
+		if doc.TagIDs != nil {
+			documentCopies[i].TagIDs = append([]int(nil), doc.TagIDs...)
+		}
 		if doc.CustomFields != nil {
 			documentCopies[i].CustomFields = append([]CustomFieldResponse(nil), doc.CustomFields...)
 		}
