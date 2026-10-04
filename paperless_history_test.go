@@ -80,29 +80,62 @@ func TestUpdateDocuments_HistoryStoresHumanReadableNames(t *testing.T) {
 }
 
 func TestParseTagHistoryValue_BackwardCompat(t *testing.T) {
-	// New JSON format.
-	tags, err := parseTagHistoryValue(`["a","b"]`)
+	known := map[string]int{
+		"paperless-gpt-auto":   1,
+		"paperless-gpt-failed": 2,
+		"Boîte de réception":   3,
+		"Inbox":                4,
+	}
+
+	// New JSON format decodes exactly, without consulting known tags.
+	tags, err := parseTagHistoryValue(`["a","b"]`, known)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a", "b"}, tags)
 
 	// Legacy Go %v format from before the fix.
-	tags, err = parseTagHistoryValue(`[paperless-gpt-auto paperless-gpt-failed]`)
+	tags, err = parseTagHistoryValue(`[paperless-gpt-auto paperless-gpt-failed]`, known)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"paperless-gpt-auto", "paperless-gpt-failed"}, tags)
 
-	// Legacy numeric IDs (old New values like "[3 2]").
-	tags, err = parseTagHistoryValue(`[3 2]`)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"3", "2"}, tags)
-
 	// Empty.
-	tags, err = parseTagHistoryValue(`[]`)
+	tags, err = parseTagHistoryValue(`[]`, known)
 	require.NoError(t, err)
 	assert.Empty(t, tags)
 
-	tags, err = parseTagHistoryValue(`null`)
+	tags, err = parseTagHistoryValue(`null`, known)
 	require.NoError(t, err)
 	assert.Empty(t, tags)
+}
+
+// Undo replaces a document's tags with the parsed list, so a legacy row whose
+// tag names contain spaces must not be split on whitespace: "[Inbox Boîte de
+// réception]" is two tags, not four. Splitting naively would remove the real
+// tag on undo — and with CREATE_NEW_TAGS, create "Boîte", "de" and
+// "réception" as new tags.
+func TestParseTagHistoryValue_LegacyMultiWordTags(t *testing.T) {
+	known := map[string]int{"Inbox": 4, "Boîte de réception": 3, "Boîte": 9}
+
+	tags, err := parseTagHistoryValue(`[Inbox Boîte de réception]`, known)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Inbox", "Boîte de réception"}, tags,
+		"longest existing name wins, even when a shorter prefix is also a tag")
+
+	// Case differences resolve to the stored spelling.
+	tags, err = parseTagHistoryValue(`[inbox]`, known)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Inbox"}, tags)
+}
+
+// When a legacy row cannot be mapped back onto existing tags, undo must refuse
+// rather than guess: the tag may have been renamed or deleted since, or the
+// row may hold IDs (old "New" values looked like "[3 2]").
+func TestParseTagHistoryValue_LegacyUnresolvableIsRefused(t *testing.T) {
+	known := map[string]int{"Inbox": 4}
+
+	for _, raw := range []string{`[Inbox Deleted Tag]`, `[3 2]`} {
+		_, err := parseTagHistoryValue(raw, known)
+		assert.ErrorIs(t, err, errAmbiguousLegacyTags, raw)
+	}
 }
 
 func TestMarshalTagsForHistory_EmptyIsJSONArray(t *testing.T) {
