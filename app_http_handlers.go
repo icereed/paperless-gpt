@@ -951,11 +951,23 @@ func (app *App) getModificationHistoryHandler(c *gin.Context) {
 	})
 }
 
+// errAmbiguousLegacyTags is returned when a history row written in the legacy
+// Go %v format cannot be mapped back to existing tags unambiguously.
+var errAmbiguousLegacyTags = errors.New("legacy tag history entry cannot be mapped to existing tags")
+
 // parseTagHistoryValue decodes tag lists stored in ModificationHistory.
-// New rows are JSON (e.g. ["a","b"]); rows written before the #842 fix used
-// Go fmt.Sprintf("%v") syntax (e.g. "[a b]" or "[3 2]"), which is parsed
-// best-effort so undo keeps working for old history entries.
-func parseTagHistoryValue(s string) ([]string, error) {
+//
+// New rows are JSON (e.g. ["a","b"]) and decode exactly. Rows written before
+// the #842 fix used Go fmt.Sprintf("%v") syntax, e.g. "[Inbox Boîte de
+// réception]". That format joins names with spaces, so a name that itself
+// contains spaces cannot be split back reliably by whitespace alone — and undo
+// replaces the document's tags with the result, so a wrong split would remove
+// the real tag and, with CREATE_NEW_TAGS, create fragments like "Boîte" and
+// "de". Legacy rows are therefore resolved against knownTags: the tokens are
+// matched greedily, longest existing tag name first. If any part of the row
+// cannot be matched, errAmbiguousLegacyTags is returned and the caller refuses
+// the undo rather than guessing.
+func parseTagHistoryValue(s string, knownTags map[string]int) ([]string, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return []string{}, nil
@@ -967,14 +979,37 @@ func parseTagHistoryValue(s string) ([]string, error) {
 		}
 		return tags, nil
 	}
+	inner := s
 	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
-		inner := strings.TrimSpace(s[1 : len(s)-1])
-		if inner == "" {
-			return []string{}, nil
-		}
-		return strings.Fields(inner), nil
+		inner = strings.TrimSpace(s[1 : len(s)-1])
 	}
-	return []string{s}, nil
+	if inner == "" {
+		return []string{}, nil
+	}
+	return resolveLegacyTagTokens(strings.Fields(inner), knownTags)
+}
+
+// resolveLegacyTagTokens reassembles space-separated tokens into existing tag
+// names, preferring the longest match at each position. It returns the stored
+// spelling of each tag, or errAmbiguousLegacyTags if a token cannot be covered.
+func resolveLegacyTagTokens(tokens []string, knownTags map[string]int) ([]string, error) {
+	var names []string
+	for i := 0; i < len(tokens); {
+		matched := false
+		for j := len(tokens); j > i; j-- {
+			candidate := strings.Join(tokens[i:j], " ")
+			if storedName, _, ok := lookupTagID(knownTags, candidate); ok {
+				names = append(names, storedName)
+				i = j
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return nil, fmt.Errorf("%w: no existing tag matches %q", errAmbiguousLegacyTags, tokens[i])
+		}
+	}
+	return names, nil
 }
 
 func (app *App) undoModificationHandler(c *gin.Context) {
@@ -1015,7 +1050,18 @@ func (app *App) undoModificationHandler(c *gin.Context) {
 	case "title":
 		suggestion.SuggestedTitle = modification.PreviousValue
 	case "tags":
-		tags, err := parseTagHistoryValue(modification.PreviousValue)
+		knownTags, err := app.Client.GetAllTags(ctx)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch tags"})
+			log.Errorf("Failed to fetch tags for undo: %v", err)
+			return
+		}
+		tags, err := parseTagHistoryValue(modification.PreviousValue, knownTags)
+		if errors.Is(err, errAmbiguousLegacyTags) {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "This history entry was recorded in an older format and its tags cannot be restored reliably. Please restore the tags manually in paperless-ngx."})
+			log.Warnf("Refusing tag undo for modification %d: %v", modification.ID, err)
+			return
+		}
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unmarshal previous tags"})
 			log.Errorf("Failed to unmarshal previous tags: %v", err)
