@@ -25,6 +25,7 @@ import (
 	"paperless-gpt/internal/pdfrender"
 
 	"github.com/disintegration/imaging"
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -1188,7 +1189,114 @@ func stripFailedFields(updatedFields map[string]interface{}, scalarFields map[st
 	return dropped
 }
 
-// DownloadDocumentAsImages downloads the PDF file of the specified document and converts it to images
+// encodePageJPEG encodes a page image as JPEG within IMAGE_MAX_FILE_BYTES:
+// moderate quality reduction first (85 down to 60, to avoid artifacts that
+// hurt OCR), then a proportional resize as a last resort. It returns the
+// encoded bytes and the image actually encoded, which differs from the input
+// when it had to be resized.
+func encodePageJPEG(img image.Image) (*bytes.Buffer, image.Image, error) {
+	buf := &bytes.Buffer{}
+	if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: jpeg.DefaultQuality}); err != nil {
+		return nil, nil, err
+	}
+	// A non-positive limit means "no limit". Without this guard the resize
+	// below computes a scale of 0 and produces an empty image.
+	if imageMaxFileBytes <= 0 {
+		return buf, img, nil
+	}
+
+	quality := jpeg.DefaultQuality
+	for q := 85; buf.Len() > imageMaxFileBytes && q >= 60; q -= 5 {
+		quality = q
+		buf.Reset()
+		if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: q}); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if buf.Len() > imageMaxFileBytes {
+		scale := math.Sqrt(float64(imageMaxFileBytes) / float64(buf.Len()))
+		img = imaging.Resize(img,
+			int(float64(img.Bounds().Dx())*scale),
+			int(float64(img.Bounds().Dy())*scale),
+			imaging.Lanczos)
+		buf.Reset()
+		if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: quality}); err != nil {
+			return nil, nil, err
+		}
+	}
+	return buf, img, nil
+}
+
+// writeOriginalImageAsPage stores an original image download (served instead
+// of a PDF when paperless-ngx has archive generation disabled) as the single
+// page image the OCR providers consume.
+//
+// It is always re-encoded as JPEG rather than written through as-is: the LLM
+// OCR provider labels every page image/jpeg, and providers that validate the
+// media type (Anthropic does) reject a PNG sent under that label. Re-encoding
+// also applies the same IMAGE_MAX_* limits as rendered PDF pages, so a large
+// phone photo cannot bypass them and trip a 413 at the provider.
+func writeOriginalImageAsPage(documentID int, docDir string, data []byte) (string, error) {
+	jpegData, err := normalizeOriginalImage(documentID, data)
+	if err != nil {
+		return "", err
+	}
+	imagePath := filepath.Join(docDir, "page000.jpg")
+	if err := os.WriteFile(imagePath, jpegData, 0644); err != nil {
+		return "", err
+	}
+	return imagePath, nil
+}
+
+// normalizeOriginalImage decodes an original image download (any format the
+// image decoders understand, with EXIF orientation applied), caps it to the
+// IMAGE_MAX_* limits and re-encodes it as JPEG. See writeOriginalImageAsPage
+// for why this is always JPEG.
+func normalizeOriginalImage(documentID int, data []byte) ([]byte, error) {
+	img, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
+	if err != nil {
+		return nil, fmt.Errorf("document %d: decoding original image: %w", documentID, err)
+	}
+
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	scale := 1.0
+	if longest := math.Max(float64(w), float64(h)); imageMaxPixelDimension > 0 && longest > float64(imageMaxPixelDimension) {
+		scale = float64(imageMaxPixelDimension) / longest
+	}
+	if total := float64(w) * float64(h) * scale * scale; imageMaxTotalPixels > 0 && total > float64(imageMaxTotalPixels) {
+		scale *= math.Sqrt(float64(imageMaxTotalPixels) / total)
+	}
+	if scale < 1.0 {
+		img = imaging.Resize(img, int(float64(w)*scale), int(float64(h)*scale), imaging.Lanczos)
+	}
+
+	buf, img, err := encodePageJPEG(img)
+	if err != nil {
+		return nil, err
+	}
+	log.Infof("Document %d: original image normalised to %dx%d JPEG, %d bytes", documentID, img.Bounds().Dx(), img.Bounds().Dy(), buf.Len())
+	return buf.Bytes(), nil
+}
+
+// isPDFData reports whether downloaded bytes look like a PDF by magic number.
+// Paperless-ngx may serve the original file instead of an archived PDF (e.g.
+// when PAPERLESS_ARCHIVE_FILE_GENERATION=never), so the download is not
+// always a PDF.
+func isPDFData(data []byte) bool {
+	return len(data) >= 4 && bytes.HasPrefix(data, []byte("%PDF"))
+}
+
+// describeDownload builds a short description of downloaded bytes for errors.
+func describeDownload(data []byte) string {
+	mime := mimetype.Detect(data)
+	return mime.String()
+}
+
+// DownloadDocumentAsImages downloads the specified document and converts it to images.
+// Single images pass through as one page; other non-PDF downloads fail with a
+// descriptive error instead of a fitz failure.
 // If limitPages > 0, only the first N pages will be processed
 // Returns the image paths and the total number of pages in the original document
 func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentID int, limitPages int) ([]string, int, error) {
@@ -1217,6 +1325,22 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 	pdfData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, 0, err
+	}
+
+	// The download is not always a PDF: with
+	// PAPERLESS_ARCHIVE_FILE_GENERATION=never paperless-ngx serves the
+	// original file, which may be an image or another type.
+	if !isPDFData(pdfData) {
+		mime := describeDownload(pdfData)
+		if strings.HasPrefix(mime, "image/") {
+			log.Warnf("Document %d download is %s, not a PDF; processing as a single image", documentID, mime)
+			imagePath, err := writeOriginalImageAsPage(documentID, docDir, pdfData)
+			if err != nil {
+				return nil, 0, err
+			}
+			return []string{imagePath}, 1, nil
+		}
+		return nil, 0, fmt.Errorf("document %d download is %s (%d bytes), not a PDF (hint: with PAPERLESS_ARCHIVE_FILE_GENERATION=never paperless-ngx serves the original file); image OCR mode supports images, PDF modes require a PDF", documentID, mime, len(pdfData))
 	}
 
 	doc, err := pdfrender.Open(ctx, pdfData)
@@ -1285,37 +1409,9 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 				return err
 			}
 
-			// Encode to buffer first to measure size
-			buf := &bytes.Buffer{}
-			if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: jpeg.DefaultQuality}); err != nil {
+			buf, img, err := encodePageJPEG(img)
+			if err != nil {
 				return err
-			}
-
-			// Try moderate quality reduction first to avoid OCR-affecting artifacts
-			// More granular steps (85, 80, 75, 70, 65, 60)
-			quality := jpeg.DefaultQuality
-			for q := 85; buf.Len() > imageMaxFileBytes && q >= 60; q -= 5 {
-				quality = q
-				buf.Reset()
-				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: q}); err != nil {
-					return err
-				}
-			}
-
-			// If quality reduction wasn't enough, resize the image as last resort
-			if buf.Len() > imageMaxFileBytes {
-				// Calculate precise scale factor needed to meet file size target
-				scale := math.Sqrt(float64(imageMaxFileBytes) / float64(buf.Len()))
-
-				// Resize image proportionally using high-quality Lanczos algorithm
-				img = imaging.Resize(img,
-					int(float64(img.Bounds().Dx())*scale),
-					int(float64(img.Bounds().Dy())*scale),
-					imaging.Lanczos)
-				buf.Reset()
-				if err := jpeg.Encode(buf, img, &jpeg.Options{Quality: quality}); err != nil {
-					return err
-				}
 			}
 
 			log.Infof("Document %d page %d: final image dimensions %dx%d, size %d bytes, DPI %.0f", documentID, n, img.Bounds().Dx(), img.Bounds().Dy(), buf.Len(), dpi)
@@ -1363,7 +1459,9 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 	return imagePaths, totalPages, nil
 }
 
-// DownloadDocumentAsPDF downloads the PDF file of the specified document and splits it into individual PDFs if needed
+// DownloadDocumentAsPDF downloads the original file of the specified document and splits it into individual PDFs if needed.
+// Non-PDF originals fail with a descriptive error (images pass through only
+// when split=false, for whole-document consumers that sniff the content)
 // If limitPages > 0, only the first N pages will be processed
 // Returns the PDF paths, original PDF data, and the total number of pages in the original document
 func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error) {
@@ -1392,6 +1490,23 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	pdfData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, nil, 0, err
+	}
+
+	// The original file is not necessarily a PDF (images, office docs, ...).
+	if !isPDFData(pdfData) {
+		mime := describeDownload(pdfData)
+		if strings.HasPrefix(mime, "image/") && !split {
+			// Whole-document consumers accept image bytes, so let them
+			// proceed with a single page — normalised to JPEG for the same
+			// media-type and size reasons as in image mode.
+			log.Warnf("Document %d original is %s, not a PDF; proceeding with a single page", documentID, mime)
+			jpegData, err := normalizeOriginalImage(documentID, pdfData)
+			if err != nil {
+				return nil, nil, 0, err
+			}
+			return []string{}, jpegData, 1, nil
+		}
+		return nil, nil, 0, fmt.Errorf("document %d original is %s (%d bytes), not a PDF; PDF OCR modes require a PDF, use image mode for images", documentID, mime, len(pdfData))
 	}
 
 	// Save the original PDF
