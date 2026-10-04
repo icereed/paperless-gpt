@@ -589,6 +589,79 @@ func TestGetSuggestedCustomFields(t *testing.T) {
 	assert.Equal(t, "2025-12-31", dueDateField.Value)
 }
 
+// TestGetSuggestedCustomFields_SkipsDocumentLinkFields pins the fix for
+// documentlink custom fields. paperless-ngx only accepts a list of document
+// ids for them, which the LLM cannot know; a selected documentlink field used
+// to reach the prompt as a plain field, the LLM filled it with some reference
+// number from the text, and paperless-ngx rejected the update with "Value
+// must be a list". Such fields must neither reach the prompt nor come back as
+// suggestions, and neither may fields the user did not select.
+func TestGetSuggestedCustomFields_SkipsDocumentLinkFields(t *testing.T) {
+	mockedLLMResponse := `
+	[
+	  {"field": "Invoice Number", "value": "INV-12345"},
+	  {"field": "Reference", "value": "001441944c9bedc"},
+	  {"field": "Amount", "value": "12.50"}
+	]
+	`
+
+	llm := &mockLLM{Response: mockedLLMResponse}
+	app := &App{
+		LLM: llm,
+		Client: &mockPaperlessClient{
+			CustomFields: []CustomField{
+				{ID: 1, Name: "Invoice Number", DataType: "string"},
+				{ID: 2, Name: "Reference", DataType: "documentlink"},
+				{ID: 3, Name: "Amount", DataType: "float"},
+			},
+		},
+	}
+
+	err := os.MkdirAll("prompts", 0755)
+	require.NoError(t, err)
+	err = os.WriteFile("prompts/custom_field_prompt.tmpl", []byte("{{ .CustomFieldsXML }}"), 0644)
+	require.NoError(t, err)
+	defer os.RemoveAll("prompts")
+
+	err = loadTemplates()
+	require.NoError(t, err)
+
+	doc := Document{Content: "Invoice INV-12345, reference 001441944c9bedc, amount 12.50"}
+	selectedFieldIDs := []int{1, 2} // "Amount" is not selected
+
+	testLogger := logrus.WithField("test", "TestGetSuggestedCustomFields_SkipsDocumentLinkFields")
+	suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, selectedFieldIDs, testLogger)
+	require.NoError(t, err)
+
+	assert.Contains(t, llm.lastPrompt, `name="Invoice Number"`)
+	assert.NotContains(t, llm.lastPrompt, `name="Reference"`, "documentlink fields must not be sent to the LLM")
+	assert.NotContains(t, llm.lastPrompt, `name="Amount"`, "unselected fields must not be sent to the LLM")
+
+	require.Len(t, suggestions, 1)
+	assert.Equal(t, 1, suggestions[0].ID)
+	assert.Equal(t, "INV-12345", suggestions[0].Value)
+}
+
+// TestGetSuggestedCustomFields_OnlyDocumentLinkSelected checks that no LLM
+// call is made when every selected field is of an unsupported type.
+func TestGetSuggestedCustomFields_OnlyDocumentLinkSelected(t *testing.T) {
+	llm := &mockLLM{Error: fmt.Errorf("LLM must not be called")}
+	app := &App{
+		LLM: llm,
+		Client: &mockPaperlessClient{
+			CustomFields: []CustomField{
+				{ID: 2, Name: "Reference", DataType: "documentlink"},
+			},
+		},
+	}
+
+	testLogger := logrus.WithField("test", "TestGetSuggestedCustomFields_OnlyDocumentLinkSelected")
+	suggestions, err := app.getSuggestedCustomFields(context.Background(), Document{Content: "x"}, []int{2}, testLogger)
+	require.NoError(t, err)
+	assert.Empty(t, suggestions)
+	assert.Empty(t, llm.lastPrompt)
+}
+
 // Helper function to find a custom field by ID in a slice
 func findFieldByID(fields []CustomFieldSuggestion, id int) (CustomFieldSuggestion, bool) {
 	for _, field := range fields {
