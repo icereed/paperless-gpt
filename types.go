@@ -141,6 +141,10 @@ type DocumentSuggestion struct {
 	AddTags                []string                `json:"add_tags,omitempty"`
 	CustomFieldsWriteMode  string                  `json:"custom_fields_write_mode,omitempty"`
 	CustomFieldsEnable     bool                    `json:"custom_fields_enable"`
+	// RejectedFields names the fields whose generated value a registered
+	// extension.Vocabulary rejected. The value was cleared; the auto-tag loop
+	// applies the fail tag so the document gets reviewed.
+	RejectedFields []string `json:"rejected_fields,omitempty"`
 }
 
 type Correspondent struct {

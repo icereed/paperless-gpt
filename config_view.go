@@ -89,8 +89,9 @@ func ocrOverrideValue(name string) (string, bool) {
 // buildConfigEntries assembles the effective configuration view from the
 // registry and the current environment/settings.
 func buildConfigEntries() []ConfigEntry {
-	entries := make([]ConfigEntry, 0, len(envRegistry))
-	for _, e := range envRegistry {
+	vars := allEnvVars()
+	entries := make([]ConfigEntry, 0, len(vars))
+	for _, e := range vars {
 		envVal, isSet := os.LookupEnv(e.Name)
 
 		entry := ConfigEntry{
@@ -137,7 +138,7 @@ func buildConfigEntries() []ConfigEntry {
 // values are never emitted — only whether they are set.
 func (app *App) getConfigHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"categories": envCategoryOrder,
+		"categories": configCategories(),
 		"entries":    buildConfigEntries(),
 	})
 }

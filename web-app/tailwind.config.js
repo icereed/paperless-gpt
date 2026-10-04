@@ -1,6 +1,14 @@
+const path = require('path');
+
+// A UI extension (PGPT_UI_EXTENSION, see src/extension-api.ts) is styled with
+// the same utilities, so its sources are scanned too.
+const extensionSources = process.env.PGPT_UI_EXTENSION
+  ? [path.join(path.dirname(path.resolve(process.env.PGPT_UI_EXTENSION)), '**/*.{js,ts,jsx,tsx}')]
+  : [];
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}', ...extensionSources],
   darkMode: 'class',
   theme: {
     extend: {
