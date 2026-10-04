@@ -201,6 +201,7 @@ type ClientInterface interface {
 	GetDocument(ctx context.Context, documentID int) (Document, error)
 	GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error)
 	SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error)
+	FindDocumentIDsByReference(ctx context.Context, reference string, limit int) ([]int, error)
 	GetDocumentPageImage(ctx context.Context, documentID int, pageIndex int) ([]byte, error)
 	GetAllTags(ctx context.Context) (map[string]int, error)
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)

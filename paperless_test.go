@@ -1301,3 +1301,38 @@ func TestLookupTagID_AmbiguousMatchIsDeterministic(t *testing.T) {
 	_, _, exists = lookupTagID(availableTags, "absent")
 	assert.False(t, exists)
 }
+
+// TestFindDocumentIDsByReference checks the request sent to paperless-ngx and
+// that the substring match of content__icontains is narrowed to whole words.
+func TestFindDocumentIDsByReference(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "GET", r.Method)
+		assert.Equal(t, "R123", r.URL.Query().Get("content__icontains"))
+		assert.Equal(t, "id,content", r.URL.Query().Get("fields"))
+		assert.Equal(t, "5", r.URL.Query().Get("page_size"))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"count": 4, "results": [
+			{"id": 1, "content": "Rechnung R123 vom 01.09.2026"},
+			{"id": 2, "content": "Rechnung R1234 vom 02.09.2026"},
+			{"id": 3, "content": "Mahnung zu Rechnung r123."},
+			{"id": 4, "content": "Auftrag AR123"}
+		]}`))
+	})
+
+	ids, err := env.client.FindDocumentIDsByReference(context.Background(), " R123 ", 5)
+	require.NoError(t, err)
+	assert.Equal(t, []int{1, 3}, ids)
+}
+
+func TestFindDocumentIDsByReference_EmptyReference(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	ids, err := env.client.FindDocumentIDsByReference(context.Background(), "  ", 5)
+	require.NoError(t, err)
+	assert.Empty(t, ids)
+	assert.Equal(t, 0, env.requestCount, "an empty reference must not query paperless-ngx")
+}

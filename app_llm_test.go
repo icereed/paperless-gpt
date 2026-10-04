@@ -452,6 +452,11 @@ type mockPaperlessClient struct {
 	GetAllTagsCalls           int
 	GetAllCorrespondentsCalls int
 	GetAllDocumentTypesCalls  int
+	// ReferenceMatches maps a reference to the document ids
+	// FindDocumentIDsByReference returns for it.
+	ReferenceMatches map[string][]int
+	ReferenceError   error
+	ReferenceLookups []string
 }
 
 func (m *mockPaperlessClient) GetCustomFields(ctx context.Context) ([]CustomField, error) {
@@ -479,6 +484,17 @@ func (m *mockPaperlessClient) GetDocumentThumbnail(ctx context.Context, document
 }
 func (m *mockPaperlessClient) SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error) {
 	return nil, nil
+}
+func (m *mockPaperlessClient) FindDocumentIDsByReference(ctx context.Context, reference string, limit int) ([]int, error) {
+	m.ReferenceLookups = append(m.ReferenceLookups, reference)
+	if m.ReferenceError != nil {
+		return nil, m.ReferenceError
+	}
+	ids := m.ReferenceMatches[reference]
+	if len(ids) > limit {
+		ids = ids[:limit]
+	}
+	return ids, nil
 }
 func (m *mockPaperlessClient) GetDocumentPageImage(ctx context.Context, documentID int, pageIndex int) ([]byte, error) {
 	return nil, nil
@@ -587,6 +603,164 @@ func TestGetSuggestedCustomFields(t *testing.T) {
 	dueDateField, ok := findFieldByID(suggestions, 2)
 	assert.True(t, ok, "Due Date (ID 2) should be in the suggestions")
 	assert.Equal(t, "2025-12-31", dueDateField.Value)
+}
+
+// TestGetSuggestedCustomFields_DocumentLink pins documentlink support.
+// paperless-ngx only accepts a list of document ids for such a field. They
+// used to reach the LLM like any other field; it filled them with a reference
+// number from the text and paperless-ngx rejected the update with "Value must
+// be a list". Now the LLM is asked for the references and paperless-gpt
+// resolves them to the ids of the documents they identify.
+func TestGetSuggestedCustomFields_DocumentLink(t *testing.T) {
+	// Other tests leave a small global tokenLimit behind; run without one.
+	t.Setenv("TOKEN_LIMIT", "")
+	resetTokenLimit()
+
+	const currentDocID = 533
+
+	tests := []struct {
+		name             string
+		llmValue         string
+		referenceMatches map[string][]int
+		referenceError   error
+		wantLinks        []int // nil: the field is not suggested at all
+	}{
+		{
+			name:             "single reference resolves to the referenced document",
+			llmValue:         `["R10927801"]`,
+			referenceMatches: map[string][]int{"R10927801": {412}},
+			wantLinks:        []int{412},
+		},
+		{
+			name:             "plain string instead of array is accepted",
+			llmValue:         `"R10927801"`,
+			referenceMatches: map[string][]int{"R10927801": {412}},
+			wantLinks:        []int{412},
+		},
+		{
+			name:             "current document is never linked to itself",
+			llmValue:         `["R10927801"]`,
+			referenceMatches: map[string][]int{"R10927801": {currentDocID, 412}},
+			wantLinks:        []int{412},
+		},
+		{
+			name:     "several references are merged without duplicates",
+			llmValue: `["R10927801", "V-2026-17"]`,
+			referenceMatches: map[string][]int{
+				"R10927801": {412},
+				"V-2026-17": {412, 87},
+			},
+			wantLinks: []int{412, 87},
+		},
+		{
+			name:     "numeric reference is accepted",
+			llmValue: `[123456]`,
+			referenceMatches: map[string][]int{
+				"123456": {87},
+			},
+			wantLinks: []int{87},
+		},
+		{
+			name:             "reference that only matches the current document is dropped",
+			llmValue:         `["R10927801"]`,
+			referenceMatches: map[string][]int{"R10927801": {currentDocID}},
+		},
+		{
+			name:             "reference matching too many documents is too generic",
+			llmValue:         `["0002058"]`,
+			referenceMatches: map[string][]int{"0002058": {1, 2, 3, 4, 5, 6}},
+		},
+		{
+			name:             "too short reference is not looked up",
+			llmValue:         `["12"]`,
+			referenceMatches: map[string][]int{"12": {412}},
+		},
+		{
+			name:           "lookup error drops the reference instead of failing",
+			llmValue:       `["R10927801"]`,
+			referenceError: fmt.Errorf("paperless-ngx unavailable"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			llm := &mockLLM{Response: `[
+				{"field": "Invoice Number", "value": "INV-12345"},
+				{"field": "Reference", "value": ` + tt.llmValue + `}
+			]`}
+			client := &mockPaperlessClient{
+				CustomFields: []CustomField{
+					{ID: 1, Name: "Invoice Number", DataType: "string"},
+					{ID: 2, Name: "Reference", DataType: "documentlink"},
+				},
+				ReferenceMatches: tt.referenceMatches,
+				ReferenceError:   tt.referenceError,
+			}
+			app := &App{LLM: llm, Client: client}
+
+			err := os.MkdirAll("prompts", 0755)
+			require.NoError(t, err)
+			err = os.WriteFile("prompts/custom_field_prompt.tmpl", []byte("{{ .CustomFieldsXML }}"), 0644)
+			require.NoError(t, err)
+			defer os.RemoveAll("prompts")
+			require.NoError(t, loadTemplates())
+
+			doc := Document{ID: currentDocID, Content: "Mahnung zu Rechnung R10927801"}
+			suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, []int{1, 2}, logrus.WithField("test", t.Name()))
+			require.NoError(t, err)
+
+			assert.Contains(t, llm.lastPrompt, `<field name="Reference" type="documentlink">`)
+			assert.Contains(t, llm.lastPrompt, "<description>", "documentlink fields must tell the LLM to return references")
+
+			invoiceField, ok := findFieldByID(suggestions, 1)
+			require.True(t, ok, "other fields must not be affected")
+			assert.Equal(t, "INV-12345", invoiceField.Value)
+
+			linkField, ok := findFieldByID(suggestions, 2)
+			if tt.wantLinks == nil {
+				assert.False(t, ok, "unresolved references must not be suggested, got %v", linkField.Value)
+				return
+			}
+			require.True(t, ok)
+			assert.Equal(t, tt.wantLinks, linkField.Value)
+		})
+	}
+}
+
+// TestGetSuggestedCustomFields_OnlySelectedFields checks that the LLM cannot
+// fill a custom field the user did not select, even if it returns one.
+func TestGetSuggestedCustomFields_OnlySelectedFields(t *testing.T) {
+	// Other tests leave a small global tokenLimit behind; run without one.
+	t.Setenv("TOKEN_LIMIT", "")
+	resetTokenLimit()
+
+	llm := &mockLLM{Response: `[
+		{"field": "Invoice Number", "value": "INV-12345"},
+		{"field": "Amount", "value": "12.50"}
+	]`}
+	app := &App{
+		LLM: llm,
+		Client: &mockPaperlessClient{
+			CustomFields: []CustomField{
+				{ID: 1, Name: "Invoice Number", DataType: "string"},
+				{ID: 3, Name: "Amount", DataType: "float"},
+			},
+		},
+	}
+
+	err := os.MkdirAll("prompts", 0755)
+	require.NoError(t, err)
+	err = os.WriteFile("prompts/custom_field_prompt.tmpl", []byte("{{ .CustomFieldsXML }}"), 0644)
+	require.NoError(t, err)
+	defer os.RemoveAll("prompts")
+	require.NoError(t, loadTemplates())
+
+	suggestions, err := app.getSuggestedCustomFields(context.Background(), Document{Content: "x"}, []int{1}, logrus.WithField("test", t.Name()))
+	require.NoError(t, err)
+
+	assert.NotContains(t, llm.lastPrompt, `name="Amount"`, "unselected fields must not be sent to the LLM")
+	require.Len(t, suggestions, 1)
+	assert.Equal(t, 1, suggestions[0].ID)
 }
 
 // Helper function to find a custom field by ID in a slice
