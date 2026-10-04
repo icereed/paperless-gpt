@@ -15,7 +15,7 @@
 <sub>💡 Maintained by [Icereed](https://github.com/icereed). Proudly supported by [BubbleTax.de](https://bubbletax.de/?utm_source=github&utm_medium=readme&utm_campaign=paperless) – automated, BMF-compliant tax reports for Interactive Brokers traders in Germany.</sub>
 
 ---
-**paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**-ensuring high accuracy, even with tricky scans. If you're craving next-level text extraction and effortless document organization, this is your solution.
+**paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**-ensuring high accuracy, even with tricky scans. It also **connects documents that belong together**: a reminder gets linked to the invoice it is about, an amendment to its contract, a letter to the case it cites. If you're craving next-level text extraction and effortless document organization, this is your solution.
 
 https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
@@ -29,46 +29,53 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 1. **LLM-Enhanced OCR**  
    Harness Large Language Models (OpenAI or Ollama) for **better-than-traditional** OCR—turn messy or low-quality scans into context-aware, high-fidelity text.
 
-2. **Use specialized AI OCR services**
+2. **Links related documents for you** 🔗  
+   Reminders, credit notes, amendments, delivery notes and follow-up letters all cite a number: an invoice, contract, order or case number (Aktenzeichen). paperless-gpt reads that reference, finds the matching document in your archive and fills a paperless-ngx **Document Link** field, so both documents point at each other. Order, delivery note and invoice end up connected; a contract carries its amendments and termination; every letter citing the same file number lands in one case file, no matter who sent it.
+
+   Built to be conservative: the model only extracts the reference, paperless-gpt does an exact whole-word lookup, and anything ambiguous is left unlinked rather than guessed. → [Use cases and setup](docs/document_linking.md)
+
+3. **Use specialized AI OCR services**
 
    - **LLM OCR**: Use OpenAI or Ollama to extract text from images.
    - **Google Document AI**: Leverage Google's powerful Document AI for OCR tasks.
    - **Azure Document Intelligence**: Use Microsoft's enterprise OCR solution.
    - **Docling Server**: Self-hosted OCR and document conversion service
 
-3. **Automatic Title, Tag & Created Date Generation**  
+4. **Automatic Title, Tag & Created Date Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
 
-4. **Supports reasoning models in Ollama**  
+5. **Supports reasoning models in Ollama**  
    Greatly enhance accuracy by using a reasoning model like `qwen3:8b`. The perfect tradeoff between privacy and performance! Of course, if you got enough GPUs or NPUs, a bigger model will enhance the experience.
 
-5. **Automatic Correspondent Generation**  
+6. **Automatic Correspondent Generation**  
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
 
-6. **Automatic Custom Field Generation**  
+7. **Automatic Custom Field Generation**  
    Extract and populate custom fields from your documents. Configure which fields to target and how they should be filled. This feature must be enabled in the settings, and you must select at least one custom field for it to function. Three write modes are available:
    - **Append**: This is the safest option: It only adds new fields that do not already exist on the document. It will never overwrite an existing field, even if it's empty.
    - **Update**: Adds new fields and overwrites existing fields with new suggestions. Fields on the document that don't have a new suggestion are left untouched.
    - **Replace**: Deletes all existing custom fields on the document and replaces them entirely with the suggested fields.
 
-7. **Searchable & Selectable PDFs**  
+   Fields of type **Document Link** are special: instead of filling in text, paperless-gpt resolves the references a document cites to the actual documents in your archive (see [Links related documents](#key-highlights) above).
+
+8. **Searchable & Selectable PDFs**  
    Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance.
 
-7. **Extensive Customization**
+9. **Extensive Customization**
 
    - **Customizable Prompts via Web UI**: Tweak and manage all AI prompts for titles, tags, correspondents, and more directly within the web interface under the "Settings" menu. The application uses a safe `default_prompts` and `prompts` directory structure, ensuring your customizations are persistent.
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
    - **PDF Processing**: Configure how OCR-enhanced PDFs are handled, with options to save locally or upload to paperless-ngx.
 
-8. **Simple Docker Deployment**  
+10. **Simple Docker Deployment**  
    A few environment variables, and you're off! Compose it alongside paperless-ngx with minimal fuss.
 
-9. **Unified Web UI**
+11. **Unified Web UI**
 
    - **Manual Review**: Approve or tweak AI's suggestions.
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
 
-9. **Ad-hoc Document Analysis**
+12. **Ad-hoc Document Analysis**
    Perform ad-hoc analysis on a selection of documents using a custom prompt. Gain quick insights, summaries, or extract specific information from multiple documents at once.
 
 ---
