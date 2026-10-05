@@ -50,7 +50,7 @@ type Config struct {
 	VisionLLMTemperature *float64
 
 	// Google AI (Gemini) settings
-	GoogleAIAPIKey       string
+	GoogleAIAPIKey         string
 	GoogleAIThinkingBudget *int32
 
 	// Ollama OCR-specific settings
