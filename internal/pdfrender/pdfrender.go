@@ -42,6 +42,20 @@ func getPool() (pdfium.Pool, error) {
 	return pool, poolErr
 }
 
+// Warm initializes the PDFium runtime ahead of the first document, so the
+// one-time compilation of the WebAssembly module happens at startup instead of
+// on the first render. On a small home server that compilation takes around
+// 20 seconds, which is otherwise added to the first OCR run or page preview
+// after every restart. Compiling on the machine that runs paperless-gpt also
+// lets the compiler use that CPU's features.
+//
+// It is safe to call concurrently with Open: both share the same one-time
+// initialization, so an early Open simply waits for it to finish.
+func Warm() error {
+	_, err := getPool()
+	return err
+}
+
 // Document is an open PDF. It is not safe for concurrent use.
 type Document struct {
 	instance pdfium.Pdfium
