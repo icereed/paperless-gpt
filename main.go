@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"paperless-gpt/internal/pdfrender"
 	"paperless-gpt/ocr"
 	"paperless-gpt/sanitize"
 	"path/filepath"
@@ -455,6 +456,19 @@ func main() {
 				log.Fatalf("Invalid OCR_MAX_RETRIES value: %q (must be a non-negative integer, 0 disables the limit)", rawOcrMaxRetries)
 			}
 		}
+
+		// Compile the PDF renderer in the background so the first OCR run or
+		// page preview after a restart doesn't pay for it. Not started when
+		// OCR is disabled: nothing renders PDFs then, and it would only cost
+		// CPU at startup and memory for the compiled module.
+		go func() {
+			start := time.Now()
+			if err := pdfrender.Warm(); err != nil {
+				log.Errorf("Preparing the PDF renderer failed: %v. PDF rendering stays unavailable until paperless-gpt is restarted.", err)
+				return
+			}
+			log.Infof("PDF renderer ready after %v", time.Since(start).Round(time.Millisecond))
+		}()
 	}
 
 	// Start Background-Tasks for Auto-Tagging and Auto-OCR (if enabled)

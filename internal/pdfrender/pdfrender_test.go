@@ -133,3 +133,33 @@ func TestOpenStopsWhenContextIsDone(t *testing.T) {
 	assert.Error(t, err)
 	assert.Less(t, time.Since(start), 5*time.Second, "waiting stops with the context, not after instanceTimeout")
 }
+
+// Warm must leave the shared runtime usable: an Open after it (or racing it)
+// reuses the same initialization rather than starting a second one.
+func TestWarmThenOpen(t *testing.T) {
+	if err := Warm(); err != nil {
+		t.Fatalf("Warm: %v", err)
+	}
+	// A second call is a no-op.
+	if err := Warm(); err != nil {
+		t.Fatalf("second Warm: %v", err)
+	}
+	data, err := os.ReadFile("../../tests/pdf/sample.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	doc, err := Open(context.Background(), data)
+	if err != nil {
+		t.Fatalf("Open after Warm: %v", err)
+	}
+	defer doc.Close()
+	if doc.NumPages() < 1 {
+		t.Fatalf("expected pages, got %d", doc.NumPages())
+	}
+	// The compilation already happened in Warm, so opening is fast. The bound
+	// is generous for slow CI runners; an un-warmed first Open takes seconds.
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Errorf("Open after Warm took %v; the runtime does not seem to have been prepared", elapsed)
+	}
+}
