@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -370,4 +371,53 @@ func TestWorkflowHandlersEnsureTagsExist(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, send(http.MethodPut, "/api/workflows/invoices",
 		WorkflowConfig{TriggerTag: "invoices", CompletionTag: "invoices"}))
 	assert.Empty(t, client.ensured, "a rejected workflow creates no tags")
+}
+
+// A save that fails must not leave the change active in memory: the client
+// was told it failed, so background processing must keep using the
+// workflows as they were.
+func TestWorkflowHandlersRollBackOnFailedSave(t *testing.T) {
+	router := setupTestRouter(t)
+	isolateWorkflowSettings(t)
+	app := &App{}
+	router.POST("/api/workflows", app.createWorkflowHandler)
+	router.PUT("/api/workflows/:id", app.updateWorkflowHandler)
+	router.DELETE("/api/workflows/:id", app.deleteWorkflowHandler)
+
+	existing := WorkflowConfig{ID: "invoices", TriggerTag: "invoices", CompletionTag: "invoices-done"}
+	settingsMutex.Lock()
+	settings.Workflows = []WorkflowConfig{existing}
+	settingsMutex.Unlock()
+
+	// A regular file where the config directory should be makes every save fail.
+	dir := t.TempDir()
+	t.Chdir(dir)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, configDir), nil, 0o600))
+
+	send := func(method, path string, wf *WorkflowConfig) int {
+		var buf bytes.Buffer
+		if wf != nil {
+			require.NoError(t, json.NewEncoder(&buf).Encode(wf))
+		}
+		req, err := http.NewRequest(method, path, &buf)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+	current := func() []WorkflowConfig {
+		settingsMutex.RLock()
+		defer settingsMutex.RUnlock()
+		return slices.Clone(settings.Workflows)
+	}
+
+	assert.Equal(t, http.StatusInternalServerError, send(http.MethodPost, "/api/workflows", &WorkflowConfig{TriggerTag: "contracts"}))
+	assert.Equal(t, []WorkflowConfig{existing}, current(), "create")
+
+	assert.Equal(t, http.StatusInternalServerError, send(http.MethodPut, "/api/workflows/invoices", &WorkflowConfig{TriggerTag: "bills"}))
+	assert.Equal(t, []WorkflowConfig{existing}, current(), "update")
+
+	assert.Equal(t, http.StatusInternalServerError, send(http.MethodDelete, "/api/workflows/invoices", nil))
+	assert.Equal(t, []WorkflowConfig{existing}, current(), "delete")
 }
