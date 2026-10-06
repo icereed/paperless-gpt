@@ -17,7 +17,9 @@ The global `AUTO_TAG` path keeps working unchanged, next to any number of workfl
 1. Open **AI Workflows** in the paperless-gpt sidebar and click **New workflow**.
 2. Give it a name and a trigger tag, for example `invoices`. Pick an existing paperless-ngx tag from the suggestions or type a new one; new tags are created in paperless-ngx when you save.
 3. Choose which steps run. **Default** follows the `AUTO_GENERATE_*` settings, and the editor shows what that currently means.
-4. Change only the prompts that should differ. Empty prompts use the global ones, which the editor shows greyed out; **Customize** copies the global prompt in as a starting point.
+4. Give the workflow its own version of the prompts that should differ. Each prompt tab is marked **global** or **own**:
+   - **global**: the workflow uses the shared global prompt, shown read-only. Changing it under Settings changes it for the default `AUTO_TAG` processing and for every workflow that has no own version.
+   - **own**: click **Write own prompt for this workflow**. It starts from a copy of the global prompt, applies only to this workflow, and is saved in the workflow's folder. The global prompt stays unchanged. **Use global prompt instead** removes the workflow's own version.
 5. Click **Test on a document** and pick a document. You see what the workflow would set: title, tags, correspondent, document type, date and custom fields, next to the current values. Nothing is written to paperless-ngx, and unsaved changes are included, so you can tune a prompt until the result is right.
 6. Save.
 

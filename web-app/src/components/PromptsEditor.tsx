@@ -1,4 +1,23 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+
+// Global prompt files that AI workflows can replace with their own version,
+// keyed by file name, valued by the workflow prompt key.
+const WORKFLOW_PROMPT_KEYS: Record<string, string> = {
+  'title_prompt.tmpl': 'title_prompt',
+  'tag_prompt.tmpl': 'tag_prompt',
+  'correspondent_prompt.tmpl': 'correspondent_prompt',
+  'document_type_prompt.tmpl': 'document_type_prompt',
+  'created_date_prompt.tmpl': 'date_prompt',
+  'custom_field_prompt.tmpl': 'custom_field_prompt',
+  'ocr_prompt.tmpl': 'ocr_prompt',
+};
+
+interface WorkflowSummary {
+  id: string;
+  name: string;
+  prompts?: Record<string, string>;
+}
 
 const PromptsEditor: React.FC = () => {
   const [prompts, setPrompts] = useState<Record<string, string>>({});
@@ -8,6 +27,14 @@ const PromptsEditor: React.FC = () => {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
+
+  useEffect(() => {
+    fetch('./api/workflows')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setWorkflows(Array.isArray(data) ? data : []))
+      .catch(() => setWorkflows([]));
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -134,6 +161,21 @@ const PromptsEditor: React.FC = () => {
               <h2 className="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-300">
                 Editing: <span className="font-mono text-blue-600 dark:text-blue-400">{selectedPrompt}</span>
               </h2>
+              {WORKFLOW_PROMPT_KEYS[selectedPrompt] && (() => {
+                const key = WORKFLOW_PROMPT_KEYS[selectedPrompt];
+                const own = workflows.filter((w) => !!w.prompts?.[key]?.trim());
+                return (
+                  <p className="mb-3 rounded-md bg-gray-100 dark:bg-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
+                    This is the <strong>global</strong> prompt. It is used by the default AUTO_TAG
+                    processing and by every{' '}
+                    <Link to="/workflows" className="text-blue-600 dark:text-blue-400 hover:underline">AI workflow</Link>{' '}
+                    without its own version of it.
+                    {own.length > 0 && (
+                      <> Not used by {own.map((w) => w.name || w.id).join(', ')}, which {own.length === 1 ? 'has its' : 'have their'} own.</>
+                    )}
+                  </p>
+                );
+              })()}
               <textarea
                 className="w-full h-96 p-3 border border-gray-300 dark:border-gray-600 rounded-md font-mono text-sm bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                 value={content}
