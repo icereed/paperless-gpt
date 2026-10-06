@@ -47,3 +47,33 @@ func TestCreateCustomHTTPClient(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "Expected 200 OK response")
 }
+
+// OPENAI_HEADERS can carry gateway credentials. They must reach the
+// OpenAI-compatible endpoint and nothing else: before, the custom client was
+// http.DefaultClient itself, so the headers leaked into every other request
+// made through it (Anthropic, tiktoken downloads, Ollama metadata).
+func TestOpenAIHeadersStayOnTheOpenAIClient(t *testing.T) {
+	t.Setenv("OPENAI_HEADERS", "Authorization=Bearer gateway-secret, X-Team = docs,broken")
+
+	var got http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := createCustomHTTPClient()
+	require.NotSame(t, http.DefaultClient, client)
+	resp, err := client.Get(server.URL)
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, "Bearer gateway-secret", got.Get("Authorization"))
+	assert.Equal(t, "docs", got.Get("X-Team"), "spaces around key and value are dropped")
+	assert.Equal(t, "paperless-gpt", got.Get("X-Title"))
+
+	resp, err = http.DefaultClient.Get(server.URL)
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Empty(t, got.Get("Authorization"), "http.DefaultClient must not carry OPENAI_HEADERS")
+	assert.Empty(t, got.Get("X-Title"))
+}

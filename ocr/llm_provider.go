@@ -263,40 +263,54 @@ func createOpenAIClient(config Config) (llms.Model, error) {
 	return openai.New(
 		openai.WithModel(config.VisionLLMModel),
 		openai.WithToken(apiKey),
+		openai.WithHTTPClient(OpenAIHTTPClient()),
 	)
+}
+
+// ParseHeaderList parses a comma-separated list of Key=Value pairs, the
+// format of OLLAMA_HEADERS and OPENAI_HEADERS. Spaces around keys and values
+// are dropped ("X-Team = docs" would otherwise be an invalid header name that
+// fails every request); malformed pairs are ignored.
+func ParseHeaderList(raw string) map[string]string {
+	headers := map[string]string{}
+	for _, pair := range strings.Split(raw, ",") {
+		key, value, ok := strings.Cut(pair, "=")
+		key = strings.TrimSpace(key)
+		if ok && key != "" {
+			headers[key] = strings.TrimSpace(value)
+		}
+	}
+	return headers
 }
 
 // OllamaHTTPClient returns an *http.Client with headers from OLLAMA_HEADERS injected,
 // or nil if OLLAMA_HEADERS is not set.
 func OllamaHTTPClient() *http.Client {
-	raw := os.Getenv("OLLAMA_HEADERS")
-	if raw == "" {
-		return nil
-	}
-	headers := map[string]string{}
-	for _, pair := range strings.Split(raw, ",") {
-		parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
-		if len(parts) == 2 && parts[0] != "" {
-			headers[parts[0]] = parts[1]
-		}
-	}
+	headers := ParseHeaderList(os.Getenv("OLLAMA_HEADERS"))
 	if len(headers) == 0 {
 		return nil
 	}
-	return &http.Client{
-		Transport: &ollamaHeaderTransport{
-			base:    http.DefaultTransport,
-			headers: headers,
-		},
-	}
+	return &http.Client{Transport: &headerTransport{base: http.DefaultTransport, headers: headers}}
 }
 
-type ollamaHeaderTransport struct {
+// OpenAIHTTPClient returns the client for every OpenAI-compatible request:
+// text LLM, vision LLM and LLM OCR. It sends X-Title and the OPENAI_HEADERS.
+// It is a client of its own on purpose: those headers can carry gateway
+// credentials and must never reach other hosts through http.DefaultClient.
+func OpenAIHTTPClient() *http.Client {
+	headers := map[string]string{"X-Title": "paperless-gpt"}
+	for key, value := range ParseHeaderList(os.Getenv("OPENAI_HEADERS")) {
+		headers[key] = value
+	}
+	return &http.Client{Transport: &headerTransport{base: http.DefaultTransport, headers: headers}}
+}
+
+type headerTransport struct {
 	base    http.RoundTripper
 	headers map[string]string
 }
 
-func (t *ollamaHeaderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
