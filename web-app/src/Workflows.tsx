@@ -82,14 +82,15 @@ interface PreviewResult {
   ocr_skipped: boolean;
 }
 
-const PROMPT_KEYS: { key: string; label: string; file: string }[] = [
-  { key: "title_prompt", label: "Title", file: "title_prompt.tmpl" },
-  { key: "tag_prompt", label: "Tags", file: "tag_prompt.tmpl" },
-  { key: "correspondent_prompt", label: "Correspondent", file: "correspondent_prompt.tmpl" },
-  { key: "document_type_prompt", label: "Document type", file: "document_type_prompt.tmpl" },
-  { key: "date_prompt", label: "Created date", file: "created_date_prompt.tmpl" },
-  { key: "custom_field_prompt", label: "Custom fields", file: "custom_field_prompt.tmpl" },
-  { key: "ocr_prompt", label: "OCR", file: "ocr_prompt.tmpl" },
+/** Each prompt belongs to a step; a prompt is only relevant while its step runs. */
+const PROMPT_KEYS: { key: string; label: string; file: string; step: FlagKey | "enable_ocr" }[] = [
+  { key: "title_prompt", label: "Title", file: "title_prompt.tmpl", step: "generate_titles" },
+  { key: "tag_prompt", label: "Tags", file: "tag_prompt.tmpl", step: "generate_tags" },
+  { key: "correspondent_prompt", label: "Correspondent", file: "correspondent_prompt.tmpl", step: "generate_correspondents" },
+  { key: "document_type_prompt", label: "Document type", file: "document_type_prompt.tmpl", step: "generate_document_types" },
+  { key: "date_prompt", label: "Created date", file: "created_date_prompt.tmpl", step: "generate_created_date" },
+  { key: "custom_field_prompt", label: "Custom fields", file: "custom_field_prompt.tmpl", step: "generate_custom_fields" },
+  { key: "ocr_prompt", label: "OCR", file: "ocr_prompt.tmpl", step: "enable_ocr" },
 ];
 
 const FLAG_KEYS: { key: FlagKey; label: string }[] = [
@@ -466,10 +467,15 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
       ? "New tag — it will be created in paperless-ngx when you save."
       : undefined;
 
-  const visiblePrompts = PROMPT_KEYS.filter((p) => p.key !== "ocr_prompt" || wf.enable_ocr);
+  // Only steps that actually run need a prompt; the others are hidden to keep
+  // the editor small. An own prompt of a hidden step is kept, not deleted.
+  const stepRuns = (step: FlagKey | "enable_ocr") =>
+    step === "enable_ocr" ? !!wf.enable_ocr : (wf[step] ?? defaults?.generate[step] ?? true);
+  const visiblePrompts = PROMPT_KEYS.filter((p) => stepRuns(p.step));
+  const hiddenOwnPrompts = PROMPT_KEYS.filter((p) => !stepRuns(p.step) && ownPrompts.has(p.key));
   const active = visiblePrompts.find((p) => p.key === activePrompt) ?? visiblePrompts[0];
-  const activeValue = wf.prompts?.[active.key] ?? "";
-  const globalPrompt = defaults?.prompts[active.key] ?? "";
+  const activeValue = active ? wf.prompts?.[active.key] ?? "" : "";
+  const globalPrompt = active ? defaults?.prompts[active.key] ?? "" : "";
   const variables = templateVariables(activeValue.trim() ? activeValue : globalPrompt);
 
   return (
@@ -603,103 +609,117 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
 
       <Section
         title="Prompts"
-        hint="Each prompt either uses the global prompt, which is shared, or has its own version that applies only to this workflow."
+        hint="Only the steps this workflow runs show a prompt. Each one either uses the shared global prompt or has its own version for this workflow only."
       >
-        <div className="flex flex-wrap gap-1.5" role="tablist">
-          {visiblePrompts.map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={active.key === key}
-              onClick={() => setActivePrompt(key)}
-              className={classNames(
-                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                active.key === key ? "bg-primary-tint text-ink" : "bg-surface-2 text-muted hover:text-ink"
-              )}
-            >
-              {label}
-              <span
-                className={classNames(
-                  "rounded px-1 text-[0.6875rem] font-normal",
-                  ownPrompts.has(key) ? "bg-primary text-primary-ink" : "text-faint"
-                )}
-              >
-                {ownPrompts.has(key) ? "own" : "global"}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {active.key === "ocr_prompt" && defaults && !defaults.ocr_prompt_override_supported && (
-          <p className="text-xs text-warn">Only the LLM OCR provider can use a custom OCR prompt.</p>
+        {hiddenOwnPrompts.length > 0 && (
+          <p className="text-xs text-muted">
+            Own prompt kept but not shown because its step is off:{" "}
+            {hiddenOwnPrompts.map((p) => p.label).join(", ")}. Turn the step on to see it again.
+          </p>
         )}
-
-        {ownPrompts.has(active.key) ? (
-          <div className="space-y-2 rounded-md border border-primary p-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <p className="text-sm font-medium">Own {active.label.toLowerCase()} prompt for this workflow</p>
-                <p className="text-xs text-muted">
-                  Applies only to documents processed by this workflow. Saved as{" "}
-                  <span className="font-mono">{active.file}</span> in{" "}
-                  {wf.id ? (
-                    <span className="font-mono">
-                      {defaults?.storage_dir ?? "prompts/workflows"}/{wf.id}/
-                    </span>
-                  ) : (
-                    "the workflow's own folder"
+        {active ? (
+          <>
+            <div className="flex flex-wrap gap-1.5" role="tablist">
+              {visiblePrompts.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active.key === key}
+                  onClick={() => setActivePrompt(key)}
+                  className={classNames(
+                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    active.key === key ? "bg-primary-tint text-ink" : "bg-surface-2 text-muted hover:text-ink"
                   )}
-                  . The global prompt stays unchanged.
-                </p>
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => removeOwnPrompt(active.key)}>
-                <ArrowPathIcon className="h-4 w-4" aria-hidden="true" /> Use global prompt instead
-              </Button>
+                >
+                  {label}
+                  <span
+                    className={classNames(
+                      "rounded px-1 text-[0.6875rem] font-normal",
+                      ownPrompts.has(key) ? "bg-primary text-primary-ink" : "text-faint"
+                    )}
+                  >
+                    {ownPrompts.has(key) ? "own" : "global"}
+                  </span>
+                </button>
+              ))}
             </div>
-            <textarea
-              aria-label={`${active.label} prompt`}
-              className="w-full rounded-md border border-line bg-surface px-3 py-2 font-mono text-xs leading-relaxed focus:border-primary focus:outline-none"
-              rows={12}
-              value={activeValue}
-              onChange={(e) => setPrompt(active.key, e.target.value)}
-            />
-          </div>
-        ) : (
-          <div className="space-y-2 rounded-md border border-dashed border-line bg-surface-2 p-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <p className="text-sm font-medium">Uses the global {active.label.toLowerCase()} prompt</p>
-                <p className="text-xs text-muted">
-                  Shared with the default AUTO_TAG processing and every workflow without its own
-                  version. Change it under{" "}
-                  <Link to="/settings" className="text-primary hover:underline">
-                    Settings
-                  </Link>{" "}
-                  — that affects all of them.
-                </p>
-              </div>
-              <Button size="sm" variant="secondary" onClick={() => addOwnPrompt(active.key)}>
-                <PencilSquareIcon className="h-4 w-4" aria-hidden="true" /> Write own prompt for this workflow
-              </Button>
-            </div>
-            <pre
-              aria-label={`Global ${active.label} prompt (read-only)`}
-              className="max-h-48 overflow-auto whitespace-pre-wrap rounded border border-line bg-surface px-3 py-2 font-mono text-xs leading-relaxed text-muted"
-            >
-              {globalPrompt || "(no global prompt found)"}
-            </pre>
-          </div>
-        )}
 
-        {variables.length > 0 && (
-          <p className="flex flex-wrap items-center gap-1 text-xs text-muted">
-            Variables:
-            {variables.map((v) => (
-              <code key={v} className="rounded bg-surface-2 px-1.5 py-0.5 font-mono">
-                {`{{${v}}}`}
-              </code>
-            ))}
+            {active.key === "ocr_prompt" && defaults && !defaults.ocr_prompt_override_supported && (
+              <p className="text-xs text-warn">Only the LLM OCR provider can use a custom OCR prompt.</p>
+            )}
+
+            {ownPrompts.has(active.key) ? (
+              <div className="space-y-2 rounded-md border border-primary p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">Own {active.label.toLowerCase()} prompt for this workflow</p>
+                    <p className="text-xs text-muted">
+                      Applies only to documents processed by this workflow. Saved as{" "}
+                      <span className="font-mono">{active.file}</span> in{" "}
+                      {wf.id ? (
+                        <span className="font-mono">
+                          {defaults?.storage_dir ?? "prompts/workflows"}/{wf.id}/
+                        </span>
+                      ) : (
+                        "the workflow's own folder"
+                      )}
+                      . The global prompt stays unchanged.
+                    </p>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => removeOwnPrompt(active.key)}>
+                    <ArrowPathIcon className="h-4 w-4" aria-hidden="true" /> Use global prompt instead
+                  </Button>
+                </div>
+                <textarea
+                  aria-label={`${active.label} prompt`}
+                  className="w-full rounded-md border border-line bg-surface px-3 py-2 font-mono text-xs leading-relaxed focus:border-primary focus:outline-none"
+                  rows={12}
+                  value={activeValue}
+                  onChange={(e) => setPrompt(active.key, e.target.value)}
+                />
+              </div>
+            ) : (
+              <div className="space-y-2 rounded-md border border-dashed border-line bg-surface-2 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">Uses the global {active.label.toLowerCase()} prompt</p>
+                    <p className="text-xs text-muted">
+                      Shared with the default AUTO_TAG processing and every workflow without its own
+                      version. Change it under{" "}
+                      <Link to="/settings" className="text-primary hover:underline">
+                        Settings
+                      </Link>{" "}
+                      — that affects all of them.
+                    </p>
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => addOwnPrompt(active.key)}>
+                    <PencilSquareIcon className="h-4 w-4" aria-hidden="true" /> Write own prompt for this workflow
+                  </Button>
+                </div>
+                <pre
+                  aria-label={`Global ${active.label} prompt (read-only)`}
+                  className="max-h-48 overflow-auto whitespace-pre-wrap rounded border border-line bg-surface px-3 py-2 font-mono text-xs leading-relaxed text-muted"
+                >
+                  {globalPrompt || "(no global prompt found)"}
+                </pre>
+              </div>
+            )}
+
+            {variables.length > 0 && (
+              <p className="flex flex-wrap items-center gap-1 text-xs text-muted">
+                Variables:
+                {variables.map((v) => (
+                  <code key={v} className="rounded bg-surface-2 px-1.5 py-0.5 font-mono">
+                    {`{{${v}}}`}
+                  </code>
+                ))}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="rounded-md border border-dashed border-line px-3 py-4 text-sm text-muted">
+            All steps are off, so this workflow needs no prompts.
           </p>
         )}
       </Section>

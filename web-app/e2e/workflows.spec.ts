@@ -54,6 +54,11 @@ test('an AI workflow set up in the UI processes documents with its own prompt', 
     await page.getByRole('radiogroup', { name: step }).getByRole('radio', { name: 'Off', exact: true }).click();
   }
   await page.getByRole('radiogroup', { name: 'Title' }).getByRole('radio', { name: 'On', exact: true }).click();
+  // Steps that are off don't show a prompt.
+  await expect(page.getByRole('tab', { name: /^Title/ })).toBeVisible();
+  for (const hidden of [/^Tags/, /^Correspondent/, /^Document type/, /^Created date/]) {
+    await expect(page.getByRole('tab', { name: hidden })).toHaveCount(0);
+  }
   // The global prompt is shown read-only; an own version has to be asked for.
   await expect(page.getByLabel('Global Title prompt (read-only)')).toBeVisible();
   await page.getByLabel('Global Title prompt (read-only)').scrollIntoViewIfNeeded();
