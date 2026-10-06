@@ -813,13 +813,11 @@ func TestGetSuggestedTags_SystemTagsNeverSuggested(t *testing.T) {
 			previousCreateNewTags := createNewTags
 			createNewTags = createNew
 			isolateWorkflowSettings(t)
-			settingsMutex.Lock()
-			settings.Workflows = []WorkflowConfig{{
+			useWorkflows(t, []WorkflowConfig{{
 				ID:            "inv",
 				TriggerTag:    "paperless-gpt-invoices",
 				CompletionTag: "paperless-gpt-invoices-done",
-			}}
-			settingsMutex.Unlock()
+			}}...)
 			t.Cleanup(func() {
 				manualTag, autoTag, autoOcrTag = previous.manual, previous.auto, previous.ocrAuto
 				failTag, autoTagComplete, pdfOCRCompleteTag = previous.fail, previous.complete, previous.ocrComplete
@@ -880,26 +878,29 @@ func TestHandoverTags(t *testing.T) {
 		name       string
 		complete   string
 		auto       bool
+		trigger    string
 		workflow   *WorkflowConfig
 		wantRemove []string
 		wantAdd    []string
 	}{
-		{"manual review adds no completion tag", "done", false, nil,
+		{"manual review adds no completion tag", "done", false, "", nil,
 			[]string{"paperless-gpt", "paperless-gpt-auto"}, nil},
-		{"default path adds AUTO_TAG_COMPLETE", "done", true, nil,
+		{"default path adds AUTO_TAG_COMPLETE", "done", true, "paperless-gpt-auto", nil,
 			[]string{"paperless-gpt", "paperless-gpt-auto"}, []string{"done"}},
-		{"workflow completion tag replaces AUTO_TAG_COMPLETE", "done", true, invoices,
+		{"workflow completion tag replaces AUTO_TAG_COMPLETE", "done", true, "invoices", invoices,
 			[]string{"paperless-gpt", "paperless-gpt-auto", "invoices"}, []string{"invoices-done"}},
-		{"workflow without completion tag falls back to AUTO_TAG_COMPLETE", "done", true, noCompletion,
+		{"workflow without completion tag falls back to AUTO_TAG_COMPLETE", "done", true, "contracts", noCompletion,
 			[]string{"paperless-gpt", "paperless-gpt-auto", "contracts"}, []string{"done"}},
-		{"no completion tag configured anywhere", "", true, noCompletion,
+		{"no completion tag configured anywhere", "", true, "contracts", noCompletion,
 			[]string{"paperless-gpt", "paperless-gpt-auto", "contracts"}, nil},
-		{"trigger equal to AUTO_TAG is not listed twice", "", true, &WorkflowConfig{TriggerTag: "Paperless-GPT-Auto"},
+		{"trigger equal to AUTO_TAG is not listed twice", "", true, "Paperless-GPT-Auto", nil,
 			[]string{"paperless-gpt", "paperless-gpt-auto"}, nil},
+		{"the polled tag comes off, whatever the workflow says", "", true, "routed-tag", invoices,
+			[]string{"paperless-gpt", "paperless-gpt-auto", "routed-tag"}, []string{"invoices-done"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			remove, add := handoverTags(tt.complete, tt.auto, tt.workflow)
+			remove, add := handoverTags(tt.complete, tt.auto, tt.trigger, tt.workflow)
 			assert.Equal(t, tt.wantRemove, remove)
 			assert.Equal(t, tt.wantAdd, add)
 		})

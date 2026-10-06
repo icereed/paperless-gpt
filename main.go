@@ -147,6 +147,7 @@ type App struct {
 	ocrProviderLabel   string                 // Human-readable provider description for run records ("llm (ollama/minicpm-v)")
 	ocrFailures        documentFailureTracker // Per-document OCR failure counts for the auto-OCR poll
 	suggestionFailures documentFailureTracker // Per-document suggestion failure counts for the auto-tag poll
+	WorkflowRouter     WorkflowRouter         // Maps documents to workflows; nil uses one trigger tag per workflow
 }
 
 func main() {
@@ -167,6 +168,7 @@ func main() {
 
 	// Load settings from file
 	loadSettings()
+	migrateWorkflowsFromSettings(workflows)
 
 	if settings.CustomFieldsEnable && len(settings.CustomFieldsSelectedIDs) == 0 {
 		log.Warn("Custom fields are enabled, but no custom fields are selected in the settings.")
@@ -543,11 +545,14 @@ func main() {
 		// Get version information
 		api.GET("/version", getVersionHandler)
 
-		// Workflow CRUD
+		// Workflows
 		api.GET("/workflows", app.listWorkflowsHandler)
 		api.POST("/workflows", app.createWorkflowHandler)
+		api.GET("/workflows/defaults", app.workflowDefaultsHandler)
+		api.POST("/workflows/preview", app.workflowPreviewHandler)
 		api.PUT("/workflows/:id", app.updateWorkflowHandler)
 		api.DELETE("/workflows/:id", app.deleteWorkflowHandler)
+		api.GET("/workflows/:id/documents", app.workflowDocumentsHandler)
 	}
 
 	// Serve frontend files

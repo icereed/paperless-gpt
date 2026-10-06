@@ -79,34 +79,11 @@ func executeWorkflowTemplate(tmpl *template.Template, data map[string]interface{
 	return buf.String(), nil
 }
 
-// getWorkflowByID looks up a workflow by its ID in the current settings. It
-// returns a zero-value WorkflowConfig and false when not found.
-func getWorkflowByID(id string) (WorkflowConfig, bool) {
-	if id == "" {
-		return WorkflowConfig{}, false
-	}
-	settingsMutex.RLock()
-	defer settingsMutex.RUnlock()
-	for _, wf := range settings.Workflows {
-		if wf.ID == id {
-			return wf, true
-		}
-	}
-	return WorkflowConfig{}, false
-}
-
-// workflowManagedTags returns trigger and completion tags from configured
-// workflows. Empty names are omitted. The caller must not hold settingsMutex
-// exclusively; this takes a read lock.
+// workflowManagedTags returns the trigger and completion tags of all
+// workflows. Empty names are omitted.
 func workflowManagedTags() []string {
-	settingsMutex.RLock()
-	defer settingsMutex.RUnlock()
-	return workflowManagedTagsLocked()
-}
-
-func workflowManagedTagsLocked() []string {
 	var tags []string
-	for _, wf := range settings.Workflows {
+	for _, wf := range workflows.List() {
 		if wf.TriggerTag != "" {
 			tags = append(tags, wf.TriggerTag)
 		}

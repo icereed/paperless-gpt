@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -375,8 +374,11 @@ func TestWorkflowHandlersEnsureTagsExist(t *testing.T) {
 
 // A save that fails must not leave the change active in memory: the client
 // was told it failed, so background processing must keep using the
-// workflows as they were.
-func TestWorkflowHandlersRollBackOnFailedSave(t *testing.T) {
+// workflows as they are on disk.
+func TestWorkflowHandlersKeepStateOnFailedSave(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
 	router := setupTestRouter(t)
 	isolateWorkflowSettings(t)
 	app := &App{}
@@ -384,15 +386,17 @@ func TestWorkflowHandlersRollBackOnFailedSave(t *testing.T) {
 	router.PUT("/api/workflows/:id", app.updateWorkflowHandler)
 	router.DELETE("/api/workflows/:id", app.deleteWorkflowHandler)
 
-	existing := WorkflowConfig{ID: "invoices", TriggerTag: "invoices", CompletionTag: "invoices-done"}
-	settingsMutex.Lock()
-	settings.Workflows = []WorkflowConfig{existing}
-	settingsMutex.Unlock()
+	existing := WorkflowConfig{ID: "invoices", Name: "Invoices", TriggerTag: "invoices", CompletionTag: "invoices-done"}
+	useWorkflows(t, existing)
 
-	// A regular file where the config directory should be makes every save fail.
-	dir := t.TempDir()
-	t.Chdir(dir)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, configDir), nil, 0o600))
+	// Read-only directories make every write fail.
+	wfDir := filepath.Join(workflows.dir, "invoices")
+	require.NoError(t, os.Chmod(wfDir, 0o555))
+	require.NoError(t, os.Chmod(workflows.dir, 0o555))
+	t.Cleanup(func() {
+		_ = os.Chmod(workflows.dir, 0o755)
+		_ = os.Chmod(wfDir, 0o755)
+	})
 
 	send := func(method, path string, wf *WorkflowConfig) int {
 		var buf bytes.Buffer
@@ -406,18 +410,13 @@ func TestWorkflowHandlersRollBackOnFailedSave(t *testing.T) {
 		router.ServeHTTP(w, req)
 		return w.Code
 	}
-	current := func() []WorkflowConfig {
-		settingsMutex.RLock()
-		defer settingsMutex.RUnlock()
-		return slices.Clone(settings.Workflows)
-	}
 
 	assert.Equal(t, http.StatusInternalServerError, send(http.MethodPost, "/api/workflows", &WorkflowConfig{TriggerTag: "contracts"}))
-	assert.Equal(t, []WorkflowConfig{existing}, current(), "create")
+	assert.Equal(t, []WorkflowConfig{existing}, workflows.List(), "create")
 
 	assert.Equal(t, http.StatusInternalServerError, send(http.MethodPut, "/api/workflows/invoices", &WorkflowConfig{TriggerTag: "bills"}))
-	assert.Equal(t, []WorkflowConfig{existing}, current(), "update")
+	assert.Equal(t, []WorkflowConfig{existing}, workflows.List(), "update")
 
 	assert.Equal(t, http.StatusInternalServerError, send(http.MethodDelete, "/api/workflows/invoices", nil))
-	assert.Equal(t, []WorkflowConfig{existing}, current(), "delete")
+	assert.Equal(t, []WorkflowConfig{existing}, workflows.List(), "delete")
 }

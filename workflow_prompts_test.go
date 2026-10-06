@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 	"text/template"
 
@@ -94,16 +95,21 @@ func TestEffectiveOCROptionsForWorkflow(t *testing.T) {
 
 func isolateWorkflowSettings(t *testing.T) {
 	t.Helper()
-	settingsMutex.Lock()
-	prev := settings
-	settings.Workflows = nil
-	settingsMutex.Unlock()
+	previous := workflows
+	workflows = newWorkflowStore(t.TempDir())
 	t.Cleanup(func() {
-		settingsMutex.Lock()
-		settings = prev
-		settingsMutex.Unlock()
+		workflows = previous
 		invalidateWorkflowTemplateCache("")
 	})
+}
+
+// useWorkflows writes workflows into the isolated store, the way the API or
+// a user editing the files would.
+func useWorkflows(t *testing.T, wfs ...WorkflowConfig) {
+	t.Helper()
+	for _, wf := range wfs {
+		require.NoError(t, writeWorkflowDir(filepath.Join(workflows.dir, wf.ID), wf))
+	}
 }
 
 func TestGetWorkflowTemplate(t *testing.T) {
@@ -226,8 +232,7 @@ func TestSystemTagsIncludesWorkflowTags(t *testing.T) {
 		failTag, autoTagComplete, pdfOCRCompleteTag = prev.fail, prev.complete, prev.ocrComplete
 	})
 
-	settingsMutex.Lock()
-	settings.Workflows = []WorkflowConfig{{
+	useWorkflows(t, []WorkflowConfig{{
 		ID:            "inv",
 		TriggerTag:    "paperless-gpt-invoices",
 		CompletionTag: "paperless-gpt-invoices-done",
@@ -237,8 +242,7 @@ func TestSystemTagsIncludesWorkflowTags(t *testing.T) {
 	}, {
 		ID:         "empty",
 		TriggerTag: "",
-	}}
-	settingsMutex.Unlock()
+	}}...)
 
 	got := systemTags()
 	assert.Contains(t, got, "paperless-gpt-invoices")
@@ -256,13 +260,11 @@ func TestSystemTagsIncludesWorkflowTags(t *testing.T) {
 
 func TestEnsureWorkflowTagsExist(t *testing.T) {
 	isolateWorkflowSettings(t)
-	settingsMutex.Lock()
-	settings.Workflows = []WorkflowConfig{{
+	useWorkflows(t, []WorkflowConfig{{
 		ID:            "inv",
 		TriggerTag:    "paperless-gpt-invoices",
 		CompletionTag: "paperless-gpt-invoices-done",
-	}}
-	settingsMutex.Unlock()
+	}}...)
 
 	var ensured []string
 	ensureWorkflowTagsExist(context.Background(), func(_ context.Context, tag string) error {
