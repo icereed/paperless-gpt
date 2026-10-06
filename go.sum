@@ -127,6 +127,8 @@ github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzh
 github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/klippa-app/go-pdfium v1.21.0 h1:jfnD7yOYhJMyc3dtI0sY7OH4tJSbltMfD1T4VXxv24c=
 github.com/klippa-app/go-pdfium v1.21.0/go.mod h1:8K+B9yP6IcqHfwzc4qKXjS3yU53TsOOdTcb6Sgz1pcI=
+github.com/klippa-app/go-pdfium v1.21.1 h1:QYtnNHVL5wvz+f1SPlruigKaWjbYyp/vMyTJKVwAzeo=
+github.com/klippa-app/go-pdfium v1.21.1/go.mod h1:sg9hrNV29uKb2Q/g+GU8WYTzTgtEt8QAMGzXtvLPzck=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
