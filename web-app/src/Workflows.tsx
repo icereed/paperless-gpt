@@ -162,7 +162,8 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
             onChange={(e) => setWf((p) => ({ ...p, completion_tag: e.target.value }))}
           />
           <p className="mt-1 text-xs text-faint">
-            Added to the document after successful processing.
+            Added to the document after successful processing, in place of
+            AUTO_TAG_COMPLETE. Leave empty to use AUTO_TAG_COMPLETE.
           </p>
         </div>
         {!isNew && (
