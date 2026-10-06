@@ -17,7 +17,7 @@ require (
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.12.1
-	github.com/tmc/langchaingo v0.1.14
+	github.com/tmc/langchaingo v0.1.15
 	golang.org/x/sync v0.23.0
 	golang.org/x/time v0.14.0
 	google.golang.org/api v0.264.0
