@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	"net/http"
@@ -275,7 +276,7 @@ func ParseHeaderList(raw string) map[string]string {
 	headers := map[string]string{}
 	for _, pair := range strings.Split(raw, ",") {
 		key, value, ok := strings.Cut(pair, "=")
-		key = strings.TrimSpace(key)
+		key = http.CanonicalHeaderKey(strings.TrimSpace(key))
 		if ok && key != "" {
 			headers[key] = strings.TrimSpace(value)
 		}
@@ -290,7 +291,7 @@ func OllamaHTTPClient() *http.Client {
 	if len(headers) == 0 {
 		return nil
 	}
-	return &http.Client{Transport: &headerTransport{base: http.DefaultTransport, headers: headers}}
+	return headerClient(headers)
 }
 
 // OpenAIHTTPClient returns the client for every OpenAI-compatible request:
@@ -298,11 +299,29 @@ func OllamaHTTPClient() *http.Client {
 // It is a client of its own on purpose: those headers can carry gateway
 // credentials and must never reach other hosts through http.DefaultClient.
 func OpenAIHTTPClient() *http.Client {
-	headers := map[string]string{"X-Title": "paperless-gpt"}
+	headers := map[string]string{http.CanonicalHeaderKey("X-Title"): "paperless-gpt"}
 	for key, value := range ParseHeaderList(os.Getenv("OPENAI_HEADERS")) {
 		headers[key] = value
 	}
-	return &http.Client{Transport: &headerTransport{base: http.DefaultTransport, headers: headers}}
+	return headerClient(headers)
+}
+
+// headerClient adds headers to every request. The headers are configured for
+// one endpoint and may be credentials, so the client refuses to follow a
+// redirect to another host: the transport would add them there too.
+func headerClient(headers map[string]string) *http.Client {
+	return &http.Client{
+		Transport: &headerTransport{base: http.DefaultTransport, headers: headers},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			if req.URL.Host != via[0].URL.Host {
+				return fmt.Errorf("refusing to follow a redirect from %s to %s with configured headers", via[0].URL.Host, req.URL.Host)
+			}
+			return nil
+		},
+	}
 }
 
 type headerTransport struct {
