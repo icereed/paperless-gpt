@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"text/template"
@@ -1184,40 +1185,38 @@ func (app *App) createWorkflowHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
 	}
-	if wf.TriggerTag == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "trigger_tag is required"})
-		return
-	}
+	wf = normalizeWorkflow(wf)
 	if err := validateWorkflowOCRConfig(app, wf); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	settingsMutex.Lock()
-	defer settingsMutex.Unlock()
-
 	// Auto-generate a stable ID if not provided.
 	if wf.ID == "" {
 		wf.ID = generateWorkflowID(wf.TriggerTag, settings.Workflows)
 	}
-	// Reject duplicates.
 	for _, existing := range settings.Workflows {
 		if existing.ID == wf.ID {
+			settingsMutex.Unlock()
 			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("workflow with id %q already exists", wf.ID)})
 			return
 		}
-		if existing.TriggerTag == wf.TriggerTag {
-			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("trigger_tag %q is already used by workflow %q", wf.TriggerTag, existing.ID)})
-			return
-		}
 	}
-
+	if status, err := validateWorkflowTags(wf, settings.Workflows); err != nil {
+		settingsMutex.Unlock()
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
 	settings.Workflows = append(settings.Workflows, wf)
-	if err := saveSettingsLocked(); err != nil {
+	err := saveSettingsLocked()
+	settingsMutex.Unlock()
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
 		return
 	}
 	invalidateWorkflowTemplateCache(wf.ID)
+	app.ensureWorkflowTags(c.Request.Context(), wf)
 	c.JSON(http.StatusCreated, wf)
 }
 
@@ -1230,39 +1229,111 @@ func (app *App) updateWorkflowHandler(c *gin.Context) {
 		return
 	}
 	wf.ID = id // enforce path ID
+	wf = normalizeWorkflow(wf)
 	if err := validateWorkflowOCRConfig(app, wf); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	settingsMutex.Lock()
-	defer settingsMutex.Unlock()
-
-	found := false
-	for i, existing := range settings.Workflows {
-		if existing.ID == id {
-			// Ensure the new trigger_tag is not used by another workflow.
-			for j, other := range settings.Workflows {
-				if j != i && other.TriggerTag == wf.TriggerTag && wf.TriggerTag != "" {
-					c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("trigger_tag %q is already used by workflow %q", wf.TriggerTag, other.ID)})
-					return
-				}
-			}
-			settings.Workflows[i] = wf
-			found = true
-			break
-		}
-	}
-	if !found {
+	index := slices.IndexFunc(settings.Workflows, func(existing WorkflowConfig) bool { return existing.ID == id })
+	if index < 0 {
+		settingsMutex.Unlock()
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("workflow %q not found", id)})
 		return
 	}
-	if err := saveSettingsLocked(); err != nil {
+	others := slices.Delete(slices.Clone(settings.Workflows), index, index+1)
+	if status, err := validateWorkflowTags(wf, others); err != nil {
+		settingsMutex.Unlock()
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+	settings.Workflows[index] = wf
+	err := saveSettingsLocked()
+	settingsMutex.Unlock()
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
 		return
 	}
 	invalidateWorkflowTemplateCache(id)
+	app.ensureWorkflowTags(c.Request.Context(), wf)
 	c.JSON(http.StatusOK, wf)
+}
+
+// normalizeWorkflow trims the tag names so " invoices" and "invoices" are
+// the same tag, as they are in paperless-ngx.
+func normalizeWorkflow(wf WorkflowConfig) WorkflowConfig {
+	wf.TriggerTag = strings.TrimSpace(wf.TriggerTag)
+	wf.CompletionTag = strings.TrimSpace(wf.CompletionTag)
+	return wf
+}
+
+// validateWorkflowTags checks a workflow's tags against the global tags and
+// the other workflows. Tag names compare case-insensitively, like
+// paperless-ngx does. Every rejected case would otherwise make documents
+// loop: a completion tag that is also a trigger tag sends the document
+// straight back into processing, and a trigger tag that paperless-gpt adds
+// or removes itself gets fought over by two processing paths.
+func validateWorkflowTags(wf WorkflowConfig, others []WorkflowConfig) (int, error) {
+	if wf.TriggerTag == "" {
+		return http.StatusBadRequest, fmt.Errorf("trigger_tag is required")
+	}
+	reserved := []struct{ env, tag string }{
+		{"AUTO_TAG", autoTag},
+		{"MANUAL_TAG", manualTag},
+		{"AUTO_OCR_TAG", autoOcrTag},
+		{"FAIL_TAG", failTag},
+		{"AUTO_TAG_COMPLETE", autoTagComplete},
+		{"PDF_OCR_COMPLETE_TAG", pdfOCRCompleteTag},
+	}
+	for _, r := range reserved {
+		if r.tag == "" {
+			continue
+		}
+		if strings.EqualFold(wf.TriggerTag, r.tag) {
+			return http.StatusBadRequest, fmt.Errorf("trigger_tag %q is already used by paperless-gpt as %s", wf.TriggerTag, r.env)
+		}
+		// A completion tag may share AUTO_TAG_COMPLETE or the OCR complete
+		// tag, but never a tag that starts processing.
+		if r.env != "AUTO_TAG_COMPLETE" && r.env != "PDF_OCR_COMPLETE_TAG" && strings.EqualFold(wf.CompletionTag, r.tag) {
+			return http.StatusBadRequest, fmt.Errorf("completion_tag %q is already used by paperless-gpt as %s", wf.CompletionTag, r.env)
+		}
+	}
+	if strings.EqualFold(wf.CompletionTag, wf.TriggerTag) {
+		return http.StatusBadRequest, fmt.Errorf("completion_tag must differ from trigger_tag, otherwise the document is processed again and again")
+	}
+	for _, other := range others {
+		if strings.EqualFold(other.TriggerTag, wf.TriggerTag) {
+			return http.StatusConflict, fmt.Errorf("trigger_tag %q is already used by workflow %q", wf.TriggerTag, other.ID)
+		}
+		if wf.CompletionTag != "" && strings.EqualFold(other.TriggerTag, wf.CompletionTag) {
+			return http.StatusConflict, fmt.Errorf("completion_tag %q is the trigger_tag of workflow %q; chaining workflows is not supported", wf.CompletionTag, other.ID)
+		}
+		if other.CompletionTag != "" && strings.EqualFold(other.CompletionTag, wf.TriggerTag) {
+			return http.StatusConflict, fmt.Errorf("trigger_tag %q is the completion_tag of workflow %q; chaining workflows is not supported", wf.TriggerTag, other.ID)
+		}
+	}
+	return http.StatusOK, nil
+}
+
+// ensureWorkflowTags creates a saved workflow's tags in paperless-ngx, as
+// startup does for the workflows already configured. Without it a new
+// completion tag would fail to apply until the next restart.
+func (app *App) ensureWorkflowTags(ctx context.Context, wf WorkflowConfig) {
+	ensurer, ok := app.Client.(interface {
+		EnsureTagExists(context.Context, string) error
+	})
+	if !ok {
+		return
+	}
+	for _, tag := range []string{wf.TriggerTag, wf.CompletionTag} {
+		if tag == "" {
+			continue
+		}
+		if err := ensurer.EnsureTagExists(ctx, tag); err != nil {
+			log.Warnf("Failed to ensure workflow tag %q exists: %v", tag, err)
+		}
+	}
 }
 
 // deleteWorkflowHandler handles DELETE /api/workflows/:id – removes a workflow.
