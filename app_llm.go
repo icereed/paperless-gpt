@@ -874,24 +874,13 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		suggestion.SuggestedCustomFields = suggestedCustomFields
 	}
 
-	// Remove manual tag from the list of suggested tags
-	suggestion.RemoveTags = []string{manualTag, autoTag}
-
-	// Add auto-processing complete tag if configured (only for auto-processing, not manual review)
-	if app.autoTagComplete != "" && suggestionRequest.IsAutoProcessing {
-		suggestion.AddTags = append(suggestion.AddTags, app.autoTagComplete)
-		docLogger.Debugf("Adding auto-processing complete tag '%s'", app.autoTagComplete)
+	var workflow *WorkflowConfig
+	if hasWorkflow {
+		workflow = &activeWorkflow
 	}
-
-	// Workflow-specific: remove the workflow trigger tag and add the completion tag.
-	if hasWorkflow && suggestionRequest.IsAutoProcessing {
-		if activeWorkflow.TriggerTag != "" && activeWorkflow.TriggerTag != autoTag {
-			suggestion.RemoveTags = append(suggestion.RemoveTags, activeWorkflow.TriggerTag)
-		}
-		if activeWorkflow.CompletionTag != "" {
-			suggestion.AddTags = append(suggestion.AddTags, activeWorkflow.CompletionTag)
-			docLogger.Debugf("Adding workflow completion tag '%s'", activeWorkflow.CompletionTag)
-		}
+	suggestion.RemoveTags, suggestion.AddTags = handoverTags(app.autoTagComplete, suggestionRequest.IsAutoProcessing, workflow)
+	if len(suggestion.AddTags) > 0 {
+		docLogger.Debugf("Adding completion tags %v", suggestion.AddTags)
 	}
 
 	elapsed := time.Since(startTime)
@@ -988,4 +977,29 @@ func stripMarkdown(content string) string {
 		content = strings.TrimSuffix(content, "```")
 	}
 	return strings.TrimSpace(content)
+}
+
+// handoverTags returns the tags to take off a processed document and the
+// tags to put on it. The trigger tags always come off. A completion tag is
+// only added for auto-processing, not for a manual review: a workflow's own
+// completion tag when it has one, AUTO_TAG_COMPLETE otherwise, so a workflow
+// can mark its documents differently from the default path.
+func handoverTags(autoTagComplete string, isAutoProcessing bool, workflow *WorkflowConfig) (remove, add []string) {
+	remove = []string{manualTag, autoTag}
+	if !isAutoProcessing {
+		return remove, nil
+	}
+	completionTag := autoTagComplete
+	if workflow != nil {
+		if workflow.TriggerTag != "" && !strings.EqualFold(workflow.TriggerTag, autoTag) {
+			remove = append(remove, workflow.TriggerTag)
+		}
+		if workflow.CompletionTag != "" {
+			completionTag = workflow.CompletionTag
+		}
+	}
+	if completionTag != "" {
+		add = []string{completionTag}
+	}
+	return remove, add
 }
