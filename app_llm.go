@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	_ "image/jpeg"
@@ -20,12 +21,17 @@ import (
 	"github.com/tmc/langchaingo/llms"
 )
 
-// getSuggestedCorrespondent generates a suggested correspondent for a document using the LLM
-func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, suggestedTitle string, availableCorrespondents []string, correspondentBlackList []string) (string, error) {
+// getSuggestedCorrespondent generates a suggested correspondent for a document using the LLM.
+// tmplOverride, when non-nil, replaces the global correspondentTemplate for this call.
+func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, suggestedTitle string, availableCorrespondents []string, correspondentBlackList []string, tmplOverride *template.Template) (string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
-	defer templateMutex.RUnlock()
+	activeTmpl := correspondentTemplate
+	templateMutex.RUnlock()
+	if tmplOverride != nil {
+		activeTmpl = tmplOverride
+	}
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
@@ -35,7 +41,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 		"Title":                   suggestedTitle,
 	}
 
-	availableTokens, err := getAvailableTokensForContent(correspondentTemplate, templateData)
+	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
 	if err != nil {
 		return "", fmt.Errorf("error calculating available tokens: %v", err)
 	}
@@ -49,7 +55,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	// Execute template with truncated content
 	var promptBuffer bytes.Buffer
 	templateData["Content"] = truncatedContent
-	err = correspondentTemplate.Execute(&promptBuffer, templateData)
+	err = activeTmpl.Execute(&promptBuffer, templateData)
 	if err != nil {
 		return "", fmt.Errorf("error executing correspondent template: %v", err)
 	}
@@ -75,18 +81,24 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	return response, nil
 }
 
-// getSuggestedTags generates suggested tags for a document using the LLM
+// getSuggestedTags generates suggested tags for a document using the LLM.
+// tmplOverride, when non-nil, replaces the global tagTemplate for this call.
 func (app *App) getSuggestedTags(
 	ctx context.Context,
 	content string,
 	suggestedTitle string,
 	availableTags []string,
 	originalTags []string,
-	logger *logrus.Entry) ([]string, error) {
+	logger *logrus.Entry,
+	tmplOverride *template.Template) ([]string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
-	defer templateMutex.RUnlock()
+	activeTmpl := tagTemplate
+	templateMutex.RUnlock()
+	if tmplOverride != nil {
+		activeTmpl = tmplOverride
+	}
 
 	// Remove all paperless-gpt related tags from available tags
 	availableTags = removeSystemTags(availableTags)
@@ -100,7 +112,7 @@ func (app *App) getSuggestedTags(
 		"CreateNewTags": createNewTags,
 	}
 
-	availableTokens, err := getAvailableTokensForContent(tagTemplate, templateData)
+	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
 	if err != nil {
 		logger.Errorf("Error calculating available tokens: %v", err)
 		return nil, fmt.Errorf("error calculating available tokens: %v", err)
@@ -116,7 +128,7 @@ func (app *App) getSuggestedTags(
 	// Execute template with truncated content
 	var promptBuffer bytes.Buffer
 	templateData["Content"] = truncatedContent
-	err = tagTemplate.Execute(&promptBuffer, templateData)
+	err = activeTmpl.Execute(&promptBuffer, templateData)
 	if err != nil {
 		logger.Errorf("Error executing tag template: %v", err)
 		return nil, fmt.Errorf("error executing tag template: %v", err)
@@ -196,17 +208,23 @@ func (app *App) getSuggestedTags(
 	return removeSystemTags(filteredTags), nil
 }
 
-// getSuggestedDocumentType generates a suggested document type for a document using the LLM
+// getSuggestedDocumentType generates a suggested document type for a document using the LLM.
+// tmplOverride, when non-nil, replaces the global documentTypeTemplate for this call.
 func (app *App) getSuggestedDocumentType(
 	ctx context.Context,
 	content string,
 	suggestedTitle string,
 	availableDocumentTypes []string,
-	logger *logrus.Entry) (string, error) {
+	logger *logrus.Entry,
+	tmplOverride *template.Template) (string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
-	defer templateMutex.RUnlock()
+	activeTmpl := documentTypeTemplate
+	templateMutex.RUnlock()
+	if tmplOverride != nil {
+		activeTmpl = tmplOverride
+	}
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
@@ -215,7 +233,7 @@ func (app *App) getSuggestedDocumentType(
 		"Title":                  suggestedTitle,
 	}
 
-	availableTokens, err := getAvailableTokensForContent(documentTypeTemplate, templateData)
+	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
 	if err != nil {
 		logger.Errorf("Error calculating available tokens: %v", err)
 		return "", fmt.Errorf("error calculating available tokens: %v", err)
@@ -231,7 +249,7 @@ func (app *App) getSuggestedDocumentType(
 	// Execute template with truncated content
 	var promptBuffer bytes.Buffer
 	templateData["Content"] = truncatedContent
-	err = documentTypeTemplate.Execute(&promptBuffer, templateData)
+	err = activeTmpl.Execute(&promptBuffer, templateData)
 	if err != nil {
 		logger.Errorf("Error executing document type template: %v", err)
 		return "", fmt.Errorf("error executing document type template: %v", err)
@@ -271,12 +289,17 @@ func (app *App) getSuggestedDocumentType(
 	return "", nil
 }
 
-// getSuggestedTitle generates a suggested title for a document using the LLM
-func (app *App) getSuggestedTitle(ctx context.Context, content string, originalTitle string, logger *logrus.Entry) (string, error) {
+// getSuggestedTitle generates a suggested title for a document using the LLM.
+// tmplOverride, when non-nil, replaces the global titleTemplate for this call.
+func (app *App) getSuggestedTitle(ctx context.Context, content string, originalTitle string, logger *logrus.Entry, tmplOverride *template.Template) (string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
-	defer templateMutex.RUnlock()
+	activeTmpl := titleTemplate
+	templateMutex.RUnlock()
+	if tmplOverride != nil {
+		activeTmpl = tmplOverride
+	}
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
@@ -285,7 +308,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 		"Title":    originalTitle,
 	}
 
-	availableTokens, err := getAvailableTokensForContent(titleTemplate, templateData)
+	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
 	if err != nil {
 		logger.Errorf("Error calculating available tokens: %v", err)
 		return "", fmt.Errorf("error calculating available tokens: %v", err)
@@ -301,7 +324,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	// Execute template with truncated content
 	var promptBuffer bytes.Buffer
 	templateData["Content"] = truncatedContent
-	err = titleTemplate.Execute(&promptBuffer, templateData)
+	err = activeTmpl.Execute(&promptBuffer, templateData)
 
 	if err != nil {
 		return "", fmt.Errorf("error executing title template: %v", err)
@@ -327,12 +350,17 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
 
-// getSuggestedCreatedDate generates a suggested createdDate for a document using the LLM
-func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, logger *logrus.Entry) (string, error) {
+// getSuggestedCreatedDate generates a suggested createdDate for a document using the LLM.
+// tmplOverride, when non-nil, replaces the global createdDateTemplate for this call.
+func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, logger *logrus.Entry, tmplOverride *template.Template) (string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
-	defer templateMutex.RUnlock()
+	activeTmpl := createdDateTemplate
+	templateMutex.RUnlock()
+	if tmplOverride != nil {
+		activeTmpl = tmplOverride
+	}
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
@@ -341,7 +369,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 		"Today":    getTodayDate(), // must be in YYYY-MM-DD format
 	}
 
-	availableTokens, err := getAvailableTokensForContent(createdDateTemplate, templateData)
+	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
 	if err != nil {
 		logger.Errorf("Error calculating available tokens: %v", err)
 		return "", fmt.Errorf("error calculating available tokens: %v", err)
@@ -357,7 +385,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	// Execute template with truncated content
 	var promptBuffer bytes.Buffer
 	templateData["Content"] = truncatedContent
-	err = createdDateTemplate.Execute(&promptBuffer, templateData)
+	err = activeTmpl.Execute(&promptBuffer, templateData)
 
 	if err != nil {
 		return "", fmt.Errorf("error executing createdDate template: %v", err)
@@ -425,8 +453,9 @@ const (
 	minDocumentLinkReferenceLength = 4
 )
 
-// getSuggestedCustomFields generates suggested custom fields for a document using the LLM
-func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry) ([]CustomFieldSuggestion, error) {
+// getSuggestedCustomFields generates suggested custom fields for a document using the LLM.
+// tmplOverride, when non-nil, replaces the global customFieldTemplate for this call.
+func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry, tmplOverride *template.Template) ([]CustomFieldSuggestion, error) {
 	// Fetch all available custom fields
 	allCustomFields, err := app.Client.GetCustomFields(ctx)
 	if err != nil {
@@ -467,7 +496,11 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	customFieldsXML := xmlBuilder.String()
 
 	templateMutex.RLock()
-	defer templateMutex.RUnlock()
+	activeTmpl := customFieldTemplate
+	templateMutex.RUnlock()
+	if tmplOverride != nil {
+		activeTmpl = tmplOverride
+	}
 
 	templateData := map[string]interface{}{
 		"Language":        getLikelyLanguage(),
@@ -477,7 +510,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 		"CustomFieldsXML": customFieldsXML,
 	}
 
-	availableTokens, err := getAvailableTokensForContent(customFieldTemplate, templateData)
+	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
 	if err != nil {
 		return nil, fmt.Errorf("error calculating available tokens for custom fields: %v", err)
 	}
@@ -489,7 +522,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 
 	var promptBuffer bytes.Buffer
 	templateData["Content"] = truncatedContent
-	err = customFieldTemplate.Execute(&promptBuffer, templateData)
+	err = activeTmpl.Execute(&promptBuffer, templateData)
 	if err != nil {
 		return nil, fmt.Errorf("error executing custom field template: %v", err)
 	}
@@ -689,6 +722,33 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	startTime := time.Now()
 	docLogger.Printf("Processing Document ID %d...", documentID)
 
+	// Resolve workflow overrides (templates + generation flags).
+	var activeWorkflow WorkflowConfig
+	var hasWorkflow bool
+	if suggestionRequest.WorkflowID != "" {
+		activeWorkflow, hasWorkflow = getWorkflowByID(suggestionRequest.WorkflowID)
+		if hasWorkflow {
+			suggestionRequest = resolveGenerationFlags(suggestionRequest, activeWorkflow)
+			docLogger.Infof("Using workflow %q (trigger: %s)", activeWorkflow.Name, activeWorkflow.TriggerTag)
+		}
+	}
+
+	// Helper to look up a workflow template override (nil when no override or no workflow).
+	wfTemplate := func(promptName string, globalTmpl *template.Template) *template.Template {
+		if !hasWorkflow {
+			return nil
+		}
+		tmpl, err := getWorkflowTemplate(activeWorkflow, promptName, globalTmpl)
+		if err != nil {
+			docLogger.Warnf("Workflow template error for %q: %v – falling back to global", promptName, err)
+			return nil
+		}
+		if tmpl == globalTmpl {
+			return nil // no override; signal callers to use global
+		}
+		return tmpl
+	}
+
 	content := sanitize.Sanitize(doc.Content)
 	suggestedTitle := doc.Title
 	var suggestedTags []string
@@ -699,7 +759,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	var err error
 
 	if suggestionRequest.GenerateTitles {
-		suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, docLogger)
+		suggestedTitle, err = app.getSuggestedTitle(ctx, content, suggestedTitle, docLogger, wfTemplate("title_prompt", titleTemplate))
 		if err != nil {
 			docLogger.Errorf("Error processing document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
@@ -707,7 +767,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	}
 
 	if suggestionRequest.GenerateTags {
-		suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, generationContext.availableTagNames, doc.Tags, docLogger)
+		suggestedTags, err = app.getSuggestedTags(ctx, content, suggestedTitle, generationContext.availableTagNames, doc.Tags, docLogger, wfTemplate("tag_prompt", tagTemplate))
 		if err != nil {
 			logger.Errorf("Error generating tags for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
@@ -716,7 +776,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 
 	if suggestionRequest.GenerateCorrespondents {
 		promptCorrespondents := filterCorrespondentsForPrompt(generationContext.availableCorrespondentNames, content, suggestedTitle, correspondentPromptLimit)
-		suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, promptCorrespondents, correspondentBlackList)
+		suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, promptCorrespondents, correspondentBlackList, wfTemplate("correspondent_prompt", correspondentTemplate))
 		if err != nil {
 			log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
@@ -727,7 +787,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		if len(generationContext.availableDocumentTypeNames) == 0 {
 			docLogger.Debug("Document type generation is enabled, but no document types are available in paperless-ngx.")
 		} else {
-			suggestedDocumentType, err = app.getSuggestedDocumentType(ctx, content, suggestedTitle, generationContext.availableDocumentTypeNames, docLogger)
+			suggestedDocumentType, err = app.getSuggestedDocumentType(ctx, content, suggestedTitle, generationContext.availableDocumentTypeNames, docLogger, wfTemplate("document_type_prompt", documentTypeTemplate))
 			if err != nil {
 				log.Errorf("Error generating document type for document %d: %v", documentID, err)
 				return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
@@ -736,7 +796,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	}
 
 	if suggestionRequest.GenerateCreatedDate {
-		suggestedCreatedDate, err = app.getSuggestedCreatedDate(ctx, content, docLogger)
+		suggestedCreatedDate, err = app.getSuggestedCreatedDate(ctx, content, docLogger, wfTemplate("date_prompt", createdDateTemplate))
 		if err != nil {
 			log.Errorf("Error generating createdDate for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
@@ -751,7 +811,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		if len(selectedIDs) == 0 {
 			log.Warnf("Custom field generation is enabled, but no custom fields are selected in the settings. Please select at least one custom field for this feature to work.")
 		} else {
-			suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger)
+			suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger, wfTemplate("custom_field_prompt", customFieldTemplate))
 			if err != nil {
 				log.Errorf("Error generating custom fields for document %d: %v", documentID, err)
 				return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
@@ -821,6 +881,17 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	if app.autoTagComplete != "" && suggestionRequest.IsAutoProcessing {
 		suggestion.AddTags = append(suggestion.AddTags, app.autoTagComplete)
 		docLogger.Debugf("Adding auto-processing complete tag '%s'", app.autoTagComplete)
+	}
+
+	// Workflow-specific: remove the workflow trigger tag and add the completion tag.
+	if hasWorkflow && suggestionRequest.IsAutoProcessing {
+		if activeWorkflow.TriggerTag != "" && activeWorkflow.TriggerTag != autoTag {
+			suggestion.RemoveTags = append(suggestion.RemoveTags, activeWorkflow.TriggerTag)
+		}
+		if activeWorkflow.CompletionTag != "" {
+			suggestion.AddTags = append(suggestion.AddTags, activeWorkflow.CompletionTag)
+			docLogger.Debugf("Adding workflow completion tag '%s'", activeWorkflow.CompletionTag)
+		}
 	}
 
 	elapsed := time.Since(startTime)

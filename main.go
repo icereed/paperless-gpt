@@ -212,6 +212,8 @@ func main() {
 		}
 	}
 
+	ensureWorkflowTagsExist(ctx, client.EnsureTagExists)
+
 	// Initial fetch of custom fields
 	refreshCustomFieldsCache(client)
 
@@ -540,6 +542,12 @@ func main() {
 
 		// Get version information
 		api.GET("/version", getVersionHandler)
+
+		// Workflow CRUD
+		api.GET("/workflows", app.listWorkflowsHandler)
+		api.POST("/workflows", app.createWorkflowHandler)
+		api.PUT("/workflows/:id", app.updateWorkflowHandler)
+		api.DELETE("/workflows/:id", app.deleteWorkflowHandler)
 	}
 
 	// Serve frontend files
@@ -563,6 +571,9 @@ func main() {
 			c.File("web-app/dist/index.html")
 		})
 		router.GET("/adhoc-analysis", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
+		router.GET("/workflows", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
 		router.GET("/favicon.ico", func(c *gin.Context) {
@@ -601,6 +612,10 @@ func main() {
 		})
 		// adhoc-analysis route
 		router.GET("/adhoc-analysis", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		// workflows route
+		router.GET("/workflows", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
 	}
@@ -982,8 +997,9 @@ func removeTagFromList(tags []string, tagToRemove string) []string {
 }
 
 // systemTags returns every tag paperless-gpt manages itself: the triggers it
-// watches for and the markers it writes. None of them describe a document, so
-// none of them belong in a suggestion prompt.
+// watches for and the markers it writes, including per-workflow trigger and
+// completion tags. None of them describe a document, so none of them belong
+// in a suggestion prompt.
 //
 // Configured-empty tags are skipped, because "" would otherwise match nothing
 // useful and only obscures intent.
@@ -996,11 +1012,16 @@ func systemTags() []string {
 		autoTagComplete,
 		pdfOCRCompleteTag,
 	}
+	configured = append(configured, workflowManagedTags()...)
+	seen := make(map[string]bool, len(configured))
 	tags := make([]string, 0, len(configured))
 	for _, tag := range configured {
-		if tag != "" {
-			tags = append(tags, tag)
+		key := strings.ToLower(tag)
+		if tag == "" || seen[key] {
+			continue
 		}
+		seen[key] = true
+		tags = append(tags, tag)
 	}
 	return tags
 }

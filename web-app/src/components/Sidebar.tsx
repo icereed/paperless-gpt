@@ -5,6 +5,7 @@ import {
   DocumentMagnifyingGlassIcon,
   HomeIcon,
   Bars3Icon,
+  QueueListIcon,
 } from "@heroicons/react/24/outline";
 import classNames from "classnames";
 import React, { useEffect, useState } from "react";
@@ -63,6 +64,12 @@ const Sidebar: React.FC = () => {
       title: "Ad-hoc Analysis",
     },
     { name: "history", path: "./history", icon: ClockIcon, title: "History" },
+    {
+      name: "workflows",
+      path: "./workflows",
+      icon: QueueListIcon,
+      title: "Workflows",
+    },
     {
       name: "settings",
       path: "./settings",

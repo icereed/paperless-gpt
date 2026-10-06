@@ -183,3 +183,96 @@ func TestGetVersionHandler(t *testing.T) {
 	assert.Equal(t, "devCommit", response["commit"])
 	assert.Equal(t, "devBuildDate", response["buildDate"])
 }
+
+func TestWorkflowCRUDHandlers(t *testing.T) {
+	router := setupTestRouter(t)
+	isolateWorkflowSettings(t)
+	app := &App{}
+	router.GET("/api/workflows", app.listWorkflowsHandler)
+	router.POST("/api/workflows", app.createWorkflowHandler)
+	router.PUT("/api/workflows/:id", app.updateWorkflowHandler)
+	router.DELETE("/api/workflows/:id", app.deleteWorkflowHandler)
+
+	doJSON := func(method, path string, body any) *httptest.ResponseRecorder {
+		t.Helper()
+		var buf bytes.Buffer
+		if body != nil {
+			require.NoError(t, json.NewEncoder(&buf).Encode(body))
+		}
+		req, err := http.NewRequest(method, path, &buf)
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	t.Run("GET empty list", func(t *testing.T) {
+		w := doJSON(http.MethodGet, "/api/workflows", nil)
+		assert.Equal(t, http.StatusOK, w.Code)
+		var got []WorkflowConfig
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+		assert.Empty(t, got)
+	})
+
+	t.Run("POST without trigger_tag is 400", func(t *testing.T) {
+		w := doJSON(http.MethodPost, "/api/workflows", WorkflowConfig{Name: "No Trigger"})
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	var created WorkflowConfig
+	t.Run("POST creates a workflow", func(t *testing.T) {
+		w := doJSON(http.MethodPost, "/api/workflows", WorkflowConfig{
+			Name:          "Invoices",
+			TriggerTag:    "paperless-gpt-invoices",
+			CompletionTag: "paperless-gpt-invoices-done",
+		})
+		assert.Equal(t, http.StatusCreated, w.Code)
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+		assert.Equal(t, "paperless-gpt-invoices", created.ID)
+		assert.Equal(t, "Invoices", created.Name)
+
+		list := doJSON(http.MethodGet, "/api/workflows", nil)
+		var got []WorkflowConfig
+		require.NoError(t, json.Unmarshal(list.Body.Bytes(), &got))
+		require.Len(t, got, 1)
+		assert.Equal(t, created.ID, got[0].ID)
+	})
+
+	t.Run("POST duplicate trigger_tag is 409", func(t *testing.T) {
+		w := doJSON(http.MethodPost, "/api/workflows", WorkflowConfig{
+			Name:       "Also invoices",
+			TriggerTag: "paperless-gpt-invoices",
+		})
+		assert.Equal(t, http.StatusConflict, w.Code)
+	})
+
+	t.Run("PUT updates and PUT stolen trigger is 409", func(t *testing.T) {
+		other := doJSON(http.MethodPost, "/api/workflows", WorkflowConfig{
+			Name:       "Contracts",
+			TriggerTag: "paperless-gpt-contracts",
+		})
+		assert.Equal(t, http.StatusCreated, other.Code)
+		var contracts WorkflowConfig
+		require.NoError(t, json.Unmarshal(other.Body.Bytes(), &contracts))
+
+		created.Name = "Invoices (updated)"
+		upd := doJSON(http.MethodPut, "/api/workflows/"+created.ID, created)
+		assert.Equal(t, http.StatusOK, upd.Code)
+
+		stolen := created
+		stolen.TriggerTag = "paperless-gpt-contracts"
+		conflict := doJSON(http.MethodPut, "/api/workflows/"+created.ID, stolen)
+		assert.Equal(t, http.StatusConflict, conflict.Code)
+
+		del := doJSON(http.MethodDelete, "/api/workflows/"+contracts.ID, nil)
+		assert.Equal(t, http.StatusOK, del.Code)
+	})
+
+	t.Run("DELETE removes a workflow and unknown is 404", func(t *testing.T) {
+		w := doJSON(http.MethodDelete, "/api/workflows/"+created.ID, nil)
+		assert.Equal(t, http.StatusOK, w.Code)
+		missing := doJSON(http.MethodDelete, "/api/workflows/"+created.ID, nil)
+		assert.Equal(t, http.StatusNotFound, missing.Code)
+	})
+}

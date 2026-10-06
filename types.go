@@ -105,6 +105,9 @@ type GenerateSuggestionsRequest struct {
 	GenerateCustomFields   bool       `json:"generate_custom_fields,omitempty"`
 	GenerateDocumentTypes  bool       `json:"generate_document_types,omitempty"`
 	IsAutoProcessing       bool       `json:"-"` // internal flag; not exposed via API
+	// WorkflowID, when set, selects a named workflow whose prompts and flags
+	// override the global defaults. Used by the background auto-tag processor.
+	WorkflowID string `json:"-"`
 }
 
 // AnalyzeDocumentsRequest is the request payload for the ad-hoc analysis
@@ -113,12 +116,43 @@ type AnalyzeDocumentsRequest struct {
 	Prompt      string `json:"prompt"`
 }
 
+// WorkflowConfig defines a named processing workflow triggered by a specific paperless-ngx tag.
+// Each workflow can override the global generation flags and carry its own prompt templates.
+type WorkflowConfig struct {
+	// ID is a stable, URL-safe identifier (e.g. "invoices"). Auto-generated when empty.
+	ID string `json:"id"`
+	// Name is a human-readable label shown in the UI.
+	Name string `json:"name"`
+	// TriggerTag is the paperless-ngx tag that activates this workflow (e.g. "paperless-gpt-invoices").
+	TriggerTag string `json:"trigger_tag"`
+	// CompletionTag is optionally added to a document after successful processing.
+	CompletionTag string `json:"completion_tag,omitempty"`
+	// Generation flags – nil means "inherit the global default".
+	GenerateTitles         *bool `json:"generate_titles,omitempty"`
+	GenerateTags           *bool `json:"generate_tags,omitempty"`
+	GenerateCorrespondents *bool `json:"generate_correspondents,omitempty"`
+	GenerateCreatedDate    *bool `json:"generate_created_date,omitempty"`
+	GenerateDocumentTypes  *bool `json:"generate_document_types,omitempty"`
+	GenerateCustomFields   *bool `json:"generate_custom_fields,omitempty"`
+	// EnableOCR, when true, runs OCR on the document before metadata generation.
+	// nil or false means OCR is skipped for this workflow.
+	EnableOCR *bool `json:"enable_ocr,omitempty"`
+	// OCRLimitPages overrides the effective OCR page limit for this workflow.
+	// nil = use effective defaults (settings over env); 0 = no limit.
+	OCRLimitPages *int `json:"ocr_limit_pages,omitempty"`
+	// Prompts maps prompt-file names (e.g. "title_prompt") to their template content.
+	// An absent key means the global default prompt is used.
+	// "ocr_prompt" overrides the OCR template when EnableOCR is true.
+	Prompts map[string]string `json:"prompts,omitempty"`
+}
+
 // Settings defines the structure for server-side UI settings
 type Settings struct {
-	CustomFieldsEnable      bool        `json:"custom_fields_enable"`
-	CustomFieldsSelectedIDs []int       `json:"custom_fields_selected_ids"`
-	CustomFieldsWriteMode   string      `json:"custom_fields_write_mode"` // "append" or "replace"
-	OCR                     OCRDefaults `json:"ocr"`
+	CustomFieldsEnable      bool             `json:"custom_fields_enable"`
+	CustomFieldsSelectedIDs []int            `json:"custom_fields_selected_ids"`
+	CustomFieldsWriteMode   string           `json:"custom_fields_write_mode"` // "append" or "replace"
+	OCR                     OCRDefaults      `json:"ocr"`
+	Workflows               []WorkflowConfig `json:"workflows,omitempty"`
 }
 
 // OCRDefaults are persisted run-option defaults, editable from the UI.
