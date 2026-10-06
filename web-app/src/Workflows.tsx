@@ -16,6 +16,7 @@ import classNames from "classnames";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import Button from "./components/ui/Button";
+import PersistenceWarning from "./components/PersistenceWarning";
 import Toast, { ToastData } from "./components/ui/Toast";
 
 // ---------------------------------------------------------------------------
@@ -996,6 +997,8 @@ const Workflows: React.FC = () => {
           </Button>
         )}
       </div>
+
+      <PersistenceWarning dirs={["prompts", "/root/prompts"]} />
 
       {error && (
         <div

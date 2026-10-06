@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import ConfigurationSection from './ConfigurationSection';
 import PromptsEditor from './PromptsEditor';
 import CustomFieldsEditor from './CustomFieldsEditor';
+import PersistenceWarning from './PersistenceWarning';
 
 interface VersionInfo {
   version: string;
@@ -65,6 +66,8 @@ const Settings: React.FC = () => {
   return (
     <div className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6">
       <h1 className="text-xl font-semibold">Settings</h1>
+
+      <PersistenceWarning />
 
       <ConfigurationSection />
 

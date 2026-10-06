@@ -41,7 +41,7 @@ A few setups where this changes how the archive is used:
 2. **In paperless-gpt**, open **Settings**, enable custom field generation and select that field. Choose the **Append** or **Update** write mode (see the note on **Replace** below).
 3. Process documents as usual, through manual review or with the `paperless-gpt-auto` tag. You can combine the link field with any other custom fields you already extract.
 
-There is no extra environment variable to set.
+There is no extra environment variable to set. The settings from step 2 are stored in `/app/config/settings.json`, so mount `./config:/app/config` as a volume; otherwise they are reset whenever the container is recreated, for example on every update.
 
 ## How it decides what to link
 

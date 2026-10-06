@@ -263,7 +263,8 @@ services:
       LOG_LEVEL: "info" # Optional: debug, warn, error
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
-      - ./config:/app/config # Mount the config directory
+      - ./config:/app/config # Mount the config directory (settings made in the UI)
+      - ./db:/app/db # Mount the db directory (history for undo, OCR run log)
       # For Google Document AI:
       - ${HOME}/.config/gcloud/application_default_credentials.json:/app/credentials.json
       # For local hOCR and PDF saving:
@@ -311,6 +312,7 @@ services:
      -e LOG_LEVEL='info' \
      -v $(pwd)/prompts:/app/prompts \
      -v $(pwd)/config:/app/config \
+     -v $(pwd)/db:/app/db \
      -p 8080:8080 \
      paperless-gpt
    ```
@@ -1031,6 +1033,7 @@ Common issues and solutions:
 ### Custom Field Generation Issues
 
 - **Feature Not Working**: If custom field suggestions are not being generated even though the feature is enabled, ensure you have selected at least one custom field in the settings. The feature requires at least one field to be selected to know what to process.
+- **Settings Reset After an Update**: The custom field settings are stored in `/app/config/settings.json`. Mount `./config:/app/config` as a volume, otherwise they are lost whenever the container is recreated. paperless-gpt logs a warning at startup, and shows one on the Settings page, when this directory is not persisted.
 
 ---
 

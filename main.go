@@ -168,6 +168,8 @@ func main() {
 
 	// Load settings from file
 	loadSettings()
+	persistence := checkPersistence()
+	logPersistenceIssues(persistence)
 	migrateWorkflowsFromSettings(workflows)
 
 	if settings.CustomFieldsEnable && len(settings.CustomFieldsSelectedIDs) == 0 {
@@ -555,6 +557,7 @@ func main() {
 		api.GET("/workflows", app.listWorkflowsHandler)
 		api.POST("/workflows", app.createWorkflowHandler)
 		api.GET("/workflows/defaults", app.workflowDefaultsHandler)
+		api.GET("/persistence", persistenceHandler(persistence))
 		api.POST("/workflows/preview", app.workflowPreviewHandler)
 		api.PUT("/workflows/:id", app.updateWorkflowHandler)
 		api.DELETE("/workflows/:id", app.deleteWorkflowHandler)
