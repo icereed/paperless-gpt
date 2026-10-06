@@ -6,6 +6,7 @@
 [![GitHub Container Registry](https://img.shields.io/badge/GHCR-Package-181717?logo=github)](https://github.com/icereed/paperless-gpt/pkgs/container/paperless-gpt)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-icereed-ea4aaa?logo=github-sponsors)](https://github.com/sponsors/icereed)
+[![Fair Hosting](https://img.shields.io/badge/Fair%20Hosting-server.camp-blue)](#managed-hosting-for-germany-austria-and-switzerland)
 
 
 <a href="https://trendshift.io/repositories/12701" target="_blank"><img src="https://trendshift.io/api/badge/repositories/12701" alt="icereed%2Fpaperless-gpt | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -18,6 +19,9 @@
 **paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**-ensuring high accuracy, even with tricky scans. It also **connects documents that belong together**: a reminder gets linked to the invoice it is about, an amendment to its contract, a letter to the case it cites. If you're craving next-level text extraction and effortless document organization, this is your solution.
 
 https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
+
+> **☁️ Self-host it or have it hosted**  
+> paperless-gpt is free, open source and fully self-hostable. If you're in Germany, Austria or Switzerland and would rather not run it yourself, [server.camp](https://server.camp/product/paperless-ngx) offers managed paperless-ngx with paperless-gpt and shares part of that revenue with this project. → [Managed hosting](#managed-hosting-for-germany-austria-and-switzerland)
 
 > **❤️ Support This Project**  
 > If paperless-gpt is helping you organize your documents and saving you time, please consider [sponsoring its development](https://github.com/sponsors/icereed). Your support helps ensure continued improvements and maintenance!
@@ -86,7 +90,11 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 - [paperless-gpt](#paperless-gpt)
   - [Key Highlights](#key-highlights)
   - [Table of Contents](#table-of-contents)
+  - [Managed Hosting for Germany, Austria and Switzerland](#managed-hosting-for-germany-austria-and-switzerland)
+    - [Fair Hosting](#fair-hosting)
   - [Getting Started](#getting-started)
+    - [Option 1: Managed Hosting](#option-1-managed-hosting)
+    - [Option 2: Self-Hosting](#option-2-self-hosting)
     - [Prerequisites](#prerequisites)
     - [Security](#security)
     - [Installation](#installation)
@@ -127,13 +135,47 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Custom Field Generation Issues](#custom-field-generation-issues)
   - [Contributing](#contributing)
   - [Support the Project](#support-the-project)
+    - [Support paperless-gpt through Fair Hosting](#support-paperless-gpt-through-fair-hosting)
   - [License](#license)
   - [Star History](#star-history)
   - [Disclaimer](#disclaimer)
 
 ---
 
+## Managed Hosting for Germany, Austria and Switzerland
+
+paperless-gpt is built to be self-hosted and remains free and open source.
+
+If you'd rather use it without operating the infrastructure yourself, [server.camp](https://server.camp/product/paperless-ngx) provides managed paperless-ngx hosting with paperless-gpt and the AI components it needs already set up:
+
+- paperless-ngx and paperless-gpt ready to use
+- hosting and updates managed for you
+- no GPU of your own and no separate AI infrastructure to run
+- AI processing in the EU
+- aimed at individuals and businesses in Germany, Austria and Switzerland
+
+### Fair Hosting
+
+server.camp follows a simple principle: when open source software creates value for their hosting business, the projects behind it should share in that value. A share of the revenue server.camp generates with paperless-gpt goes back to the paperless-gpt project and funds its continued development.
+
+**→ [Use paperless-gpt as a managed service with server.camp](https://server.camp/product/paperless-ngx)**  
+→ [More about managed hosting and Fair Hosting](docs/managed-hosting.md)
+
+Prefer to run everything yourself? Great. Continue with [Getting Started](#getting-started) below.
+
+---
+
 ## Getting Started
+
+There are two ways to run paperless-gpt.
+
+### Option 1: Managed Hosting
+
+If you're in Germany, Austria or Switzerland and don't want to operate paperless-gpt yourself, server.camp provides a managed paperless-ngx + paperless-gpt environment. → [Managed paperless-gpt with server.camp](https://server.camp/product/paperless-ngx)
+
+### Option 2: Self-Hosting
+
+paperless-gpt is fully self-hostable and free under the MIT license. Everything below covers running it yourself with Docker Compose or a manual setup.
 
 ### Prerequisites
 
@@ -148,6 +190,9 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 **paperless-gpt has no built-in authentication.** Its web UI and `/api/*` endpoints are open to anyone who can reach the port — by default it listens on all interfaces (`LISTEN_INTERFACE` defaults to `:8080`), so a plain `-p 8080:8080` (as in the example below) exposes it to your whole LAN/VPN, not just `localhost`. Anyone who can reach it can rewrite documents in your connected paperless-ngx instance, trigger LLM/OCR jobs against your API keys, and change settings — with zero credentials required.
 
 Do not expose it directly to the internet or an untrusted network. Put it behind a reverse proxy that adds authentication (e.g. Authelia, Authentik, a Basic Auth layer), restrict it to a VPN/Tailscale network, or otherwise limit who can reach the port.
+
+> **Prefer not to manage this layer yourself?**  
+> For users in Germany, Austria and Switzerland, [server.camp](https://server.camp/product/paperless-ngx) provides paperless-gpt as part of a managed paperless-ngx environment, including operation of the surrounding infrastructure. See [Managed Hosting](#managed-hosting-for-germany-austria-and-switzerland).
 
 ### Installation
 
@@ -1095,6 +1140,10 @@ If paperless-gpt is saving you time and making your document management easier, 
 - **Contribute** code, documentation, or bug reports
 
 Your support helps ensure paperless-gpt remains actively maintained and continues to improve!
+
+### Support paperless-gpt through Fair Hosting
+
+GitHub Sponsors is the way to support the project directly. If you're looking for managed paperless-gpt hosting in Germany, Austria or Switzerland anyway, choosing our Fair Hosting Partner [server.camp](https://server.camp/product/paperless-ngx) supports the project too: server.camp shares part of the revenue it generates with paperless-gpt with the open source project. No referral code or special link is needed.
 
 ---
 
