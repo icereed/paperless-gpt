@@ -125,8 +125,9 @@ func (s *workflowStore) Save(wf WorkflowConfig, create bool, validate func(wf Wo
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !workflowIDPattern.MatchString(wf.ID) {
-		return http.StatusBadRequest, fmt.Errorf("id %q must be lowercase letters, digits, '-' or '_' (at most 64 characters)", wf.ID)
+	dir, err := s.pathFor(wf.ID)
+	if err != nil {
+		return http.StatusBadRequest, err
 	}
 	exists := slices.ContainsFunc(s.workflows, func(other WorkflowConfig) bool { return other.ID == wf.ID })
 	if create && exists {
@@ -142,7 +143,7 @@ func (s *workflowStore) Save(wf WorkflowConfig, create bool, validate func(wf Wo
 		}
 	}
 
-	err := writeWorkflowDir(filepath.Join(s.dir, wf.ID), wf)
+	err = writeWorkflowDir(dir, wf)
 	s.reloadLocked()
 	if err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("saving workflow %q: %w", wf.ID, err)
@@ -158,12 +159,31 @@ func (s *workflowStore) Delete(id string) (int, error) {
 	if !slices.ContainsFunc(s.workflows, func(wf WorkflowConfig) bool { return wf.ID == id }) {
 		return http.StatusNotFound, fmt.Errorf("workflow %q not found", id)
 	}
-	err := os.RemoveAll(filepath.Join(s.dir, id))
+	dir, err := s.pathFor(id)
+	if err != nil {
+		return http.StatusBadRequest, err
+	}
+	err = os.RemoveAll(dir)
 	s.reloadLocked()
 	if err != nil {
 		return http.StatusInternalServerError, fmt.Errorf("deleting workflow %q: %w", id, err)
 	}
 	return http.StatusOK, nil
+}
+
+// pathFor returns the directory of a workflow. IDs come from API requests,
+// so this is the one place that turns them into paths: an ID must match
+// workflowIDPattern and the result must stay inside the store.
+func (s *workflowStore) pathFor(id string) (string, error) {
+	if !workflowIDPattern.MatchString(id) || strings.Contains(id, "..") {
+		return "", fmt.Errorf("id %q must be lowercase letters, digits, '-' or '_' (at most 64 characters)", id)
+	}
+	base := filepath.Clean(s.dir)
+	dir := filepath.Join(base, id)
+	if !strings.HasPrefix(dir, base+string(filepath.Separator)) {
+		return "", fmt.Errorf("id %q does not name a directory inside %s", id, s.dir)
+	}
+	return dir, nil
 }
 
 // refresh re-reads the directory when any file in it changed since the last
@@ -226,6 +246,18 @@ func (s *workflowStore) reloadLocked() {
 		loaded = append(loaded, wf)
 	}
 	sort.Slice(loaded, func(i, j int) bool { return loaded[i].ID < loaded[j].ID })
+	// Files edited by hand get the same tag rules as the API, so a looping
+	// setup cannot sneak in. When two workflows collide, the one with the
+	// lower ID wins and the other is reported.
+	var valid []WorkflowConfig
+	for _, wf := range loaded {
+		if _, err := validateWorkflowTags(wf, valid); err != nil {
+			log.Errorf("Workflow %q is not loaded: %v", wf.ID, err)
+			continue
+		}
+		valid = append(valid, wf)
+	}
+	loaded = valid
 	s.workflows = loaded
 	if s.onChange != nil {
 		go s.onChange(cloneWorkflows(loaded))
@@ -378,7 +410,12 @@ func migrateWorkflowsFromSettings(store *workflowStore) {
 		if wf.ID == "" || !workflowIDPattern.MatchString(wf.ID) {
 			wf.ID = generateWorkflowID(wf.TriggerTag, append(store.List(), remaining...))
 		}
-		dir := filepath.Join(store.dir, wf.ID)
+		dir, err := store.pathFor(wf.ID)
+		if err != nil {
+			log.Errorf("Workflow %q from config/settings.json was not migrated: %v", wf.ID, err)
+			remaining = append(remaining, wf)
+			continue
+		}
 		if _, err := os.Stat(dir); err == nil {
 			// An earlier start may have written the files but failed to
 			// update settings.json.
