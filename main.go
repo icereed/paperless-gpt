@@ -215,6 +215,12 @@ func main() {
 	}
 
 	ensureWorkflowTagsExist(ctx, client.EnsureTagExists)
+	// Workflows added or changed by editing their files get their tags too.
+	workflows.OnChange(func([]WorkflowConfig) {
+		ensureCtx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		ensureWorkflowTagsExist(ensureCtx, client.EnsureTagExists)
+	})
 
 	// Initial fetch of custom fields
 	refreshCustomFieldsCache(client)

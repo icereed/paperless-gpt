@@ -68,7 +68,7 @@ const Sidebar: React.FC = () => {
       name: "workflows",
       path: "./workflows",
       icon: QueueListIcon,
-      title: "Workflows",
+      title: "AI Workflows",
     },
     {
       name: "settings",
