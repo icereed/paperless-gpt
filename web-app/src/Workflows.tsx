@@ -890,12 +890,11 @@ const Workflows: React.FC = () => {
   const dismissToast = useCallback(() => setToast(null), []);
 
   const handleSave = async (edited: WorkflowConfig) => {
-    // A prompt copied from the global one and left unchanged is no override;
-    // saving it would hide later changes to the global prompt.
+    // An own prompt is an explicit choice in the editor, so it is kept even
+    // when its text still matches the global one: it pins the prompt for this
+    // workflow. Only blank prompts are dropped.
     const prompts = Object.fromEntries(
-      Object.entries(edited.prompts ?? {}).filter(
-        ([key, value]) => value.trim() && value.trim() !== (defaults?.prompts[key] ?? "").trim()
-      )
+      Object.entries(edited.prompts ?? {}).filter(([, value]) => value.trim())
     );
     const wf = { ...edited, prompts };
     setSaving(true);
