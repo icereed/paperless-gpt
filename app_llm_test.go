@@ -158,7 +158,7 @@ Content: {{.Content}}
 
 			// Test with the app's LLM
 			ctx := context.Background()
-			_, err = app.getSuggestedTitle(ctx, truncatedContent, "Test Title", testLogger)
+			_, err = app.getSuggestedTitle(ctx, truncatedContent, "Test Title", testLogger, nil)
 			require.NoError(t, err)
 
 			// Verify truncation
@@ -211,7 +211,7 @@ func TestTokenLimitInCorrespondentGeneration(t *testing.T) {
 	availableCorrespondents := []string{"Test Corp", "Example Inc"}
 	correspondentBlackList := []string{"Blocked Corp"}
 
-	_, err := app.getSuggestedCorrespondent(ctx, longContent, "Test Title", availableCorrespondents, correspondentBlackList)
+	_, err := app.getSuggestedCorrespondent(ctx, longContent, "Test Title", availableCorrespondents, correspondentBlackList, nil)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
@@ -249,7 +249,7 @@ func TestTokenLimitInTagGeneration(t *testing.T) {
 	availableTags := []string{"test", "example"}
 	originalTags := []string{"original"}
 
-	_, err := app.getSuggestedTags(ctx, longContent, "Test Title", availableTags, originalTags, testLogger)
+	_, err := app.getSuggestedTags(ctx, longContent, "Test Title", availableTags, originalTags, testLogger, nil)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
@@ -282,7 +282,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "invoice, new-tag, receipt"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger, nil)
 		require.NoError(t, err)
 
 		assert.Contains(t, tags, "invoice")
@@ -295,7 +295,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "invoice, new-tag, receipt"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger, nil)
 		require.NoError(t, err)
 
 		assert.Contains(t, tags, "invoice")
@@ -308,7 +308,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "Invoice, NEW-TAG"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger, nil)
 		require.NoError(t, err)
 
 		// Existing tag should use the available tag's casing
@@ -322,7 +322,7 @@ func TestCreateNewTagsFiltering(t *testing.T) {
 		mockLLM := &mockLLM{Response: "invoice, , receipt"}
 		app := &App{LLM: mockLLM}
 
-		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger)
+		tags, err := app.getSuggestedTags(ctx, "Some document content", "Test Invoice", availableTags, originalTags, testLogger, nil)
 		require.NoError(t, err)
 
 		for _, tag := range tags {
@@ -355,7 +355,7 @@ func TestTokenLimitInTitleGeneration(t *testing.T) {
 	// Call getSuggestedTitle
 	ctx := context.Background()
 
-	_, err := app.getSuggestedTitle(ctx, longContent, "Original Title", testLogger)
+	_, err := app.getSuggestedTitle(ctx, longContent, "Original Title", testLogger, nil)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
@@ -391,7 +391,7 @@ func TestTokenLimitInCreatedDateGeneration(t *testing.T) {
 	// Call getSuggestedCreatedDate
 	ctx := context.Background()
 
-	_, err := app.getSuggestedCreatedDate(ctx, longContent, testLogger)
+	_, err := app.getSuggestedCreatedDate(ctx, longContent, testLogger, nil)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
@@ -587,7 +587,7 @@ func TestGetSuggestedCustomFields(t *testing.T) {
 
 	// 3. Execute
 	testLogger := logrus.WithField("test", "TestGetSuggestedCustomFields")
-	suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, selectedFieldIDs, testLogger)
+	suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, selectedFieldIDs, testLogger, nil)
 
 	// 4. Assert
 	require.NoError(t, err)
@@ -706,7 +706,7 @@ func TestGetSuggestedCustomFields_DocumentLink(t *testing.T) {
 			require.NoError(t, loadTemplates())
 
 			doc := Document{ID: currentDocID, Content: "Mahnung zu Rechnung R10927801"}
-			suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, []int{1, 2}, logrus.WithField("test", t.Name()))
+			suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, []int{1, 2}, logrus.WithField("test", t.Name()), nil)
 			require.NoError(t, err)
 
 			assert.Contains(t, llm.lastPrompt, `<field name="Reference" type="documentlink">`)
@@ -755,7 +755,7 @@ func TestGetSuggestedCustomFields_OnlySelectedFields(t *testing.T) {
 	defer os.RemoveAll("prompts")
 	require.NoError(t, loadTemplates())
 
-	suggestions, err := app.getSuggestedCustomFields(context.Background(), Document{Content: "x"}, []int{1}, logrus.WithField("test", t.Name()))
+	suggestions, err := app.getSuggestedCustomFields(context.Background(), Document{Content: "x"}, []int{1}, logrus.WithField("test", t.Name()), nil)
 	require.NoError(t, err)
 
 	assert.NotContains(t, llm.lastPrompt, `name="Amount"`, "unselected fields must not be sent to the LLM")
@@ -812,6 +812,14 @@ func TestGetSuggestedTags_SystemTagsNeverSuggested(t *testing.T) {
 			failTag, autoTagComplete, pdfOCRCompleteTag = "paperless-gpt-failed", "paperless-gpt-auto-complete", "paperless-gpt-ocr-complete"
 			previousCreateNewTags := createNewTags
 			createNewTags = createNew
+			isolateWorkflowSettings(t)
+			settingsMutex.Lock()
+			settings.Workflows = []WorkflowConfig{{
+				ID:            "inv",
+				TriggerTag:    "paperless-gpt-invoices",
+				CompletionTag: "paperless-gpt-invoices-done",
+			}}
+			settingsMutex.Unlock()
 			t.Cleanup(func() {
 				manualTag, autoTag, autoOcrTag = previous.manual, previous.auto, previous.ocrAuto
 				failTag, autoTagComplete, pdfOCRCompleteTag = previous.fail, previous.complete, previous.ocrComplete
@@ -822,25 +830,28 @@ func TestGetSuggestedTags_SystemTagsNeverSuggested(t *testing.T) {
 			tagTemplate = template.Must(template.New("tag").Parse(testTagTemplate))
 			t.Cleanup(func() { tagTemplate = previousTemplate })
 
+			excluded := append([]string{}, systemTagNames...)
+			excluded = append(excluded, "paperless-gpt-invoices", "paperless-gpt-invoices-done")
+
 			// The model echoes back every system tag plus one real one — the
 			// worst case, and what actually happens when the system tags are
 			// visible in the prompt.
-			mockLLM := &mockLLM{Response: strings.Join(append(systemTagNames, "Invoice"), ",")}
+			mockLLM := &mockLLM{Response: strings.Join(append(excluded, "Invoice"), ",")}
 			app := &App{LLM: mockLLM}
 
 			// Available tags as paperless-ngx would report them: real tags and
 			// paperless-gpt's own, since they all live in the same namespace.
-			availableTags := append([]string{"Invoice", "Insurance"}, systemTagNames...)
+			availableTags := append([]string{"Invoice", "Insurance"}, excluded...)
 			// The document carries the trigger tag it is being processed under.
 			originalTags := []string{"Insurance", "paperless-gpt-auto"}
 
 			suggested, err := app.getSuggestedTags(
 				context.Background(), "Some document content", "A Title",
-				availableTags, originalTags, logrus.WithField("test", "system-tags"),
+				availableTags, originalTags, logrus.WithField("test", "system-tags"), nil,
 			)
 			require.NoError(t, err)
 
-			for _, systemTag := range systemTagNames {
+			for _, systemTag := range excluded {
 				assert.NotContains(t, suggested, systemTag,
 					"system tag %q must never be suggested", systemTag)
 			}
@@ -849,7 +860,7 @@ func TestGetSuggestedTags_SystemTagsNeverSuggested(t *testing.T) {
 			assert.Contains(t, suggested, "Insurance")
 
 			// And they must not have been offered to the model either.
-			for _, systemTag := range systemTagNames {
+			for _, systemTag := range excluded {
 				assert.NotContains(t, mockLLM.lastPrompt, systemTag,
 					"system tag %q must not appear in the prompt", systemTag)
 			}

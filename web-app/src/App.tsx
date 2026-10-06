@@ -6,6 +6,7 @@ import OCR from './OCR';
 import History from './History';
 import Settings from './components/Settings';
 import AdhocAnalysis from './AdhocAnalysis';
+import Workflows from './Workflows';
 
 const App: React.FC = () => {
   // Keep the base path (path prefix from reverse-proxy) and remove the app path,
@@ -27,6 +28,7 @@ const App: React.FC = () => {
             <Route path="/experimental-ocr" element={<Navigate to="/ocr" replace />} />
             <Route path="/history" element={<History />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/workflows" element={<Workflows />} />
           </Routes>
         </main>
       </div>
