@@ -54,7 +54,13 @@ test('an AI workflow set up in the UI processes documents with its own prompt', 
     await page.getByRole('radiogroup', { name: step }).getByRole('radio', { name: 'Off', exact: true }).click();
   }
   await page.getByRole('radiogroup', { name: 'Title' }).getByRole('radio', { name: 'On', exact: true }).click();
-  await page.getByLabel('Title prompt').fill(WORKFLOW_PROMPT);
+  // The global prompt is shown read-only; an own version has to be asked for.
+  await expect(page.getByLabel('Global Title prompt (read-only)')).toBeVisible();
+  await page.getByLabel('Global Title prompt (read-only)').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/workflow-global-prompt.png' });
+  await page.getByRole('button', { name: 'Write own prompt for this workflow' }).click();
+  await expect(page.getByText('Own title prompt for this workflow')).toBeVisible();
+  await page.getByLabel('Title prompt', { exact: true }).fill(WORKFLOW_PROMPT);
 
   // 2. Test it on the document before saving: nothing may be written.
   await page.getByRole('button', { name: 'Test on a document' }).click();

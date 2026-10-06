@@ -14,6 +14,7 @@ import {
 import axios from "axios";
 import classNames from "classnames";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import Button from "./components/ui/Button";
 import Toast, { ToastData } from "./components/ui/Toast";
 
@@ -416,6 +417,24 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
   const setPrompt = (key: string, value: string) =>
     setWf((prev) => ({ ...prev, prompts: { ...(prev.prompts ?? {}), [key]: value } }));
 
+  // Which prompts this workflow has its own version of. Tracked explicitly so
+  // the editor does not jump back to "global" while someone clears the text.
+  const [ownPrompts, setOwnPrompts] = useState<Set<string>>(
+    () => new Set(customPromptKeys(initial))
+  );
+  const addOwnPrompt = (key: string) => {
+    setOwnPrompts((prev) => new Set(prev).add(key));
+    if (!wf.prompts?.[key]?.trim()) setPrompt(key, defaults?.prompts[key] ?? "");
+  };
+  const removeOwnPrompt = (key: string) => {
+    setOwnPrompts((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+    setPrompt(key, "");
+  };
+
   // Instant feedback for the mistakes the server would reject anyway.
   const triggerError = (() => {
     if (!wf.trigger_tag.trim()) return undefined;
@@ -584,65 +603,95 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
 
       <Section
         title="Prompts"
-        hint="Only change what differs. A prompt you leave empty uses the global one from Settings."
+        hint="Each prompt either uses the global prompt, which is shared, or has its own version that applies only to this workflow."
       >
         <div className="flex flex-wrap gap-1.5" role="tablist">
-          {visiblePrompts.map(({ key, label }) => {
-            const custom = !!wf.prompts?.[key]?.trim();
-            return (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={active.key === key}
-                onClick={() => setActivePrompt(key)}
+          {visiblePrompts.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={active.key === key}
+              onClick={() => setActivePrompt(key)}
+              className={classNames(
+                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                active.key === key ? "bg-primary-tint text-ink" : "bg-surface-2 text-muted hover:text-ink"
+              )}
+            >
+              {label}
+              <span
                 className={classNames(
-                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                  active.key === key ? "bg-primary-tint text-ink" : "bg-surface-2 text-muted hover:text-ink"
+                  "rounded px-1 text-[0.6875rem] font-normal",
+                  ownPrompts.has(key) ? "bg-primary text-primary-ink" : "text-faint"
                 )}
               >
-                {label}
-                {custom && (
-                  <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-primary align-middle" />
-                )}
-              </button>
-            );
-          })}
+                {ownPrompts.has(key) ? "own" : "global"}
+              </span>
+            </button>
+          ))}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-muted">
-            {activeValue.trim() ? (
-              <>
-                Custom prompt, saved as <span className="font-mono">{active.file}</span>
-              </>
-            ) : (
-              "Using the global prompt (shown greyed out below)."
-            )}
-          </p>
-          {activeValue.trim() ? (
-            <Button size="sm" variant="ghost" onClick={() => setPrompt(active.key, "")}>
-              <ArrowPathIcon className="h-4 w-4" aria-hidden="true" /> Use global prompt
-            </Button>
-          ) : (
-            globalPrompt && (
-              <Button size="sm" variant="secondary" onClick={() => setPrompt(active.key, globalPrompt)}>
-                <PencilSquareIcon className="h-4 w-4" aria-hidden="true" /> Customize
-              </Button>
-            )
-          )}
-        </div>
         {active.key === "ocr_prompt" && defaults && !defaults.ocr_prompt_override_supported && (
           <p className="text-xs text-warn">Only the LLM OCR provider can use a custom OCR prompt.</p>
         )}
-        <textarea
-          aria-label={`${active.label} prompt`}
-          className="w-full rounded-md border border-line bg-surface px-3 py-2 font-mono text-xs leading-relaxed placeholder:text-faint focus:border-primary focus:outline-none"
-          rows={12}
-          placeholder={globalPrompt || "Leave empty to use the global prompt."}
-          value={activeValue}
-          onChange={(e) => setPrompt(active.key, e.target.value)}
-        />
+
+        {ownPrompts.has(active.key) ? (
+          <div className="space-y-2 rounded-md border border-primary p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium">Own {active.label.toLowerCase()} prompt for this workflow</p>
+                <p className="text-xs text-muted">
+                  Applies only to documents processed by this workflow. Saved as{" "}
+                  <span className="font-mono">{active.file}</span> in{" "}
+                  {wf.id ? (
+                    <span className="font-mono">
+                      {defaults?.storage_dir ?? "prompts/workflows"}/{wf.id}/
+                    </span>
+                  ) : (
+                    "the workflow's own folder"
+                  )}
+                  . The global prompt stays unchanged.
+                </p>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => removeOwnPrompt(active.key)}>
+                <ArrowPathIcon className="h-4 w-4" aria-hidden="true" /> Use global prompt instead
+              </Button>
+            </div>
+            <textarea
+              aria-label={`${active.label} prompt`}
+              className="w-full rounded-md border border-line bg-surface px-3 py-2 font-mono text-xs leading-relaxed focus:border-primary focus:outline-none"
+              rows={12}
+              value={activeValue}
+              onChange={(e) => setPrompt(active.key, e.target.value)}
+            />
+          </div>
+        ) : (
+          <div className="space-y-2 rounded-md border border-dashed border-line bg-surface-2 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium">Uses the global {active.label.toLowerCase()} prompt</p>
+                <p className="text-xs text-muted">
+                  Shared with the default AUTO_TAG processing and every workflow without its own
+                  version. Change it under{" "}
+                  <Link to="/settings" className="text-primary hover:underline">
+                    Settings
+                  </Link>{" "}
+                  — that affects all of them.
+                </p>
+              </div>
+              <Button size="sm" variant="secondary" onClick={() => addOwnPrompt(active.key)}>
+                <PencilSquareIcon className="h-4 w-4" aria-hidden="true" /> Write own prompt for this workflow
+              </Button>
+            </div>
+            <pre
+              aria-label={`Global ${active.label} prompt (read-only)`}
+              className="max-h-48 overflow-auto whitespace-pre-wrap rounded border border-line bg-surface px-3 py-2 font-mono text-xs leading-relaxed text-muted"
+            >
+              {globalPrompt || "(no global prompt found)"}
+            </pre>
+          </div>
+        )}
+
         {variables.length > 0 && (
           <p className="flex flex-wrap items-center gap-1 text-xs text-muted">
             Variables:
