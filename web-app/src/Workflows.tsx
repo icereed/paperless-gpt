@@ -611,9 +611,9 @@ const Workflows: React.FC = () => {
                     </p>
                     <p className="mt-1 text-xs text-faint">
                       Documents tagged with{" "}
-                      <span className="font-mono">{wf.trigger_tag}</span> will fall
-                      back to the global AUTO_TAG behaviour (if that tag is also
-                      configured).
+                      <span className="font-mono">{wf.trigger_tag}</span> will no
+                      longer be processed automatically, unless they also carry
+                      AUTO_TAG.
                     </p>
                     <div className="mt-3 flex gap-2">
                       <button

@@ -40,10 +40,13 @@ func getWorkflowTemplate(wf WorkflowConfig, promptName string, globalTmpl *templ
 		return globalTmpl, nil
 	}
 
-	// Try cache first.
+	// Try cache first. The key includes the prompt text: a generation that
+	// started before an update still holds the old workflow, and must not
+	// store its template under a key the updated workflow would read.
+	cacheKey := promptName + "\x00" + raw
 	workflowTemplateCacheMu.RLock()
 	if byName, ok := workflowTemplateCache[wf.ID]; ok {
-		if tmpl, ok := byName[promptName]; ok {
+		if tmpl, ok := byName[cacheKey]; ok {
 			workflowTemplateCacheMu.RUnlock()
 			return tmpl, nil
 		}
@@ -60,7 +63,7 @@ func getWorkflowTemplate(wf WorkflowConfig, promptName string, globalTmpl *templ
 	if workflowTemplateCache[wf.ID] == nil {
 		workflowTemplateCache[wf.ID] = map[string]*template.Template{}
 	}
-	workflowTemplateCache[wf.ID][promptName] = tmpl
+	workflowTemplateCache[wf.ID][cacheKey] = tmpl
 	workflowTemplateCacheMu.Unlock()
 
 	return tmpl, nil
@@ -137,6 +140,9 @@ func workflowWantsOCR(wf WorkflowConfig) bool {
 func validateWorkflowOCRConfig(app *App, wf WorkflowConfig) error {
 	if wf.OCRLimitPages != nil && *wf.OCRLimitPages < 0 {
 		return fmt.Errorf("ocr_limit_pages must be 0 (no limit) or positive")
+	}
+	if app != nil && workflowWantsOCR(wf) && !app.isOcrEnabled() {
+		return fmt.Errorf("enable_ocr needs an OCR provider, but none is configured")
 	}
 	prompt := ""
 	if wf.Prompts != nil {

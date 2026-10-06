@@ -287,9 +287,14 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string, work
 		if workflowID != "" {
 			if wf, ok := getWorkflowByID(workflowID); ok && workflowWantsOCR(wf) {
 				if !app.isOcrEnabled() {
+					// Retrying cannot help until the configuration changes, so
+					// take the document out of the loop right away instead of
+					// fetching it again on every poll.
 					err = fmt.Errorf("workflow %q has enable_ocr but no OCR provider is configured", workflowID)
 					docLogger.Error(err.Error())
-					errs = append(errs, err)
+					if recErr := markProcessingFailed(ctx, app.Client, app.Database, document, triggerTag, "workflow OCR is enabled but no OCR provider is configured"); recErr != nil {
+						errs = append(errs, fmt.Errorf("%w (removing the %q tag failed: %v)", err, triggerTag, recErr))
+					}
 					continue
 				}
 				updatedDoc, ocrErr := app.runWorkflowDocumentOCR(ctx, document, wf, triggerTag, docLogger)

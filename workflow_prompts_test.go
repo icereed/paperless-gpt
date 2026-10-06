@@ -155,6 +155,29 @@ func TestGetWorkflowTemplate(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotSame(t, first, third)
 	})
+
+	t.Run("a stale workflow cannot shadow the updated prompt", func(t *testing.T) {
+		// A generation that started before an update still holds the old
+		// workflow and may fill the cache after the update invalidated it.
+		stale := WorkflowConfig{ID: "race", Prompts: map[string]string{"title_prompt": "OLD {{.Content}}"}}
+		updated := WorkflowConfig{ID: "race", Prompts: map[string]string{"title_prompt": "NEW {{.Content}}"}}
+		invalidateWorkflowTemplateCache("race")
+		_, err := getWorkflowTemplate(stale, "title_prompt", global)
+		require.NoError(t, err)
+
+		tmpl, err := getWorkflowTemplate(updated, "title_prompt", global)
+		require.NoError(t, err)
+		out, err := executeWorkflowTemplate(tmpl, map[string]interface{}{"Content": "doc"})
+		require.NoError(t, err)
+		assert.Equal(t, "NEW doc", out)
+	})
+}
+
+func TestValidateWorkflowOCRConfigNeedsProvider(t *testing.T) {
+	on := true
+	err := validateWorkflowOCRConfig(&App{}, WorkflowConfig{EnableOCR: &on})
+	assert.ErrorContains(t, err, "OCR provider")
+	assert.NoError(t, validateWorkflowOCRConfig(&App{}, WorkflowConfig{}))
 }
 
 func TestResolveGenerationFlags(t *testing.T) {

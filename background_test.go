@@ -982,6 +982,36 @@ func TestProcessTagDocuments_WorkflowTriggerRemovedAfterMaxRetries(t *testing.T)
 	assert.NotContains(t, got.RemoveTags, autoTag)
 }
 
+// A workflow saved with enable_ocr while no OCR provider is configured (for
+// example before the provider was removed) can never succeed. The document
+// has to leave the loop on the first attempt instead of being fetched on
+// every poll.
+func TestProcessTagDocuments_WorkflowOCRWithoutProviderBreaksLoop(t *testing.T) {
+	prevFailTag, prevAutoTag := failTag, autoTag
+	t.Cleanup(func() { failTag, autoTag = prevFailTag, prevAutoTag })
+	failTag = "paperless-gpt-failed"
+	autoTag = "paperless-gpt-auto"
+	isolateWorkflowSettings(t)
+
+	const trigger = "paperless-gpt-scans"
+	on := true
+	settingsMutex.Lock()
+	settings.Workflows = []WorkflowConfig{{ID: "scans", TriggerTag: trigger, EnableOCR: &on}}
+	settingsMutex.Unlock()
+
+	client := &recordingClient{
+		taggedDocuments: map[string][]Document{
+			trigger: {{ID: 31, Title: "Scan", Tags: []string{trigger}}},
+		},
+	}
+	app := &App{Client: client} // no OCR provider
+
+	_, _ = app.processAutoTagDocuments(context.Background())
+	require.Len(t, client.calls, 1, "the first attempt must already remove the trigger tag")
+	assert.Equal(t, []string{trigger}, client.calls[0].RemoveTags)
+	assert.Equal(t, []string{failTag}, client.calls[0].SuggestedTags)
+}
+
 func TestProcessAutoTagDocuments_SkipsWorkflowThatDuplicatesAutoTag(t *testing.T) {
 	prevAutoTag := autoTag
 	t.Cleanup(func() { autoTag = prevAutoTag })

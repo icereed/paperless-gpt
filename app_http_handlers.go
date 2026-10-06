@@ -1208,8 +1208,12 @@ func (app *App) createWorkflowHandler(c *gin.Context) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	settings.Workflows = append(settings.Workflows, wf)
+	previous := settings.Workflows
+	settings.Workflows = append(slices.Clone(settings.Workflows), wf)
 	err := saveSettingsLocked()
+	if err != nil {
+		settings.Workflows = previous
+	}
 	settingsMutex.Unlock()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
@@ -1248,8 +1252,13 @@ func (app *App) updateWorkflowHandler(c *gin.Context) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
+	previous := settings.Workflows
+	settings.Workflows = slices.Clone(settings.Workflows)
 	settings.Workflows[index] = wf
 	err := saveSettingsLocked()
+	if err != nil {
+		settings.Workflows = previous
+	}
 	settingsMutex.Unlock()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
@@ -1356,8 +1365,10 @@ func (app *App) deleteWorkflowHandler(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("workflow %q not found", id)})
 		return
 	}
+	previous := settings.Workflows
 	settings.Workflows = newWorkflows
 	if err := saveSettingsLocked(); err != nil {
+		settings.Workflows = previous
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
 		return
 	}
