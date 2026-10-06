@@ -82,7 +82,15 @@ To validate a change end-to-end: start the app, verify the web server comes up o
 
 ## Release communication
 
-Release notes are written by hand. For significant releases (not every patch release), end the GitHub release notes with the short footer from [docs/managed-hosting.md](docs/managed-hosting.md#release-notes-footer), after the changelog and credits. Don't edit past releases.
+Release notes are written by hand. For significant releases (not every patch release), end the GitHub release notes with this footer, after the changelog and credits. Don't edit past releases.
+
+```md
+---
+
+☁️ **Want paperless-gpt without hosting it yourself?**
+
+paperless-gpt remains free and fully self-hostable. For users in Germany, Austria and Switzerland, our Fair Hosting Partner [server.camp](https://server.camp/product/paperless-ngx) offers a managed paperless-ngx + paperless-gpt setup and shares part of the revenue with the open source project.
+```
 
 paperless-gpt's current Fair Hosting Partner for Germany, Austria and Switzerland is server.camp. When writing about it anywhere:
 
