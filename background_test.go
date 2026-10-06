@@ -949,12 +949,10 @@ func TestProcessTagDocuments_WorkflowTriggerRemovedAfterMaxRetries(t *testing.T)
 	isolateWorkflowSettings(t)
 
 	const trigger = "paperless-gpt-invoices"
-	settingsMutex.Lock()
-	settings.Workflows = []WorkflowConfig{{
+	useWorkflows(t, []WorkflowConfig{{
 		ID:         "invoices",
 		TriggerTag: trigger,
-	}}
-	settingsMutex.Unlock()
+	}}...)
 
 	client := &recordingClient{
 		taggedDocuments: map[string][]Document{
@@ -995,9 +993,7 @@ func TestProcessTagDocuments_WorkflowOCRWithoutProviderBreaksLoop(t *testing.T) 
 
 	const trigger = "paperless-gpt-scans"
 	on := true
-	settingsMutex.Lock()
-	settings.Workflows = []WorkflowConfig{{ID: "scans", TriggerTag: trigger, EnableOCR: &on}}
-	settingsMutex.Unlock()
+	useWorkflows(t, WorkflowConfig{ID: "scans", TriggerTag: trigger, EnableOCR: &on})
 
 	client := &recordingClient{
 		taggedDocuments: map[string][]Document{
@@ -1018,12 +1014,7 @@ func TestProcessAutoTagDocuments_SkipsWorkflowThatDuplicatesAutoTag(t *testing.T
 	autoTag = "paperless-gpt-auto"
 	isolateWorkflowSettings(t)
 
-	settingsMutex.Lock()
-	settings.Workflows = []WorkflowConfig{{
-		ID:         "dup",
-		TriggerTag: autoTag,
-	}}
-	settingsMutex.Unlock()
+	useWorkflows(t, WorkflowConfig{ID: "dup", TriggerTag: autoTag})
 
 	client := &recordingClient{taggedDocuments: map[string][]Document{}}
 	app := &App{Client: client}

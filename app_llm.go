@@ -724,13 +724,11 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 
 	// Resolve workflow overrides (templates + generation flags).
 	var activeWorkflow WorkflowConfig
-	var hasWorkflow bool
-	if suggestionRequest.WorkflowID != "" {
-		activeWorkflow, hasWorkflow = getWorkflowByID(suggestionRequest.WorkflowID)
-		if hasWorkflow {
-			suggestionRequest = resolveGenerationFlags(suggestionRequest, activeWorkflow)
-			docLogger.Infof("Using workflow %q (trigger: %s)", activeWorkflow.Name, activeWorkflow.TriggerTag)
-		}
+	hasWorkflow := suggestionRequest.Workflow != nil
+	if hasWorkflow {
+		activeWorkflow = *suggestionRequest.Workflow
+		suggestionRequest = resolveGenerationFlags(suggestionRequest, activeWorkflow)
+		docLogger.Infof("Using workflow %q (trigger: %s)", activeWorkflow.Name, activeWorkflow.TriggerTag)
 	}
 
 	// Helper to look up a workflow template override (nil when no override or no workflow).
@@ -874,11 +872,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		suggestion.SuggestedCustomFields = suggestedCustomFields
 	}
 
-	var workflow *WorkflowConfig
-	if hasWorkflow {
-		workflow = &activeWorkflow
-	}
-	suggestion.RemoveTags, suggestion.AddTags = handoverTags(app.autoTagComplete, suggestionRequest.IsAutoProcessing, workflow)
+	suggestion.RemoveTags, suggestion.AddTags = handoverTags(app.autoTagComplete, suggestionRequest.IsAutoProcessing, suggestionRequest.TriggerTag, suggestionRequest.Workflow)
 	if len(suggestion.AddTags) > 0 {
 		docLogger.Debugf("Adding completion tags %v", suggestion.AddTags)
 	}
@@ -980,23 +974,22 @@ func stripMarkdown(content string) string {
 }
 
 // handoverTags returns the tags to take off a processed document and the
-// tags to put on it. The trigger tags always come off. A completion tag is
-// only added for auto-processing, not for a manual review: a workflow's own
-// completion tag when it has one, AUTO_TAG_COMPLETE otherwise, so a workflow
-// can mark its documents differently from the default path.
-func handoverTags(autoTagComplete string, isAutoProcessing bool, workflow *WorkflowConfig) (remove, add []string) {
+// tags to put on it. The trigger tags always come off: the global ones and,
+// for auto-processing, the tag the document was found under. A completion tag
+// is only added for auto-processing, not for a manual review: a workflow's
+// own completion tag when it has one, AUTO_TAG_COMPLETE otherwise, so a
+// workflow can mark its documents differently from the default path.
+func handoverTags(autoTagComplete string, isAutoProcessing bool, triggerTag string, workflow *WorkflowConfig) (remove, add []string) {
 	remove = []string{manualTag, autoTag}
 	if !isAutoProcessing {
 		return remove, nil
 	}
+	if triggerTag != "" && !slices.ContainsFunc(remove, func(t string) bool { return strings.EqualFold(t, triggerTag) }) {
+		remove = append(remove, triggerTag)
+	}
 	completionTag := autoTagComplete
-	if workflow != nil {
-		if workflow.TriggerTag != "" && !strings.EqualFold(workflow.TriggerTag, autoTag) {
-			remove = append(remove, workflow.TriggerTag)
-		}
-		if workflow.CompletionTag != "" {
-			completionTag = workflow.CompletionTag
-		}
+	if workflow != nil && workflow.CompletionTag != "" {
+		completionTag = workflow.CompletionTag
 	}
 	if completionTag != "" {
 		add = []string{completionTag}

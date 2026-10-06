@@ -105,9 +105,12 @@ type GenerateSuggestionsRequest struct {
 	GenerateCustomFields   bool       `json:"generate_custom_fields,omitempty"`
 	GenerateDocumentTypes  bool       `json:"generate_document_types,omitempty"`
 	IsAutoProcessing       bool       `json:"-"` // internal flag; not exposed via API
-	// WorkflowID, when set, selects a named workflow whose prompts and flags
-	// override the global defaults. Used by the background auto-tag processor.
-	WorkflowID string `json:"-"`
+	// Workflow, when set, overrides the global prompts and generation flags.
+	// Set by the background processor and the workflow preview.
+	Workflow *WorkflowConfig `json:"-"`
+	// TriggerTag is the tag the background processor found the document
+	// under; it comes off once processing succeeds.
+	TriggerTag string `json:"-"`
 }
 
 // AnalyzeDocumentsRequest is the request payload for the ad-hoc analysis
