@@ -79,3 +79,14 @@ To validate a change end-to-end: start the app, verify the web server comes up o
 - `.github/workflows/e2e-real-llm.yml` — real-LLM E2E behind an environment-approval gate (maintainer-triggered).
 - Before committing: run `cd web-app && npm run lint` and check `gofmt -l .` reports nothing.
 - Commit messages follow Conventional Commits (`feat:`, `fix:`, `ci:`, `docs:` — see `git log`).
+
+## Release communication
+
+Release notes are written by hand. For significant releases (not every patch release), end the GitHub release notes with the short footer from [docs/managed-hosting.md](docs/managed-hosting.md#release-notes-footer), after the changelog and credits. Don't edit past releases.
+
+paperless-gpt's current Fair Hosting Partner for Germany, Austria and Switzerland is server.camp. When writing about it anywhere:
+
+- paperless-gpt stays fully self-hostable and MIT licensed; never present self-hosting as the worse option.
+- server.camp is a managed hosting option for the DACH region, not the official, exclusive or global host.
+- Describe the relationship as Fair Hosting / open source revenue sharing. Never use affiliate or referral wording (affiliate, referral, commission, "use our link").
+- Don't publish revenue-share percentages, and don't claim SLAs, certifications, backup schedules or security guarantees on server.camp's behalf, without maintainer approval.
