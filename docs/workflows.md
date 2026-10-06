@@ -79,7 +79,7 @@ paperless-gpt refuses a workflow whose tags would send documents back into proce
 - The completion tag cannot be the workflow's own trigger, another workflow's trigger, or a tag that starts processing (`AUTO_TAG`, `MANUAL_TAG`, `AUTO_OCR_TAG`).
 - Workflows cannot be chained: one workflow's completion tag cannot be another one's trigger.
 
-Tag names are compared case-insensitively, as in paperless-ngx. The editor points these out while you type.
+Tag names are compared case-insensitively, as in paperless-ngx. The editor points these out while you type. The same rules apply to workflow files edited by hand: a workflow that breaks them is skipped with an error in the log, and when two workflows collide the one whose folder name sorts first is used.
 
 A document that carries both a workflow trigger and `AUTO_TAG` is processed once, by the workflow, and both tags are removed.
 
