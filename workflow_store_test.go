@@ -263,3 +263,39 @@ func TestWorkflowStoreOnChangeSeesHandEditedWorkflows(t *testing.T) {
 		t.Fatal("OnChange was not called for a workflow added by hand")
 	}
 }
+
+func TestWorkflowStoreAppliesTagRulesToHandEditedFiles(t *testing.T) {
+	prevAutoTag, prevManualTag := autoTag, manualTag
+	autoTag, manualTag = "paperless-gpt-auto", "paperless-gpt"
+	t.Cleanup(func() { autoTag, manualTag = prevAutoTag, prevManualTag })
+
+	store := newWorkflowStore(t.TempDir())
+	write := func(dir, content string) {
+		require.NoError(t, os.MkdirAll(filepath.Join(store.dir, dir), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(store.dir, dir, workflowFileName), []byte(content), 0o644))
+	}
+	write("a-invoices", `{"trigger_tag": "invoices", "completion_tag": "invoices-done"}`)
+	write("b-same-trigger", `{"trigger_tag": "Invoices"}`)
+	write("c-loop", `{"trigger_tag": "loop", "completion_tag": "loop"}`)
+	write("d-chain", `{"trigger_tag": "invoices-done"}`)
+	write("e-manual", `{"trigger_tag": "paperless-gpt"}`)
+	write("f-fine", `{"trigger_tag": "contracts"}`)
+
+	var ids []string
+	for _, wf := range store.List() {
+		ids = append(ids, wf.ID)
+	}
+	assert.Equal(t, []string{"a-invoices", "f-fine"}, ids,
+		"workflows that would loop or collide are skipped; on a collision the lower ID wins")
+}
+
+func TestWorkflowStorePathFor(t *testing.T) {
+	store := newWorkflowStore(t.TempDir())
+	dir, err := store.pathFor("invoices")
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(store.dir, "invoices"), dir)
+	for _, id := range []string{"..", "../x", "a/b", "a\\b", "", "A"} {
+		_, err := store.pathFor(id)
+		assert.Error(t, err, id)
+	}
+}
