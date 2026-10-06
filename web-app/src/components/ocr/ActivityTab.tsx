@@ -147,7 +147,11 @@ const ActivityTab: React.FC<ActivityTabProps> = ({ config }) => {
             const duration = runDuration(run);
             const isExpanded = expanded.has(run.id);
             const pdfDetail =
-              (run.pdf_action === "skipped" || run.pdf_action === "failed") &&
+              // A versioned run carries a detail only when paperless-ngx had not
+              // confirmed the new version yet.
+              (run.pdf_action === "skipped" ||
+                run.pdf_action === "failed" ||
+                run.pdf_action === "versioned") &&
               run.pdf_detail
                 ? run.pdf_detail
                 : null;
