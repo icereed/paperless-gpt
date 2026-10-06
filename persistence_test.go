@@ -15,6 +15,7 @@ const sampleMountinfo = `1340 1219 0:385 / / rw,relatime master:504 - overlay ov
 1350 1340 254:1 /home/u/setup/prompts /app/prompts rw,relatime - ext4 /dev/vda1 rw
 1351 1340 254:1 /home/u/setup/config /app/config rw,relatime - ext4 /dev/vda1 rw
 1352 1340 254:1 /home/u/my\040docs /data/my\040docs rw,relatime - ext4 /dev/vda1 rw
+1353 1340 0:400 / /app/db rw,nosuid,nodev - tmpfs tmpfs rw,size=65536k
 `
 
 func TestParseMountPoints(t *testing.T) {
@@ -23,7 +24,7 @@ func TestParseMountPoints(t *testing.T) {
 	assert.True(t, mounts["/app/prompts"])
 	assert.True(t, mounts["/app/config"])
 	assert.True(t, mounts["/data/my docs"], "octal escapes are decoded")
-	assert.False(t, mounts["/app/db"])
+	assert.False(t, mounts["/app/db"], "a tmpfs mount is empty after a restart and does not count")
 }
 
 func TestPersistenceIssues(t *testing.T) {

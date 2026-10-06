@@ -24,7 +24,7 @@ import (
 type PersistenceIssue struct {
 	Dir   string `json:"dir"`   // as used by the app, e.g. "config"
 	Path  string `json:"path"`  // absolute path inside the container
-	Holds string `json:"holds"` // what is lost
+	Holds string `json:"holds"` // what is lost; empty for the legacy prompts mount
 	Fix   string `json:"fix"`   // compose volume line that fixes it
 }
 
@@ -76,7 +76,7 @@ func persistenceIssues(cwd string, mounts map[string]bool) []PersistenceIssue {
 		issues = append(issues, PersistenceIssue{
 			Dir:   legacyPromptsMount,
 			Path:  legacyPromptsMount,
-			Holds: "nothing: this path has not been used since October 2024, so the prompts in it are ignored",
+			Holds: "",
 			Fix:   "./prompts:" + filepath.Join(cwd, "prompts"),
 		})
 	}
@@ -94,15 +94,28 @@ func onMount(path string, mounts map[string]bool) bool {
 	return false
 }
 
-// parseMountPoints reads /proc/self/mountinfo and returns the mount points.
-// The mount point is the fifth field; spaces and other special characters
-// are octal-escaped (\040).
+// parseMountPoints reads /proc/self/mountinfo and returns the mount points
+// that keep their content: memory-backed file systems (tmpfs, ramfs) are
+// left out, since they are empty after every restart. The mount point is
+// the fifth field (octal-escaped, e.g. \040 for a space); the file system
+// type follows the "-" separator.
 func parseMountPoints(r io.Reader) map[string]bool {
 	mounts := map[string]bool{}
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) < 5 {
+			continue
+		}
+		for i := 5; i+1 < len(fields); i++ {
+			if fields[i] == "-" {
+				if fsType := fields[i+1]; fsType == "tmpfs" || fsType == "ramfs" {
+					fields = nil
+				}
+				break
+			}
+		}
+		if fields == nil {
 			continue
 		}
 		mounts[unescapeMountPath(fields[4])] = true
