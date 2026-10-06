@@ -244,3 +244,22 @@ func TestValidatePromptTemplates(t *testing.T) {
 	assert.ErrorContains(t, validatePromptTemplates(WorkflowConfig{Prompts: map[string]string{"title_promt": "x"}}), "unknown prompt")
 	assert.ErrorContains(t, validatePromptTemplates(WorkflowConfig{Prompts: map[string]string{"tag_prompt": "{{if}}"}}), "tag_prompt")
 }
+
+func TestWorkflowStoreOnChangeSeesHandEditedWorkflows(t *testing.T) {
+	store := newWorkflowStore(t.TempDir())
+	changed := make(chan []WorkflowConfig, 4)
+	store.OnChange(func(wfs []WorkflowConfig) { changed <- wfs })
+
+	dir := filepath.Join(store.dir, "hand")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, workflowFileName), []byte(`{"trigger_tag": "hand"}`), 0o644))
+	store.List()
+
+	select {
+	case wfs := <-changed:
+		require.Len(t, wfs, 1)
+		assert.Equal(t, "hand", wfs[0].TriggerTag)
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnChange was not called for a workflow added by hand")
+	}
+}

@@ -65,7 +65,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 
    - **Customizable Prompts via Web UI**: Tweak and manage all AI prompts for titles, tags, correspondents, and more directly within the web interface under the "Settings" menu. The application uses a safe `default_prompts` and `prompts` directory structure, ensuring your customizations are persistent.
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
-   - **Workflows**: Give each kind of document its own trigger tag, prompts and processing steps: invoices get a title prompt tuned for invoice numbers, contracts get custom fields, private mail only gets a title. → [Workflows](docs/workflows.md)
+   - **AI Workflows**: Give each kind of document its own trigger tag, prompts and processing steps: invoices get a title prompt tuned for invoice numbers, contracts get custom fields, private mail only gets a title. Test a workflow on a real document before saving it; workflows are plain files next to your prompts. → [AI Workflows](docs/workflows.md)
    - **PDF Processing**: Configure how OCR-enhanced PDFs are handled, with options to save locally or upload to paperless-ngx.
 
 10. **Simple Docker Deployment**  
@@ -310,6 +310,7 @@ services:
      -e VISION_LLM_MODEL='minicpm-v' \
      -e LOG_LEVEL='info' \
      -v $(pwd)/prompts:/app/prompts \
+     -v $(pwd)/config:/app/config \
      -p 8080:8080 \
      paperless-gpt
    ```
@@ -696,6 +697,7 @@ paperless-gpt's flexible **prompt templates** let you shape how AI responds. Whi
 The application uses two directories for management:
 - **`default_prompts/`**: Contains the built-in, default templates. These should not be modified.
 - **`prompts/`**: Your working directory. On first run, the default templates are copied here. All edits made in the UI are saved to the files in this directory.
+- **`prompts/workflows/`**: One folder per [AI workflow](docs/workflows.md), with that workflow's settings and the prompts it changes.
 
 To ensure your custom prompts persist across container restarts, you must mount the `prompts` directory as a volume in your `docker-compose.yml`:
 

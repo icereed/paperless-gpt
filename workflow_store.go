@@ -75,6 +75,18 @@ type workflowStore struct {
 	mu        sync.RWMutex
 	workflows []WorkflowConfig
 	signature string
+
+	// onChange, when set, is called in its own goroutine with the workflows
+	// after every reload, e.g. to create their tags in paperless-ngx.
+	onChange func([]WorkflowConfig)
+}
+
+// OnChange registers a function that sees the workflows after each reload,
+// including ones caused by files edited by hand.
+func (s *workflowStore) OnChange(fn func([]WorkflowConfig)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onChange = fn
 }
 
 func newWorkflowStore(dir string) *workflowStore {
@@ -215,6 +227,9 @@ func (s *workflowStore) reloadLocked() {
 	}
 	sort.Slice(loaded, func(i, j int) bool { return loaded[i].ID < loaded[j].ID })
 	s.workflows = loaded
+	if s.onChange != nil {
+		go s.onChange(cloneWorkflows(loaded))
+	}
 }
 
 func readWorkflowDir(dir string) (WorkflowConfig, error) {
