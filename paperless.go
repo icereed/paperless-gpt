@@ -656,6 +656,30 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		originalFields := make(map[string]interface{})
 		var partialDroppedFields []string
 
+		// isHandoverTag reports whether a tag marks the document as waiting for
+		// paperless-gpt and has to come off once it is processed: the global
+		// trigger tags plus whatever the suggestion asks to remove (a
+		// workflow's trigger tag). AddTags win over it, matching the order of
+		// the main tag pass below.
+		isHandoverTag := func(tagName string) bool {
+			for _, added := range document.AddTags {
+				if strings.EqualFold(tagName, added) {
+					return false
+				}
+			}
+			for _, t := range [...]string{autoTag, manualTag, autoOcrTag} {
+				if strings.EqualFold(tagName, t) {
+					return true
+				}
+			}
+			for _, t := range document.RemoveTags {
+				if strings.EqualFold(tagName, t) {
+					return true
+				}
+			}
+			return false
+		}
+
 		// The tag names the original snapshot resolved. Tag IDs in
 		// originalDoc.TagIDs whose (current) catalog name is not in this set
 		// were invisible when the document was fetched and are preserved
@@ -894,7 +918,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		if len(updatedFields) == 0 {
 			log.Infof("No fields to update for document %d.", documentID)
 			// Still need to remove the auto-tag if it exists
-			if slices.Contains(originalDoc.Tags, autoTag) || slices.Contains(originalDoc.Tags, manualTag) || slices.Contains(originalDoc.Tags, autoOcrTag) {
+			if slices.ContainsFunc(originalDoc.Tags, isHandoverTag) {
 				var finalTagIDs []int
 				seenTagIDs := make(map[int]bool)
 				appendTagID := func(tagName string) {
@@ -906,7 +930,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					finalTagIDs = append(finalTagIDs, tagID)
 				}
 				for _, tagName := range originalDoc.Tags {
-					if !strings.EqualFold(tagName, autoTag) && !strings.EqualFold(tagName, manualTag) && !strings.EqualFold(tagName, autoOcrTag) {
+					if !isHandoverTag(tagName) {
 						appendTagID(tagName)
 					}
 				}
@@ -1035,10 +1059,10 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					// IDs rather than names so tags the API user cannot see
 					// survive: they have no resolvable name and would
 					// otherwise be dropped here.
-					workflowTagIDs := make(map[int]bool, 3)
-					for _, workflowTag := range []string{autoTag, manualTag, autoOcrTag} {
-						if _, workflowTagID, exists := lookupTagID(availableTags, workflowTag); exists {
-							workflowTagIDs[workflowTagID] = true
+					workflowTagIDs := make(map[int]bool)
+					for tagName, tagID := range availableTags {
+						if isHandoverTag(tagName) {
+							workflowTagIDs[tagID] = true
 						}
 					}
 					var remainingTagIDs []int

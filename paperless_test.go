@@ -1180,6 +1180,23 @@ func TestUpdateDocuments_AddTagsApplied(t *testing.T) {
 			removeTags: []string{"paperless-gpt-auto"},
 			wantTagIDs: []interface{}{float64(20), float64(30), float64(99)}, // keepMe, complete, invisible
 		},
+		{
+			// A workflow's trigger tag is none of the global trigger tags;
+			// UpdateDocuments only learns about it through RemoveTags.
+			name:       "a workflow trigger tag is removed and its completion tag added",
+			autoTag:    "paperless-gpt-auto",
+			docTags:    []string{"invoices", "keepMe"},
+			addTags:    []string{"invoices-done"},
+			removeTags: []string{"invoices"},
+			wantTagIDs: []interface{}{float64(20), float64(50)}, // keepMe, invoices-done
+		},
+		{
+			name:       "a workflow trigger tag is removed case-insensitively",
+			autoTag:    "paperless-gpt-auto",
+			docTags:    []string{"invoices", "keepMe"},
+			removeTags: []string{"Invoices"},
+			wantTagIDs: []interface{}{float64(20)}, // keepMe
+		},
 	}
 
 	for _, tt := range tests {
@@ -1202,6 +1219,8 @@ func TestUpdateDocuments_AddTagsApplied(t *testing.T) {
 						{"id": 10, "name": "paperless-gpt-auto"},
 						{"id": 20, "name": "keepMe"},
 						{"id": 30, "name": "paperless-gpt-auto-complete"},
+						{"id": 40, "name": "invoices"},
+						{"id": 50, "name": "invoices-done"},
 					},
 					"next": nil,
 				})
@@ -1292,6 +1311,67 @@ func TestUpdateDocuments_CleanupPatchPreservesInvisibleTags(t *testing.T) {
 	require.NotNil(t, tagPatch, "the cleanup tag PATCH must be sent")
 	assert.ElementsMatch(t, []interface{}{float64(99)}, tagPatch["tags"],
 		"cleanup PATCH must keep the invisible tag and drop only the workflow tag")
+}
+
+// TestUpdateDocuments_CleanupPatchRemovesWorkflowTrigger covers the same
+// cleanup PATCH for a workflow's trigger tag, which only reaches
+// UpdateDocuments through RemoveTags. The cleanup used to strip just the
+// global trigger tags, so the workflow trigger stayed on the document and it
+// was processed again on the next poll.
+func TestUpdateDocuments_CleanupPatchRemovesWorkflowTrigger(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	previousManualTag, previousAutoTag, previousAutoOcrTag := manualTag, autoTag, autoOcrTag
+	manualTag, autoTag, autoOcrTag = "manual", "paperless-gpt-auto", "paperless-gpt-ocr-auto"
+	t.Cleanup(func() {
+		manualTag, autoTag, autoOcrTag = previousManualTag, previousAutoTag, previousAutoOcrTag
+	})
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{"id": 40, "name": "invoices"},
+			},
+			"next": nil,
+		})
+	})
+
+	var patches []map[string]interface{}
+	env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(GetDocumentApiResponse{
+				ID: 1, Title: "Test Doc", Tags: []int{40, 99},
+			})
+			return
+		}
+		if r.Method == http.MethodPatch {
+			var body map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			patches = append(patches, body)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+
+	doc := DocumentSuggestion{
+		ID:               1,
+		OriginalDocument: Document{ID: 1, Tags: []string{"invoices"}, TagIDs: []int{40}},
+		SuggestedTitle:   "New Title",
+		RemoveTags:       []string{"invoices"},
+	}
+	require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{doc}, env.db, false))
+
+	var tagPatch map[string]interface{}
+	for _, p := range patches {
+		if _, hasTags := p["tags"]; hasTags {
+			tagPatch = p
+		}
+	}
+	require.NotNil(t, tagPatch, "the cleanup tag PATCH must be sent")
+	assert.ElementsMatch(t, []interface{}{float64(99)}, tagPatch["tags"],
+		"cleanup PATCH must drop the workflow trigger tag")
 }
 
 // TestUpdateDocuments_PreserveExistingMetadata verifies that PRESERVE_EXISTING_METADATA
