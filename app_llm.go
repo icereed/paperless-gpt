@@ -408,7 +408,10 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 	result := textsanitize.StripReasoning(completion.Choices[0].Content)
-	return strings.TrimSpace(strings.Trim(result, "\"")), nil
+	result = strings.TrimSpace(strings.Trim(result, "\""))
+	// paperless-ngx only accepts YYYY-MM-DD. Models often emit the same
+	// date with dots or slashes, which then fails validation and is dropped.
+	return normalizeCreatedDate(result), nil
 }
 
 var xmlAttrEscaper = strings.NewReplacer(

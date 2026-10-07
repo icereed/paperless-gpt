@@ -1000,6 +1000,48 @@ func TestCreatedDatePreValidation(t *testing.T) {
 	assert.Equal(t, "Better Title", receivedPatch["title"], "valid fields must still be sent")
 }
 
+func TestCreatedDateDotSeparatorIsNormalized(t *testing.T) {
+	env := setupTest(t)
+	defer env.teardown()
+
+	ctx := context.Background()
+	setupTestCase(TestCase{
+		name: "normalize dotted created_date",
+		documents: []TestDocument{
+			{ID: 1, Title: "Test Doc", Tags: []string{autoTag}},
+		},
+	}, env)
+
+	var receivedPatch map[string]interface{}
+	env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			json.NewEncoder(w).Encode(GetDocumentApiResponse{
+				ID: 1, Title: "Test Doc", Tags: []int{1}, Content: "content",
+			})
+			return
+		}
+		if r.Method == "PATCH" {
+			json.NewDecoder(r.Body).Decode(&receivedPatch)
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id": 1, "title": "Test Doc", "tags": []int{1},
+			})
+		}
+	})
+
+	suggestion := DocumentSuggestion{
+		ID:                   1,
+		OriginalDocument:     Document{ID: 1, Title: "Test Doc", Tags: []string{autoTag}},
+		SuggestedTitle:       "Better Title",
+		SuggestedCreatedDate: "2023.01.01",
+	}
+
+	err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, env.db, false)
+	require.NoError(t, err)
+	assert.Equal(t, "2023-01-01", receivedPatch["created_date"])
+	assert.Equal(t, "Better Title", receivedPatch["title"])
+}
+
 // TestUpdateDocuments_PreservesInvisibleTags verifies that tag IDs the API
 // user cannot resolve to a name (e.g. tags owned by another paperless-ngx
 // user when a scoped-down token is used) survive a tag update. They used to

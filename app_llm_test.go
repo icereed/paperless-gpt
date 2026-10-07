@@ -367,6 +367,17 @@ func TestTokenLimitInTitleGeneration(t *testing.T) {
 	assert.LessOrEqual(t, len(tokens), 50, "Final prompt should be within token limit")
 }
 
+func TestGetSuggestedCreatedDateNormalizesYearFirstDate(t *testing.T) {
+	previous := createdDateTemplate
+	createdDateTemplate = template.Must(template.New("created_date").Parse("{{.Content}}"))
+	t.Cleanup(func() { createdDateTemplate = previous })
+
+	app := &App{LLM: &mockLLM{Response: "2023.01.01"}}
+	got, err := app.getSuggestedCreatedDate(context.Background(), "invoice dated 2023.01.01", logrus.WithField("test", t.Name()), nil)
+	require.NoError(t, err)
+	assert.Equal(t, "2023-01-01", got)
+}
+
 func TestTokenLimitInCreatedDateGeneration(t *testing.T) {
 	testLogger := logrus.WithField("test", "test")
 
