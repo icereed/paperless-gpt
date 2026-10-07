@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"text/template"
@@ -585,13 +586,9 @@ func TestGetSuggestedCustomFields(t *testing.T) {
 	}
 
 	// Create a dummy template file as loadTemplates() will be called
-	err := os.MkdirAll("prompts", 0755)
-	require.NoError(t, err)
-	err = os.WriteFile("prompts/custom_field_prompt.tmpl", []byte("test"), 0644)
-	require.NoError(t, err)
-	defer os.RemoveAll("prompts")
+	usePromptsSandbox(t, map[string]string{"custom_field_prompt.tmpl": "test"})
 
-	err = loadTemplates()
+	err := loadTemplates()
 	require.NoError(t, err)
 
 	// 2. Define Inputs
@@ -713,11 +710,7 @@ func TestGetSuggestedCustomFields_DocumentLink(t *testing.T) {
 			}
 			app := &App{LLM: llm, Client: client}
 
-			err := os.MkdirAll("prompts", 0755)
-			require.NoError(t, err)
-			err = os.WriteFile("prompts/custom_field_prompt.tmpl", []byte("{{ .CustomFieldsXML }}"), 0644)
-			require.NoError(t, err)
-			defer os.RemoveAll("prompts")
+			usePromptsSandbox(t, map[string]string{"custom_field_prompt.tmpl": "{{ .CustomFieldsXML }}"})
 			require.NoError(t, loadTemplates())
 
 			doc := Document{ID: currentDocID, Content: "Mahnung zu Rechnung R10927801"}
@@ -763,11 +756,7 @@ func TestGetSuggestedCustomFields_OnlySelectedFields(t *testing.T) {
 		},
 	}
 
-	err := os.MkdirAll("prompts", 0755)
-	require.NoError(t, err)
-	err = os.WriteFile("prompts/custom_field_prompt.tmpl", []byte("{{ .CustomFieldsXML }}"), 0644)
-	require.NoError(t, err)
-	defer os.RemoveAll("prompts")
+	usePromptsSandbox(t, map[string]string{"custom_field_prompt.tmpl": "{{ .CustomFieldsXML }}"})
 	require.NoError(t, loadTemplates())
 
 	suggestions, err := app.getSuggestedCustomFields(context.Background(), Document{Content: "x"}, []int{1}, logrus.WithField("test", t.Name()), nil)
@@ -879,11 +868,7 @@ func TestGetSuggestedCustomFields_AcceptsObjectAndMap(t *testing.T) {
 					},
 				},
 			}
-			err := os.MkdirAll("prompts", 0755)
-			require.NoError(t, err)
-			err = os.WriteFile("prompts/custom_field_prompt.tmpl", []byte("{{ .CustomFieldsXML }}"), 0644)
-			require.NoError(t, err)
-			t.Cleanup(func() { os.RemoveAll("prompts") })
+			usePromptsSandbox(t, map[string]string{"custom_field_prompt.tmpl": "{{ .CustomFieldsXML }}"})
 			require.NoError(t, loadTemplates())
 
 			suggestions, err := app.getSuggestedCustomFields(context.Background(), Document{Content: "x"}, []int{1}, logrus.WithField("test", t.Name()), nil)
@@ -1060,5 +1045,23 @@ func TestRawMessageByKeyIsDeterministic(t *testing.T) {
 		raw, ok := rawMessageByKey(obj, "Due Date")
 		require.True(t, ok)
 		assert.Equal(t, `"b"`, string(raw), "sorted order: \"DUE DATE\" before \"due date\"")
+	}
+}
+
+// usePromptsSandbox runs the test in a temporary working directory with a
+// copy of default_prompts/ and the given prompt files. loadTemplates reads
+// and writes prompts/ relative to the working directory; running it in the
+// repository would overwrite, and the old cleanup delete, a developer's local
+// prompts and AI workflows.
+func usePromptsSandbox(t *testing.T, prompts map[string]string) {
+	t.Helper()
+	defaults, err := filepath.Abs("default_prompts")
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, os.CopyFS(filepath.Join(dir, "default_prompts"), os.DirFS(defaults)))
+	t.Chdir(dir)
+	require.NoError(t, os.MkdirAll("prompts", 0o755))
+	for name, content := range prompts {
+		require.NoError(t, os.WriteFile(filepath.Join("prompts", name), []byte(content), 0o644))
 	}
 }
