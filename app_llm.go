@@ -543,25 +543,19 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	}
 
 	response := textsanitize.StripReasoning(completion.Choices[0].Content)
-	response = stripMarkdown(response)
 	logger.Debugf("LLM response for custom fields: %s", response)
 
-	// Temporary struct to unmarshal LLM response with field name
-	type LLMCustomFieldResponse struct {
-		Field string      `json:"field"`
-		Value interface{} `json:"value"`
+	knownNames := make([]string, 0, len(selectedCustomFields))
+	for _, field := range selectedCustomFields {
+		knownNames = append(knownNames, field.Name)
 	}
-
-	var llmSuggestedFields []LLMCustomFieldResponse
-	// Handle empty or non-JSON response gracefully
-	if strings.TrimSpace(response) == "" || !strings.HasPrefix(strings.TrimSpace(response), "[") {
+	llmSuggestedFields, ok := parseCustomFieldLLMResponse(response, knownNames)
+	if !ok {
+		// A non-empty reply that is not an array, a single {field,value}
+		// object, or a map of known field names used to be discarded with
+		// no log above debug, and the document was then marked processed.
+		logger.Warnf("Custom field response is not usable JSON, skipping custom fields. Starts with: %s", truncateForLog(response, 80))
 		return []CustomFieldSuggestion{}, nil
-	}
-
-	err = json.Unmarshal([]byte(response), &llmSuggestedFields)
-	if err != nil {
-		logger.Errorf("Error unmarshalling custom fields JSON from LLM response: %v. Response: %s", err, response)
-		return []CustomFieldSuggestion{}, nil // Return empty slice on parsing error
 	}
 
 	// Map field names back to fields. Only the fields sent in the prompt are
@@ -573,8 +567,16 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 
 	var finalSuggestedFields []CustomFieldSuggestion
 	for _, llmField := range llmSuggestedFields {
-		field, ok := fieldsByName[llmField.Field]
-		if !ok {
+		field, found := fieldsByName[llmField.Field]
+		if !found {
+			for name, candidate := range fieldsByName {
+				if strings.EqualFold(name, llmField.Field) {
+					field, found = candidate, true
+					break
+				}
+			}
+		}
+		if !found {
 			logger.Warnf("LLM returned custom field '%s', which was not requested, skipping.", llmField.Field)
 			continue
 		}
@@ -963,14 +965,142 @@ func getTodayDate() string {
 	return time.Now().Format("2006-01-02")
 }
 
-// stripMarkdown removes the markdown code block from the content.
-func stripMarkdown(content string) string {
-	// Remove markdown code block
-	if strings.HasPrefix(content, "```json") {
-		content = strings.TrimPrefix(content, "```json")
-		content = strings.TrimSuffix(content, "```")
+// llmCustomFieldResponse is one field/value pair from an LLM custom-field reply.
+type llmCustomFieldResponse struct {
+	Field string      `json:"field"`
+	Value interface{} `json:"value"`
+}
+
+// parseCustomFieldLLMResponse reads the shapes models actually return for
+// custom fields: a JSON array of {field, value}, one such object, or a map
+// from field name to value. An empty reply is a successful "nothing found".
+// ok is false when the reply is non-empty and none of those shapes match, so
+// the caller can say so instead of dropping the fields silently.
+//
+// knownNames is the fields that were asked for. A name→value map is only
+// accepted for those names; other keys are ignored. Names match
+// case-insensitively, and the returned Field is the known spelling.
+func parseCustomFieldLLMResponse(response string, knownNames []string) (fields []llmCustomFieldResponse, ok bool) {
+	cleaned := cleanLLMJSON(response)
+	if cleaned == "" {
+		return nil, true
 	}
-	return strings.TrimSpace(content)
+
+	switch cleaned[0] {
+	case '[':
+		var arr []llmCustomFieldResponse
+		if err := json.Unmarshal([]byte(cleaned), &arr); err != nil {
+			return nil, false
+		}
+		return arr, true
+	case '{':
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(cleaned), &obj); err != nil {
+			return nil, false
+		}
+		if rawField, has := rawMessageByKey(obj, "field"); has {
+			var asString string
+			if err := json.Unmarshal(rawField, &asString); err == nil && strings.TrimSpace(asString) != "" {
+				var one llmCustomFieldResponse
+				if err := json.Unmarshal([]byte(cleaned), &one); err == nil && strings.TrimSpace(one.Field) != "" {
+					return []llmCustomFieldResponse{one}, true
+				}
+			}
+		}
+		var out []llmCustomFieldResponse
+		for _, name := range knownNames {
+			raw, has := rawMessageByKey(obj, name)
+			if !has {
+				continue
+			}
+			var val interface{}
+			if err := json.Unmarshal(raw, &val); err != nil || val == nil {
+				continue
+			}
+			out = append(out, llmCustomFieldResponse{Field: name, Value: val})
+		}
+		if len(out) == 0 {
+			return nil, false
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+// rawMessageByKey finds key in a JSON object, case-insensitively.
+func rawMessageByKey(obj map[string]json.RawMessage, key string) (json.RawMessage, bool) {
+	if raw, ok := obj[key]; ok {
+		return raw, true
+	}
+	for k, raw := range obj {
+		if strings.EqualFold(k, key) {
+			return raw, true
+		}
+	}
+	return nil, false
+}
+
+// cleanLLMJSON strips a markdown fence and the whitespace JSON rejects.
+// Models indent with U+00A0, and a Latin-1 misread of that byte turns into
+// U+00C2 followed by U+00A0. Either one makes encoding/json stop.
+func cleanLLMJSON(content string) string {
+	content = strings.TrimSpace(content)
+	content = strings.TrimPrefix(content, "\uFEFF")
+	content = strings.NewReplacer(
+		"\u00c2\u00a0", " ",
+		"\u00a0", " ",
+		"\u202f", " ",
+		"\u2007", " ",
+		"\u200b", "",
+		"\ufeff", "",
+	).Replace(content)
+	return stripMarkdown(content)
+}
+
+// truncateForLog shortens a model reply so a warning can quote it without
+// dumping the whole document.
+func truncateForLog(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "…"
+}
+
+// stripMarkdown removes one surrounding markdown code fence, including a
+// language tag such as ```json. A fence with no newline (` ```json[{}]``` `)
+// is handled too: that is the form the previous trim only accepted.
+func stripMarkdown(content string) string {
+	content = strings.TrimSpace(content)
+	if !strings.HasPrefix(content, "```") {
+		return content
+	}
+	rest := strings.TrimPrefix(content, "```")
+	if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+		lang := strings.TrimSpace(rest[:nl])
+		if lang == "" || isFenceLanguage(lang) {
+			rest = rest[nl+1:]
+		}
+	} else if len(rest) >= 4 && strings.EqualFold(rest[:4], "json") {
+		rest = rest[4:]
+	}
+	rest = strings.TrimSpace(rest)
+	rest = strings.TrimSuffix(rest, "```")
+	return strings.TrimSpace(rest)
+}
+
+func isFenceLanguage(s string) bool {
+	if s == "" || len(s) > 16 {
+		return false
+	}
+	for _, r := range s {
+		if r != '-' && r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			return false
+		}
+	}
+	return true
 }
 
 // handoverTags returns the tags to take off a processed document and the
