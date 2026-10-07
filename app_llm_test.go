@@ -774,6 +774,123 @@ func TestGetSuggestedCustomFields_OnlySelectedFields(t *testing.T) {
 	assert.Equal(t, 1, suggestions[0].ID)
 }
 
+func TestParseCustomFieldLLMResponse(t *testing.T) {
+	known := []string{"Invoice Number", "Due Date"}
+
+	tests := []struct {
+		name   string
+		in     string
+		wantOK bool
+		want   []llmCustomFieldResponse
+	}{
+		{
+			name:   "empty is nothing found",
+			in:     "  \n",
+			wantOK: true,
+		},
+		{
+			name:   "array",
+			in:     `[{"field":"Invoice Number","value":"INV-1"},{"field":"Due Date","value":"2025-12-31"}]`,
+			wantOK: true,
+			want: []llmCustomFieldResponse{
+				{Field: "Invoice Number", Value: "INV-1"},
+				{Field: "Due Date", Value: "2025-12-31"},
+			},
+		},
+		{
+			name:   "single object",
+			in:     `{"field":"Invoice Number","value":"INV-1"}`,
+			wantOK: true,
+			want:   []llmCustomFieldResponse{{Field: "Invoice Number", Value: "INV-1"}},
+		},
+		{
+			name:   "map of known names",
+			in:     `{"invoice number":"INV-1","Due Date":"2025-12-31","Not Asked":"x"}`,
+			wantOK: true,
+			want: []llmCustomFieldResponse{
+				{Field: "Invoice Number", Value: "INV-1"},
+				{Field: "Due Date", Value: "2025-12-31"},
+			},
+		},
+		{
+			name:   "non-breaking space indentation",
+			in:     "[\n\u00a0 {\n\u00a0 \u00a0 \"field\": \"Invoice Number\",\n\u00a0 \u00a0 \"value\": \"9264\"\n\u00a0 }\n]",
+			wantOK: true,
+			want:   []llmCustomFieldResponse{{Field: "Invoice Number", Value: "9264"}},
+		},
+		{
+			name:   "latin-1 misread of a non-breaking space",
+			in:     "[\u00c2\u00a0{\"field\": \"Invoice Number\", \"value\": \"9264\"}]",
+			wantOK: true,
+			want:   []llmCustomFieldResponse{{Field: "Invoice Number", Value: "9264"}},
+		},
+		{
+			name:   "markdown fence",
+			in:     "```json\n[{\"field\":\"Invoice Number\",\"value\":\"INV-1\"}]\n```",
+			wantOK: true,
+			want:   []llmCustomFieldResponse{{Field: "Invoice Number", Value: "INV-1"}},
+		},
+		{
+			name:   "fence without a newline",
+			in:     "```json[{\"field\":\"Invoice Number\",\"value\":\"INV-1\"}]```",
+			wantOK: true,
+			want:   []llmCustomFieldResponse{{Field: "Invoice Number", Value: "INV-1"}},
+		},
+		{
+			name:   "prose is not usable",
+			in:     "I could not find any custom fields.",
+			wantOK: false,
+		},
+		{
+			name:   "map of unknown names is not usable",
+			in:     `{"Something Else":"x"}`,
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseCustomFieldLLMResponse(tt.in, known)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGetSuggestedCustomFields_AcceptsObjectAndMap(t *testing.T) {
+	t.Setenv("TOKEN_LIMIT", "")
+	resetTokenLimit()
+
+	for _, response := range []string{
+		`{"field":"Invoice Number","value":"INV-1"}`,
+		`{"Invoice Number":"INV-1"}`,
+		"[\n\u00a0{\"field\":\"Invoice Number\",\"value\":\"INV-1\"}\n]",
+	} {
+		t.Run(response, func(t *testing.T) {
+			app := &App{
+				LLM: &mockLLM{Response: response},
+				Client: &mockPaperlessClient{
+					CustomFields: []CustomField{
+						{ID: 1, Name: "Invoice Number", DataType: "string"},
+					},
+				},
+			}
+			err := os.MkdirAll("prompts", 0755)
+			require.NoError(t, err)
+			err = os.WriteFile("prompts/custom_field_prompt.tmpl", []byte("{{ .CustomFieldsXML }}"), 0644)
+			require.NoError(t, err)
+			t.Cleanup(func() { os.RemoveAll("prompts") })
+			require.NoError(t, loadTemplates())
+
+			suggestions, err := app.getSuggestedCustomFields(context.Background(), Document{Content: "x"}, []int{1}, logrus.WithField("test", t.Name()), nil)
+			require.NoError(t, err)
+			require.Len(t, suggestions, 1)
+			assert.Equal(t, 1, suggestions[0].ID)
+			assert.Equal(t, "INV-1", suggestions[0].Value)
+		})
+	}
+}
+
 // Helper function to find a custom field by ID in a slice
 func findFieldByID(fields []CustomFieldSuggestion, id int) (CustomFieldSuggestion, bool) {
 	for _, field := range fields {
