@@ -315,6 +315,7 @@ func TestEffectiveOCRDefaultsVersionModeDropsReplace(t *testing.T) {
 }
 
 func TestOCRHandlersRejectReplaceInVersionMode(t *testing.T) {
+	t.Chdir(t.TempDir()) // the handlers save config/settings.json relative to the working directory
 	gin.SetMode(gin.TestMode)
 	db := newOCRRunTestDB(t)
 	app := &App{Client: &mockPaperlessClient{}, Database: db, pdfUpload: true, pdfUploadMode: PDFUploadModeVersion}
