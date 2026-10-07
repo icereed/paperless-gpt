@@ -575,7 +575,7 @@ environment:
 ```
 
 > **⚠️ WARNING ⚠️**  
-> Setting `PDF_REPLACE: "true"` will delete the original document after uploading the enhanced version. This process cannot be undone and may result in data loss if something goes wrong during the upload or metadata copying process. Use with extreme caution!
+> Setting `PDF_REPLACE: "true"` will delete the original document after uploading the enhanced version. This process cannot be undone and may result in data loss if something goes wrong during the upload or metadata copying process. Use with extreme caution! paperless-gpt only deletes the original once paperless-ngx reports the upload as imported (within about a minute); if it can't confirm that, the original is kept and the run says so.
 >
 > On paperless-ngx 3.0 or newer, use `PDF_UPLOAD_MODE: "version"` instead. It gives the same result, one document with a searchable PDF, without deleting anything: the original stays available as the previous version. `PDF_REPLACE` is ignored in that mode.
 
