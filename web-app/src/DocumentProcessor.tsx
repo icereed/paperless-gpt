@@ -10,6 +10,12 @@ import GenerationOptions, {
 import JobProgress from "./components/JobProgress";
 import NoDocuments from "./components/NoDocuments";
 import SuggestionsReview from "./components/SuggestionsReview";
+import {
+  clearReviewDecisions,
+  filterRestoredSuggestions,
+  parseReviewDecisions,
+  reviewDecisionsKey,
+} from "./components/review/reviewSession";
 
 export interface Document {
   id: number;
@@ -102,6 +108,7 @@ const DocumentProcessor: React.FC = () => {
     customFields: true,
   });
   const [job, setJob] = useState<SuggestionJobStatus | null>(null);
+  const [reviewJobId, setReviewJobId] = useState<string | null>(null);
   const [failedDocuments, setFailedDocuments] = useState<
     SuggestionJobFailedDocument[]
   >([]);
@@ -153,14 +160,14 @@ const DocumentProcessor: React.FC = () => {
 
   // Attach custom-field names to a job result and hand it to the review phase.
   const consumeJobResult = useCallback(
-    (finishedJob: SuggestionJobStatus) => {
+    (finishedJob: SuggestionJobStatus, restored: boolean) => {
       if (consumedJobsRef.current.has(finishedJob.job_id)) return;
       consumedJobsRef.current.add(finishedJob.job_id);
 
       const customFieldMap = new Map(
         (allCustomFields || []).map((cf) => [cf.id, cf.name])
       );
-      const processed = (finishedJob.result || []).map((suggestion) => ({
+      let processed = (finishedJob.result || []).map((suggestion) => ({
         ...suggestion,
         suggested_custom_fields: suggestion.suggested_custom_fields?.map(
           (cf) => ({
@@ -171,10 +178,34 @@ const DocumentProcessor: React.FC = () => {
         ),
       }));
 
+      // A reload has no memory of which rows were applied or skipped, and a
+      // timed-out apply can have succeeded on the server anyway. Drop both.
+      if (restored) {
+        processed = filterRestoredSuggestions(
+          processed,
+          new Set(documents.map((doc) => doc.id)),
+          parseReviewDecisions(
+            localStorage.getItem(reviewDecisionsKey(finishedJob.job_id))
+          )
+        );
+      }
+
+      if (restored && processed.length === 0) {
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+        clearReviewDecisions(localStorage, finishedJob.job_id);
+        setToast({
+          kind: "info",
+          message:
+            "The saved review was already applied, skipped, or is no longer in the queue.",
+        });
+        return;
+      }
+
       setFailedDocuments(finishedJob.failed_documents || []);
+      setReviewJobId(finishedJob.job_id);
       setSuggestions((prev) => (prev ? [...prev, ...processed] : processed));
     },
-    [allCustomFields]
+    [allCustomFields, documents]
   );
 
   // Resume a job after a reload: the job id survives in localStorage and the
@@ -194,7 +225,7 @@ const DocumentProcessor: React.FC = () => {
         if (data.status === "pending" || data.status === "in_progress") {
           setJob(data);
         } else if (data.status === "completed") {
-          consumeJobResult(data);
+          consumeJobResult(data, true);
         } else {
           localStorage.removeItem(ACTIVE_JOB_KEY);
         }
@@ -214,7 +245,7 @@ const DocumentProcessor: React.FC = () => {
         );
         setJob(data);
         if (data.status === "completed") {
-          consumeJobResult(data);
+          consumeJobResult(data, false);
           if ((data.failed_documents || []).length === 0) {
             localStorage.setItem(ACTIVE_JOB_KEY, data.job_id);
           }
@@ -357,11 +388,17 @@ const DocumentProcessor: React.FC = () => {
     }
   }, [documents, phase]);
 
-  const finishReview = (appliedCount: number, fieldChanges: number) => {
+  const closeReview = () => {
+    if (reviewJobId) clearReviewDecisions(localStorage, reviewJobId);
     localStorage.removeItem(ACTIVE_JOB_KEY);
+    setReviewJobId(null);
     setSuggestions(null);
     setJob(null);
     setFailedDocuments([]);
+  };
+
+  const finishReview = (appliedCount: number, fieldChanges: number) => {
+    closeReview();
     setToast({
       kind: "success",
       message:
@@ -377,10 +414,7 @@ const DocumentProcessor: React.FC = () => {
   };
 
   const discardReview = () => {
-    localStorage.removeItem(ACTIVE_JOB_KEY);
-    setSuggestions(null);
-    setJob(null);
-    setFailedDocuments([]);
+    closeReview();
   };
 
   if (loading && documents.length === 0 && phase === "select") {
@@ -428,6 +462,7 @@ const DocumentProcessor: React.FC = () => {
           availableTags={availableTags}
           filterTag={filterTag}
           failedDocuments={failedDocuments}
+          reviewJobId={reviewJobId}
           onRetryFailed={handleRetryFailed}
           onFinished={finishReview}
           onDiscard={discardReview}
