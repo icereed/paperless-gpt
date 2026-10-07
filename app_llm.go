@@ -572,8 +572,10 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	for _, llmField := range llmSuggestedFields {
 		field, found := fieldsByName[llmField.Field]
 		if !found {
-			for name, candidate := range fieldsByName {
-				if strings.EqualFold(name, llmField.Field) {
+			// In selection order, so fields whose names differ only in case
+			// resolve the same way every time.
+			for _, candidate := range selectedCustomFields {
+				if strings.EqualFold(candidate.Name, llmField.Field) {
 					field, found = candidate, true
 					break
 				}
@@ -1001,7 +1003,12 @@ func parseCustomFieldLLMResponse(response string, knownNames []string) (fields [
 		if err := json.Unmarshal([]byte(cleaned), &obj); err != nil {
 			return nil, false
 		}
-		if rawField, has := rawMessageByKey(obj, "field"); has {
+		// A single {"field": ..., "value": ...} object. Both keys are
+		// required: a map reply for a custom field that is itself named
+		// "field" ({"field": "INV-1"}) must be read as a map.
+		rawField, hasField := rawMessageByKey(obj, "field")
+		_, hasValue := rawMessageByKey(obj, "value")
+		if hasField && hasValue {
 			var asString string
 			if err := json.Unmarshal(rawField, &asString); err == nil && strings.TrimSpace(asString) != "" {
 				var one llmCustomFieldResponse
@@ -1031,14 +1038,21 @@ func parseCustomFieldLLMResponse(response string, knownNames []string) (fields [
 	}
 }
 
-// rawMessageByKey finds key in a JSON object, case-insensitively.
+// rawMessageByKey finds key in a JSON object, case-insensitively. An exact
+// match wins; otherwise the keys are tried in sorted order, so a reply with
+// keys differing only in case always resolves the same way.
 func rawMessageByKey(obj map[string]json.RawMessage, key string) (json.RawMessage, bool) {
 	if raw, ok := obj[key]; ok {
 		return raw, true
 	}
-	for k, raw := range obj {
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
 		if strings.EqualFold(k, key) {
-			return raw, true
+			return obj[k], true
 		}
 	}
 	return nil, false

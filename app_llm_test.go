@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -1035,5 +1036,29 @@ func TestHandoverTags(t *testing.T) {
 			assert.Equal(t, tt.wantRemove, remove)
 			assert.Equal(t, tt.wantAdd, add)
 		})
+	}
+}
+
+// A selected custom field may itself be called "field". A map reply for it
+// must not be mistaken for a single {"field": ..., "value": ...} object.
+func TestParseCustomFieldLLMResponseFieldNamedField(t *testing.T) {
+	got, ok := parseCustomFieldLLMResponse(`{"field":"INV-1","Due Date":"2025-12-31"}`, []string{"field", "Due Date"})
+	require.True(t, ok)
+	assert.Equal(t, []llmCustomFieldResponse{
+		{Field: "field", Value: "INV-1"},
+		{Field: "Due Date", Value: "2025-12-31"},
+	}, got)
+
+	got, ok = parseCustomFieldLLMResponse(`{"field":"field","value":"INV-1"}`, []string{"field"})
+	require.True(t, ok)
+	assert.Equal(t, []llmCustomFieldResponse{{Field: "field", Value: "INV-1"}}, got, "with both keys it is a single object")
+}
+
+func TestRawMessageByKeyIsDeterministic(t *testing.T) {
+	obj := map[string]json.RawMessage{"due date": json.RawMessage(`"a"`), "DUE DATE": json.RawMessage(`"b"`)}
+	for i := 0; i < 20; i++ {
+		raw, ok := rawMessageByKey(obj, "Due Date")
+		require.True(t, ok)
+		assert.Equal(t, `"b"`, string(raw), "sorted order: \"DUE DATE\" before \"due date\"")
 	}
 }
