@@ -14,6 +14,7 @@ import {
   clearReviewDecisions,
   filterRestoredSuggestions,
   parseReviewDecisions,
+  queueIdsForRestore,
   reviewDecisionsKey,
 } from "./components/review/reviewSession";
 
@@ -91,6 +92,7 @@ const POLL_INTERVAL_MS = 1500;
 
 const DocumentProcessor: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [documentsLoaded, setDocumentsLoaded] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [suggestions, setSuggestions] = useState<DocumentSuggestion[] | null>(
     null
@@ -138,6 +140,7 @@ const DocumentProcessor: React.FC = () => {
       setFilterTag(filterTagRes.data.tag);
       setAllCustomFields(customFieldsRes.data || []);
       setDocuments(documentsRes.data);
+      setDocumentsLoaded(true);
       setSelectedIds(new Set(documentsRes.data.map((doc) => doc.id)));
       const tags = Object.keys(tagsRes.data).map((tag) => ({
         id: tag,
@@ -162,6 +165,15 @@ const DocumentProcessor: React.FC = () => {
   const consumeJobResult = useCallback(
     (finishedJob: SuggestionJobStatus, restored: boolean) => {
       if (consumedJobsRef.current.has(finishedJob.job_id)) return;
+      // A failed document fetch leaves `documents` empty. Filtering against
+      // that would drop the whole review and delete the saved decisions.
+      const queuedIds = restored
+        ? queueIdsForRestore(
+            documentsLoaded,
+            documents.map((doc) => doc.id)
+          )
+        : null;
+      if (restored && !queuedIds) return;
       consumedJobsRef.current.add(finishedJob.job_id);
 
       const customFieldMap = new Map(
@@ -180,10 +192,10 @@ const DocumentProcessor: React.FC = () => {
 
       // A reload has no memory of which rows were applied or skipped, and a
       // timed-out apply can have succeeded on the server anyway. Drop both.
-      if (restored) {
+      if (restored && queuedIds) {
         processed = filterRestoredSuggestions(
           processed,
-          new Set(documents.map((doc) => doc.id)),
+          queuedIds,
           parseReviewDecisions(
             localStorage.getItem(reviewDecisionsKey(finishedJob.job_id))
           )
@@ -205,7 +217,7 @@ const DocumentProcessor: React.FC = () => {
       setReviewJobId(finishedJob.job_id);
       setSuggestions((prev) => (prev ? [...prev, ...processed] : processed));
     },
-    [allCustomFields, documents]
+    [allCustomFields, documents, documentsLoaded]
   );
 
   // Resume a job after a reload: the job id survives in localStorage and the
@@ -214,7 +226,7 @@ const DocumentProcessor: React.FC = () => {
   // otherwise every custom field name resolves to "Unknown Field" and the job
   // is marked consumed, so the names never recover.
   useEffect(() => {
-    if (loading) return;
+    if (loading || !documentsLoaded) return;
     const storedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
     if (!storedJobId) return;
     (async () => {
@@ -233,7 +245,7 @@ const DocumentProcessor: React.FC = () => {
         localStorage.removeItem(ACTIVE_JOB_KEY);
       }
     })();
-  }, [loading, consumeJobResult]);
+  }, [loading, documentsLoaded, consumeJobResult]);
 
   // Poll the active job until it reaches a terminal state.
   useEffect(() => {
@@ -356,6 +368,7 @@ const DocumentProcessor: React.FC = () => {
     try {
       const { data } = await axios.get<Document[]>("./api/documents");
       setDocuments(data);
+      setDocumentsLoaded(true);
       setSelectedIds(new Set(data.map((doc) => doc.id)));
     } catch (err) {
       console.error("Error reloading documents:", err);
