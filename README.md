@@ -63,7 +63,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
    Fields of type **Document Link** are special: instead of filling in text, paperless-gpt resolves the references a document cites to the actual documents in your archive (see [Links related documents](#key-highlights) above).
 
 8. **Searchable & Selectable PDFs**  
-   Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance.
+   Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance. With paperless-ngx 3.0, the searchable PDF can be added as a **new version of the same document**, so it keeps its ID, tags, custom fields and notes, and the original stays available as the previous version (`PDF_UPLOAD_MODE=version`, see [PDF Upload to paperless-ngx](#pdf-upload-to-paperless-ngx)).
 
 9. **Extensive Customization**
 
@@ -289,7 +289,8 @@ services:
       CREATE_LOCAL_PDF: "false" # Optional, save enhanced PDFs locally
       LOCAL_PDF_PATH: "/app/pdf" # Optional, path for PDF files
       PDF_UPLOAD: "false" # Optional, upload enhanced PDFs to paperless-ngx
-      PDF_REPLACE: "false" # Optional and DANGEROUS, delete original after upload
+      PDF_UPLOAD_MODE: "new" # Optional: "new" (new document) or "version" (new version of the same document, paperless-ngx 3.0+, recommended)
+      PDF_REPLACE: "false" # Optional and DANGEROUS, delete original after upload ("new" mode only)
       PDF_COPY_METADATA: "true" # Optional, copy metadata from original document
       PDF_OCR_TAGGING: "true" # Optional, add tag to processed documents
       PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete" # Optional, tag name
@@ -575,8 +576,12 @@ environment:
 
 > **⚠️ WARNING ⚠️**  
 > Setting `PDF_REPLACE: "true"` will delete the original document after uploading the enhanced version. This process cannot be undone and may result in data loss if something goes wrong during the upload or metadata copying process. Use with extreme caution!
+>
+> On paperless-ngx 3.0 or newer, use `PDF_UPLOAD_MODE: "version"` instead. It gives the same result, one document with a searchable PDF, without deleting anything: the original stays available as the previous version. `PDF_REPLACE` is ignored in that mode.
 
 ### Metadata Copying Limitations
+
+This section applies to `PDF_UPLOAD_MODE: "new"` only. In `version` mode nothing has to be copied: the searchable PDF becomes a new version of the same document, which keeps its ID, title, tags, correspondent, custom fields, notes and storage path.
 
 When copying metadata from the original document to the new one, paperless-gpt attempts to copy:
 
@@ -612,7 +617,7 @@ environment:
 
 For best results with the enhanced OCR features:
 
-1. **Initial Testing**: Start with `PDF_REPLACE: "false"` until you've confirmed the process works well with your documents.
+1. **Initial Testing**: On paperless-ngx 3.0+, prefer `PDF_UPLOAD_MODE: "version"`, which never deletes anything. With `new` mode, start with `PDF_REPLACE: "false"` until you've confirmed the process works well with your documents.
 
 2. **Regular Backups**: Ensure you have backups of your paperless-ngx database and documents before enabling document replacement.
 
@@ -723,7 +728,7 @@ For best results with the enhanced OCR features:
 | `CORRESPONDENT_PROMPT_LIMIT`        | Maximum number of existing correspondents embedded into the correspondent suggestion prompt; names occurring in the document are preferred. `0` (default) sends the full list. Useful for large installations and local LLMs with small context windows. | No       | 0                          |
 
 > [!NOTE]
-> `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs. The **Active Configuration** panel on the Settings page shows each value's effective source (env / saved / default).
+> `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. `PDF_UPLOAD_MODE` is set by the environment only. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs. The **Active Configuration** panel on the Settings page shows each value's effective source (env / saved / default).
 
 ### Using a Different AI Provider
 
@@ -1089,6 +1094,8 @@ Common issues and solutions:
 - If PDFs aren't being generated, check that `OCR_LIMIT_PAGES` isn't set too low compared to your document page count
 - Ensure volumes are properly mounted if using `CREATE_LOCAL_PDF` or `CREATE_LOCAL_HOCR`
 - When using `PDF_REPLACE: "true"`, verify you have recent backups of your paperless-ngx data
+- With `PDF_UPLOAD_MODE: "version"`, an error saying the document was not found "or paperless-ngx is older than 3.0" means your paperless-ngx has no document versions yet: upgrade it, or use `new` mode. The OCR text is written either way.
+- With `PDF_UPLOAD_MODE: "version"`, a run that is shown as a warning means paperless-ngx accepted the new version but had not finished importing it within a minute. Check the task in paperless-ngx; running OCR again would add another version.
 
 ### Custom Field Generation Issues
 
