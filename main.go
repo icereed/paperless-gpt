@@ -1299,7 +1299,12 @@ func createLLM() (llms.Model, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create GoogleAI provider: %w", err)
 		}
-		return provider, nil
+
+		// Apply rate limiting with isVision=false. The Google AI client has
+		// no limiter of its own, so this is what makes
+		// LLM_REQUESTS_PER_MINUTE and LLM_MAX_RETRIES apply to suggestion
+		// calls.
+		return NewRateLimitedLLM(provider, getRateLimitConfig(false)), nil
 	case "anthropic":
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")
 		if apiKey == "" {
