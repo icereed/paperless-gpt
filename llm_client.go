@@ -4,11 +4,81 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/tmc/langchaingo/llms"
 	"golang.org/x/time/rate"
 )
+
+// maxHonoredRetryAfter caps a server-supplied delay. Azure asks for tens of
+// seconds; a multi-hour value would freeze the worker on a bad message.
+const maxHonoredRetryAfter = 2 * time.Minute
+
+var retryAfterPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\bretry after\s+(\d+)\s+seconds?\b`),
+	regexp.MustCompile(`(?i)\bretry-after:\s*(\d+)\b`),
+}
+
+// retryAfterFromError reads a delay from a provider error. Azure OpenAI puts
+// it in the body ("Please retry after 45 seconds.") and in a Retry-After
+// header; the client library keeps the body text and drops the header.
+func retryAfterFromError(err error) time.Duration {
+	if err == nil {
+		return 0
+	}
+	message := err.Error()
+	for _, pattern := range retryAfterPatterns {
+		match := pattern.FindStringSubmatch(message)
+		if match == nil {
+			continue
+		}
+		seconds, convErr := strconv.Atoi(match[1])
+		if convErr != nil || seconds <= 0 {
+			continue
+		}
+		return time.Duration(seconds) * time.Second
+	}
+	return 0
+}
+
+func jitteredBackoff(attempt int, min, max time.Duration) time.Duration {
+	backoff := min * time.Duration(1<<uint(attempt))
+	if backoff > max || backoff <= 0 {
+		backoff = max
+	}
+	// Jitter of +/- 20%, matching the previous retry delay.
+	return time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
+}
+
+// combineRetryWait uses the longer of the local backoff and the server's
+// requested delay, and never waits longer than maxHonoredRetryAfter.
+func combineRetryWait(backoff, retryAfter time.Duration) time.Duration {
+	wait := backoff
+	if retryAfter > wait {
+		wait = retryAfter
+	}
+	if wait > maxHonoredRetryAfter {
+		return maxHonoredRetryAfter
+	}
+	if wait < 0 {
+		return 0
+	}
+	return wait
+}
+
+func sleepBeforeRetry(ctx context.Context, attempt int, min, max time.Duration, err error) error {
+	wait := combineRetryWait(jitteredBackoff(attempt, min, max), retryAfterFromError(err))
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
 
 // RateLimitedLLM wraps an LLM client with rate limiting and retry capabilities
 type RateLimitedLLM struct {
@@ -45,22 +115,11 @@ func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llm
 			return "", err
 		}
 
-		// Calculate exponential backoff with jitter
-		backoff := r.backoffMin * time.Duration(1<<uint(attempt))
-		if backoff > r.backoffMax {
-			backoff = r.backoffMax
+		if sleepErr := sleepBeforeRetry(ctx, attempt, r.backoffMin, r.backoffMax, err); sleepErr != nil {
+			return "", sleepErr
 		}
-		// Add jitter by randomly adjusting +/- 20%
-		jitter := time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
-
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(jitter):
-			// Continue with retry
-			attempt++
-			lastErr = err
-		}
+		attempt++
+		lastErr = err
 	}
 }
 
@@ -138,21 +197,10 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 			return nil, err
 		}
 
-		// Calculate exponential backoff with jitter
-		backoff := r.backoffMin * time.Duration(1<<uint(attempt))
-		if backoff > r.backoffMax {
-			backoff = r.backoffMax
+		if sleepErr := sleepBeforeRetry(ctx, attempt, r.backoffMin, r.backoffMax, err); sleepErr != nil {
+			return nil, sleepErr
 		}
-		// Add jitter by randomly adjusting +/- 20%
-		jitter := time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(jitter):
-			// Continue with retry
-			attempt++
-			lastErr = err
-		}
+		attempt++
+		lastErr = err
 	}
 }
