@@ -46,17 +46,23 @@ func normalizeMonetary(value string) string {
 }
 
 // normalizeCustomFieldValue applies type-aware normalization to a single
-// custom-field value. Only monetary string values are touched; everything
-// else (numbers, bools, non-monetary types, nil) passes through unchanged.
+// custom-field value. Monetary strings become the paperless-ngx amount
+// form, and date strings that are a year-first calendar date become
+// YYYY-MM-DD. Everything else (numbers, bools, other types, nil, and a
+// date that cannot be read confidently) passes through unchanged.
 func normalizeCustomFieldValue(dataType string, value interface{}) interface{} {
-	if dataType != "monetary" {
-		return value
-	}
 	s, ok := value.(string)
 	if !ok {
 		return value
 	}
-	return normalizeMonetary(s)
+	switch dataType {
+	case "monetary":
+		return normalizeMonetary(s)
+	case "date":
+		return normalizeCreatedDate(s)
+	default:
+		return value
+	}
 }
 
 var (

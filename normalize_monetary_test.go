@@ -95,6 +95,8 @@ func TestNormalizeCustomFieldValue(t *testing.T) {
 		// the value happens to look like a monetary string.
 		{"string_passes_through", "string", "USD1,053.52", "USD1,053.52"},
 		{"date_passes_through", "date", "2026-02-29", "2026-02-29"},
+		{"date_dots_normalized", "date", "2023.01.01", "2023-01-01"},
+		{"date_day_first_unchanged", "date", "01.02.2023", "01.02.2023"},
 		{"integer_passes_through", "integer", "1,053", "1,053"},
 
 		// Non-string monetary values (numbers, nil) must pass through —
