@@ -54,6 +54,16 @@ export function clearReviewDecisions(
 // whose document has left the manual-review queue. A document leaves that
 // queue when its suggestion is applied, including when the browser never
 // heard about the success because the proxy closed a long request.
+// queueIdsForRestore is null until the document list has loaded. A failed
+// fetch leaves the list empty, and that must not be treated as an empty queue.
+export function queueIdsForRestore(
+  documentsLoaded: boolean,
+  documentIds: readonly number[]
+): ReadonlySet<number> | null {
+  if (!documentsLoaded) return null;
+  return new Set(documentIds);
+}
+
 export function filterRestoredSuggestions<T extends { id: number }>(
   suggestions: T[],
   queuedIds: ReadonlySet<number>,

@@ -4,6 +4,7 @@ import {
   clearReviewDecisions,
   filterRestoredSuggestions,
   parseReviewDecisions,
+  queueIdsForRestore,
   recordReviewDecision,
   reviewDecisionsKey,
 } from "./reviewSession.ts";
@@ -27,6 +28,17 @@ describe("parseReviewDecisions", () => {
     assert.deepEqual(parseReviewDecisions(null), {});
     assert.deepEqual(parseReviewDecisions("not-json"), {});
     assert.deepEqual(parseReviewDecisions("[]"), {});
+  });
+});
+
+describe("queueIdsForRestore", () => {
+  it("stays unset until the document list has loaded", () => {
+    assert.equal(queueIdsForRestore(false, []), null);
+    assert.deepEqual([...(queueIdsForRestore(true, []) as Set<number>)], []);
+    assert.deepEqual(
+      [...(queueIdsForRestore(true, [3, 4]) as Set<number>)],
+      [3, 4]
+    );
   });
 });
 
