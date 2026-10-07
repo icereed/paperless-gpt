@@ -159,8 +159,13 @@ func (app *App) getSuggestedTags(
 		suggestedTags[i] = strings.TrimSpace(tag)
 	}
 
-	// append the original tags to the suggested tags
-	suggestedTags = append(suggestedTags, originalTags...)
+	// append keeps every tag the document already has, which is the default:
+	// this merge used to be unconditional, so replace was unreachable.
+	// replace trusts the model's list, and a tag it does not repeat is removed.
+	mode := tagsWriteMode()
+	if mode != "replace" {
+		suggestedTags = append(suggestedTags, originalTags...)
+	}
 	// Remove duplicates
 	slices.Sort(suggestedTags)
 	suggestedTags = slices.Compact(suggestedTags)
@@ -185,11 +190,12 @@ func (app *App) getSuggestedTags(
 				}
 			}
 		}
-		// The original tags were merged in above, and on a document being
-		// processed those include the trigger tag paperless-gpt is reacting to.
-		// With CREATE_NEW_TAGS on, nothing else here would drop them, so a
-		// system tag would come back out as a "suggestion" and be re-applied.
-		return removeSystemTags(filteredTags), nil
+		// The original tags were merged in above in append mode, and on a
+		// document being processed those include the trigger tag paperless-gpt
+		// is reacting to. With CREATE_NEW_TAGS on, nothing else here would drop
+		// them, so a system tag would come back out as a "suggestion" and be
+		// re-applied.
+		return finishSuggestedTags(filteredTags, originalTags, mode), nil
 	}
 
 	filteredTags := []string{}
@@ -205,7 +211,19 @@ func (app *App) getSuggestedTags(
 	// Belt and braces: availableTags is already system-tag-free, so this only
 	// matters if that ever regresses. paperless-gpt applies its own tags
 	// through AddTags/RemoveTags, never through a suggestion.
-	return removeSystemTags(filteredTags), nil
+	return finishSuggestedTags(filteredTags, originalTags, mode), nil
+}
+
+// finishSuggestedTags drops paperless-gpt's own tags. In replace mode an
+// empty result falls back to the original tags: paperless-ngx rejects an
+// empty tag list, and a model that returned nothing should not wipe the
+// document.
+func finishSuggestedTags(filtered, original []string, mode string) []string {
+	filtered = removeSystemTags(filtered)
+	if mode == "replace" && len(filtered) == 0 {
+		return removeSystemTags(original)
+	}
+	return filtered
 }
 
 // getSuggestedDocumentType generates a suggested document type for a document using the LLM.

@@ -151,11 +151,14 @@ type WorkflowConfig struct {
 
 // Settings defines the structure for server-side UI settings
 type Settings struct {
-	CustomFieldsEnable      bool             `json:"custom_fields_enable"`
-	CustomFieldsSelectedIDs []int            `json:"custom_fields_selected_ids"`
-	CustomFieldsWriteMode   string           `json:"custom_fields_write_mode"` // "append" or "replace"
-	OCR                     OCRDefaults      `json:"ocr"`
-	Workflows               []WorkflowConfig `json:"workflows,omitempty"`
+	CustomFieldsEnable      bool   `json:"custom_fields_enable"`
+	CustomFieldsSelectedIDs []int  `json:"custom_fields_selected_ids"`
+	CustomFieldsWriteMode   string `json:"custom_fields_write_mode"` // "append", "update", or "replace"
+	// TagsWriteMode is "append" (default) or "replace". Append keeps every tag
+	// already on the document. Replace uses only the tags the model returns.
+	TagsWriteMode string           `json:"tags_write_mode"`
+	OCR           OCRDefaults      `json:"ocr"`
+	Workflows     []WorkflowConfig `json:"workflows,omitempty"`
 }
 
 // OCRDefaults are persisted run-option defaults, editable from the UI.

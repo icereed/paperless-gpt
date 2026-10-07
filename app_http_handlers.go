@@ -140,6 +140,7 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 	}
 
 	// Update the global settings variable
+	normalizeSettings(&newSettings)
 	settings = newSettings
 
 	// Save the updated settings to file
