@@ -80,8 +80,18 @@ type DocumentType struct {
 // The stored spelling is returned alongside the id so callers record what
 // paperless-ngx actually holds rather than the user's variant.
 func lookupTagID(availableTags map[string]int, tagName string) (string, int, bool) {
-	if tagID, exists := availableTags[tagName]; exists {
-		return tagName, tagID, true
+	return lookupNamedID("Tag", availableTags, tagName)
+}
+
+// lookupNamedID finds a tag, correspondent or document type by name the way
+// paperless-ngx compares names: case-insensitively, so "MONTANA GmbH" finds
+// an existing "Montana GmbH" instead of trying to create a duplicate that
+// paperless-ngx rejects. An exact match wins; among case variants the lowest
+// id wins.
+func lookupNamedID(kind string, available map[string]int, name string) (string, int, bool) {
+	name = strings.TrimSpace(name)
+	if id, exists := available[name]; exists {
+		return name, id, true
 	}
 
 	// GetAllTags keys this map by the exact name paperless-ngx returned, so a
@@ -93,21 +103,21 @@ func lookupTagID(availableTags map[string]int, tagName string) (string, int, boo
 	// duplicate -- exactly what the CREATE_NEW_TAGS path used to mint -- sorts
 	// after it.
 	matchedName, matchedID, matches := "", 0, 0
-	for availableName, tagID := range availableTags {
-		if !strings.EqualFold(availableName, tagName) {
+	for availableName, id := range available {
+		if !strings.EqualFold(availableName, name) {
 			continue
 		}
 		matches++
-		if matches == 1 || tagID < matchedID {
-			matchedName, matchedID = availableName, tagID
+		if matches == 1 || id < matchedID {
+			matchedName, matchedID = availableName, id
 		}
 	}
 	if matches == 0 {
 		return "", 0, false
 	}
 	if matches > 1 {
-		log.Warnf("Tag %q matches %d tags in paperless-ngx that differ only by case; using %q (id %d). Merge the duplicates to make this unambiguous.",
-			tagName, matches, matchedName, matchedID)
+		log.Warnf("%s %q matches %d entries in paperless-ngx that differ only by case; using %q (id %d). Merge the duplicates to make this unambiguous.",
+			kind, name, matches, matchedName, matchedID)
 	}
 	return matchedName, matchedID, true
 }
@@ -780,28 +790,35 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// wins over the suggestion. That leaves paperless-ngx' own classifier (or
 		// a manual correction) in charge and limits the LLM to documents that do
 		// not have a correspondent yet.
-		if document.SuggestedCorrespondent != "" && document.SuggestedCorrespondent != originalDoc.Correspondent &&
+		if document.SuggestedCorrespondent != "" && !strings.EqualFold(strings.TrimSpace(document.SuggestedCorrespondent), originalDoc.Correspondent) &&
 			!(preserveExistingMetadata && originalDoc.Correspondent != "") {
-			originalFields["correspondent"] = originalDoc.Correspondent
-			if corrID, exists := availableCorrespondents[document.SuggestedCorrespondent]; exists {
+			if _, corrID, exists := lookupNamedID("Correspondent", availableCorrespondents, document.SuggestedCorrespondent); exists {
+				originalFields["correspondent"] = originalDoc.Correspondent
 				updatedFields["correspondent"] = corrID
 			} else {
-				newCorr := instantiateCorrespondent(document.SuggestedCorrespondent)
+				newCorr := instantiateCorrespondent(strings.TrimSpace(document.SuggestedCorrespondent))
 				newCorrID, err := client.CreateOrGetCorrespondent(ctx, newCorr)
 				if err != nil {
-					return fmt.Errorf("error creating correspondent '%s': %w", document.SuggestedCorrespondent, err)
+					// Losing the correspondent must not cost the title, tags
+					// and everything else: apply the rest and flag the document
+					// like any other field paperless-ngx rejected. A typical
+					// cause is a correspondent the API user cannot see.
+					log.Warnf("Document %d: could not use correspondent %q, applying the other changes without it: %v", documentID, document.SuggestedCorrespondent, err)
+					partialDroppedFields = append(partialDroppedFields, "correspondent")
+				} else {
+					originalFields["correspondent"] = originalDoc.Correspondent
+					updatedFields["correspondent"] = newCorrID
 				}
-				updatedFields["correspondent"] = newCorrID
 			}
 		}
 
 		// --- DOCUMENT TYPE ---
 		// Same as above: an existing document type is kept when
 		// PRESERVE_EXISTING_METADATA is enabled.
-		if document.SuggestedDocumentType != "" && document.SuggestedDocumentType != originalDoc.DocumentTypeName &&
+		if document.SuggestedDocumentType != "" && !strings.EqualFold(strings.TrimSpace(document.SuggestedDocumentType), originalDoc.DocumentTypeName) &&
 			!(preserveExistingMetadata && originalDoc.DocumentTypeName != "") {
 			originalFields["document_type"] = originalDoc.DocumentTypeName
-			if docTypeID, exists := availableDocumentTypes[document.SuggestedDocumentType]; exists {
+			if _, docTypeID, exists := lookupNamedID("Document type", availableDocumentTypes, document.SuggestedDocumentType); exists {
 				updatedFields["document_type"] = docTypeID
 			} else {
 				// Unlike correspondents, we don't create new document types - only use existing ones
@@ -1748,8 +1765,9 @@ func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, cor
 		return 0, fmt.Errorf("error fetching correspondents: %w", err)
 	}
 
-	// Check if correspondent already exists
-	if id, exists := correspondents[correspondent.Name]; exists {
+	// Check if correspondent already exists; paperless-ngx names are unique
+	// regardless of case.
+	if _, id, exists := lookupNamedID("Correspondent", correspondents, correspondent.Name); exists {
 		log.Infof("Using existing correspondent with name %s and ID %d", correspondent.Name, id)
 		return id, nil
 	}

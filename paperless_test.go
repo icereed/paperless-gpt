@@ -1825,3 +1825,113 @@ func TestFindDocumentIDsByReference_EmptyReference(t *testing.T) {
 	assert.Empty(t, ids)
 	assert.Equal(t, 0, env.requestCount, "an empty reference must not query paperless-ngx")
 }
+
+// paperless-ngx treats correspondent and document type names as unique
+// regardless of case. An LLM answering "MONTANA Energieversorgung" for an
+// existing "Montana Energieversorgung" used to miss it, try to create a new
+// correspondent, get a 400 back, and fail the whole update (#1146).
+func TestUpdateDocuments_CorrespondentAndDocumentTypeMatchIgnoringCase(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	var patched map[string]interface{}
+	createAttempted := false
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	})
+	env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			_ = json.NewDecoder(r.Body).Decode(&patched)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	env.setMockResponse("/api/correspondents/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			createAttempted = true
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"name":["correspondent with this name already exists."]}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[{"id":5,"name":"Montana Energieversorgung"}]}`))
+	})
+	env.setMockResponse("/api/document_types/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[{"id":9,"name":"Rechnung"}]}`))
+	})
+
+	doc := DocumentSuggestion{
+		ID:                     1,
+		OriginalDocument:       Document{ID: 1, Title: "Scan"},
+		SuggestedTitle:         "Stromrechnung",
+		SuggestedCorrespondent: "MONTANA Energieversorgung ",
+		SuggestedDocumentType:  "rechnung",
+	}
+	require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{doc}, env.db, false))
+
+	assert.False(t, createAttempted, "an existing correspondent must be found, not created again")
+	assert.EqualValues(t, 5, patched["correspondent"])
+	assert.EqualValues(t, 9, patched["document_type"])
+	assert.Equal(t, "Stromrechnung", patched["title"])
+}
+
+// If a correspondent cannot be created or found (for example one the API user
+// cannot see), the other suggestions are still applied and the document is
+// flagged for review, instead of the whole update failing.
+func TestUpdateDocuments_CorrespondentFailureDoesNotDropOtherFields(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	var patched map[string]interface{}
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	})
+	env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			_ = json.NewDecoder(r.Body).Decode(&patched)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	env.setMockResponse("/api/correspondents/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"name":["correspondent with this name already exists."]}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[]}`)) // exists, but not visible to this user
+	})
+
+	doc := DocumentSuggestion{
+		ID:                     1,
+		OriginalDocument:       Document{ID: 1, Title: "Scan"},
+		SuggestedTitle:         "Stromrechnung",
+		SuggestedCorrespondent: "Hidden Corp",
+	}
+	err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{doc}, env.db, false)
+
+	var partial *PartialUpdateError
+	require.ErrorAs(t, err, &partial, "the document is flagged, not failed")
+	assert.Contains(t, partial.DroppedFields, "correspondent")
+	assert.Equal(t, "Stromrechnung", patched["title"], "the title is applied anyway")
+	assert.NotContains(t, patched, "correspondent")
+}
+
+func TestLookupNamedID(t *testing.T) {
+	available := map[string]int{"Montana": 7, "MONTANA": 3, "Other": 1}
+	name, id, ok := lookupNamedID("Correspondent", available, "montana")
+	require.True(t, ok)
+	assert.Equal(t, 3, id, "among case variants the lowest id wins")
+	assert.Equal(t, "MONTANA", name)
+
+	_, id, ok = lookupNamedID("Correspondent", available, " Montana ")
+	require.True(t, ok)
+	assert.Equal(t, 7, id, "an exact match (after trimming) wins")
+
+	_, _, ok = lookupNamedID("Correspondent", available, "Missing")
+	assert.False(t, ok)
+}
