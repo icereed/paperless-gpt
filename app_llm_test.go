@@ -983,6 +983,76 @@ func TestGetSuggestedTags_SystemTagsNeverSuggested(t *testing.T) {
 	}
 }
 
+func withTagsWriteMode(t *testing.T, mode string) {
+	t.Helper()
+	settingsMutex.Lock()
+	previous := settings.TagsWriteMode
+	settings.TagsWriteMode = mode
+	settingsMutex.Unlock()
+	t.Cleanup(func() {
+		settingsMutex.Lock()
+		settings.TagsWriteMode = previous
+		settingsMutex.Unlock()
+	})
+}
+
+// TestGetSuggestedTags_ReplaceMode checks that "replace" can drop a tag the
+// model does not repeat, while the default still keeps it. An empty model
+// reply must not clear the document.
+func TestGetSuggestedTags_ReplaceMode(t *testing.T) {
+	previous := struct{ manual, auto, ocrAuto, fail, complete, ocrComplete string }{
+		manualTag, autoTag, autoOcrTag, failTag, autoTagComplete, pdfOCRCompleteTag,
+	}
+	manualTag, autoTag, autoOcrTag = "paperless-gpt", "paperless-gpt-auto", "paperless-gpt-ocr-auto"
+	failTag, autoTagComplete, pdfOCRCompleteTag = "paperless-gpt-failed", "paperless-gpt-auto-complete", "paperless-gpt-ocr-complete"
+	previousCreateNewTags := createNewTags
+	createNewTags = false
+	isolateWorkflowSettings(t)
+	t.Cleanup(func() {
+		manualTag, autoTag, autoOcrTag = previous.manual, previous.auto, previous.ocrAuto
+		failTag, autoTagComplete, pdfOCRCompleteTag = previous.fail, previous.complete, previous.ocrComplete
+		createNewTags = previousCreateNewTags
+	})
+
+	previousTemplate := tagTemplate
+	tagTemplate = template.Must(template.New("tag").Parse(testTagTemplate))
+	t.Cleanup(func() { tagTemplate = previousTemplate })
+
+	availableTags := []string{"Invoice", "Insurance", "paperless-gpt-auto"}
+	originalTags := []string{"Insurance", "paperless-gpt-auto"}
+
+	suggest := func(t *testing.T, response string) []string {
+		t.Helper()
+		app := &App{LLM: &mockLLM{Response: response}}
+		tags, err := app.getSuggestedTags(
+			context.Background(), "Some document content", "A Title",
+			availableTags, originalTags, logrus.WithField("test", t.Name()), nil,
+		)
+		require.NoError(t, err)
+		return tags
+	}
+
+	t.Run("append keeps the original tag", func(t *testing.T) {
+		withTagsWriteMode(t, "append")
+		tags := suggest(t, "Invoice")
+		assert.Contains(t, tags, "Invoice")
+		assert.Contains(t, tags, "Insurance")
+		assert.NotContains(t, tags, "paperless-gpt-auto")
+	})
+
+	t.Run("replace drops the tag the model left out", func(t *testing.T) {
+		withTagsWriteMode(t, "replace")
+		tags := suggest(t, "Invoice")
+		assert.Equal(t, []string{"Invoice"}, tags)
+	})
+
+	t.Run("replace keeps existing tags when the model returns nothing", func(t *testing.T) {
+		withTagsWriteMode(t, "replace")
+		tags := suggest(t, "")
+		assert.Equal(t, []string{"Insurance"}, tags)
+	})
+}
+
 func TestHandoverTags(t *testing.T) {
 	previousManualTag, previousAutoTag := manualTag, autoTag
 	manualTag, autoTag = "paperless-gpt", "paperless-gpt-auto"

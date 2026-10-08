@@ -68,7 +68,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 9. **Extensive Customization**
 
    - **Customizable Prompts via Web UI**: Tweak and manage all AI prompts for titles, tags, correspondents, and more directly within the web interface under the "Settings" menu. The application uses a safe `default_prompts` and `prompts` directory structure, ensuring your customizations are persistent.
-   - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
+   - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows. Tag suggestions keep the tags a document already has. In Settings, tag write mode "Replace" uses only the suggested tags, so a tag the model leaves out is removed. An empty suggestion keeps the existing tags.
    - **AI Workflows**: Give each kind of document its own trigger tag, prompts and processing steps: invoices get a title prompt tuned for invoice numbers, contracts get custom fields, private mail only gets a title. Test a workflow on a real document before saving it; workflows are plain files next to your prompts. → [AI Workflows](docs/workflows.md)
    - **PDF Processing**: Configure how OCR-enhanced PDFs are handled, with options to save locally or upload to paperless-ngx.
 

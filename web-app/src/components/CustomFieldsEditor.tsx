@@ -10,6 +10,7 @@ interface SettingsData {
   custom_fields_enable: boolean;
   custom_fields_selected_ids: number[];
   custom_fields_write_mode: 'append' | 'replace' | 'update';
+  tags_write_mode: 'append' | 'replace';
 }
 
 const CustomFieldsEditor: React.FC = () => {
@@ -28,8 +29,12 @@ const CustomFieldsEditor: React.FC = () => {
       const settingsRes = await fetch('./api/settings');
       if (!settingsRes.ok) throw new Error('Failed to fetch settings');
       const settingsData = await settingsRes.json();
-      setSettings(settingsData.settings);
-      setInitialSettings(settingsData.settings);
+      const loaded = settingsData.settings as SettingsData;
+      if (loaded.tags_write_mode !== 'replace') {
+        loaded.tags_write_mode = 'append';
+      }
+      setSettings(loaded);
+      setInitialSettings(loaded);
 
       const customFieldsUrl = forcePull ? './api/custom_fields?force_pull=true' : './api/custom_fields';
       const customFieldsRes = await fetch(customFieldsUrl);
@@ -191,6 +196,41 @@ const CustomFieldsEditor: React.FC = () => {
                     Replace (replace all custom-fields with suggestions only)
                   </label>
                 </div>
+              </div>
+            </fieldset>
+
+            <fieldset className="mt-6">
+              <h3 className="mb-2 font-semibold">Tag write mode:</h3>
+              <p className="mb-2 text-sm text-gray-500 dark:text-gray-400">
+                Append keeps every tag already on the document. Replace uses only the tags the model returns, so a tag it leaves out is removed. If the model returns no tags, the existing ones are kept.
+              </p>
+              <div className="flex items-center mb-2">
+                <input
+                  type="radio"
+                  id="tagWriteModeAppend"
+                  name="tagWriteMode"
+                  value="append"
+                  checked={settings.tags_write_mode !== 'replace'}
+                  onChange={() => handleSettingChange('tags_write_mode', 'append')}
+                  className="w-4 h-4 mr-2"
+                />
+                <label htmlFor="tagWriteModeAppend">
+                  Append (keep existing tags, add suggestions)
+                </label>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="radio"
+                  id="tagWriteModeReplace"
+                  name="tagWriteMode"
+                  value="replace"
+                  checked={settings.tags_write_mode === 'replace'}
+                  onChange={() => handleSettingChange('tags_write_mode', 'replace')}
+                  className="w-4 h-4 mr-2"
+                />
+                <label htmlFor="tagWriteModeReplace">
+                  Replace (keep only the suggested tags)
+                </label>
               </div>
             </fieldset>
           </div>
