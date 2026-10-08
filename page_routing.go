@@ -69,6 +69,9 @@ type PageSignals struct {
 	GarbledShare       float64 `json:"garbled_char_share"`
 	ImageCoverage      float64 `json:"image_area_share"`
 	InvisibleTextShare float64 `json:"invisible_text_share"`
+	// EncodingErrors counts spots where a font's broken encoding shows up
+	// inside a word, typically umlauts: "f¸r", "Gesch‰ft", "fÃ¼r".
+	EncodingErrors int `json:"encoding_errors"`
 	// TextSample is only filled with JEV_SEND_TEXT_SAMPLE=true.
 	TextSample string `json:"text_sample,omitempty"`
 }
@@ -99,6 +102,7 @@ func pageSignals(page int, a pdfrender.PageAnalysis) PageSignals {
 	}
 	s.TextChars = visible
 	s.Words = len(strings.Fields(a.Text))
+	s.EncodingErrors = countEncodingErrors(runes)
 	if visible > 0 {
 		s.LetterShare = round2(float64(letters) / float64(visible))
 		s.GarbledShare = round2(float64(garbled) / float64(visible))
@@ -120,6 +124,8 @@ func clearVerdict(s PageSignals) (v pageVerdict, ok bool) {
 	switch {
 	case s.TextChars < 30:
 		return pageVerdict{true, "no text layer"}, true
+	case s.EncodingErrors >= 3:
+		return pageVerdict{true, "text layer has broken characters inside words (e.g. umlauts)"}, true
 	case s.GarbledShare > 0.05 || s.LetterShare < 0.5:
 		// Measured, not judged: broken encodings are reliable to count and
 		// were the case an external judge got wrong most often.
@@ -305,4 +311,30 @@ func truncateRunes(s string, n int) string {
 		return s
 	}
 	return string(r[:n])
+}
+
+// mojibakeStandIns are the characters a wrong code page puts where umlauts
+// and ß belong: Mac Roman and Windows-1252 text read as the other one gives
+// "f¸r" and "Gesch‰ft". In real text they practically never sit between two
+// letters.
+const mojibakeStandIns = "¸‰ˆ˜´¨¤¦§"
+
+// countEncodingErrors counts mojibake inside words: one of mojibakeStandIns
+// between two letters, or UTF-8 read as Latin-1 ("Ã¼").
+func countEncodingErrors(runes []rune) int {
+	n := 0
+	for i := 1; i+1 < len(runes); i++ {
+		r := runes[i]
+		switch {
+		case strings.ContainsRune(mojibakeStandIns, r):
+			if unicode.IsLetter(runes[i-1]) && unicode.IsLetter(runes[i+1]) {
+				n++
+			}
+		case r == 'Ã' || r == 'Â':
+			if runes[i+1] >= 0x80 && runes[i+1] <= 0xFF {
+				n++
+			}
+		}
+	}
+	return n
 }

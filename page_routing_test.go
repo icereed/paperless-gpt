@@ -31,6 +31,13 @@ func TestPageSignals(t *testing.T) {
 	assert.Zero(t, s.GarbledShare)
 	assert.Greater(t, s.LetterShare, 0.8)
 
+	mojibake := pageSignals(1, pdfrender.PageAnalysis{Text: "Hinweise zum Schutz Ihrer Daten f¸r das Firmenkundengesch‰ft. N‰here Informationen erhalten Sie von unserem R¸ckversicherer."})
+	assert.Equal(t, 4, mojibake.EncodingErrors, "umlauts in the wrong code page")
+	v, clear := clearVerdict(PageSignals{TextChars: 5000, Words: 700, LetterShare: 0.9, EncodingErrors: mojibake.EncodingErrors})
+	assert.True(t, clear)
+	assert.True(t, v.NeedsOCR, "a text layer with broken umlauts goes to OCR")
+	assert.Zero(t, pageSignals(1, pdfrender.PageAnalysis{Text: "Preis: 12,50 € § 3 Abs. 2, Grüße ´quoted´"}).EncodingErrors, "stand-ins outside words are fine")
+
 	garbled := pageSignals(1, pdfrender.PageAnalysis{Text: "Rechnung Ã¤Ã¶ ��  Betrag"})
 	assert.Greater(t, garbled.GarbledShare, 0.05, "replacement, private-use and mojibake characters count as garbled")
 }
