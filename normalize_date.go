@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -41,4 +42,21 @@ func normalizeCreatedDate(raw string) string {
 		return raw
 	}
 	return candidate
+}
+
+// validateCustomFieldValue reports whether paperless-ngx would reject an
+// already-normalized custom field value for the field's data type. Only date
+// fields are checked: the value must be a real calendar date in YYYY-MM-DD,
+// the same rule the created date follows. nil clears a field and is always
+// accepted; every other data type passes through to paperless-ngx.
+func validateCustomFieldValue(dataType string, value interface{}) error {
+	if value == nil || dataType != "date" {
+		return nil
+	}
+	s, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("expected a YYYY-MM-DD string, got %T", value)
+	}
+	_, err := time.Parse("2006-01-02", s)
+	return err
 }

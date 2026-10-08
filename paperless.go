@@ -633,7 +633,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 	// when at least one document has suggested custom fields, so users who
 	// don't use the feature pay nothing. Used to normalize monetary values
 	// at the API boundary so paperless-ngx's validator accepts them
-	// (see normalize_monetary.go).
+	// (see normalize_monetary.go), and to skip values it would reject.
 	var customFieldTypes map[int]string
 	for _, d := range documents {
 		if len(d.SuggestedCustomFields) > 0 {
@@ -868,7 +868,25 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 
 		// --- CUSTOM FIELDS ---
-		if len(document.SuggestedCustomFields) > 0 {
+		// Normalize each suggested value for its field's data type, then drop
+		// the ones paperless-ngx would reject anyway. One invalid value makes
+		// paperless-ngx refuse the whole PATCH, so it is skipped here like the
+		// created date above: pre-flight, with a warning, and not recorded as
+		// a dropped field for the fail tag. A typical case is an impossible
+		// date the document itself prints ("pay by 2026-09-31"): the model
+		// copies it faithfully and will do so on every retry.
+		var suggestedCustomFields []CustomFieldSuggestion
+		for _, sf := range document.SuggestedCustomFields {
+			dataType := customFieldTypes[sf.ID]
+			value := normalizeCustomFieldValue(dataType, sf.Value)
+			if err := validateCustomFieldValue(dataType, value); err != nil {
+				log.Warnf("Document %d: custom field %q (id %d) value %v is not valid for its %s type, skipping. (%v)", documentID, sf.Name, sf.ID, sf.Value, dataType, err)
+				continue
+			}
+			sf.Value = value
+			suggestedCustomFields = append(suggestedCustomFields, sf)
+		}
+		if len(suggestedCustomFields) > 0 {
 			log.Infof("Processing custom fields for document %d with mode: '%s'", documentID, document.CustomFieldsWriteMode)
 
 			// append and update merge the suggestion into the document's
@@ -899,21 +917,19 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			switch document.CustomFieldsWriteMode {
 			case "replace":
 				finalCustomFields = []CustomFieldResponse{}
-				for _, sf := range document.SuggestedCustomFields {
-					value := normalizeCustomFieldValue(customFieldTypes[sf.ID], sf.Value)
-					finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: value})
+				for _, sf := range suggestedCustomFields {
+					finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 				}
 			case "update":
 				existingFieldsMap := make(map[int]*CustomFieldResponse)
 				for i := range finalCustomFields {
 					existingFieldsMap[finalCustomFields[i].Field] = &finalCustomFields[i]
 				}
-				for _, sf := range document.SuggestedCustomFields {
-					value := normalizeCustomFieldValue(customFieldTypes[sf.ID], sf.Value)
+				for _, sf := range suggestedCustomFields {
 					if ef, ok := existingFieldsMap[sf.ID]; ok {
-						ef.Value = value
+						ef.Value = sf.Value
 					} else {
-						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: value})
+						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 					}
 				}
 			case "append":
@@ -921,10 +937,9 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 				for _, f := range finalCustomFields {
 					existingFieldsMap[f.Field] = true
 				}
-				for _, sf := range document.SuggestedCustomFields {
+				for _, sf := range suggestedCustomFields {
 					if _, exists := existingFieldsMap[sf.ID]; !exists {
-						value := normalizeCustomFieldValue(customFieldTypes[sf.ID], sf.Value)
-						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: value})
+						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 					}
 				}
 			}
