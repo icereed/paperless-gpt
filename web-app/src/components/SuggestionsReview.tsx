@@ -153,7 +153,16 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
       const payload = docsToApply.map((item) =>
         buildUpdatePayload(item, excludedMap[item.id] || new Set())
       );
-      await axios.patch("./api/update-documents", payload);
+      const res = await axios.patch<{
+        partial?: { document_id: number; dropped_fields: string[]; fail_tag?: string };
+      }>("./api/update-documents", payload);
+      const partial = res.data?.partial;
+      if (partial) {
+        setError(
+          `Applied, but paperless-ngx did not take ${partial.dropped_fields.join(", ")} for document ${partial.document_id}` +
+            (partial.fail_tag ? `; it was tagged "${partial.fail_tag}" for review.` : ".")
+        );
+      }
 
       statsRef.current.docs += docsToApply.length;
       statsRef.current.fields += docsToApply.reduce(
