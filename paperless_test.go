@@ -836,6 +836,22 @@ func TestParsePaperlessValidationErrors(t *testing.T) {
 		assert.Equal(t, []int{1}, cfIdx)
 	})
 
+	t.Run("custom_fields errors keyed by index", func(t *testing.T) {
+		// Current paperless-ngx reports only the failing entries, keyed by
+		// their position in the custom_fields array.
+		body := []byte(`{"custom_fields":{"2":{"non_field_errors":["Date has wrong format. Use one of these formats instead: YYYY-MM-DD."]},"0":{"value":["bad"]}}}`)
+		scalars, cfIdx, unrecoverable := parsePaperlessValidationErrors(body)
+		require.False(t, unrecoverable)
+		assert.Empty(t, scalars)
+		assert.Equal(t, []int{0, 2}, cfIdx)
+	})
+
+	t.Run("custom_fields object with a non-index key is unrecoverable", func(t *testing.T) {
+		body := []byte(`{"custom_fields":{"non_field_errors":["bad"]}}`)
+		_, _, unrecoverable := parsePaperlessValidationErrors(body)
+		assert.True(t, unrecoverable)
+	})
+
 	t.Run("only scalar failure", func(t *testing.T) {
 		body := []byte(`{"title":["This field may not be blank."]}`)
 		scalars, cfIdx, unrecoverable := parsePaperlessValidationErrors(body)
@@ -1879,6 +1895,87 @@ func TestUpdateDocuments_SkipsInvalidCustomFieldDate(t *testing.T) {
 			assert.Equal(t, tt.wantFieldValue, gotFields)
 		})
 	}
+}
+
+// TestUpdateDocuments_StripsCustomFieldRejectedByIndexKey verifies that
+// strip-and-retry also works when paperless-ngx reports custom_fields errors
+// as an object keyed by index rather than as an array. The rejected entry is
+// dropped, the rest of the update is retried and lands, and the document is
+// reported as a partial update.
+func TestUpdateDocuments_StripsCustomFieldRejectedByIndexKey(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	ctx := context.Background()
+
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{{"id": 1, "name": autoTag}},
+			"next":    nil,
+		})
+	})
+
+	env.setMockResponse("/api/custom_fields/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": []map[string]interface{}{
+				{"id": 3, "name": "Pages", "data_type": "integer"},
+				{"id": 5, "name": "Document Number", "data_type": "string"},
+			},
+			"next": nil,
+		})
+	})
+
+	var patches []map[string]interface{}
+	env.setMockResponse("/api/documents/9/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"id": 9, "title": "Test Doc", "tags": []int{1}, "custom_fields": []interface{}{}, "content": "content",
+			})
+			return
+		}
+		if r.Method == "PATCH" {
+			var patch map[string]interface{}
+			json.NewDecoder(r.Body).Decode(&patch)
+			patches = append(patches, patch)
+			if fields, ok := patch["custom_fields"].([]interface{}); ok {
+				for i, raw := range fields {
+					if raw.(map[string]interface{})["value"] == "three" {
+						w.WriteHeader(http.StatusBadRequest)
+						fmt.Fprintf(w, `{"custom_fields":{"%d":{"non_field_errors":["A valid integer is required."]}}}`, i)
+						return
+					}
+				}
+			}
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{"id": 9})
+		}
+	})
+
+	suggestion := DocumentSuggestion{
+		ID:               9,
+		OriginalDocument: Document{ID: 9, Title: "Test Doc", Tags: []string{autoTag}},
+		SuggestedTitle:   "Invoice RV 163/2026",
+		SuggestedCustomFields: []CustomFieldSuggestion{
+			{ID: 5, Name: "Document Number", Value: "RV 163/2026"},
+			{ID: 3, Name: "Pages", Value: "three"},
+		},
+		CustomFieldsWriteMode: "update",
+	}
+
+	err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, env.db, false)
+
+	var partial *PartialUpdateError
+	require.ErrorAs(t, err, &partial, "the rejected field is dropped and the document flagged, not failed")
+	require.Len(t, partial.DroppedFields, 1)
+	assert.Contains(t, partial.DroppedFields[0], "field_id=3")
+
+	require.Len(t, patches, 2, "one rejected PATCH, one retry")
+	retry := patches[1]
+	assert.Equal(t, "Invoice RV 163/2026", retry["title"])
+	fields, ok := retry["custom_fields"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, fields, 1)
+	assert.EqualValues(t, 5, fields[0].(map[string]interface{})["field"])
 }
 
 // TestUpdateDocuments_CustomFieldsMergeFailsWithoutCurrentState verifies that

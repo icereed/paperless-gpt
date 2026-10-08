@@ -1225,10 +1225,12 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 // Returns (nil, nil, false) if the body cannot be parsed as the expected
 // shape; the caller treats this as a hard failure too.
 //
-// Example paperless-ngx 400 body this parser handles:
+// Example paperless-ngx 400 bodies this parser handles:
 //
 //	{"created_date":["Date has wrong format..."],
 //	 "custom_fields":[{},{},{},{},{},{"non_field_errors":["..."]},{},{}]}
+//
+//	{"custom_fields":{"2":{"non_field_errors":["Date has wrong format..."]}}}
 func parsePaperlessValidationErrors(body []byte) (scalarFields map[string]bool, customFieldIndices []int, unrecoverable bool) {
 	var raw map[string]any
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -1244,18 +1246,36 @@ func parsePaperlessValidationErrors(body []byte) (scalarFields map[string]bool, 
 			unrecoverable = true
 			return
 		case "custom_fields":
-			arr, ok := val.([]any)
-			if !ok {
+			switch errs := val.(type) {
+			case []any:
+				for i, entry := range errs {
+					obj, ok := entry.(map[string]any)
+					if !ok || len(obj) == 0 {
+						continue
+					}
+					customFieldIndices = append(customFieldIndices, i)
+				}
+			case map[string]any:
+				// Newer paperless-ngx versions report only the failing
+				// entries, keyed by their index in the custom_fields array.
+				for key, entry := range errs {
+					i, err := strconv.Atoi(key)
+					if err != nil || i < 0 {
+						// Not an index (e.g. a list-level error) — bail to
+						// the hard-failure path.
+						unrecoverable = true
+						return
+					}
+					if obj, ok := entry.(map[string]any); ok && len(obj) == 0 {
+						continue
+					}
+					customFieldIndices = append(customFieldIndices, i)
+				}
+				slices.Sort(customFieldIndices)
+			default:
 				// Unexpected shape — bail to hard-failure path.
 				unrecoverable = true
 				return
-			}
-			for i, entry := range arr {
-				obj, ok := entry.(map[string]any)
-				if !ok || len(obj) == 0 {
-					continue
-				}
-				customFieldIndices = append(customFieldIndices, i)
 			}
 		default:
 			scalarFields[key] = true
