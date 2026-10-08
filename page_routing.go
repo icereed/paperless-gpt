@@ -227,7 +227,10 @@ type pageRoute struct {
 // planPageRouting decides, per page, whether OCR is needed. It returns nil
 // (OCR every page) when routing is off, the original is not a PDF, or
 // anything goes wrong: routing only ever saves work, it never blocks OCR.
-func (app *App) planPageRouting(ctx context.Context, documentID, pages int, logger interface {
+// pages is the number of pages to process, totalPages the archive version's
+// page count; the original must have exactly as many pages, or page i of the
+// original might not be page i of the archive.
+func (app *App) planPageRouting(ctx context.Context, documentID, pages, totalPages int, logger interface {
 	Infof(string, ...any)
 	Warnf(string, ...any)
 }) []pageRoute {
@@ -247,8 +250,8 @@ func (app *App) planPageRouting(ctx context.Context, documentID, pages int, logg
 		return nil
 	}
 	defer doc.Close()
-	if doc.NumPages() < pages {
-		logger.Warnf("Page routing skipped: the original has %d pages, the archive version %d", doc.NumPages(), pages)
+	if doc.NumPages() != totalPages || pages > totalPages {
+		logger.Warnf("Page routing skipped: the original has %d pages, the archive version %d", doc.NumPages(), totalPages)
 		return nil
 	}
 

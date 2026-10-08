@@ -360,7 +360,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				docLogger.Info("Page routing is off for this run: a searchable PDF or hOCR needs OCR on every page")
 			}
 		} else {
-			routes = app.planPageRouting(ctx, documentID, len(imagePaths), docLogger)
+			routes = app.planPageRouting(ctx, documentID, len(imagePaths), totalPdfPages, docLogger)
 		}
 
 		for i, imagePath := range imagePaths {

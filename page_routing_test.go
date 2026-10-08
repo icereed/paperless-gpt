@@ -131,24 +131,24 @@ func TestPlanPageRouting(t *testing.T) {
 
 	ocrPageRouting = pageRoutingOff
 	app := &App{Client: &originalPDFClient{original: digital}}
-	assert.Nil(t, app.planPageRouting(context.Background(), 1, 1, logger), "off means OCR every page")
+	assert.Nil(t, app.planPageRouting(context.Background(), 1, 1, 1, logger), "off means OCR every page")
 
 	ocrPageRouting = pageRoutingLocal
-	routes := app.planPageRouting(context.Background(), 1, 1, logger)
+	routes := app.planPageRouting(context.Background(), 1, 1, 1, logger)
 	require.Len(t, routes, 1)
 	assert.True(t, routes[0].UseTextLayer, "a born-digital page keeps its own text")
 	assert.NotEmpty(t, strings.TrimSpace(routes[0].Text))
 
 	app = &App{Client: &originalPDFClient{original: scan}}
-	routes = app.planPageRouting(context.Background(), 1, 3, logger)
+	routes = app.planPageRouting(context.Background(), 1, 3, 5, logger)
 	require.Len(t, routes, 3)
 	for i, r := range routes {
 		assert.False(t, r.UseTextLayer, "scanned page %d is OCRed again", i+1)
 	}
 
 	app = &App{Client: &originalPDFClient{original: []byte("\xff\xd8\xff not a pdf")}}
-	assert.Nil(t, app.planPageRouting(context.Background(), 1, 1, logger), "a non-PDF original is OCRed as before")
+	assert.Nil(t, app.planPageRouting(context.Background(), 1, 1, 1, logger), "a non-PDF original is OCRed as before")
 
 	app = &App{Client: &originalPDFClient{original: digital}}
-	assert.Nil(t, app.planPageRouting(context.Background(), 1, 2, logger), "page counts that don't line up disable routing")
+	assert.Nil(t, app.planPageRouting(context.Background(), 1, 1, 2, logger), "an original with a different page count than the archive disables routing, even with a page limit")
 }
