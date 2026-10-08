@@ -160,3 +160,74 @@ func (d *Document) Close() error {
 	}
 	return err
 }
+
+// PageAnalysis describes what a page already contains, to decide whether it
+// needs OCR at all.
+type PageAnalysis struct {
+	// Text is the page's extractable text, as a PDF viewer would copy it.
+	Text string
+	// ImageCoverage is the share of the page area covered by image objects
+	// (0..1, overlaps counted once per image). A scanned page is close to 1.
+	ImageCoverage float64
+	// TextObjects and InvisibleTextObjects count text objects on the page;
+	// invisible text (render mode 3) is how scanners and OCR tools lay a
+	// text layer over a page image.
+	TextObjects          int
+	InvisibleTextObjects int
+}
+
+// AnalyzePage returns the text and the image/text make-up of a page (0-based).
+func (d *Document) AnalyzePage(index int) (PageAnalysis, error) {
+	page, err := d.page(index)
+	if err != nil {
+		return PageAnalysis{}, err
+	}
+	var a PageAnalysis
+	text, err := d.instance.GetPageText(&requests.GetPageText{Page: page})
+	if err != nil {
+		return PageAnalysis{}, fmt.Errorf("reading text of page %d: %w", index+1, err)
+	}
+	a.Text = text.Text
+
+	width, height, err := d.PageSize(index)
+	if err != nil {
+		return PageAnalysis{}, err
+	}
+	pageArea := width * height
+
+	count, err := d.instance.FPDFPage_CountObjects(&requests.FPDFPage_CountObjects{Page: page})
+	if err != nil {
+		return PageAnalysis{}, fmt.Errorf("counting objects of page %d: %w", index+1, err)
+	}
+	var imageArea float64
+	for i := 0; i < count.Count; i++ {
+		obj, err := d.instance.FPDFPage_GetObject(&requests.FPDFPage_GetObject{Page: page, Index: i})
+		if err != nil {
+			continue
+		}
+		typ, err := d.instance.FPDFPageObj_GetType(&requests.FPDFPageObj_GetType{PageObject: obj.PageObject})
+		if err != nil {
+			continue
+		}
+		switch typ.Type {
+		case enums.FPDF_PAGEOBJ_IMAGE:
+			b, err := d.instance.FPDFPageObj_GetBounds(&requests.FPDFPageObj_GetBounds{PageObject: obj.PageObject})
+			if err != nil {
+				continue
+			}
+			w := math.Max(0, math.Min(float64(b.Right), width)-math.Max(float64(b.Left), 0))
+			h := math.Max(0, math.Min(float64(b.Top), height)-math.Max(float64(b.Bottom), 0))
+			imageArea += w * h
+		case enums.FPDF_PAGEOBJ_TEXT:
+			a.TextObjects++
+			mode, err := d.instance.FPDFTextObj_GetTextRenderMode(&requests.FPDFTextObj_GetTextRenderMode{PageObject: obj.PageObject})
+			if err == nil && mode.TextRenderMode == enums.FPDF_TEXTRENDERMODE_INVISIBLE {
+				a.InvisibleTextObjects++
+			}
+		}
+	}
+	if pageArea > 0 {
+		a.ImageCoverage = math.Min(1, imageArea/pageArea)
+	}
+	return a, nil
+}

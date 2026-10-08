@@ -351,6 +351,18 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			"limit_pages":          pageLimit,
 		}).Debug("Downloaded document images")
 
+		// Pages that already carry good text can skip OCR. A searchable PDF
+		// or hOCR needs OCR coordinates for every page, so routing stays
+		// off when either is produced.
+		var routes []pageRoute
+		if options.UploadPDF || app.createLocalHOCR || app.createLocalPDF {
+			if ocrPageRouting != "" && ocrPageRouting != pageRoutingOff {
+				docLogger.Info("Page routing is off for this run: a searchable PDF or hOCR needs OCR on every page")
+			}
+		} else {
+			routes = app.planPageRouting(ctx, documentID, len(imagePaths), docLogger)
+		}
+
 		for i, imagePath := range imagePaths {
 			select {
 			case <-ctx.Done():
@@ -374,10 +386,19 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			// Store image data for potential PDF generation
 			imageDataList = append(imageDataList, imageContent)
 
-			// Pass the page number (1-based index) to ProcessImage
-			result, err := provider.ProcessImage(ctx, imageContent, i+1)
-			if err != nil {
-				return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
+			var result *ocr.OCRResult
+			if i < len(routes) && routes[i].UseTextLayer {
+				pageLogger.Infof("Using the page's own text layer instead of OCR (%s)", routes[i].Reason)
+				result = &ocr.OCRResult{
+					Text:     routes[i].Text,
+					Metadata: map[string]string{"provider": "text-layer", "page_routing": routes[i].Reason},
+				}
+			} else {
+				// Pass the page number (1-based index) to ProcessImage
+				result, err = provider.ProcessImage(ctx, imageContent, i+1)
+				if err != nil {
+					return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
+				}
 			}
 			if result == nil {
 				pageLogger.Error("Got nil result from OCR provider")
