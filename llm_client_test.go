@@ -189,6 +189,22 @@ func newEventuallySuccessfulRateLimitMock(failCount int) *rateLimitMockLLM {
 	}
 }
 
+func TestRetryAfterFromError(t *testing.T) {
+	azure := errors.New("API returned unexpected status code: 429: Your requests to gpt-4.1-nano for gpt-4.1-nano in Sweden Central have exceeded the token rate limit for your current AIServices S0 pricing tier. Please retry after 45 seconds.")
+	assert.Equal(t, 45*time.Second, retryAfterFromError(azure))
+	assert.Equal(t, time.Second, retryAfterFromError(errors.New("Please retry after 1 second.")))
+	assert.Equal(t, 12*time.Second, retryAfterFromError(errors.New("Retry-After: 12")))
+	assert.Equal(t, time.Duration(0), retryAfterFromError(errors.New("API returned unexpected status code: 500")))
+	assert.Equal(t, time.Duration(0), retryAfterFromError(nil))
+}
+
+func TestCombineRetryWaitHonorsServerDelay(t *testing.T) {
+	// The local cap is 30s, but Azure asked for 45s. Waiting 30s just fails again.
+	assert.Equal(t, 45*time.Second, combineRetryWait(30*time.Second, 45*time.Second))
+	assert.Equal(t, 30*time.Second, combineRetryWait(30*time.Second, 10*time.Second))
+	assert.Equal(t, maxHonoredRetryAfter, combineRetryWait(time.Second, 2*time.Hour))
+}
+
 func TestRateLimitedLLM_Call_Success(t *testing.T) {
 	mockLLM := newSuccessfulRateLimitMock()
 	config := RateLimitConfig{
