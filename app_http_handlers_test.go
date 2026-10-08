@@ -1,9 +1,12 @@
 package main
 
 import (
+	"strings"
+
 	"bytes"
 	"context"
 	"encoding/json"
+	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -419,4 +422,60 @@ func TestWorkflowHandlersKeepStateOnFailedSave(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, send(http.MethodDelete, "/api/workflows/invoices", nil))
 	assert.Equal(t, []WorkflowConfig{existing}, workflows.List(), "delete")
+}
+
+// partialUpdateClient applies an update but reports a dropped field, then
+// records the fail-tag update that follows.
+type partialUpdateClient struct {
+	mockPaperlessClient
+	calls [][]DocumentSuggestion
+}
+
+func (c *partialUpdateClient) UpdateDocuments(_ context.Context, docs []DocumentSuggestion, _ *gorm.DB, _ bool) error {
+	c.calls = append(c.calls, docs)
+	if len(c.calls) == 1 {
+		return &PartialUpdateError{DocumentID: docs[0].ID, DroppedFields: []string{"correspondent"}}
+	}
+	return nil
+}
+
+func (c *partialUpdateClient) GetDocument(_ context.Context, id int) (Document, error) {
+	return Document{ID: id, Tags: []string{"invoice"}}, nil
+}
+
+// A manual apply that went through without some fields is not a failure:
+// the UI must not say nothing was applied, and the document is flagged for
+// review like in the background path.
+func TestUpdateDocumentsHandlerReportsPartialUpdates(t *testing.T) {
+	prevFailTag := failTag
+	failTag = "paperless-gpt-failed"
+	t.Cleanup(func() { failTag = prevFailTag })
+
+	router := setupTestRouter(t)
+	client := &partialUpdateClient{}
+	app := &App{Client: client}
+	router.PATCH("/api/update-documents", app.updateDocumentsHandler)
+
+	body := `[{"id":7,"original_document":{"id":7},"suggested_correspondent":"Hidden Corp","suggested_title":"Bill"}]`
+	req, err := http.NewRequest(http.MethodPatch, "/api/update-documents", strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Partial struct {
+			DocumentID    int      `json:"document_id"`
+			DroppedFields []string `json:"dropped_fields"`
+			FailTag       string   `json:"fail_tag"`
+		} `json:"partial"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 7, resp.Partial.DocumentID)
+	assert.Equal(t, []string{"correspondent"}, resp.Partial.DroppedFields)
+	assert.Equal(t, "paperless-gpt-failed", resp.Partial.FailTag)
+
+	require.Len(t, client.calls, 2, "the fail tag is applied in a second update")
+	assert.Equal(t, []string{"paperless-gpt-failed"}, client.calls[1][0].SuggestedTags)
 }

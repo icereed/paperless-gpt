@@ -985,6 +985,12 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					updatedFields["tags"] = []int{}
 				}
 			} else {
+				// Nothing to send, but a suggestion was dropped (e.g. a
+				// correspondent that could not be created): report it so the
+				// caller flags the document instead of treating it as done.
+				if len(partialDroppedFields) > 0 && firstPartial == nil {
+					firstPartial = &PartialUpdateError{DocumentID: documentID, DroppedFields: partialDroppedFields}
+				}
 				continue
 			}
 		}

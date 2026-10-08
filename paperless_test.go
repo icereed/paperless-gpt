@@ -1935,3 +1935,33 @@ func TestLookupNamedID(t *testing.T) {
 	_, _, ok = lookupNamedID("Correspondent", available, "Missing")
 	assert.False(t, ok)
 }
+
+// A document whose only suggestion is a correspondent that cannot be used has
+// nothing to PATCH. It must still be reported, or the caller treats it as done.
+func TestUpdateDocuments_DroppedCorrespondentWithoutOtherChangesIsReported(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	})
+	env.setMockResponse("/api/correspondents/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"name":["correspondent with this name already exists."]}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	})
+
+	doc := DocumentSuggestion{
+		ID:                     1,
+		OriginalDocument:       Document{ID: 1, Title: "Scan"},
+		SuggestedCorrespondent: "Hidden Corp",
+	}
+	err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{doc}, env.db, false)
+	var partial *PartialUpdateError
+	require.ErrorAs(t, err, &partial)
+	assert.Equal(t, []string{"correspondent"}, partial.DroppedFields)
+}
