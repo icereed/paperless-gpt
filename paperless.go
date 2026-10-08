@@ -633,7 +633,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 	// when at least one document has suggested custom fields, so users who
 	// don't use the feature pay nothing. Used to normalize monetary values
 	// at the API boundary so paperless-ngx's validator accepts them
-	// (see normalize_monetary.go).
+	// (see normalize_monetary.go), and to skip values it would reject.
 	var customFieldTypes map[int]string
 	for _, d := range documents {
 		if len(d.SuggestedCustomFields) > 0 {
@@ -868,7 +868,25 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 
 		// --- CUSTOM FIELDS ---
-		if len(document.SuggestedCustomFields) > 0 {
+		// Normalize each suggested value for its field's data type, then drop
+		// the ones paperless-ngx would reject anyway. One invalid value makes
+		// paperless-ngx refuse the whole PATCH, so it is skipped here like the
+		// created date above: pre-flight, with a warning, and not recorded as
+		// a dropped field for the fail tag. A typical case is an impossible
+		// date the document itself prints ("pay by 2026-09-31"): the model
+		// copies it faithfully and will do so on every retry.
+		var suggestedCustomFields []CustomFieldSuggestion
+		for _, sf := range document.SuggestedCustomFields {
+			dataType := customFieldTypes[sf.ID]
+			value := normalizeCustomFieldValue(dataType, sf.Value)
+			if err := validateCustomFieldValue(dataType, value); err != nil {
+				log.Warnf("Document %d: custom field %q (id %d) value %v is not valid for its %s type, skipping. (%v)", documentID, sf.Name, sf.ID, sf.Value, dataType, err)
+				continue
+			}
+			sf.Value = value
+			suggestedCustomFields = append(suggestedCustomFields, sf)
+		}
+		if len(suggestedCustomFields) > 0 {
 			log.Infof("Processing custom fields for document %d with mode: '%s'", documentID, document.CustomFieldsWriteMode)
 
 			// append and update merge the suggestion into the document's
@@ -899,21 +917,19 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			switch document.CustomFieldsWriteMode {
 			case "replace":
 				finalCustomFields = []CustomFieldResponse{}
-				for _, sf := range document.SuggestedCustomFields {
-					value := normalizeCustomFieldValue(customFieldTypes[sf.ID], sf.Value)
-					finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: value})
+				for _, sf := range suggestedCustomFields {
+					finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 				}
 			case "update":
 				existingFieldsMap := make(map[int]*CustomFieldResponse)
 				for i := range finalCustomFields {
 					existingFieldsMap[finalCustomFields[i].Field] = &finalCustomFields[i]
 				}
-				for _, sf := range document.SuggestedCustomFields {
-					value := normalizeCustomFieldValue(customFieldTypes[sf.ID], sf.Value)
+				for _, sf := range suggestedCustomFields {
 					if ef, ok := existingFieldsMap[sf.ID]; ok {
-						ef.Value = value
+						ef.Value = sf.Value
 					} else {
-						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: value})
+						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 					}
 				}
 			case "append":
@@ -921,10 +937,9 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 				for _, f := range finalCustomFields {
 					existingFieldsMap[f.Field] = true
 				}
-				for _, sf := range document.SuggestedCustomFields {
+				for _, sf := range suggestedCustomFields {
 					if _, exists := existingFieldsMap[sf.ID]; !exists {
-						value := normalizeCustomFieldValue(customFieldTypes[sf.ID], sf.Value)
-						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: value})
+						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 					}
 				}
 			}
@@ -1210,10 +1225,12 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 // Returns (nil, nil, false) if the body cannot be parsed as the expected
 // shape; the caller treats this as a hard failure too.
 //
-// Example paperless-ngx 400 body this parser handles:
+// Example paperless-ngx 400 bodies this parser handles:
 //
 //	{"created_date":["Date has wrong format..."],
 //	 "custom_fields":[{},{},{},{},{},{"non_field_errors":["..."]},{},{}]}
+//
+//	{"custom_fields":{"2":{"non_field_errors":["Date has wrong format..."]}}}
 func parsePaperlessValidationErrors(body []byte) (scalarFields map[string]bool, customFieldIndices []int, unrecoverable bool) {
 	var raw map[string]any
 	if err := json.Unmarshal(body, &raw); err != nil {
@@ -1229,18 +1246,36 @@ func parsePaperlessValidationErrors(body []byte) (scalarFields map[string]bool, 
 			unrecoverable = true
 			return
 		case "custom_fields":
-			arr, ok := val.([]any)
-			if !ok {
+			switch errs := val.(type) {
+			case []any:
+				for i, entry := range errs {
+					obj, ok := entry.(map[string]any)
+					if !ok || len(obj) == 0 {
+						continue
+					}
+					customFieldIndices = append(customFieldIndices, i)
+				}
+			case map[string]any:
+				// Newer paperless-ngx versions report only the failing
+				// entries, keyed by their index in the custom_fields array.
+				for key, entry := range errs {
+					i, err := strconv.Atoi(key)
+					if err != nil || i < 0 {
+						// Not an index (e.g. a list-level error) — bail to
+						// the hard-failure path.
+						unrecoverable = true
+						return
+					}
+					if obj, ok := entry.(map[string]any); ok && len(obj) == 0 {
+						continue
+					}
+					customFieldIndices = append(customFieldIndices, i)
+				}
+				slices.Sort(customFieldIndices)
+			default:
 				// Unexpected shape — bail to hard-failure path.
 				unrecoverable = true
 				return
-			}
-			for i, entry := range arr {
-				obj, ok := entry.(map[string]any)
-				if !ok || len(obj) == 0 {
-					continue
-				}
-				customFieldIndices = append(customFieldIndices, i)
 			}
 		default:
 			scalarFields[key] = true
