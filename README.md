@@ -513,39 +513,24 @@ environment:
 
 ### Skip OCR for pages that already have text
 
-Many documents mix born-digital pages, which already contain exact, selectable text, with scanned pages. OCR on the digital pages costs time and tokens and can only make their text worse. With page routing, paperless-gpt checks each page of the **original** file first and only sends pages to OCR that need it:
+Many archives mix born-digital documents (invoices, statements, letters generated as PDF), whose text is already exact, with scans. OCR on the digital pages costs time and tokens and can only make their text worse. In one real archive we checked, about half of all pages were digital. With this option paperless-gpt checks each page of the **original** file first and only sends pages to OCR that need it:
 
 ```yaml
 environment:
-  OCR_PAGE_ROUTING: "local" # off (default) | local | jev
+  OCR_SKIP_DIGITAL_PAGES: "true"
 ```
 
 | Page | Decision |
 |---|---|
 | No text layer | OCR |
 | Invisible text over a scanned image (a scanner's or OCR tool's text layer) | OCR, that is what paperless-gpt improves on |
-| Text with broken characters (replacement glyphs, mojibake) | OCR |
+| Broken text: replacement glyphs, mojibake such as "f¸r" or "fÃ¼r" | OCR |
 | Clean, visible text, no large images | Its own text is used |
-| Unclear, e.g. a little text over a large image | `local`: built-in rule; `jev`: asks the Jev judge |
+| A little text over a large image | OCR |
 
 - **Original, not archive:** routing looks at the original file, not paperless-ngx' archive version. The archive carries paperless-ngx' own Tesseract text on every scanned page, which is the text paperless-gpt is meant to replace.
 - **Image mode only:** it applies to the image OCR mode, and stays off for runs that create a searchable PDF or hOCR (`PDF_UPLOAD`, `CREATE_LOCAL_PDF`, `CREATE_LOCAL_HOCR`), because those need OCR on every page.
-- **Never blocks OCR:** if the original is not a PDF or anything goes wrong, every page is OCRed as before.
-
-**Jev judge (optional).** With `OCR_PAGE_ROUTING: "jev"`, the unclear pages are decided by [Jev](https://www.jevai.org), a small decision model by TypeSafe:
-
-```yaml
-environment:
-  OCR_PAGE_ROUTING: "jev"
-  JEV_API_KEY: "your-key"            # TYPESAFE_API_KEY works too
-  # JEV_NEEDS_OCR_THRESHOLD: "0.5"   # probability above which a page is OCRed
-  # JEV_SEND_TEXT_SAMPLE: "false"    # see below
-```
-
-- **What Jev sees:** by default only page statistics: number of characters and words, share of letters and garbled characters, image area, share of invisible text. No document text.
-- **`JEV_SEND_TEXT_SAMPLE: "true"`:** adds the first 200 characters of an unclear page's text layer. That helps Jev tell a watermark or header from real content, but it sends document text to Jev.
-- **Clear cases:** only unclear pages are sent, so most documents cause no Jev call at all.
-- **Fallback:** if Jev is unreachable, the local rule decides.
+- **Never blocks OCR:** if the original is not a PDF, its page count differs from the archive version, or anything goes wrong, every page is OCRed as before.
 
 The idea comes from [doc-router](https://github.com/misbahsy/doc-router): don't pay to OCR a page that already has text on it.
 
@@ -743,10 +728,7 @@ For best results with the enhanced OCR features:
 | `PDF_OCR_TAGGING`                   | Whether to add a tag to mark documents as OCR-processed.                                                                                                                                      | No       | true                       |
 | `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed. The tag is created automatically in paperless-ngx at startup if it does not exist (when `PDF_OCR_TAGGING` is enabled).                                                                                                                                                  | No       | paperless-gpt-ocr-complete |
 | `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                        | No       | false                      |
-| `OCR_PAGE_ROUTING`                  | Skip OCR for pages whose original already has a good text layer (image mode; off when a searchable PDF or hOCR is produced). `off`, `local` or `jev`. See [Skip OCR for pages that already have text](#skip-ocr-for-pages-that-already-have-text). | No       | off                        |
-| `JEV_API_KEY`                       | API key for the Jev judge used by `OCR_PAGE_ROUTING=jev` (`TYPESAFE_API_KEY` works too).                                                                                                      | No       |                            |
-| `JEV_NEEDS_OCR_THRESHOLD`           | Probability from Jev above which an unclear page is OCRed.                                                                                                                                    | No       | 0.5                        |
-| `JEV_SEND_TEXT_SAMPLE`              | Also send Jev the first 200 characters of an unclear page's text layer (sends document text to Jev).                                                                                          | No       | false                      |
+| `OCR_SKIP_DIGITAL_PAGES`            | Skip OCR for pages whose original already has a clean, visible text layer and use that text (image mode; off when a searchable PDF or hOCR is produced). See [Skip OCR for pages that already have text](#skip-ocr-for-pages-that-already-have-text). | No       | false                      |
 | `PRESERVE_EXISTING_METADATA`        | Keep a correspondent or document type that is already set on the document instead of overwriting it with the suggestion. Useful when paperless-ngx' own classifier or manual corrections should stay in charge and the LLM should only fill the gaps. | No       | false                      |
 | `AUTO_OCR_TAG`                      | Tag for automatically processing docs with OCR.                                                                                                                                               | No       | paperless-gpt-ocr-auto     |
 | `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit. Not applied in `whole_pdf` mode (see [Whole PDF Mode](#whole-pdf-mode)), which always processes the entire document.              | No       | 5                          |

@@ -2,10 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -68,54 +64,6 @@ func TestPageVerdicts(t *testing.T) {
 	}
 }
 
-func TestJevJudgeSendsOnlyNumbers(t *testing.T) {
-	var got map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
-		body, _ := io.ReadAll(r.Body)
-		require.NoError(t, json.Unmarshal(body, &got))
-		_, _ = w.Write([]byte(`{"model":"jev-1.13.0","answers":{"needs_ocr":{"type":"noul","noul":0.83}}}`))
-	}))
-	defer server.Close()
-
-	judge := &jevJudge{url: server.URL, key: "test-key", model: "jev-latest", threshold: 0.5, client: server.Client()}
-	p, err := judge.needsOCR(context.Background(), PageSignals{Page: 3, TextChars: 40, Words: 6, ImageCoverage: 0.93})
-	require.NoError(t, err)
-	assert.Equal(t, 0.83, p)
-
-	state, ok := got["state"].(map[string]any)
-	require.True(t, ok, "state is the page statistics object")
-	for key, value := range state {
-		_, isString := value.(string)
-		assert.False(t, isString, "state.%s must not carry text", key)
-	}
-	assert.NotContains(t, state, "text_sample", "no text sample unless JEV_SEND_TEXT_SAMPLE=true")
-	assert.Equal(t, "jev-latest", got["model"])
-	q := got["questions"].(map[string]any)["needs_ocr"].(map[string]any)
-	assert.Equal(t, "noul", q["type"])
-}
-
-func TestJevJudgeErrors(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/unauthorized":
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"bad key"}`))
-		default:
-			_, _ = w.Write([]byte(`{"answers":{}}`))
-		}
-	}))
-	defer server.Close()
-
-	judge := &jevJudge{url: server.URL + "/unauthorized", key: "k", model: "jev-latest", client: server.Client()}
-	_, err := judge.needsOCR(context.Background(), PageSignals{})
-	assert.ErrorContains(t, err, "401")
-
-	judge.url = server.URL + "/empty"
-	_, err = judge.needsOCR(context.Background(), PageSignals{})
-	assert.ErrorContains(t, err, "no needs_ocr probability")
-}
-
 // originalPDFClient serves a fixed original file.
 type originalPDFClient struct {
 	mockPaperlessClient
@@ -127,8 +75,8 @@ func (c *originalPDFClient) DownloadDocumentAsPDF(context.Context, int, int, boo
 }
 
 func TestPlanPageRouting(t *testing.T) {
-	prev := ocrPageRouting
-	t.Cleanup(func() { ocrPageRouting = prev })
+	prev := ocrSkipDigitalPages
+	t.Cleanup(func() { ocrSkipDigitalPages = prev })
 	logger := logrus.WithField("test", t.Name())
 
 	digital, err := os.ReadFile("tests/pdf/sample.pdf")
@@ -136,11 +84,11 @@ func TestPlanPageRouting(t *testing.T) {
 	scan, err := os.ReadFile("tests/pdf/five-pager.pdf")
 	require.NoError(t, err)
 
-	ocrPageRouting = pageRoutingOff
+	ocrSkipDigitalPages = false
 	app := &App{Client: &originalPDFClient{original: digital}}
 	assert.Nil(t, app.planPageRouting(context.Background(), 1, 1, 1, logger), "off means OCR every page")
 
-	ocrPageRouting = pageRoutingLocal
+	ocrSkipDigitalPages = true
 	routes := app.planPageRouting(context.Background(), 1, 1, 1, logger)
 	require.Len(t, routes, 1)
 	assert.True(t, routes[0].UseTextLayer, "a born-digital page keeps its own text")

@@ -894,18 +894,6 @@ func validateOrDefaultEnvVars() {
 		// No silent fallback: "new" would add a duplicate document for every PDF.
 		log.Fatalf("Invalid PDF_UPLOAD_MODE value: %q (must be %q or %q)", pdfUploadMode, PDFUploadModeNew, PDFUploadModeVersion)
 	}
-	switch ocrPageRouting {
-	case "":
-		ocrPageRouting = pageRoutingOff
-	case pageRoutingOff, pageRoutingLocal, pageRoutingJev:
-	default:
-		log.Fatalf("Invalid OCR_PAGE_ROUTING value: %q (must be %q, %q or %q)", ocrPageRouting, pageRoutingOff, pageRoutingLocal, pageRoutingJev)
-	}
-	if ocrPageRouting == pageRoutingJev {
-		if _, err := newJevJudge(); err != nil {
-			log.Warnf("Page routing falls back to local rules: %v", err)
-		}
-	}
 	if pdfUploadMode == PDFUploadModeVersion && pdfReplace {
 		log.Warnf("PDF_REPLACE is ignored when PDF_UPLOAD_MODE=%s: versions never delete anything", PDFUploadModeVersion)
 		pdfReplace = false

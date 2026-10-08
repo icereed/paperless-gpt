@@ -356,7 +356,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		// off when either is produced.
 		var routes []pageRoute
 		if options.UploadPDF || app.createLocalHOCR || app.createLocalPDF {
-			if ocrPageRouting != "" && ocrPageRouting != pageRoutingOff {
+			if ocrSkipDigitalPages {
 				docLogger.Info("Page routing is off for this run: a searchable PDF or hOCR needs OCR on every page")
 			}
 		} else {
