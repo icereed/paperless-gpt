@@ -1738,6 +1738,149 @@ func TestUpdateDocuments_CustomFieldsMergeUsesCurrentState(t *testing.T) {
 	}
 }
 
+// TestUpdateDocuments_SkipsInvalidCustomFieldDate verifies that a date custom
+// field whose value is not a real calendar date is dropped before the PATCH,
+// like an invalid created date, instead of making paperless-ngx reject the
+// whole update. The other suggestions must still be written, the document's
+// current value for the skipped field must be kept, and the skip must not
+// produce a PartialUpdateError (no fail tag).
+func TestUpdateDocuments_SkipsInvalidCustomFieldDate(t *testing.T) {
+	tests := []struct {
+		name           string
+		writeMode      string
+		serverFields   []map[string]interface{}
+		suggested      []CustomFieldSuggestion
+		wantFieldValue map[int]interface{}
+		wantNoFields   bool
+	}{
+		{
+			name:      "update keeps the other fields and the current date",
+			writeMode: "update",
+			serverFields: []map[string]interface{}{
+				{"field": 2, "value": "2026-09-30"},
+			},
+			suggested: []CustomFieldSuggestion{
+				{ID: 2, Name: "Due Date", Value: "2026-09-31"},
+				{ID: 1, Name: "Amount", Value: "EUR786.50"},
+				{ID: 5, Name: "Document Number", Value: "RV 163/2026"},
+			},
+			wantFieldValue: map[int]interface{}{
+				1: "EUR786.50",
+				5: "RV 163/2026",
+				2: "2026-09-30",
+			},
+		},
+		{
+			name:      "replace writes the valid fields only",
+			writeMode: "replace",
+			suggested: []CustomFieldSuggestion{
+				{ID: 1, Name: "Amount", Value: "EUR786.50"},
+				{ID: 2, Name: "Due Date", Value: "2026-09-31"},
+			},
+			wantFieldValue: map[int]interface{}{
+				1: "EUR786.50",
+			},
+		},
+		{
+			name:      "replace with only an invalid date leaves custom fields alone",
+			writeMode: "replace",
+			serverFields: []map[string]interface{}{
+				{"field": 5, "value": "RV 163/2026"},
+			},
+			suggested: []CustomFieldSuggestion{
+				{ID: 2, Name: "Due Date", Value: "2026-09-31"},
+			},
+			wantNoFields: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			defer env.teardown()
+
+			ctx := context.Background()
+
+			env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"results": []map[string]interface{}{{"id": 1, "name": autoTag}},
+					"next":    nil,
+				})
+			})
+
+			env.setMockResponse("/api/custom_fields/", func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"results": []map[string]interface{}{
+						{"id": 1, "name": "Amount", "data_type": "monetary"},
+						{"id": 2, "name": "Due Date", "data_type": "date"},
+						{"id": 5, "name": "Document Number", "data_type": "string"},
+					},
+					"next": nil,
+				})
+			})
+
+			patchCount := 0
+			var receivedPatch map[string]interface{}
+			env.setMockResponse("/api/documents/9/", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "GET" {
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"id":            9,
+						"title":         "Test Doc",
+						"tags":          []int{1},
+						"custom_fields": tt.serverFields,
+						"content":       "content",
+					})
+					return
+				}
+				if r.Method == "PATCH" {
+					patchCount++
+					receivedPatch = nil
+					json.NewDecoder(r.Body).Decode(&receivedPatch)
+					// Reject an impossible date the way paperless-ngx does.
+					if fields, ok := receivedPatch["custom_fields"].([]interface{}); ok {
+						for i, raw := range fields {
+							if raw.(map[string]interface{})["value"] == "2026-09-31" {
+								w.WriteHeader(http.StatusBadRequest)
+								fmt.Fprintf(w, `{"custom_fields":{"%d":{"non_field_errors":["Date has wrong format. Use one of these formats instead: YYYY-MM-DD."]}}}`, i)
+								return
+							}
+						}
+					}
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode(map[string]interface{}{"id": 9})
+				}
+			})
+
+			suggestion := DocumentSuggestion{
+				ID:                    9,
+				OriginalDocument:      Document{ID: 9, Title: "Test Doc", Tags: []string{autoTag}},
+				SuggestedTitle:        "Invoice RV 163/2026",
+				SuggestedCustomFields: tt.suggested,
+				CustomFieldsWriteMode: tt.writeMode,
+			}
+
+			err := env.client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, env.db, false)
+			require.NoError(t, err, "a locally-skipped invalid date must not fail the update or produce a PartialUpdateError")
+			require.Equal(t, 1, patchCount, "the update must go through in one PATCH")
+			assert.Equal(t, "Invoice RV 163/2026", receivedPatch["title"], "valid fields must still be sent")
+
+			if tt.wantNoFields {
+				assert.NotContains(t, receivedPatch, "custom_fields", "nothing valid was suggested, so custom fields must not be touched")
+				return
+			}
+
+			rawFields, ok := receivedPatch["custom_fields"].([]interface{})
+			require.True(t, ok, "PATCH must contain a custom_fields array")
+			gotFields := make(map[int]interface{}, len(rawFields))
+			for _, raw := range rawFields {
+				entry := raw.(map[string]interface{})
+				gotFields[int(entry["field"].(float64))] = entry["value"]
+			}
+			assert.Equal(t, tt.wantFieldValue, gotFields)
+		})
+	}
+}
+
 // TestUpdateDocuments_CustomFieldsMergeFailsWithoutCurrentState verifies that
 // append/update modes abort the update when the document's current state
 // cannot be fetched. Falling back to the suggestion's snapshot would merge
