@@ -355,7 +355,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		// or hOCR needs OCR coordinates for every page, so routing stays
 		// off when either is produced.
 		var routes []pageRoute
-		if options.UploadPDF || app.createLocalHOCR || app.createLocalPDF {
+		// A provider that produces hOCR builds it from every OCRed page; a
+		// routed page would be missing from it.
+		if options.UploadPDF || app.createLocalHOCR || app.createLocalPDF || hasHOCR {
 			if ocrSkipDigitalPages {
 				docLogger.Info("Page routing is off for this run: a searchable PDF or hOCR needs OCR on every page")
 			}

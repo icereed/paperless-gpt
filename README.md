@@ -529,7 +529,7 @@ environment:
 | A little text over a large image | OCR |
 
 - **Original, not archive:** routing looks at the original file, not paperless-ngx' archive version. The archive carries paperless-ngx' own Tesseract text on every scanned page, which is the text paperless-gpt is meant to replace.
-- **Image mode only:** it applies to the image OCR mode, and stays off for runs that create a searchable PDF or hOCR (`PDF_UPLOAD`, `CREATE_LOCAL_PDF`, `CREATE_LOCAL_HOCR`), because those need OCR on every page.
+- **Image mode only:** it applies to the image OCR mode, and stays off for runs that create a searchable PDF or hOCR (`PDF_UPLOAD`, `CREATE_LOCAL_PDF`, `CREATE_LOCAL_HOCR`, or an OCR provider that produces hOCR such as Google Document AI), because those need OCR on every page.
 - **Never blocks OCR:** if the original is not a PDF, its page count differs from the archive version, or anything goes wrong, every page is OCRed as before.
 
 The idea comes from [doc-router](https://github.com/misbahsy/doc-router): don't pay to OCR a page that already has text on it.

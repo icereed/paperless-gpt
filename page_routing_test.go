@@ -32,7 +32,8 @@ func TestPageSignals(t *testing.T) {
 	v, clear := clearVerdict(PageSignals{TextChars: 5000, Words: 700, LetterShare: 0.9, EncodingErrors: mojibake.EncodingErrors})
 	assert.True(t, clear)
 	assert.True(t, v.NeedsOCR, "a text layer with broken umlauts goes to OCR")
-	assert.Zero(t, pageSignals(1, pdfrender.PageAnalysis{Text: "Preis: 12,50 € § 3 Abs. 2, Grüße ´quoted´"}).EncodingErrors, "stand-ins outside words are fine")
+	assert.Zero(t, pageSignals(1, pdfrender.PageAnalysis{Text: "Preis: 12,50 € § 3 Abs. 2, Grüße ´quoted´ d´Artagnan Dvořák Šťastný"}).EncodingErrors, "stand-ins outside words, accents used as apostrophes and real letters are fine")
+	assert.Equal(t, 3, pageSignals(1, pdfrender.PageAnalysis{Text: "Gr§e Stra§e M…nchen"}).EncodingErrors, "the other direction (Mac Roman read as Windows-1252) counts too")
 
 	garbled := pageSignals(1, pdfrender.PageAnalysis{Text: "Rechnung Ã¤Ã¶ ��  Betrag"})
 	assert.Greater(t, garbled.GarbledShare, 0.05, "replacement, private-use and mojibake characters count as garbled")

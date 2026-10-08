@@ -166,11 +166,14 @@ func (app *App) planPageRouting(ctx context.Context, documentID, pages, totalPag
 	return routes
 }
 
-// mojibakeStandIns are the characters a wrong code page puts where umlauts
-// and ß belong: Mac Roman and Windows-1252 text read as the other one gives
-// "f¸r" and "Gesch‰ft". In real text they practically never sit between two
-// letters.
-const mojibakeStandIns = "¸‰ˆ˜´¨¤¦§"
+// mojibakeStandIns are the characters a wrong code page puts where German
+// umlauts and ß belong. Windows-1252 text read as Mac Roman turns ä ö ü ß
+// Ä Ö Ü into ‰ ˆ ¸ ﬂ ƒ ÷ ‹ ("f¸r", "Gesch‰ft"); Mac Roman read as
+// Windows-1252 gives Š š Ÿ § € … †, of which Š and š are left out because
+// they are real letters in names. None of the others sits between two
+// letters in real text; accents used as apostrophes (d´Artagnan) are not in
+// the list.
+const mojibakeStandIns = "‰ˆ¸ﬂƒ÷‹Ÿ§€…†"
 
 // countEncodingErrors counts mojibake inside words: one of mojibakeStandIns
 // between two letters, or UTF-8 read as Latin-1 ("Ã¼").
