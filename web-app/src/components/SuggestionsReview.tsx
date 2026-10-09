@@ -18,12 +18,14 @@ import {
   buildUpdatePayload,
   countChanges,
 } from "./review/fields";
+import { recordReviewDecision } from "./review/reviewSession";
 
 interface SuggestionsReviewProps {
   suggestions: DocumentSuggestion[];
   availableTags: TagOption[];
   filterTag: string | null;
   failedDocuments: SuggestionJobFailedDocument[];
+  reviewJobId: string | null;
   onRetryFailed: () => void;
   onFinished: (appliedCount: number, fieldChanges: number) => void;
   onDiscard: () => void;
@@ -34,6 +36,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   availableTags,
   filterTag,
   failedDocuments,
+  reviewJobId,
   onRetryFailed,
   onFinished,
   onDiscard,
@@ -139,6 +142,17 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
     }
   }, [items, decisions, onFinished]);
 
+  const markApplied = (docId: number, fieldChanges: number) => {
+    statsRef.current.docs += 1;
+    statsRef.current.fields += fieldChanges;
+    setDecisions((prev) => ({ ...prev, [docId]: "applied" }));
+    if (reviewJobId) {
+      recordReviewDecision(localStorage, reviewJobId, docId, "applied");
+    }
+  };
+
+  // One request per document. A proxy that closes a long batch used to drop
+  // every success in that batch, and the next click sent those documents again.
   const applyDocuments = async (docsToApply: DocumentSuggestion[]) => {
     setError(null);
     const ids = docsToApply.map((doc) => doc.id);
@@ -149,40 +163,39 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
       ids.forEach((id) => next.add(id));
       return next;
     });
+    let applied = 0;
     try {
-      const payload = docsToApply.map((item) =>
-        buildUpdatePayload(item, excludedMap[item.id] || new Set())
-      );
-      const res = await axios.patch<{
-        partial?: { document_id: number; dropped_fields: string[]; fail_tag?: string };
-      }>("./api/update-documents", payload);
-      const partial = res.data?.partial;
-      if (partial) {
-        setError(
-          `Applied, but paperless-ngx did not take ${partial.dropped_fields.join(", ")} for document ${partial.document_id}` +
-            (partial.fail_tag ? `; it was tagged "${partial.fail_tag}" for review.` : ".")
-        );
+      for (const item of docsToApply) {
+        const excluded = excludedMap[item.id] || new Set();
+        const payload = buildUpdatePayload(item, excluded);
+        const res = await axios.patch<{
+          partial?: {
+            document_id: number;
+            dropped_fields: string[];
+            fail_tag?: string;
+          };
+        }>("./api/update-documents", [payload]);
+        const partial = res.data?.partial;
+        if (partial) {
+          setError(
+            `Applied, but paperless-ngx did not take ${partial.dropped_fields.join(", ")} for document ${partial.document_id}` +
+              (partial.fail_tag
+                ? `; it was tagged "${partial.fail_tag}" for review.`
+                : ".")
+          );
+        }
+        markApplied(item.id, countChanges(item, excluded));
+        applied += 1;
       }
-
-      statsRef.current.docs += docsToApply.length;
-      statsRef.current.fields += docsToApply.reduce(
-        (sum, item) =>
-          sum + countChanges(item, excludedMap[item.id] || new Set()),
-        0
-      );
-
-      setDecisions((prev) => {
-        const next = { ...prev };
-        docsToApply.forEach((doc) => {
-          next[doc.id] = "applied";
-        });
-        return next;
-      });
       setShowSummary(false);
     } catch (err) {
       console.error("Error updating documents:", err);
+      setShowSummary(false);
+      const remaining = docsToApply.length - applied;
       setError(
-        "Applying the changes failed — nothing was marked as done. Check the backend connection and try again."
+        applied === 0
+          ? "Applying the changes failed — nothing was marked as done. Check the backend connection and try again."
+          : `Applied ${applied} ${applied === 1 ? "document" : "documents"} before the request failed. ${remaining} ${remaining === 1 ? "is" : "are"} still pending.`
       );
     } finally {
       setApplyingIds((prev) => {
@@ -200,6 +213,9 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
 
   const handleSkip = (docId: number) => {
     setDecisions((prev) => ({ ...prev, [docId]: "skipped" as Decision }));
+    if (reviewJobId) {
+      recordReviewDecision(localStorage, reviewJobId, docId, "skipped");
+    }
   };
 
   const handleDiscard = () => {
