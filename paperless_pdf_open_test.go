@@ -22,13 +22,13 @@ func encryptedFixture(t *testing.T, user, owner string) string {
 
 func TestOpenPDFForOCREmptyUserPassword(t *testing.T) {
 	path := encryptedFixture(t, "", "owner-password")
-	doc, cleanup, err := openPDFForOCR(path)
+	doc, cleanup, err := openPDFForOCR(path, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
 	defer doc.Close()
-	if got := doc.NumPage(); got == 0 {
+	if got := doc.NumPages(); got == 0 {
 		t.Fatal("empty-user-password PDF opened with zero pages")
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -38,13 +38,29 @@ func TestOpenPDFForOCREmptyUserPassword(t *testing.T) {
 
 func TestOpenPDFForOCRRejectsNonEmptyUserPassword(t *testing.T) {
 	path := encryptedFixture(t, "required-user-password", "owner-password")
-	_, cleanup, err := openPDFForOCR(path)
+	_, cleanup, err := openPDFForOCR(path, "")
 	cleanup()
 	if err == nil {
 		t.Fatal("expected non-empty user-password PDF to be rejected")
 	}
 	if !errors.Is(err, ErrPDFPasswordRequired) {
 		t.Fatalf("expected ErrPDFPasswordRequired, got %v", err)
+	}
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Fatalf("original fixture was changed or removed: %v", statErr)
+	}
+}
+
+func TestOpenPDFForOCRWithPassword(t *testing.T) {
+	path := encryptedFixture(t, "required-user-password", "owner-password")
+	doc, cleanup, err := openPDFForOCR(path, "required-user-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	defer doc.Close()
+	if doc.NumPages() == 0 {
+		t.Fatal("password-protected PDF opened with zero pages")
 	}
 	if _, statErr := os.Stat(path); statErr != nil {
 		t.Fatalf("original fixture was changed or removed: %v", statErr)
