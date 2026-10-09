@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -22,7 +23,7 @@ func encryptedFixture(t *testing.T, user, owner string) string {
 
 func TestOpenPDFForOCREmptyUserPassword(t *testing.T) {
 	path := encryptedFixture(t, "", "owner-password")
-	doc, cleanup, err := openPDFForOCR(path, "")
+	doc, cleanup, err := openPDFForOCR(context.Background(), path, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +39,7 @@ func TestOpenPDFForOCREmptyUserPassword(t *testing.T) {
 
 func TestOpenPDFForOCRRejectsNonEmptyUserPassword(t *testing.T) {
 	path := encryptedFixture(t, "required-user-password", "owner-password")
-	_, cleanup, err := openPDFForOCR(path, "")
+	_, cleanup, err := openPDFForOCR(context.Background(), path, "")
 	cleanup()
 	if err == nil {
 		t.Fatal("expected non-empty user-password PDF to be rejected")
@@ -53,7 +54,7 @@ func TestOpenPDFForOCRRejectsNonEmptyUserPassword(t *testing.T) {
 
 func TestOpenPDFForOCRWithPassword(t *testing.T) {
 	path := encryptedFixture(t, "required-user-password", "owner-password")
-	doc, cleanup, err := openPDFForOCR(path, "required-user-password")
+	doc, cleanup, err := openPDFForOCR(context.Background(), path, "required-user-password")
 	if err != nil {
 		t.Fatal(err)
 	}
