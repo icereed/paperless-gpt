@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"time"
 
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/anthropic"
+	"github.com/tmc/langchaingo/llms/openai"
 	"golang.org/x/time/rate"
 )
 
@@ -62,6 +65,12 @@ func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llm
 			lastErr = err
 		}
 	}
+}
+
+// isEmptyLLMResponse reports whether err is langchaingo's "no response" error,
+// returned when the provider answered successfully but without any content.
+func isEmptyLLMResponse(err error) bool {
+	return errors.Is(err, anthropic.ErrEmptyResponse) || errors.Is(err, openai.ErrEmptyResponse)
 }
 
 // RateLimitConfig holds configuration for rate limiting and retries
@@ -128,6 +137,17 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 		if err == nil {
 			// Return the pointer response directly
 			return resp, nil
+		}
+		if isEmptyLLMResponse(err) {
+			// The model answered with no content at all, which Claude does
+			// for e.g. a document whose text is just "67". That is an answer,
+			// not a transport failure: retrying re-bills the same prompt for
+			// the same result, and failing would fail the whole document.
+			// Hand callers an empty reply instead, the same thing they get
+			// when an OpenAI-compatible model returns empty content, so the
+			// field is skipped like any other empty suggestion.
+			log.Warn("LLM returned an empty response; treating it as an empty suggestion")
+			return &llms.ContentResponse{Choices: []*llms.ContentChoice{{}}}, nil
 		}
 
 		// Check if we should retry

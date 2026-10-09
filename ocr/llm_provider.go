@@ -222,6 +222,13 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	// Some vision models wrap their whole answer in a ```markdown … ``` fence;
 	// strip it so the recognized text isn't polluted with model scaffolding.
 	text = textsanitize.StripCodeFences(text)
+	if strings.TrimSpace(text) == "" {
+		// Keep the page as blank rather than failing the whole document, but
+		// say why: stop_reason=length with no text usually means a thinking
+		// model spent the whole VISION_LLM_MAX_TOKENS budget on reasoning.
+		logger.WithField("stop_reason", completion.Choices[0].StopReason).
+			Warn("Vision model returned no text for this page; keeping it blank")
+	}
 	limitHit := false
 	tokenCount := -1
 
