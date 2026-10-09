@@ -61,6 +61,9 @@ func pdfPasswordFromContext(ctx context.Context) string {
 // those against a temporary decrypted copy so the Paperless original is never
 // modified. A non-empty password remains a hard failure.
 func pdfSourceForOCR(ctx context.Context, filename, password string) (string, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return "", func() {}, err
+	}
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return "", func() {}, err
@@ -69,6 +72,9 @@ func pdfSourceForOCR(ctx context.Context, filename, password string) (string, fu
 	if err == nil {
 		doc.Close()
 		return filename, func() {}, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", func() {}, ctxErr
 	}
 	originalOpenErr := err
 	tmp, err := os.CreateTemp(filepath.Dir(filename), ".paperless-gpt-empty-password-*.pdf")
@@ -96,10 +102,18 @@ func pdfSourceForOCR(ctx context.Context, filename, password string) (string, fu
 		}
 		return "", func() {}, fmt.Errorf("%w: %v", ErrPDFPasswordRequired, err)
 	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		os.Remove(tmpName)
+		return "", func() {}, ctxErr
+	}
 	decrypted, err := os.ReadFile(tmpName)
 	if err != nil {
 		os.Remove(tmpName)
 		return "", func() {}, fmt.Errorf("read empty-password PDF copy: %w", err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		os.Remove(tmpName)
+		return "", func() {}, ctxErr
 	}
 	doc, err = pdfrender.Open(ctx, decrypted)
 	if err != nil {

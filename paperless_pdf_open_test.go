@@ -11,6 +11,26 @@ import (
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 )
 
+func TestOpenPDFForOCRCancelledContextDoesNotDecrypt(t *testing.T) {
+	path := encryptedFixture(t, "required-user-password", "owner-password")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, cleanup, err := openPDFForOCR(ctx, path, "")
+	cleanup()
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Fatalf("original fixture was changed or removed: %v", statErr)
+	}
+	if matches, globErr := filepath.Glob(filepath.Join(filepath.Dir(path), ".paperless-gpt-empty-password-*.pdf")); globErr != nil {
+		t.Fatal(globErr)
+	} else if len(matches) != 0 {
+		t.Fatalf("cancellation left temporary decrypted files: %v", matches)
+	}
+}
+
 func encryptedFixture(t *testing.T, user, owner string) string {
 	t.Helper()
 	src := filepath.Join("tests", "pdf", "sample.pdf")
