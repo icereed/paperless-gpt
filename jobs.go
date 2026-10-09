@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sort"
 	"sync"
@@ -10,6 +11,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
+
+// ocrErrorForStorage keeps expected document-level failures machine-readable
+// in both the live job endpoint and the durable OCR run record. Unexpected
+// errors retain their full diagnostic text and status handling.
+func ocrErrorForStorage(err error) string {
+	if errors.Is(err, ErrPDFPasswordRequired) {
+		return "pdf_password_required: document requires a non-empty password"
+	}
+	return err.Error()
+}
 
 var (
 	jobCancellersMu sync.Mutex
@@ -202,8 +213,9 @@ func processJob(app *App, job *Job) {
 			logger.Infof("Job cancelled: %s", job.ID)
 		} else {
 			logger.Errorf("Error processing document OCR for job %s: %v", job.ID, err)
-			jobStore.updateJobStatus(job.ID, "failed", err.Error())
-			finishOCRRunLogged(app, job.ID, "failed", err.Error(), pagesDone, totalPages, "", "")
+			errText := ocrErrorForStorage(err)
+			jobStore.updateJobStatus(job.ID, "failed", errText)
+			finishOCRRunLogged(app, job.ID, "failed", errText, pagesDone, totalPages, "", "")
 		}
 		return
 	}
