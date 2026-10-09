@@ -47,37 +47,52 @@ type PaperlessClient struct {
 // ErrNeedsPassword. Retry only that case against a temporary decrypted copy so
 // the Paperless original is never modified. A non-empty password remains a
 // hard failure and is classified by the caller.
-func openPDFForOCR(filename string) (*fitz.Document, func(), error) {
+func pdfSourceForOCR(filename string) (string, func(), error) {
 	doc, err := fitz.New(filename)
 	if err == nil {
-		return doc, func() {}, nil
+		doc.Close()
+		return filename, func() {}, nil
 	}
-	if !errors.Is(err, fitz.ErrNeedsPassword) {
-		return nil, func() {}, err
+	if !errors.Is(err, fitz.ErrNeedsPassword) && !strings.Contains(strings.ToLower(err.Error()), "password") && !strings.Contains(strings.ToLower(err.Error()), "encrypt") {
+		return "", func() {}, err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(filename), ".paperless-gpt-empty-password-*.pdf")
 	if err != nil {
-		return nil, func() {}, fmt.Errorf("create temporary PDF for empty-password retry: %w", err)
+		return "", func() {}, fmt.Errorf("create temporary PDF for empty-password retry: %w", err)
 	}
 	tmpName := tmp.Name()
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpName)
-		return nil, func() {}, fmt.Errorf("close temporary PDF for empty-password retry: %w", err)
+		return "", func() {}, fmt.Errorf("close temporary PDF for empty-password retry: %w", err)
 	}
 	conf := model.NewDefaultConfiguration()
 	conf.UserPW = ""
 	conf.OwnerPW = ""
 	if err := api.DecryptFile(filename, tmpName, conf); err != nil {
 		os.Remove(tmpName)
-		return nil, func() {}, fmt.Errorf("PDF requires a non-empty password: %w", err)
+		return "", func() {}, fmt.Errorf("PDF requires a non-empty password: %w", err)
 	}
 	doc, err = fitz.New(tmpName)
 	if err != nil {
 		os.Remove(tmpName)
-		return nil, func() {}, fmt.Errorf("open empty-password PDF copy: %w", err)
+		return "", func() {}, fmt.Errorf("open empty-password PDF copy: %w", err)
 	}
+	doc.Close()
 	cleanup := func() {
 		os.Remove(tmpName)
+	}
+	return tmpName, cleanup, nil
+}
+
+func openPDFForOCR(filename string) (*fitz.Document, func(), error) {
+	source, cleanup, err := pdfSourceForOCR(filename)
+	if err != nil {
+		return nil, cleanup, err
+	}
+	doc, err := fitz.New(source)
+	if err != nil {
+		cleanup()
+		return nil, func() {}, err
 	}
 	return doc, cleanup, nil
 }
@@ -1675,11 +1690,15 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 	tmpFile.Close()
 
-	doc, cleanup, err := openPDFForOCR(tmpFile.Name())
+	ocrSource, cleanup, err := pdfSourceForOCR(tmpFile.Name())
 	if err != nil {
 		return nil, nil, 0, err
 	}
 	defer cleanup()
+	doc, err := fitz.New(ocrSource)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 	defer doc.Close()
 
 	totalPages := doc.NumPage()
@@ -1730,7 +1749,7 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	// doesn't cost the same split work regardless of OCR_LIMIT_PAGES - the
 	// unlimited split extracted (and wrote to disk) every page up front and
 	// only used the first pagesToProcess afterward.
-	splitSourcePath := originalPDFPath
+	splitSourcePath := ocrSource
 	if pagesToProcess < totalPages {
 		trimDir, err := os.MkdirTemp("", "pgpt-trim-*")
 		if err != nil {
