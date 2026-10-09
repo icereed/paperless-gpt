@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -27,6 +28,7 @@ import (
 	"github.com/disintegration/imaging"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
@@ -38,6 +40,46 @@ type PaperlessClient struct {
 	APIToken    string
 	HTTPClient  *http.Client
 	CacheFolder string
+}
+
+// openPDFForOCR opens a PDF with MuPDF. Some PDFs are owner-password
+// encrypted while permitting an empty user password; go-fitz reports those as
+// ErrNeedsPassword. Retry only that case against a temporary decrypted copy so
+// the Paperless original is never modified. A non-empty password remains a
+// hard failure and is classified by the caller.
+func openPDFForOCR(filename string) (*fitz.Document, func(), error) {
+	doc, err := fitz.New(filename)
+	if err == nil {
+		return doc, func() {}, nil
+	}
+	if !errors.Is(err, fitz.ErrNeedsPassword) {
+		return nil, func() {}, err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(filename), ".paperless-gpt-empty-password-*.pdf")
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("create temporary PDF for empty-password retry: %w", err)
+	}
+	tmpName := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return nil, func() {}, fmt.Errorf("close temporary PDF for empty-password retry: %w", err)
+	}
+	conf := model.NewDefaultConfiguration()
+	conf.UserPW = ""
+	conf.OwnerPW = ""
+	if err := api.DecryptFile(filename, tmpName, conf); err != nil {
+		os.Remove(tmpName)
+		return nil, func() {}, fmt.Errorf("PDF requires a non-empty password: %w", err)
+	}
+	doc, err = fitz.New(tmpName)
+	if err != nil {
+		os.Remove(tmpName)
+		return nil, func() {}, fmt.Errorf("open empty-password PDF copy: %w", err)
+	}
+	cleanup := func() {
+		os.Remove(tmpName)
+	}
+	return doc, cleanup, nil
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -1440,10 +1482,17 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 		return nil, 0, fmt.Errorf("document %d download is %s (%d bytes), not a PDF (hint: with PAPERLESS_ARCHIVE_FILE_GENERATION=never paperless-ngx serves the original file); image OCR mode supports images, PDF modes require a PDF", documentID, mime, len(pdfData))
 	}
 
-	doc, err := pdfrender.Open(ctx, pdfData)
+	_, err = tmpFile.Write(pdfData)
 	if err != nil {
 		return nil, 0, err
 	}
+	tmpFile.Close()
+
+	doc, cleanup, err := openPDFForOCR(tmpFile.Name())
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cleanup()
 	defer doc.Close()
 
 	totalPages := doc.NumPages()
@@ -1618,9 +1667,22 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	totalPages := doc.NumPages()
-	// Only the page count is needed here; free the PDFium instance early.
-	doc.Close()
+	defer os.Remove(tmpFile.Name())
+
+	_, err = tmpFile.Write(pdfData)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	tmpFile.Close()
+
+	doc, cleanup, err := openPDFForOCR(tmpFile.Name())
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer cleanup()
+	defer doc.Close()
+
+	totalPages := doc.NumPage()
 	pagesToProcess := totalPages
 
 	if limitPages > 0 && limitPages < totalPages {
