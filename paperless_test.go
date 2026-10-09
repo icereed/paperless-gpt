@@ -166,6 +166,9 @@ func TestGetAllTags(t *testing.T) {
 	// Set mock responses for pagination
 	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query().Get("page")
+		if query == "" {
+			assert.Equal(t, "1000", r.URL.Query().Get("page_size"))
+		}
 		if query == "2" {
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode(page2)
@@ -186,6 +189,7 @@ func TestGetAllTags(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedTags, tags)
+	assert.Equal(t, 2, env.requestCount)
 }
 
 // TestGetDocumentCountByTag tests the GetDocumentCountByTag method

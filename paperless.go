@@ -344,7 +344,11 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 // GetAllTags retrieves all tags from the Paperless-NGX API
 func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, error) {
 	tagIDMapping := make(map[string]int)
-	path := "api/tags/"
+	// Paperless defaults to 25 results per page. This helper is used during
+	// startup for marker-tag checks, so asking for a larger page size avoids
+	// hundreds of slow round trips on installations with large tag catalogs.
+	// Pagination is still followed because the server may cap page_size.
+	path := "api/tags/?page_size=1000"
 
 	for path != "" {
 		resp, err := client.Do(ctx, "GET", path, nil)
