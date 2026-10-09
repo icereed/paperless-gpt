@@ -691,6 +691,9 @@ func initLogger() {
 		}
 	}
 
+	// The OCR package has its own logger; keep it in sync with LOG_LEVEL.
+	ocr.SetLogLevel(log.GetLevel())
+
 	log.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
