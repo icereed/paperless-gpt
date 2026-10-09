@@ -73,6 +73,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Normalize GHCR repository
+        id: repo
+        run: echo "image_repo=ghcr.io/${GITHUB_REPOSITORY,,}/paperless-gpt" >> "$GITHUB_OUTPUT"
       - name: Build and publish amd64 image
         id: image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -80,7 +83,7 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/paperless-gpt:${{ inputs.image_tag }}
+          tags: ${{ steps.repo.outputs.image_repo }}:${{ inputs.image_tag }}
           build-args: |
             VERSION=${{ inputs.image_tag }}
             COMMIT=${{ inputs.source_sha }}
@@ -90,10 +93,10 @@ jobs:
       - name: Attest published image
         uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
-          subject-name: ghcr.io/${{ github.repository_owner }}/paperless-gpt
+          subject-name: ${{ steps.repo.outputs.image_repo }}
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
       - name: Publish immutable digest
         run: |
-          printf 'image=ghcr.io/%s/paperless-gpt@%s\n' '${{ github.repository_owner }}' '${{ steps.image.outputs.digest }}'
+          printf 'image=%s@%s\n' '${{ steps.repo.outputs.image_repo }}' '${{ steps.image.outputs.digest }}'
           printf 'source=%s\n' '${{ inputs.source_sha }}'
