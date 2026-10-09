@@ -695,6 +695,9 @@ func (app *App) getJobStatusHandler(c *gin.Context) {
 		response["result"] = job.Result
 	} else if job.Status == "failed" {
 		response["error"] = job.Result
+		if strings.HasPrefix(job.Result, "pdf_password_required:") {
+			response["error_code"] = "pdf_password_required"
+		}
 	}
 
 	c.JSON(http.StatusOK, response)
