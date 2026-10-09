@@ -1,0 +1,99 @@
+name: Publish Paperless v5 candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Fork branch or commit to build
+        required: true
+        default: codex/paperless-v5-candidate
+        type: string
+      source_sha:
+        description: Expected source commit embedded in image metadata
+        required: true
+        default: cf8128f284f604e7a2c6370e259656fe3931be16
+        type: string
+      image_tag:
+        description: GHCR tag to publish
+        required: true
+        default: paperless-v5-candidate-cf8128f
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27'
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: web-app
+      - name: Build frontend
+        run: npm run build
+        working-directory: web-app
+      - name: Run frontend tests
+        run: npm test -- --runInBand
+        working-directory: web-app
+      - name: Download Go dependencies
+        run: go mod download
+      - name: Run Go tests
+        run: go test ./...
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Log in to GHCR with ephemeral workflow token
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish amd64 image
+        id: image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/paperless-gpt:${{ inputs.image_tag }}
+          build-args: |
+            VERSION=${{ inputs.image_tag }}
+            COMMIT=${{ inputs.source_sha }}
+            BUILD_DATE=${{ github.event.repository.pushed_at }}
+          provenance: mode=max
+          sbom: true
+      - name: Attest published image
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/paperless-gpt
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+      - name: Publish immutable digest
+        run: |
+          printf 'image=ghcr.io/%s/paperless-gpt@%s\n' '${{ github.repository_owner }}' '${{ steps.image.outputs.digest }}'
+          printf 'source=%s\n' '${{ inputs.source_sha }}'
