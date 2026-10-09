@@ -171,6 +171,17 @@ func (store *JobStore) progress(jobID string) (pagesDone, totalPages int) {
 	return 0, 0
 }
 
+// clearPDFPassword removes a transient document password from the retained
+// job record after processing. Job options are persisted for status inspection,
+// so keeping the password here would retain a document credential indefinitely.
+func (store *JobStore) clearPDFPassword(jobID string) {
+	store.Lock()
+	defer store.Unlock()
+	if job, exists := store.jobs[jobID]; exists {
+		job.Options.PDFPassword = ""
+	}
+}
+
 func startWorkerPool(app *App, numWorkers int) {
 	for i := 0; i < numWorkers; i++ {
 		go func(workerID int) {
@@ -203,6 +214,7 @@ func processJob(app *App, job *Job) {
 	if (options == OCROptions{}) {
 		options = app.effectiveOCRDefaults()
 	}
+	defer jobStore.clearPDFPassword(job.ID)
 
 	processedDoc, err := app.ProcessDocumentOCR(jobCtx, job.DocumentID, options, job.ID)
 	pagesDone, totalPages := jobStore.progress(job.ID)
