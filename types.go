@@ -231,6 +231,9 @@ type OCROptions struct {
 	ProcessMode     string // OCR processing mode: "image" (default) or "pdf"
 	ExistingContent string // Existing document text (e.g., from Tesseract) to include in OCR prompt
 	PromptOverride  string // Run-scoped OCR prompt template; empty = use the saved template
+	// PDFPassword is transient request state. It is never persisted in OCRRun
+	// and must not be included in logs or telemetry.
+	PDFPassword string `json:"-"`
 }
 
 // PartialUpdateError signals that a document update succeeded only after
