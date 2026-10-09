@@ -42,6 +42,11 @@ type PaperlessClient struct {
 	CacheFolder string
 }
 
+// ErrPDFPasswordRequired identifies a PDF that could not be opened with an
+// empty password. Callers can surface this as an expected document-level
+// failure without turning it into a generic provider or server error.
+var ErrPDFPasswordRequired = errors.New("pdf requires a non-empty password")
+
 // openPDFForOCR opens a PDF with MuPDF. Some PDFs are owner-password
 // encrypted while permitting an empty user password; go-fitz reports those as
 // ErrNeedsPassword. Retry only that case against a temporary decrypted copy so
@@ -70,7 +75,7 @@ func pdfSourceForOCR(filename string) (string, func(), error) {
 	conf.OwnerPW = ""
 	if err := api.DecryptFile(filename, tmpName, conf); err != nil {
 		os.Remove(tmpName)
-		return "", func() {}, fmt.Errorf("PDF requires a non-empty password: %w", err)
+		return "", func() {}, fmt.Errorf("%w: %v", ErrPDFPasswordRequired, err)
 	}
 	doc, err = fitz.New(tmpName)
 	if err != nil {

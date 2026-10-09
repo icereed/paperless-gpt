@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -42,7 +43,19 @@ func TestOpenPDFForOCRRejectsNonEmptyUserPassword(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected non-empty user-password PDF to be rejected")
 	}
+	if !errors.Is(err, ErrPDFPasswordRequired) {
+		t.Fatalf("expected ErrPDFPasswordRequired, got %v", err)
+	}
 	if _, statErr := os.Stat(path); statErr != nil {
 		t.Fatalf("original fixture was changed or removed: %v", statErr)
+	}
+}
+
+func TestOCRErrorForStorageClassifiesPasswordFailures(t *testing.T) {
+	if got := ocrErrorForStorage(ErrPDFPasswordRequired); got != "pdf_password_required: document requires a non-empty password" {
+		t.Fatalf("unexpected classified error: %q", got)
+	}
+	if got := ocrErrorForStorage(errors.New("unexpected provider failure")); got != "unexpected provider failure" {
+		t.Fatalf("unexpected generic error rewrite: %q", got)
 	}
 }

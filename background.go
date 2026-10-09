@@ -591,8 +591,9 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		pagesDone, totalPages := jobStore.progress(jobID)
 		if err != nil {
 			docLogger.Errorf("OCR processing failed: %v", err)
-			jobStore.updateJobStatus(jobID, "failed", err.Error())
-			finishOCRRunLogged(app, jobID, "failed", err.Error(), pagesDone, totalPages, "", "")
+			errText := ocrErrorForStorage(err)
+			jobStore.updateJobStatus(jobID, "failed", errText)
+			finishOCRRunLogged(app, jobID, "failed", errText, pagesDone, totalPages, "", "")
 
 			// A canceled/expired poll-loop context is a shutdown, not a
 			// document problem — never count it against the document.
