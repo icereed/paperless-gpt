@@ -75,7 +75,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Normalize GHCR repository
         id: repo
-        run: echo "image_repo=ghcr.io/${GITHUB_REPOSITORY,,}/paperless-gpt" >> "$GITHUB_OUTPUT"
+        run: echo "image_repo=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
       - name: Build and publish amd64 image
         id: image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
