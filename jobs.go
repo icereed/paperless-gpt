@@ -84,7 +84,7 @@ func (store *JobStore) addJob(job *Job) {
 	job.PagesDone = 0 // Initialize PagesDone to 0
 	store.jobs[job.ID] = job
 	store.evictOldestTerminalLocked()
-	logger.Infof("Job added: %v", job)
+	logger.Infof("Job added: %s for document %d", job.ID, job.DocumentID)
 }
 
 // evictOldestTerminalLocked drops the oldest finished jobs while over capacity.
@@ -147,7 +147,7 @@ func (store *JobStore) updateJobStatus(jobID, status, result string) {
 			job.Result = result
 		}
 		job.UpdatedAt = time.Now()
-		logger.Infof("Job status updated: %v", job)
+		logger.Infof("Job status updated: %s -> %s", job.ID, status)
 	}
 }
 
@@ -157,7 +157,7 @@ func (store *JobStore) updatePagesDone(jobID string, pagesDone int) {
 	if job, exists := store.jobs[jobID]; exists {
 		job.PagesDone = pagesDone
 		job.UpdatedAt = time.Now()
-		logger.Infof("Job pages done updated: %v", job)
+		logger.Infof("Job pages done updated: %s -> %d/%d", job.ID, job.PagesDone, job.TotalPages)
 	}
 }
 

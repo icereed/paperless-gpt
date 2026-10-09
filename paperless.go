@@ -47,18 +47,30 @@ type PaperlessClient struct {
 // failure without turning it into a generic provider or server error.
 var ErrPDFPasswordRequired = errors.New("pdf requires a non-empty password")
 
-// openPDFForOCR opens a PDF with MuPDF. Some PDFs are owner-password
-// encrypted while permitting an empty user password; go-fitz reports those as
-// ErrNeedsPassword. Retry only that case against a temporary decrypted copy so
-// the Paperless original is never modified. A non-empty password remains a
-// hard failure and is classified by the caller.
-func pdfSourceForOCR(filename string) (string, func(), error) {
-	doc, err := fitz.New(filename)
+type pdfPasswordContextKey struct{}
+
+func pdfPasswordFromContext(ctx context.Context) string {
+	if value, ok := ctx.Value(pdfPasswordContextKey{}).(string); ok {
+		return value
+	}
+	return ""
+}
+
+// openPDFForOCR opens a PDF with the in-process PDFium renderer. Some PDFs
+// are owner-password encrypted while permitting an empty user password; retry
+// those against a temporary decrypted copy so the Paperless original is never
+// modified. A non-empty password remains a hard failure.
+func pdfSourceForOCR(filename, password string) (string, func(), error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return "", func() {}, err
+	}
+	doc, err := pdfrender.Open(context.Background(), data)
 	if err == nil {
 		doc.Close()
 		return filename, func() {}, nil
 	}
-	if !errors.Is(err, fitz.ErrNeedsPassword) && !strings.Contains(strings.ToLower(err.Error()), "password") && !strings.Contains(strings.ToLower(err.Error()), "encrypt") {
+	if !strings.Contains(strings.ToLower(err.Error()), "password") && !strings.Contains(strings.ToLower(err.Error()), "encrypt") {
 		return "", func() {}, err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(filename), ".paperless-gpt-empty-password-*.pdf")
@@ -71,13 +83,18 @@ func pdfSourceForOCR(filename string) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("close temporary PDF for empty-password retry: %w", err)
 	}
 	conf := model.NewDefaultConfiguration()
-	conf.UserPW = ""
+	conf.UserPW = password
 	conf.OwnerPW = ""
 	if err := api.DecryptFile(filename, tmpName, conf); err != nil {
 		os.Remove(tmpName)
 		return "", func() {}, fmt.Errorf("%w: %v", ErrPDFPasswordRequired, err)
 	}
-	doc, err = fitz.New(tmpName)
+	decrypted, err := os.ReadFile(tmpName)
+	if err != nil {
+		os.Remove(tmpName)
+		return "", func() {}, fmt.Errorf("read empty-password PDF copy: %w", err)
+	}
+	doc, err = pdfrender.Open(context.Background(), decrypted)
 	if err != nil {
 		os.Remove(tmpName)
 		return "", func() {}, fmt.Errorf("open empty-password PDF copy: %w", err)
@@ -89,12 +106,17 @@ func pdfSourceForOCR(filename string) (string, func(), error) {
 	return tmpName, cleanup, nil
 }
 
-func openPDFForOCR(filename string) (*fitz.Document, func(), error) {
-	source, cleanup, err := pdfSourceForOCR(filename)
+func openPDFForOCR(filename string, password string) (*pdfrender.Document, func(), error) {
+	source, cleanup, err := pdfSourceForOCR(filename, password)
 	if err != nil {
 		return nil, cleanup, err
 	}
-	doc, err := fitz.New(source)
+	data, err := os.ReadFile(source)
+	if err != nil {
+		cleanup()
+		return nil, func() {}, err
+	}
+	doc, err := pdfrender.Open(context.Background(), data)
 	if err != nil {
 		cleanup()
 		return nil, func() {}, err
@@ -1502,13 +1524,18 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 		return nil, 0, fmt.Errorf("document %d download is %s (%d bytes), not a PDF (hint: with PAPERLESS_ARCHIVE_FILE_GENERATION=never paperless-ngx serves the original file); image OCR mode supports images, PDF modes require a PDF", documentID, mime, len(pdfData))
 	}
 
+	tmpFile, err := os.CreateTemp("", "document-*.pdf")
+	if err != nil {
+		return nil, 0, err
+	}
+	defer os.Remove(tmpFile.Name())
 	_, err = tmpFile.Write(pdfData)
 	if err != nil {
 		return nil, 0, err
 	}
 	tmpFile.Close()
 
-	doc, cleanup, err := openPDFForOCR(tmpFile.Name())
+	doc, cleanup, err := openPDFForOCR(tmpFile.Name(), pdfPasswordFromContext(ctx))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1683,7 +1710,7 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 
 	// Get the number of pages in the PDF
-	doc, err := pdfrender.Open(ctx, pdfData)
+	tmpFile, err := os.CreateTemp("", "document-*.pdf")
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -1695,18 +1722,22 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 	tmpFile.Close()
 
-	ocrSource, cleanup, err := pdfSourceForOCR(tmpFile.Name())
+	ocrSource, cleanup, err := pdfSourceForOCR(tmpFile.Name(), pdfPasswordFromContext(ctx))
 	if err != nil {
 		return nil, nil, 0, err
 	}
 	defer cleanup()
-	doc, err := fitz.New(ocrSource)
+	decrypted, err := os.ReadFile(ocrSource)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	doc, err := pdfrender.Open(ctx, decrypted)
 	if err != nil {
 		return nil, nil, 0, err
 	}
 	defer doc.Close()
 
-	totalPages := doc.NumPage()
+	totalPages := doc.NumPages()
 	pagesToProcess := totalPages
 
 	if limitPages > 0 && limitPages < totalPages {
