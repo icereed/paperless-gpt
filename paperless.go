@@ -70,7 +70,13 @@ func pdfSourceForOCR(filename, password string) (string, func(), error) {
 		doc.Close()
 		return filename, func() {}, nil
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "password") && !strings.Contains(strings.ToLower(err.Error()), "encrypt") {
+	// PDFium may report encrypted documents with a numeric/backend error
+	// instead of the words "password" or "encrypt".  When the authenticated
+	// OCR request supplied a transient password, always give pdfcpu a chance
+	// to decrypt the temporary copy before classifying the document as
+	// password-protected.  Passwordless generic/corrupt failures retain the
+	// original error and are not mislabeled.
+	if password == "" && !strings.Contains(strings.ToLower(err.Error()), "password") && !strings.Contains(strings.ToLower(err.Error()), "encrypt") {
 		return "", func() {}, err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(filename), ".paperless-gpt-empty-password-*.pdf")
@@ -1746,7 +1752,11 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 
 	// If skipping splitting is requested, return early with empty paths array
 	if !split {
-		return []string{}, pdfData, totalPages, nil
+		// Return the temporary decrypted bytes to the OCR provider.  Keep the
+		// encrypted download on disk only as the preserved source; sending it
+		// downstream would make whole-PDF OCR fail after successful password
+		// validation.
+		return []string{}, decrypted, totalPages, nil
 	}
 
 	// Continue with splitting logic only if we're not skipping it
@@ -1769,7 +1779,7 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 
 	// If all PDFs exist, return them
 	if len(pdfPaths) == pagesToProcess {
-		return pdfPaths, pdfData, totalPages, nil
+		return pdfPaths, decrypted, totalPages, nil
 	}
 
 	// Clear existing PDFs to ensure consistency when regenerating
@@ -1780,27 +1790,35 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 		}
 	}
 
-	// Use pdfcpu to split the PDF. When a page limit applies, trim the
+	// Use pdfcpu to split the decrypted PDF. Always provide a stable
+	// original.pdf basename because pdfcpu derives its output names from the
+	// source basename, while the cache contract uses original_*.pdf.
+	splitDir, err := os.MkdirTemp("", "pgpt-split-*")
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("error creating temp dir for PDF split: %w", err)
+	}
+	defer os.RemoveAll(splitDir)
+	splitInputPath := filepath.Join(splitDir, "source.pdf")
+	if err := os.WriteFile(splitInputPath, decrypted, 0600); err != nil {
+		return nil, nil, 0, fmt.Errorf("error writing decrypted PDF split source: %w", err)
+	}
+	splitSourcePath := filepath.Join(splitDir, "original.pdf")
+
+	// When a page limit applies, trim the
 	// source down to just the pages we need first so an oversized document
 	// doesn't cost the same split work regardless of OCR_LIMIT_PAGES - the
 	// unlimited split extracted (and wrote to disk) every page up front and
 	// only used the first pagesToProcess afterward.
-	splitSourcePath := ocrSource
 	if pagesToProcess < totalPages {
-		trimDir, err := os.MkdirTemp("", "pgpt-trim-*")
-		if err != nil {
-			return nil, nil, 0, fmt.Errorf("error creating temp dir for page-limited trim: %w", err)
-		}
-		defer os.RemoveAll(trimDir)
-
 		// Keep the "original.pdf" basename so pdfcpu's split output naming
 		// (derived from the input file's basename) still produces
 		// original_1.pdf, original_2.pdf, ... in docDir below.
-		splitSourcePath = filepath.Join(trimDir, "original.pdf")
 		selection := []string{fmt.Sprintf("1-%d", pagesToProcess)}
-		if err := api.TrimFile(originalPDFPath, splitSourcePath, selection, nil); err != nil {
+		if err := api.TrimFile(splitInputPath, splitSourcePath, selection, nil); err != nil {
 			return nil, nil, 0, fmt.Errorf("error trimming PDF to page limit: %w", err)
 		}
+	} else if err := os.Rename(splitInputPath, splitSourcePath); err != nil {
+		return nil, nil, 0, fmt.Errorf("error preparing PDF split source: %w", err)
 	}
 
 	err = api.SplitFile(splitSourcePath, docDir, 1, nil)
@@ -1853,7 +1871,7 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 		return ni < nj
 	})
 
-	return pdfPaths, pdfData, totalPages, nil
+	return pdfPaths, decrypted, totalPages, nil
 }
 
 // GetCacheFolder returns the cache folder for the PaperlessClient
