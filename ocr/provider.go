@@ -79,6 +79,7 @@ type Config struct {
 	DoclingImageExportMode string
 	DoclingOCRPipeline     string // Optional, defaults to "vlm"
 	DoclingOCREngine       string // Optional, defaults to "easyocr", if DoclingOCRPipeline == "standard"
+	DoclingOutputFormat    string // Optional, "md" (default) or "text"
 
 	// OCR output options
 	EnableHOCR     bool   // Whether to generate hOCR data if supported by the provider
@@ -132,6 +133,15 @@ func NewProvider(config Config) (Provider, error) {
 		if config.DoclingOCRPipeline != "vlm" && config.DoclingOCRPipeline != "standard" {
 			return nil, fmt.Errorf("unsupported docling pipeline: %q (supported: vlm, standard)", config.DoclingOCRPipeline)
 		}
+
+		config.DoclingOutputFormat = strings.ToLower(strings.TrimSpace(config.DoclingOutputFormat))
+		if config.DoclingOutputFormat == "" {
+			config.DoclingOutputFormat = "md"
+		}
+		if config.DoclingOutputFormat != "md" && config.DoclingOutputFormat != "text" {
+			return nil, fmt.Errorf("unsupported docling output format: %q (supported: md, text)", config.DoclingOutputFormat)
+		}
+
 		log.WithField("url", config.DoclingURL).Info("Using Docling provider")
 		return newDoclingProvider(config)
 

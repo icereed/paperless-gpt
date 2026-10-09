@@ -91,6 +91,7 @@ var (
 	doclingImageExportMode        = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
 	doclingOCRPipeline            = os.Getenv("DOCLING_OCR_PIPELINE")
 	doclingOCREngine              = os.Getenv("DOCLING_OCR_ENGINE")
+	doclingOutputFormat           = os.Getenv("DOCLING_OUTPUT_FORMAT")
 	googleThinkingBudget          *int32 // Will be parsed from GOOGLEAI_THINKING_BUDGET
 
 	// Templates
@@ -379,6 +380,7 @@ func main() {
 		DoclingImageExportMode:   doclingImageExportMode,
 		DoclingOCRPipeline:       doclingOCRPipeline,
 		DoclingOCREngine:         doclingOCREngine,
+		DoclingOutputFormat:      doclingOutputFormat,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 		VisionLLMMaxTokens:       visionLlmMaxTokens,
 		VisionLLMTemperature:     visionLlmTemperature,
