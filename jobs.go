@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sort"
 	"sync"
@@ -10,6 +11,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
+
+// ocrErrorForStorage keeps expected document-level failures machine-readable
+// in both the live job endpoint and the durable OCR run record. Unexpected
+// errors retain their full diagnostic text and status handling.
+func ocrErrorForStorage(err error) string {
+	if errors.Is(err, ErrPDFPasswordRequired) {
+		return "pdf_password_required: document requires a non-empty password"
+	}
+	return err.Error()
+}
 
 var (
 	jobCancellersMu sync.Mutex
@@ -73,7 +84,7 @@ func (store *JobStore) addJob(job *Job) {
 	job.PagesDone = 0 // Initialize PagesDone to 0
 	store.jobs[job.ID] = job
 	store.evictOldestTerminalLocked()
-	logger.Infof("Job added: %v", job)
+	logger.Infof("Job added: %s for document %d", job.ID, job.DocumentID)
 }
 
 // evictOldestTerminalLocked drops the oldest finished jobs while over capacity.
@@ -136,7 +147,7 @@ func (store *JobStore) updateJobStatus(jobID, status, result string) {
 			job.Result = result
 		}
 		job.UpdatedAt = time.Now()
-		logger.Infof("Job status updated: %v", job)
+		logger.Infof("Job status updated: %s -> %s", job.ID, status)
 	}
 }
 
@@ -146,7 +157,7 @@ func (store *JobStore) updatePagesDone(jobID string, pagesDone int) {
 	if job, exists := store.jobs[jobID]; exists {
 		job.PagesDone = pagesDone
 		job.UpdatedAt = time.Now()
-		logger.Infof("Job pages done updated: %v", job)
+		logger.Infof("Job pages done updated: %s -> %d/%d", job.ID, job.PagesDone, job.TotalPages)
 	}
 }
 
@@ -158,6 +169,17 @@ func (store *JobStore) progress(jobID string) (pagesDone, totalPages int) {
 		return job.PagesDone, job.TotalPages
 	}
 	return 0, 0
+}
+
+// clearPDFPassword removes a transient document password from the retained
+// job record after processing. Job options are persisted for status inspection,
+// so keeping the password here would retain a document credential indefinitely.
+func (store *JobStore) clearPDFPassword(jobID string) {
+	store.Lock()
+	defer store.Unlock()
+	if job, exists := store.jobs[jobID]; exists {
+		job.Options.PDFPassword = ""
+	}
 }
 
 func startWorkerPool(app *App, numWorkers int) {
@@ -192,6 +214,7 @@ func processJob(app *App, job *Job) {
 	if (options == OCROptions{}) {
 		options = app.effectiveOCRDefaults()
 	}
+	defer jobStore.clearPDFPassword(job.ID)
 
 	processedDoc, err := app.ProcessDocumentOCR(jobCtx, job.DocumentID, options, job.ID)
 	pagesDone, totalPages := jobStore.progress(job.ID)
@@ -202,8 +225,9 @@ func processJob(app *App, job *Job) {
 			logger.Infof("Job cancelled: %s", job.ID)
 		} else {
 			logger.Errorf("Error processing document OCR for job %s: %v", job.ID, err)
-			jobStore.updateJobStatus(job.ID, "failed", err.Error())
-			finishOCRRunLogged(app, job.ID, "failed", err.Error(), pagesDone, totalPages, "", "")
+			errText := ocrErrorForStorage(err)
+			jobStore.updateJobStatus(job.ID, "failed", errText)
+			finishOCRRunLogged(app, job.ID, "failed", errText, pagesDone, totalPages, "", "")
 		}
 		return
 	}

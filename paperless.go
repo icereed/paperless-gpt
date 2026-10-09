@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -27,6 +28,7 @@ import (
 	"github.com/disintegration/imaging"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
@@ -38,6 +40,109 @@ type PaperlessClient struct {
 	APIToken    string
 	HTTPClient  *http.Client
 	CacheFolder string
+}
+
+// ErrPDFPasswordRequired identifies a PDF that could not be opened with an
+// empty password. Callers can surface this as an expected document-level
+// failure without turning it into a generic provider or server error.
+var ErrPDFPasswordRequired = errors.New("pdf requires a non-empty password")
+
+type pdfPasswordContextKey struct{}
+
+func pdfPasswordFromContext(ctx context.Context) string {
+	if value, ok := ctx.Value(pdfPasswordContextKey{}).(string); ok {
+		return value
+	}
+	return ""
+}
+
+// openPDFForOCR opens a PDF with the in-process PDFium renderer. Some PDFs
+// are owner-password encrypted while permitting an empty user password; retry
+// those against a temporary decrypted copy so the Paperless original is never
+// modified. A non-empty password remains a hard failure.
+func pdfSourceForOCR(ctx context.Context, filename, password string) (string, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return "", func() {}, err
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return "", func() {}, err
+	}
+	doc, err := pdfrender.Open(ctx, data)
+	if err == nil {
+		doc.Close()
+		return filename, func() {}, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return "", func() {}, ctxErr
+	}
+	originalOpenErr := err
+	tmp, err := os.CreateTemp(filepath.Dir(filename), ".paperless-gpt-empty-password-*.pdf")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create temporary PDF for empty-password retry: %w", err)
+	}
+	tmpName := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return "", func() {}, fmt.Errorf("close temporary PDF for empty-password retry: %w", err)
+	}
+	conf := model.NewDefaultConfiguration()
+	conf.UserPW = password
+	conf.OwnerPW = ""
+	if err := api.DecryptFile(filename, tmpName, conf); err != nil {
+		os.Remove(tmpName)
+		// An empty-password retry is useful for PDFium's numeric/backend
+		// encryption errors. Preserve the original renderer error when pdfcpu
+		// clearly reports an unrelated malformed or unsupported PDF instead.
+		if password == "" {
+			lower := strings.ToLower(err.Error())
+			if !strings.Contains(lower, "password") && !strings.Contains(lower, "encrypt") && !strings.Contains(lower, "decrypt") {
+				return "", func() {}, originalOpenErr
+			}
+		}
+		return "", func() {}, fmt.Errorf("%w: %v", ErrPDFPasswordRequired, err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		os.Remove(tmpName)
+		return "", func() {}, ctxErr
+	}
+	decrypted, err := os.ReadFile(tmpName)
+	if err != nil {
+		os.Remove(tmpName)
+		return "", func() {}, fmt.Errorf("read empty-password PDF copy: %w", err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		os.Remove(tmpName)
+		return "", func() {}, ctxErr
+	}
+	doc, err = pdfrender.Open(ctx, decrypted)
+	if err != nil {
+		os.Remove(tmpName)
+		return "", func() {}, fmt.Errorf("open empty-password PDF copy: %w", err)
+	}
+	doc.Close()
+	cleanup := func() {
+		os.Remove(tmpName)
+	}
+	return tmpName, cleanup, nil
+}
+
+func openPDFForOCR(ctx context.Context, filename string, password string) (*pdfrender.Document, func(), error) {
+	source, cleanup, err := pdfSourceForOCR(ctx, filename, password)
+	if err != nil {
+		return nil, cleanup, err
+	}
+	data, err := os.ReadFile(source)
+	if err != nil {
+		cleanup()
+		return nil, func() {}, err
+	}
+	doc, err := pdfrender.Open(ctx, data)
+	if err != nil {
+		cleanup()
+		return nil, func() {}, err
+	}
+	return doc, cleanup, nil
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -1440,10 +1545,22 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 		return nil, 0, fmt.Errorf("document %d download is %s (%d bytes), not a PDF (hint: with PAPERLESS_ARCHIVE_FILE_GENERATION=never paperless-ngx serves the original file); image OCR mode supports images, PDF modes require a PDF", documentID, mime, len(pdfData))
 	}
 
-	doc, err := pdfrender.Open(ctx, pdfData)
+	tmpFile, err := os.CreateTemp("", "document-*.pdf")
 	if err != nil {
 		return nil, 0, err
 	}
+	defer os.Remove(tmpFile.Name())
+	_, err = tmpFile.Write(pdfData)
+	if err != nil {
+		return nil, 0, err
+	}
+	tmpFile.Close()
+
+	doc, cleanup, err := openPDFForOCR(ctx, tmpFile.Name(), pdfPasswordFromContext(ctx))
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cleanup()
 	defer doc.Close()
 
 	totalPages := doc.NumPages()
@@ -1614,12 +1731,32 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 
 	// Get the number of pages in the PDF
-	doc, err := pdfrender.Open(ctx, pdfData)
+	tmpFile, err := os.CreateTemp("", "document-*.pdf")
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	_, err = tmpFile.Write(pdfData)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	tmpFile.Close()
+
+	ocrSource, cleanup, err := pdfSourceForOCR(ctx, tmpFile.Name(), pdfPasswordFromContext(ctx))
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer cleanup()
+	decrypted, err := os.ReadFile(ocrSource)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	doc, err := pdfrender.Open(ctx, decrypted)
 	if err != nil {
 		return nil, nil, 0, err
 	}
 	totalPages := doc.NumPages()
-	// Only the page count is needed here; free the PDFium instance early.
 	doc.Close()
 	pagesToProcess := totalPages
 
@@ -1629,7 +1766,11 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 
 	// If skipping splitting is requested, return early with empty paths array
 	if !split {
-		return []string{}, pdfData, totalPages, nil
+		// Return the temporary decrypted bytes to the OCR provider.  Keep the
+		// encrypted download on disk only as the preserved source; sending it
+		// downstream would make whole-PDF OCR fail after successful password
+		// validation.
+		return []string{}, decrypted, totalPages, nil
 	}
 
 	// Continue with splitting logic only if we're not skipping it
@@ -1652,7 +1793,7 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 
 	// If all PDFs exist, return them
 	if len(pdfPaths) == pagesToProcess {
-		return pdfPaths, pdfData, totalPages, nil
+		return pdfPaths, decrypted, totalPages, nil
 	}
 
 	// Clear existing PDFs to ensure consistency when regenerating
@@ -1663,27 +1804,35 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 		}
 	}
 
-	// Use pdfcpu to split the PDF. When a page limit applies, trim the
+	// Use pdfcpu to split the decrypted PDF. Always provide a stable
+	// original.pdf basename because pdfcpu derives its output names from the
+	// source basename, while the cache contract uses original_*.pdf.
+	splitDir, err := os.MkdirTemp("", "pgpt-split-*")
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("error creating temp dir for PDF split: %w", err)
+	}
+	defer os.RemoveAll(splitDir)
+	splitInputPath := filepath.Join(splitDir, "source.pdf")
+	if err := os.WriteFile(splitInputPath, decrypted, 0600); err != nil {
+		return nil, nil, 0, fmt.Errorf("error writing decrypted PDF split source: %w", err)
+	}
+	splitSourcePath := filepath.Join(splitDir, "original.pdf")
+
+	// When a page limit applies, trim the
 	// source down to just the pages we need first so an oversized document
 	// doesn't cost the same split work regardless of OCR_LIMIT_PAGES - the
 	// unlimited split extracted (and wrote to disk) every page up front and
 	// only used the first pagesToProcess afterward.
-	splitSourcePath := originalPDFPath
 	if pagesToProcess < totalPages {
-		trimDir, err := os.MkdirTemp("", "pgpt-trim-*")
-		if err != nil {
-			return nil, nil, 0, fmt.Errorf("error creating temp dir for page-limited trim: %w", err)
-		}
-		defer os.RemoveAll(trimDir)
-
 		// Keep the "original.pdf" basename so pdfcpu's split output naming
 		// (derived from the input file's basename) still produces
 		// original_1.pdf, original_2.pdf, ... in docDir below.
-		splitSourcePath = filepath.Join(trimDir, "original.pdf")
 		selection := []string{fmt.Sprintf("1-%d", pagesToProcess)}
-		if err := api.TrimFile(originalPDFPath, splitSourcePath, selection, nil); err != nil {
+		if err := api.TrimFile(splitInputPath, splitSourcePath, selection, nil); err != nil {
 			return nil, nil, 0, fmt.Errorf("error trimming PDF to page limit: %w", err)
 		}
+	} else if err := os.Rename(splitInputPath, splitSourcePath); err != nil {
+		return nil, nil, 0, fmt.Errorf("error preparing PDF split source: %w", err)
 	}
 
 	err = api.SplitFile(splitSourcePath, docDir, 1, nil)
@@ -1736,7 +1885,7 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 		return ni < nj
 	})
 
-	return pdfPaths, pdfData, totalPages, nil
+	return pdfPaths, decrypted, totalPages, nil
 }
 
 // GetCacheFolder returns the cache folder for the PaperlessClient
