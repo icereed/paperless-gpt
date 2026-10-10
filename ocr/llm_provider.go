@@ -346,7 +346,14 @@ func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
 	if delay := when.Sub(now); delay > 0 {
 		// Preserve the provider's lower bound when the transport serializes
 		// this duration to milliseconds; truncation could retry early.
-		return ((delay + time.Millisecond - 1) / time.Millisecond) * time.Millisecond, true
+		whole := delay / time.Millisecond
+		if delay%time.Millisecond != 0 {
+			const maxWholeMilliseconds = int64((1<<63 - 1) / int64(time.Millisecond))
+			if int64(whole) < maxWholeMilliseconds {
+				whole++
+			}
+		}
+		return time.Duration(whole) * time.Millisecond, true
 	}
 	return 0, true
 }
