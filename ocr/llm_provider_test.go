@@ -19,6 +19,15 @@ func TestParseRetryAfterHTTPDateRoundsUp(t *testing.T) {
 	assert.Equal(t, 1500*time.Millisecond, delay)
 }
 
+func TestParseRetryAfterHTTPDateRoundingDoesNotOverflow(t *testing.T) {
+	now := time.Unix(0, 0).UTC()
+	when := now.Add(time.Duration(1<<63 - 1))
+	delay, ok := parseRetryAfter(when.Format(http.TimeFormat), now)
+	require.True(t, ok)
+	assert.Greater(t, delay, time.Duration(0))
+	assert.LessOrEqual(t, delay, time.Duration(1<<63-1))
+}
+
 func TestRetryAfterDelayRejectsOverflow(t *testing.T) {
 	backoff := 5 * time.Millisecond
 	assert.Equal(t, backoff, retryAfterDelay(errors.New("retry-after-ms:9223372036854775807"), backoff))
