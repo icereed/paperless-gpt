@@ -142,6 +142,19 @@ func newSuccessfulRateLimitMock() *rateLimitMockLLM {
 	}
 }
 
+func TestRateLimitedLLMRejectsOversizedProviderDelay(t *testing.T) {
+	config := RateLimitConfig{MaxRetries: 1, BackoffMaxWait: 5 * time.Millisecond}
+	callMock := &rateLimitMockLLM{callErrors: []error{retryAfterMockError{delay: maxProviderRetryDelay + time.Second}}}
+	callClient := NewRateLimitedLLM(callMock, config)
+	_, err := callClient.Call(context.Background(), "prompt")
+	assert.ErrorContains(t, err, "provider retry delay")
+
+	generateMock := &rateLimitMockLLM{generateErrors: []error{retryAfterMockError{delay: maxProviderRetryDelay + time.Second}}}
+	generateClient := NewRateLimitedLLM(generateMock, config)
+	_, err = generateClient.GenerateContent(context.Background(), nil)
+	assert.ErrorContains(t, err, "provider retry delay")
+}
+
 // newFailingRateLimitMock creates a mock LLM that always returns errors
 func newFailingRateLimitMock() *rateLimitMockLLM {
 	// Create arrays with multiple error responses to allow for retry counting
