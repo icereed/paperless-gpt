@@ -23,6 +23,8 @@ type RateLimitedLLM struct {
 	backoffScale float64
 }
 
+const maxProviderRetryDelay = 15 * time.Minute
+
 // retryAfterError is implemented by provider clients that preserve an
 // upstream Retry-After response header. The wrapper uses that server-provided
 // floor instead of issuing another request during the provider cooldown.
@@ -93,6 +95,9 @@ func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llm
 		// Retry-After is a server-provided lower bound; apply it after jitter so
 		// the randomized delay can never wake before the provider's cooldown.
 		jitter = retryDelay(err, jitter)
+		if jitter > maxProviderRetryDelay {
+			return "", fmt.Errorf("provider retry delay %s exceeds limit", jitter)
+		}
 
 		select {
 		case <-ctx.Done():
@@ -187,6 +192,9 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 		// Add jitter by randomly adjusting +/- 20%
 		jitter := time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
 		jitter = retryDelay(err, jitter)
+		if jitter > maxProviderRetryDelay {
+			return nil, fmt.Errorf("provider retry delay %s exceeds limit", jitter)
+		}
 
 		select {
 		case <-ctx.Done():

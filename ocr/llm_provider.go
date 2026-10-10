@@ -27,6 +27,8 @@ import (
 	"paperless-gpt/sanitize"
 )
 
+const maxProviderRetryDelay = 15 * time.Minute
+
 // LLMProvider implements OCR using LLM vision models
 type LLMProvider struct {
 	provider    string
@@ -212,6 +214,9 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 			backoff = backoffMax
 		}
 		backoff = retryAfterDelay(genErr, backoff)
+		if backoff > maxProviderRetryDelay {
+			return nil, fmt.Errorf("provider retry delay %s exceeds limit", backoff)
+		}
 		logger.WithError(genErr).Warnf("Transient vision model error, retrying in %s (attempt %d/%d)", backoff, attempt+1, maxRetries)
 		select {
 		case <-ctx.Done():
