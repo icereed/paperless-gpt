@@ -1984,7 +1984,9 @@ func TestUpdateDocuments_NoMatchCorrespondentDoesNotCreate(t *testing.T) {
 	})
 	env.setMockResponse("/api/correspondents/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
-			t.Fatalf("no-match sentinel must not create a correspondent")
+			t.Errorf("no-match sentinel must not create a correspondent")
+			http.Error(w, "unexpected correspondent creation", http.StatusInternalServerError)
+			return
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"results":[]}`))
@@ -1993,4 +1995,5 @@ func TestUpdateDocuments_NoMatchCorrespondentDoesNotCreate(t *testing.T) {
 	var partial *PartialUpdateError
 	require.ErrorAs(t, err, &partial)
 	assert.Equal(t, []string{"correspondent"}, partial.DroppedFields)
+	assert.True(t, partial.NoMatchDrop)
 }

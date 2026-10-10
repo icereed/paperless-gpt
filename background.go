@@ -233,7 +233,7 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 	}
 
 	// Refresh the custom fields cache before processing, as we have documents
-	refreshCustomFieldsCache(context.Background(), app.Client)
+	refreshCustomFieldsCache(ctx, app.Client)
 
 	log.Debugf("Found at least %d remaining documents with tag %s", len(documents), triggerTag)
 

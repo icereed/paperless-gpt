@@ -113,7 +113,11 @@ func (app *App) getAllTagsHandler(c *gin.Context) {
 // getSettingsHandler handles the GET /api/settings endpoint
 func (app *App) getSettingsHandler(c *gin.Context) {
 	// Refresh the cache when settings are requested
-	go refreshCustomFieldsCache(context.Background(), app.Client)
+	go func() {
+		refreshCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		refreshCustomFieldsCache(refreshCtx, app.Client)
+	}()
 
 	settingsMutex.RLock()
 	defer settingsMutex.RUnlock()
@@ -157,7 +161,11 @@ func (app *App) getCustomFieldsHandler(c *gin.Context) {
 	// Check for "force_pull" query parameter
 	if forcePull := c.Query("force_pull"); forcePull == "true" {
 		// Force a refresh of the custom fields cache
-		go refreshCustomFieldsCache(context.Background(), app.Client)
+		go func() {
+			refreshCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			refreshCustomFieldsCache(refreshCtx, app.Client)
+		}()
 	}
 
 	customFieldsCacheMu.RLock()

@@ -676,6 +676,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		updatedFields := make(map[string]interface{})
 		originalFields := make(map[string]interface{})
 		var partialDroppedFields []string
+		noMatchDropped := false
 
 		// isHandoverTag reports whether a tag marks the document as waiting for
 		// paperless-gpt and has to come off once it is processed: the global
@@ -808,6 +809,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 				// the PATCH and report it for review instead of creating a literal
 				// "Unknown" correspondent.
 				partialDroppedFields = append(partialDroppedFields, "correspondent")
+				noMatchDropped = true
 			} else if _, corrID, exists := lookupNamedID("Correspondent", availableCorrespondents, document.SuggestedCorrespondent); exists {
 				originalFields["correspondent"] = originalDoc.Correspondent
 				updatedFields["correspondent"] = corrID
@@ -1005,7 +1007,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 				// correspondent that could not be created): report it so the
 				// caller flags the document instead of treating it as done.
 				if len(partialDroppedFields) > 0 && firstPartial == nil {
-					firstPartial = &PartialUpdateError{DocumentID: documentID, DroppedFields: partialDroppedFields}
+					firstPartial = &PartialUpdateError{DocumentID: documentID, DroppedFields: partialDroppedFields, NoMatchDrop: noMatchDropped}
 				}
 				continue
 			}
@@ -1082,6 +1084,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			firstPartial = &PartialUpdateError{
 				DocumentID:    documentID,
 				DroppedFields: partialDroppedFields,
+				NoMatchDrop:   noMatchDropped,
 			}
 		}
 

@@ -8,6 +8,11 @@ on:
         required: true
         default: codex/paperless-v5-candidate
         type: string
+      source_repo:
+        description: Repository containing source_ref
+        required: true
+        default: MaxRink/paperless-gpt
+        type: string
       source_sha:
         description: Expected source commit embedded in image metadata
         required: true
@@ -21,19 +26,38 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
-  attestations: write
 
 jobs:
   test:
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          repository: ${{ inputs.source_repo }}
           ref: ${{ inputs.source_ref }}
           persist-credentials: false
+      - name: Verify immutable source revision
+        id: source
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo 'source_sha must be a 40-character commit SHA' >&2
+            exit 1
+          fi
+          actual_sha="$(git rev-parse HEAD)"
+          if [[ "$actual_sha" != "${EXPECTED_SOURCE_SHA,,}" ]]; then
+            echo "source_ref did not resolve to the expected source_sha" >&2
+            exit 1
+          fi
+          printf 'source_sha=%s\n' "$actual_sha" >> "$GITHUB_OUTPUT"
       - name: Set up Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -58,12 +82,18 @@ jobs:
 
   publish:
     needs: test
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.source_ref }}
+          repository: ${{ inputs.source_repo }}
+          ref: ${{ needs.test.outputs.source_sha }}
           persist-credentials: false
       - name: Set up Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -86,7 +116,7 @@ jobs:
           tags: ${{ steps.repo.outputs.image_repo }}:${{ inputs.image_tag }}
           build-args: |
             VERSION=${{ inputs.image_tag }}
-            COMMIT=${{ inputs.source_sha }}
+            COMMIT=${{ needs.test.outputs.source_sha }}
             BUILD_DATE=${{ github.event.repository.pushed_at }}
           provenance: mode=max
           sbom: true
@@ -97,6 +127,11 @@ jobs:
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
       - name: Publish immutable digest
+        env:
+          SOURCE_SHA: ${{ needs.test.outputs.source_sha }}
+          IMAGE_REPO: ${{ steps.repo.outputs.image_repo }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
-          printf 'image=%s@%s\n' '${{ steps.repo.outputs.image_repo }}' '${{ steps.image.outputs.digest }}'
-          printf 'source=%s\n' '${{ inputs.source_sha }}'
+          set -euo pipefail
+          printf 'image=%s@%s\n' "$IMAGE_REPO" "$IMAGE_DIGEST"
+          printf 'source=%s\n' "$SOURCE_SHA"
