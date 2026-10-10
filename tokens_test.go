@@ -235,6 +235,20 @@ func TestTruncateContentByTokens(t *testing.T) {
 	}
 }
 
+func TestTruncateContentByTokensUsesFiniteBudgetWithoutGlobalLimit(t *testing.T) {
+	originalLimit := tokenLimit
+	defer func() { tokenLimit = originalLimit }()
+	tokenLimit = 0
+
+	content := "this content must be bounded by the correspondent-specific limit"
+	truncated, err := truncateContentByTokens(content, 3)
+	require.NoError(t, err)
+	count, err := getTokenCount(truncated)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, count, 3)
+	assert.Less(t, len(truncated), len(content))
+}
+
 func TestTokenLimitIntegration(t *testing.T) {
 	// Save current env and restore after test
 	originalLimit := os.Getenv("TOKEN_LIMIT")
