@@ -1,14 +1,29 @@
 package ocr
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestParseRetryAfterHTTPDateRoundsUp(t *testing.T) {
+	now := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
+	delay, ok := parseRetryAfter("Sat, 10 Oct 2026 00:00:02 GMT", now.Add(500*time.Millisecond))
+	require.True(t, ok)
+	assert.Equal(t, 1500*time.Millisecond, delay)
+}
+
+func TestRetryAfterDelayRejectsOverflow(t *testing.T) {
+	backoff := 5 * time.Millisecond
+	assert.Equal(t, backoff, retryAfterDelay(errors.New("retry-after-ms:9223372036854775807"), backoff))
+	assert.Equal(t, time.Second, retryAfterDelay(errors.New("retry-after-ms:1000"), backoff))
+}
 
 func TestParseHeaderList(t *testing.T) {
 	got := ParseHeaderList(" A=1, B = two words ,C=x=y,broken,=nokey,D=")
