@@ -1,6 +1,7 @@
 package ocr
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -50,4 +51,20 @@ func TestHeaderClientDoesNotFollowRedirectsToOtherHosts(t *testing.T) {
 	_, err = client.Get(gateway.URL + "/elsewhere")
 	assert.ErrorContains(t, err, "refusing to follow a redirect")
 	assert.Empty(t, leaked, "the credentials must not reach another host")
+}
+
+func TestHeaderClientPreservesRetryAfterOn429(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "2")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	resp, err := headerClient(nil).Get(server.URL)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, readErr := io.ReadAll(resp.Body)
+	require.NoError(t, readErr)
+	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
+	assert.Contains(t, string(body), "retry-after-ms:2000")
 }
