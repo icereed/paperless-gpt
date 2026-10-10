@@ -41,6 +41,7 @@ var (
 	paperlessInsecureSkipVerify   = os.Getenv("PAPERLESS_INSECURE_SKIP_VERIFY") == "true"
 	correspondentBlackList        = strings.Split(os.Getenv("CORRESPONDENT_BLACK_LIST"), ",")
 	correspondentPromptLimit      int // Will be read from CORRESPONDENT_PROMPT_LIMIT
+	correspondentPromptTokenLimit int // Will be read from CORRESPONDENT_PROMPT_TOKEN_LIMIT
 	paperlessBaseURL              = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken             = os.Getenv("PAPERLESS_API_TOKEN")
 	azureDocAIEndpoint            = os.Getenv("AZURE_DOCAI_ENDPOINT")
@@ -804,6 +805,16 @@ func validateOrDefaultEnvVars() {
 		correspondentPromptLimit, err = strconv.Atoi(rawCorrespondentPromptLimit)
 		if err != nil || correspondentPromptLimit < 0 {
 			log.Fatalf("Invalid CORRESPONDENT_PROMPT_LIMIT value: %q (must be a non-negative integer, 0 sends the full list)", rawCorrespondentPromptLimit)
+		}
+	}
+	rawCorrespondentPromptTokenLimit := os.Getenv("CORRESPONDENT_PROMPT_TOKEN_LIMIT")
+	if rawCorrespondentPromptTokenLimit == "" {
+		correspondentPromptTokenLimit = 0
+	} else {
+		var err error
+		correspondentPromptTokenLimit, err = strconv.Atoi(rawCorrespondentPromptTokenLimit)
+		if err != nil || correspondentPromptTokenLimit < 0 {
+			log.Fatalf("Invalid CORRESPONDENT_PROMPT_TOKEN_LIMIT value: %q (must be a non-negative integer, 0 uses the global TOKEN_LIMIT budget)", rawCorrespondentPromptTokenLimit)
 		}
 	}
 

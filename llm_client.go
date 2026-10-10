@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/tmc/langchaingo/llms"
@@ -18,6 +21,43 @@ type RateLimitedLLM struct {
 	backoffMin   time.Duration
 	backoffMax   time.Duration
 	backoffScale float64
+}
+
+const maxProviderRetryDelay = 15 * time.Minute
+
+// retryAfterError is implemented by provider clients that preserve an
+// upstream Retry-After response header. The wrapper uses that server-provided
+// floor instead of issuing another request during the provider cooldown.
+type retryAfterError interface {
+	RetryAfter() time.Duration
+}
+
+func retryDelay(err error, backoff time.Duration) time.Duration {
+	var retryErr retryAfterError
+	if errors.As(err, &retryErr) {
+		if delay := retryErr.RetryAfter(); delay > backoff {
+			return delay
+		}
+	}
+	// langchaingo sanitizes transport errors and discards their headers. The
+	// OpenAI-compatible transport preserves only the parsed cooldown in this
+	// private marker, without exposing the upstream response or credentials.
+	const marker = "retry-after-ms:"
+	errText := err.Error()
+	if index := strings.Index(strings.ToLower(errText), marker); index >= 0 {
+		value := errText[index+len(marker):]
+		end := 0
+		for end < len(value) && value[end] >= '0' && value[end] <= '9' {
+			end++
+		}
+		maxMilliseconds := int64((1<<63 - 1) / int64(time.Millisecond))
+		if milliseconds, parseErr := strconv.ParseInt(value[:end], 10, 64); parseErr == nil && milliseconds >= 0 && milliseconds <= maxMilliseconds {
+			if delay := time.Duration(milliseconds) * time.Millisecond; delay > backoff {
+				return delay
+			}
+		}
+	}
+	return backoff
 }
 
 // Call implements the llms.Model interface
@@ -52,6 +92,12 @@ func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llm
 		}
 		// Add jitter by randomly adjusting +/- 20%
 		jitter := time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
+		// Retry-After is a server-provided lower bound; apply it after jitter so
+		// the randomized delay can never wake before the provider's cooldown.
+		jitter = retryDelay(err, jitter)
+		if jitter > maxProviderRetryDelay {
+			return "", fmt.Errorf("provider retry delay %s exceeds limit", jitter)
+		}
 
 		select {
 		case <-ctx.Done():
@@ -145,6 +191,10 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 		}
 		// Add jitter by randomly adjusting +/- 20%
 		jitter := time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
+		jitter = retryDelay(err, jitter)
+		if jitter > maxProviderRetryDelay {
+			return nil, fmt.Errorf("provider retry delay %s exceeds limit", jitter)
+		}
 
 		select {
 		case <-ctx.Done():

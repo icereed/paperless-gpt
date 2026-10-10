@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"text/template"
 
@@ -131,6 +132,35 @@ func TestGetAvailableTokensForContent(t *testing.T) {
 	}
 }
 
+func TestAvailableTokensForContentWithLimitBoundsRenderedPrompt(t *testing.T) {
+	tmpl := template.Must(template.New("prompt").Parse("Rules: {{.Title}}\nCandidates: {{.Candidates}}\nContent: {{.Content}}"))
+	data := map[string]interface{}{
+		"Title":      "Invoice",
+		"Candidates": "Amazon, Telekom",
+	}
+
+	available, err := getAvailableTokensForContentWithLimit(tmpl, data, 32)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, available, 0)
+	assert.Less(t, available, 32)
+
+	_, err = getAvailableTokensForContentWithLimit(tmpl, data, 1)
+	assert.Error(t, err)
+}
+
+func TestAvailableTokensForContentWithLimitHandlesLongUnicodeMetadata(t *testing.T) {
+	tmpl := template.Must(template.New("prompt").Parse("Instructions\nTitle: {{.Title}}\nCandidates: {{.Candidates}}\nContent: {{.Content}}"))
+	data := map[string]interface{}{
+		"Title":      strings.Repeat("ÄÖÜß ", 80),
+		"Candidates": strings.Repeat("Müller–GmbH / Société Générale, ", 80),
+	}
+
+	available, err := getAvailableTokensForContentWithLimit(tmpl, data, 3072)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, available, 0)
+	assert.Less(t, available, 3072)
+}
+
 func TestTruncateContentByTokens(t *testing.T) {
 	// Save current env and restore after test
 	originalLimit := os.Getenv("TOKEN_LIMIT")
@@ -203,6 +233,20 @@ func TestTruncateContentByTokens(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTruncateContentByTokensUsesFiniteBudgetWithoutGlobalLimit(t *testing.T) {
+	originalLimit := tokenLimit
+	defer func() { tokenLimit = originalLimit }()
+	tokenLimit = 0
+
+	content := "this content must be bounded by the correspondent-specific limit"
+	truncated, err := truncateContentByTokens(content, 3)
+	require.NoError(t, err)
+	count, err := getTokenCount(truncated)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, count, 3)
+	assert.Less(t, len(truncated), len(content))
 }
 
 func TestTokenLimitIntegration(t *testing.T) {

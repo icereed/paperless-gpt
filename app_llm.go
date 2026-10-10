@@ -42,6 +42,9 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	}
 
 	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
+	if correspondentPromptTokenLimit > 0 {
+		availableTokens, err = getAvailableTokensForContentWithLimit(activeTmpl, templateData, correspondentPromptTokenLimit)
+	}
 	if err != nil {
 		return "", fmt.Errorf("error calculating available tokens: %v", err)
 	}

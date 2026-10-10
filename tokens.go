@@ -14,6 +14,17 @@ func getAvailableTokensForContent(tmpl *template.Template, data map[string]inter
 	if tokenLimit <= 0 {
 		return -1, nil // No limit when disabled
 	}
+	return getAvailableTokensForContentWithLimit(tmpl, data, tokenLimit)
+}
+
+// getAvailableTokensForContentWithLimit calculates the content budget from a
+// total rendered-prompt limit. This is used for small-context local models so
+// the template instructions and candidate list consume the same budget as the
+// document content.
+func getAvailableTokensForContentWithLimit(tmpl *template.Template, data map[string]interface{}, totalLimit int) (int, error) {
+	if totalLimit <= 0 {
+		return -1, nil
+	}
 
 	// Create a copy of data and set "Content" to empty
 	templateData := make(map[string]interface{})
@@ -39,7 +50,7 @@ func getAvailableTokensForContent(tmpl *template.Template, data map[string]inter
 	promptTokens += 10
 
 	// Calculate available tokens for content
-	availableTokens := tokenLimit - promptTokens
+	availableTokens := totalLimit - promptTokens
 	if availableTokens < 0 {
 		return 0, fmt.Errorf("prompt template exceeds token limit")
 	}
@@ -52,9 +63,11 @@ func getTokenCount(content string) (int, error) {
 
 // truncateContentByTokens truncates the content so that its token count does not exceed availableTokens.
 // This implementation uses a binary search on runes to find the longest prefix whose token count is within the limit.
-// If availableTokens is 0 or negative, the original content is returned.
+// If availableTokens is negative, no finite content budget is available and
+// the original content is returned. A zero budget is valid and produces an
+// empty content prefix.
 func truncateContentByTokens(content string, availableTokens int) (string, error) {
-	if availableTokens < 0 || tokenLimit <= 0 {
+	if availableTokens < 0 {
 		return content, nil
 	}
 	totalTokens, err := getTokenCount(content)

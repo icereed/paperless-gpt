@@ -3,11 +3,16 @@ package main
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/openai"
+	"paperless-gpt/ocr"
 )
 
 // rateLimitMockLLM implements the llms.Model interface for testing rate limiting functionality
@@ -20,6 +25,13 @@ type rateLimitMockLLM struct {
 	generateIndex     int
 	callDelay         time.Duration
 }
+
+type retryAfterMockError struct {
+	delay time.Duration
+}
+
+func (e retryAfterMockError) Error() string             { return "mock rate limit" }
+func (e retryAfterMockError) RetryAfter() time.Duration { return e.delay }
 
 // Call implements the llms.Model interface for testing
 func (m *rateLimitMockLLM) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
@@ -128,6 +140,19 @@ func newSuccessfulRateLimitMock() *rateLimitMockLLM {
 		},
 		generateErrors: []error{nil, nil, nil, nil, nil},
 	}
+}
+
+func TestRateLimitedLLMRejectsOversizedProviderDelay(t *testing.T) {
+	config := RateLimitConfig{MaxRetries: 1, BackoffMaxWait: 5 * time.Millisecond}
+	callMock := &rateLimitMockLLM{callErrors: []error{retryAfterMockError{delay: maxProviderRetryDelay + time.Second}}}
+	callClient := NewRateLimitedLLM(callMock, config)
+	_, err := callClient.Call(context.Background(), "prompt")
+	assert.ErrorContains(t, err, "provider retry delay")
+
+	generateMock := &rateLimitMockLLM{generateErrors: []error{retryAfterMockError{delay: maxProviderRetryDelay + time.Second}}}
+	generateClient := NewRateLimitedLLM(generateMock, config)
+	_, err = generateClient.GenerateContent(context.Background(), nil)
+	assert.ErrorContains(t, err, "provider retry delay")
 }
 
 // newFailingRateLimitMock creates a mock LLM that always returns errors
@@ -239,6 +264,63 @@ func TestRateLimitedLLM_Call_EventualSuccess(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "successful response after retries", response)
 	assert.Equal(t, 3, mockLLM.callIndex, "Should have made 3 calls total (2 failures + 1 success)")
+}
+
+func TestRateLimitedLLM_Call_HonorsRetryAfterFloor(t *testing.T) {
+	mockLLM := &rateLimitMockLLM{
+		callResponses: []string{"", "after cooldown"},
+		callErrors:    []error{retryAfterMockError{delay: 40 * time.Millisecond}, nil},
+	}
+	rated := NewRateLimitedLLM(mockLLM, RateLimitConfig{
+		MaxRetries:     1,
+		BackoffMaxWait: 5 * time.Millisecond,
+	})
+
+	start := time.Now()
+	response, err := rated.Call(context.Background(), "test prompt")
+
+	assert.NoError(t, err)
+	assert.Equal(t, "after cooldown", response)
+	assert.GreaterOrEqual(t, time.Since(start), 40*time.Millisecond)
+	assert.Equal(t, 2, mockLLM.callIndex)
+}
+
+func TestRateLimitedLLM_OpenAIHTTP429RetryAfterThenSuccess(t *testing.T) {
+	attempts := 0
+	var firstAttempt time.Time
+	var secondAttempt time.Time
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			firstAttempt = time.Now()
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		secondAttempt = time.Now()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer server.Close()
+
+	model, err := openai.New(
+		openai.WithToken("test-token"),
+		openai.WithBaseURL(server.URL),
+		openai.WithModel("test-model"),
+		openai.WithHTTPClient(ocr.OpenAIHTTPClient()),
+	)
+	require.NoError(t, err)
+	wrapped := NewRateLimitedLLM(model, RateLimitConfig{MaxRetries: 1, BackoffMaxWait: 5 * time.Millisecond})
+	response, err := wrapped.GenerateContent(context.Background(), []llms.MessageContent{{
+		Role:  llms.ChatMessageTypeHuman,
+		Parts: []llms.ContentPart{llms.TextContent{Text: "test"}},
+	}})
+
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	assert.Equal(t, "ok", response.Choices[0].Content)
+	assert.Equal(t, 2, attempts)
+	assert.GreaterOrEqual(t, secondAttempt.Sub(firstAttempt), time.Second)
 }
 
 func TestRateLimitedLLM_GenerateContent_Success(t *testing.T) {
