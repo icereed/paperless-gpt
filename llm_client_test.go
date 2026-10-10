@@ -297,7 +297,7 @@ func TestRateLimitedLLM_OpenAIHTTP429RetryAfterThenSuccess(t *testing.T) {
 		openai.WithHTTPClient(ocr.OpenAIHTTPClient()),
 	)
 	require.NoError(t, err)
-	wrapped := NewRateLimitedLLM(model, RateLimitConfig{MaxRetries: 1, BackoffMaxWait: time.Second})
+	wrapped := NewRateLimitedLLM(model, RateLimitConfig{MaxRetries: 1, BackoffMaxWait: 5 * time.Millisecond})
 	response, err := wrapped.GenerateContent(context.Background(), []llms.MessageContent{{
 		Role:  llms.ChatMessageTypeHuman,
 		Parts: []llms.ContentPart{llms.TextContent{Text: "test"}},
