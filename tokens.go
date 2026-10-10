@@ -14,6 +14,17 @@ func getAvailableTokensForContent(tmpl *template.Template, data map[string]inter
 	if tokenLimit <= 0 {
 		return -1, nil // No limit when disabled
 	}
+	return getAvailableTokensForContentWithLimit(tmpl, data, tokenLimit)
+}
+
+// getAvailableTokensForContentWithLimit calculates the content budget from a
+// total rendered-prompt limit. This is used for small-context local models so
+// the template instructions and candidate list consume the same budget as the
+// document content.
+func getAvailableTokensForContentWithLimit(tmpl *template.Template, data map[string]interface{}, totalLimit int) (int, error) {
+	if totalLimit <= 0 {
+		return -1, nil
+	}
 
 	// Create a copy of data and set "Content" to empty
 	templateData := make(map[string]interface{})
@@ -39,7 +50,7 @@ func getAvailableTokensForContent(tmpl *template.Template, data map[string]inter
 	promptTokens += 10
 
 	// Calculate available tokens for content
-	availableTokens := tokenLimit - promptTokens
+	availableTokens := totalLimit - promptTokens
 	if availableTokens < 0 {
 		return 0, fmt.Errorf("prompt template exceeds token limit")
 	}
