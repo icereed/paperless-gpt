@@ -112,9 +112,9 @@ var (
 )
 
 // refreshCustomFieldsCache fetches custom fields from Paperless and updates the cache.
-func refreshCustomFieldsCache(client ClientInterface) {
+func refreshCustomFieldsCache(ctx context.Context, client ClientInterface) {
 	log.Info("Refreshing custom fields cache...")
-	fields, err := client.GetCustomFields(context.Background())
+	fields, err := client.GetCustomFields(ctx)
 	if err != nil {
 		log.Errorf("Error refreshing custom fields cache: %v", err)
 		return
@@ -187,12 +187,17 @@ func main() {
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
 
+	// Bound startup metadata calls so the HTTP server can still come up when
+	// Paperless-ngx is temporarily unavailable. Background workers retry later.
+	startupCtx, startupCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer startupCancel()
+
 	// Ensure the fail tag exists in paperless-ngx. paperless-gpt applies this
 	// tag mechanically when document processing fails (see processAutoTagDocuments),
 	// so it must be available regardless of the CREATE_NEW_TAGS setting.
 	// A failure here is logged but non-fatal: the loop-break path still removes
 	// the auto tag, the fail tag is just not applied.
-	if err := client.EnsureTagExists(ctx, failTag); err != nil {
+	if err := client.EnsureTagExists(startupCtx, failTag); err != nil {
 		log.Warnf("Failed to ensure fail tag %q exists: %v. Recovery from a failed document update will still remove the auto tag (loop break works), but the fail tag will not be added.", failTag, err)
 	}
 
@@ -202,7 +207,7 @@ func main() {
 	// without this, users who never created the tag by hand see the trigger
 	// tag disappear and no completion tag appear.
 	if autoTagComplete != "" {
-		if err := client.EnsureTagExists(ctx, autoTagComplete); err != nil {
+		if err := client.EnsureTagExists(startupCtx, autoTagComplete); err != nil {
 			log.Warnf("Failed to ensure auto tag complete %q exists: %v. Auto-processing will still work, but documents will not be marked as complete.", autoTagComplete, err)
 		}
 	}
@@ -213,12 +218,12 @@ func main() {
 	// paperless-ngx workflows on — so silently dropping it breaks more than a
 	// label.
 	if pdfOCRTagging && pdfOCRCompleteTag != "" {
-		if err := client.EnsureTagExists(ctx, pdfOCRCompleteTag); err != nil {
+		if err := client.EnsureTagExists(startupCtx, pdfOCRCompleteTag); err != nil {
 			log.Warnf("Failed to ensure OCR complete tag %q exists: %v. OCR will still run, but documents will not be marked as OCR-processed.", pdfOCRCompleteTag, err)
 		}
 	}
 
-	ensureWorkflowTagsExist(ctx, client.EnsureTagExists)
+	ensureWorkflowTagsExist(startupCtx, client.EnsureTagExists)
 	// Workflows added or changed by editing their files get their tags too.
 	workflows.OnChange(func([]WorkflowConfig) {
 		ensureCtx, cancel := context.WithTimeout(ctx, time.Minute)
@@ -227,7 +232,7 @@ func main() {
 	})
 
 	// Initial fetch of custom fields
-	refreshCustomFieldsCache(client)
+	refreshCustomFieldsCache(startupCtx, client)
 
 	// Start a goroutine to refresh the cache every hour
 	go func() {
@@ -238,7 +243,7 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				refreshCustomFieldsCache(client)
+				refreshCustomFieldsCache(ctx, client)
 			}
 		}
 	}()
