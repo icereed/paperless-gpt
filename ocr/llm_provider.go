@@ -211,6 +211,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 			// which would otherwise skip the backoff entirely.
 			backoff = backoffMax
 		}
+		backoff = retryAfterDelay(genErr, backoff)
 		logger.WithError(genErr).Warnf("Transient vision model error, retrying in %s (attempt %d/%d)", backoff, attempt+1, maxRetries)
 		select {
 		case <-ctx.Done():
@@ -343,9 +344,38 @@ func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
 		return 0, false
 	}
 	if delay := when.Sub(now); delay > 0 {
-		return delay, true
+		// Preserve the provider's lower bound when the transport serializes
+		// this duration to milliseconds; truncation could retry early.
+		return ((delay + time.Millisecond - 1) / time.Millisecond) * time.Millisecond, true
 	}
 	return 0, true
+}
+
+func retryAfterDelay(err error, backoff time.Duration) time.Duration {
+	const marker = "retry-after-ms:"
+	text := strings.ToLower(err.Error())
+	index := strings.Index(text, marker)
+	if index < 0 {
+		return backoff
+	}
+	value := text[index+len(marker):]
+	end := 0
+	for end < len(value) && value[end] >= '0' && value[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return backoff
+	}
+	milliseconds, parseErr := strconv.ParseInt(value[:end], 10, 64)
+	maxMilliseconds := int64((1<<63 - 1) / int64(time.Millisecond))
+	if parseErr != nil || milliseconds < 0 || milliseconds > maxMilliseconds {
+		return backoff
+	}
+	delay := time.Duration(milliseconds) * time.Millisecond
+	if delay > backoff {
+		return delay
+	}
+	return backoff
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {

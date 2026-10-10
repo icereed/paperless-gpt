@@ -48,7 +48,8 @@ func retryDelay(err error, backoff time.Duration) time.Duration {
 		for end < len(value) && value[end] >= '0' && value[end] <= '9' {
 			end++
 		}
-		if milliseconds, parseErr := strconv.ParseInt(value[:end], 10, 64); parseErr == nil && milliseconds >= 0 {
+		maxMilliseconds := int64((1<<63 - 1) / int64(time.Millisecond))
+		if milliseconds, parseErr := strconv.ParseInt(value[:end], 10, 64); parseErr == nil && milliseconds >= 0 && milliseconds <= maxMilliseconds {
 			if delay := time.Duration(milliseconds) * time.Millisecond; delay > backoff {
 				return delay
 			}
