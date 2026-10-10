@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"io"
 	"net/http"
 	"os"
 	"paperless-gpt/internal/textsanitize"
@@ -329,12 +330,46 @@ type headerTransport struct {
 	headers map[string]string
 }
 
+func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil && seconds >= 0 {
+		maxSeconds := int64((1<<63 - 1) / int64(time.Second))
+		if seconds <= maxSeconds {
+			return time.Duration(seconds) * time.Second, true
+		}
+		return 0, false
+	}
+	when, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	if delay := when.Sub(now); delay > 0 {
+		return delay, true
+	}
+	return 0, true
+}
+
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
 	}
-	return t.base.RoundTrip(req)
+	resp, err := t.base.RoundTrip(req)
+	if err != nil || resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+		return resp, err
+	}
+	delay, ok := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+	if !ok {
+		return resp, nil
+	}
+	_ = resp.Body.Close()
+	// langchaingo drops response headers from provider errors. Preserve only
+	// the parsed cooldown in a sanitized JSON error body so RateLimitedLLM can
+	// honor it without exposing the upstream response or credentials.
+	resp.Body = io.NopCloser(strings.NewReader(fmt.Sprintf(
+		`{"error":{"message":"upstream rate limit; retry-after-ms:%d"}}`,
+		delay.Milliseconds())))
+	resp.ContentLength = int64(-1)
+	return resp, nil
 }
 
 // createOllamaClient creates a new Ollama vision model client
