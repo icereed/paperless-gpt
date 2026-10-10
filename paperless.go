@@ -83,6 +83,17 @@ func lookupTagID(availableTags map[string]int, tagName string) (string, int, boo
 	return lookupNamedID("Tag", availableTags, tagName)
 }
 
+// isNoMatchCorrespondent recognizes explicit no-match values from the
+// correspondent prompt. They must never become real correspondents.
+func isNoMatchCorrespondent(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "unknown", "unbekannt", "none", "n/a", "no correspondent":
+		return true
+	default:
+		return false
+	}
+}
+
 // lookupNamedID finds a tag, correspondent or document type by name the way
 // paperless-ngx compares names: case-insensitively, so "MONTANA GmbH" finds
 // an existing "Montana GmbH" instead of trying to create a duplicate that
@@ -792,7 +803,12 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// not have a correspondent yet.
 		if document.SuggestedCorrespondent != "" && !strings.EqualFold(strings.TrimSpace(document.SuggestedCorrespondent), originalDoc.Correspondent) &&
 			!(preserveExistingMetadata && originalDoc.Correspondent != "") {
-			if _, corrID, exists := lookupNamedID("Correspondent", availableCorrespondents, document.SuggestedCorrespondent); exists {
+			if isNoMatchCorrespondent(document.SuggestedCorrespondent) {
+				// An explicit no-match is not a correspondent. Leave it out of
+				// the PATCH and report it for review instead of creating a literal
+				// "Unknown" correspondent.
+				partialDroppedFields = append(partialDroppedFields, "correspondent")
+			} else if _, corrID, exists := lookupNamedID("Correspondent", availableCorrespondents, document.SuggestedCorrespondent); exists {
 				originalFields["correspondent"] = originalDoc.Correspondent
 				updatedFields["correspondent"] = corrID
 			} else {
