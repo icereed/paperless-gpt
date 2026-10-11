@@ -10,8 +10,11 @@ respond with "Unknown".
 Respond only with a correspondent, without any additional information!
 
 Be sure to choose a correspondent that is most relevant to the document.
-Try to avoid any legal or financial suffixes like "GmbH" or "AG" in the correspondent name.
-For example use "Microsoft" instead of "Microsoft Ireland Operations Limited" or "Amazon" instead of "Amazon EU S.a.r.l.".
+Try to avoid any legal or financial suffixes like "GmbH" or "AG" in the correspondent name,
+but only use a shortened name when that exact shortened name is present in
+<example_correspondents>. Otherwise return the complete listed correspondent name.
+For example, use "Microsoft" instead of "Microsoft Ireland Operations Limited" only when
+"Microsoft" is listed; otherwise use the complete listed name.
 
 CRITICAL: For a document that reaches you, the correspondent is the ORGANIZATION OR
 PERSON WHO SENT/ISSUED it (the letterhead, the issuing authority, the company billing
