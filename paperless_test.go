@@ -1965,3 +1965,35 @@ func TestUpdateDocuments_DroppedCorrespondentWithoutOtherChangesIsReported(t *te
 	require.ErrorAs(t, err, &partial)
 	assert.Equal(t, []string{"correspondent"}, partial.DroppedFields)
 }
+
+func TestIsNoMatchCorrespondent(t *testing.T) {
+	for _, value := range []string{"Unknown", " unbekannt ", "NONE", "n/a", "No Correspondent"} {
+		assert.True(t, isNoMatchCorrespondent(value), value)
+	}
+	for _, value := range []string{"Allianz", "Unknown GmbH", "None AG"} {
+		assert.False(t, isNoMatchCorrespondent(value), value)
+	}
+}
+
+func TestUpdateDocuments_NoMatchCorrespondentDoesNotCreate(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	})
+	env.setMockResponse("/api/correspondents/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			t.Errorf("no-match sentinel must not create a correspondent")
+			http.Error(w, "unexpected correspondent creation", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	})
+	err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{{ID: 1, OriginalDocument: Document{ID: 1, Title: "Scan"}, SuggestedCorrespondent: " Unknown "}}, env.db, false)
+	var partial *PartialUpdateError
+	require.ErrorAs(t, err, &partial)
+	assert.Equal(t, []string{"correspondent"}, partial.DroppedFields)
+	assert.True(t, partial.NoMatchDrop)
+}

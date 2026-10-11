@@ -242,9 +242,15 @@ type OCROptions struct {
 type PartialUpdateError struct {
 	DocumentID    int
 	DroppedFields []string
+	NoMatchDrop   bool
 }
 
+// Error describes whether fields were omitted intentionally or rejected by
+// paperless-ngx validation after the document update otherwise succeeded.
 func (e *PartialUpdateError) Error() string {
+	if e.NoMatchDrop {
+		return fmt.Sprintf("document %d updated with %d field(s) intentionally omitted because no matching correspondent was found: %v", e.DocumentID, len(e.DroppedFields), e.DroppedFields)
+	}
 	return fmt.Sprintf("document %d updated with %d field(s) dropped due to paperless-ngx validation errors: %v", e.DocumentID, len(e.DroppedFields), e.DroppedFields)
 }
 
