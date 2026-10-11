@@ -102,8 +102,9 @@ Note that `LLM_MODEL` is the **deployment** name, not the base model name.
 ### Other services
 
 Anything else that documents an "OpenAI-compatible endpoint" — Groq, Together,
-DeepInfra, Fireworks, Atlas Cloud, Chatanywhere, 1min.ai, Docker Model Runner,
-Ollama's own `/v1` shim, and so on — follows the same three-line pattern. If a
+DeepInfra, Fireworks, Atlas Cloud, Chatanywhere, 1min.ai, DemonRoute
+(`https://api.demonroute.com/v1`, text-only), Docker Model Runner, Ollama's own
+`/v1` shim, and so on — follows the same three-line pattern. If a
 service documents an OpenAI-compatible base URL, it works here.
 
 ## When to use the native Ollama provider instead
