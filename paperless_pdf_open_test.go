@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -22,7 +23,7 @@ func encryptedFixture(t *testing.T, user, owner string) string {
 
 func TestOpenPDFForOCREmptyUserPassword(t *testing.T) {
 	path := encryptedFixture(t, "", "owner-password")
-	doc, cleanup, err := openPDFForOCR(path, "")
+	doc, cleanup, err := openPDFForOCR(context.Background(), path, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +39,7 @@ func TestOpenPDFForOCREmptyUserPassword(t *testing.T) {
 
 func TestOpenPDFForOCRRejectsNonEmptyUserPassword(t *testing.T) {
 	path := encryptedFixture(t, "required-user-password", "owner-password")
-	_, cleanup, err := openPDFForOCR(path, "")
+	_, cleanup, err := openPDFForOCR(context.Background(), path, "")
 	cleanup()
 	if err == nil {
 		t.Fatal("expected non-empty user-password PDF to be rejected")
@@ -53,7 +54,7 @@ func TestOpenPDFForOCRRejectsNonEmptyUserPassword(t *testing.T) {
 
 func TestOpenPDFForOCRWithPassword(t *testing.T) {
 	path := encryptedFixture(t, "required-user-password", "owner-password")
-	doc, cleanup, err := openPDFForOCR(path, "required-user-password")
+	doc, cleanup, err := openPDFForOCR(context.Background(), path, "required-user-password")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,5 +74,43 @@ func TestOCRErrorForStorageClassifiesPasswordFailures(t *testing.T) {
 	}
 	if got := ocrErrorForStorage(errors.New("unexpected provider failure")); got != "unexpected provider failure" {
 		t.Fatalf("unexpected generic error rewrite: %q", got)
+	}
+}
+
+func TestOpenPDFForOCRHonorsCancellation(t *testing.T) {
+	path := encryptedFixture(t, "", "owner-password")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, cleanup, err := openPDFForOCR(ctx, path, "")
+	cleanup()
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+}
+
+func TestOpenPDFForOCRDoesNotClassifyMalformedPDFAsPasswordFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "malformed.pdf")
+	if err := os.WriteFile(path, []byte("not a PDF"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, cleanup, err := openPDFForOCR(context.Background(), path, "supplied-password")
+	cleanup()
+	if err == nil {
+		t.Fatal("expected malformed PDF failure")
+	}
+	if errors.Is(err, ErrPDFPasswordRequired) {
+		t.Fatalf("malformed PDF was mislabeled as password failure: %v", err)
+	}
+}
+
+func TestJobStoreClearsPDFPassword(t *testing.T) {
+	store := &JobStore{jobs: map[string]*Job{
+		"job-1": {ID: "job-1", Options: OCROptions{PDFPassword: "transient-secret"}},
+	}}
+	store.clearPDFPassword("job-1")
+	store.RLock()
+	defer store.RUnlock()
+	if got := store.jobs["job-1"].Options.PDFPassword; got != "" {
+		t.Fatalf("PDF password retained after terminal cleanup: %q", got)
 	}
 }

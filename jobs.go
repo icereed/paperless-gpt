@@ -161,6 +161,15 @@ func (store *JobStore) updatePagesDone(jobID string, pagesDone int) {
 	}
 }
 
+// clearPDFPassword removes request-scoped secret material from retained jobs.
+func (store *JobStore) clearPDFPassword(jobID string) {
+	store.Lock()
+	defer store.Unlock()
+	if retained, ok := store.jobs[jobID]; ok {
+		retained.Options.PDFPassword = ""
+	}
+}
+
 // progress returns the current page counters of a job.
 func (store *JobStore) progress(jobID string) (pagesDone, totalPages int) {
 	store.RLock()
@@ -192,6 +201,9 @@ func processJob(app *App, job *Job) {
 	jobCancellersMu.Unlock()
 	defer func() {
 		cancel()
+		// PDFPassword is request-scoped secret material. Clear it from the
+		// retained job record on every terminal path, including cancellation.
+		jobStore.clearPDFPassword(job.ID)
 		jobCancellersMu.Lock()
 		delete(jobCancellers, job.ID)
 		jobCancellersMu.Unlock()
