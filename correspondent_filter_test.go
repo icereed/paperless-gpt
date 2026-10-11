@@ -6,6 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestValidateCorrespondentSuggestionAcceptsOnlyCatalogNames(t *testing.T) {
+	available := []string{"Amazon", "Telekom"}
+	assert.Equal(t, "Amazon", validateCorrespondentSuggestion(" amazon ", available, nil))
+	assert.Equal(t, "", validateCorrespondentSuggestion("Unknown", available, nil))
+	assert.Equal(t, "", validateCorrespondentSuggestion("Invented Issuer", available, nil))
+	assert.Equal(t, "", validateCorrespondentSuggestion("Telekom", available, []string{"telekom"}))
+}
+
 func TestFilterCorrespondentsForPrompt_Disabled(t *testing.T) {
 	names := []string{"Amazon", "REWE", "Telekom"}
 	assert.Equal(t, names, filterCorrespondentsForPrompt(names, "some content", "title", 0))

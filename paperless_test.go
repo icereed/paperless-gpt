@@ -192,6 +192,56 @@ func TestGetAllTags(t *testing.T) {
 	assert.Equal(t, 2, env.requestCount)
 }
 
+func TestCatalogCachesAvoidRepeatedLookupsAndReturnCopies(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+	var tagsCalls, correspondentCalls, documentTypeCalls int
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("name__iexact") != "" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"count":0,"results":[]}`))
+			return
+		}
+		tagsCalls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[{"id":1,"name":"Invoice"}],"next":null}`))
+	})
+	env.setMockResponse("/api/correspondents/", func(w http.ResponseWriter, r *http.Request) {
+		correspondentCalls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[{"id":2,"name":"Vendor"}]}`))
+	})
+	env.setMockResponse("/api/document_types/", func(w http.ResponseWriter, r *http.Request) {
+		documentTypeCalls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[{"id":3,"name":"Receipt"}]}`))
+	})
+
+	ctx := context.Background()
+	firstTags, err := env.client.GetAllTags(ctx)
+	require.NoError(t, err)
+	firstTags["Injected"] = 99
+	secondTags, err := env.client.GetAllTags(ctx)
+	require.NoError(t, err)
+	firstCorrespondents, err := env.client.GetAllCorrespondents(ctx)
+	require.NoError(t, err)
+	firstCorrespondents["Injected"] = 99
+	secondCorrespondents, err := env.client.GetAllCorrespondents(ctx)
+	require.NoError(t, err)
+	firstTypes, err := env.client.GetAllDocumentTypes(ctx)
+	require.NoError(t, err)
+	firstTypes[0].Name = "Injected"
+	secondTypes, err := env.client.GetAllDocumentTypes(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, tagsCalls)
+	assert.Equal(t, 1, correspondentCalls)
+	assert.Equal(t, 1, documentTypeCalls)
+	assert.Equal(t, map[string]int{"Invoice": 1}, secondTags)
+	assert.Equal(t, map[string]int{"Vendor": 2}, secondCorrespondents)
+	assert.Equal(t, []DocumentType{{ID: 3, Name: "Receipt"}}, secondTypes)
+}
+
 // TestGetDocumentCountByTag tests the GetDocumentCountByTag method
 func TestGetDocumentCountByTag(t *testing.T) {
 	env := newTestEnv(t)

@@ -38,6 +38,31 @@ type PaperlessClient struct {
 	APIToken    string
 	HTTPClient  *http.Client
 	CacheFolder string
+
+	// Catalogs change infrequently but are needed by every document read and
+	// suggestion batch. Keep a short-lived per-client snapshot so a UI refresh
+	// does not refetch every page of tags/correspondents/types.
+	catalogMu              sync.Mutex
+	tagsCache              map[string]int
+	tagsCachedAt           time.Time
+	correspondentsCache    map[string]int
+	correspondentsCachedAt time.Time
+	documentTypesCache     []DocumentType
+	documentTypesCachedAt  time.Time
+}
+
+const catalogCacheTTL = 30 * time.Second
+
+func copyCatalogMap(in map[string]int) map[string]int {
+	out := make(map[string]int, len(in))
+	for name, id := range in {
+		out[name] = id
+	}
+	return out
+}
+
+func copyDocumentTypes(in []DocumentType) []DocumentType {
+	return append([]DocumentType(nil), in...)
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -264,6 +289,12 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 
 // GetAllTags retrieves all tags from the Paperless-NGX API
 func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, error) {
+	client.catalogMu.Lock()
+	defer client.catalogMu.Unlock()
+	if client.tagsCache != nil && time.Since(client.tagsCachedAt) < catalogCacheTTL {
+		return copyCatalogMap(client.tagsCache), nil
+	}
+
 	tagIDMapping := make(map[string]int)
 	// Paperless defaults to 25 results per page. This helper is used during
 	// startup for marker-tag checks, so asking for a larger page size avoids
@@ -321,7 +352,9 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 		}
 	}
 
-	return tagIDMapping, nil
+	client.tagsCache = tagIDMapping
+	client.tagsCachedAt = time.Now()
+	return copyCatalogMap(tagIDMapping), nil
 }
 
 // GetDocumentCountByTag checks if there is a document for the specified tag (it is much faster than api/documents/)
@@ -1882,6 +1915,12 @@ type CorrespondentResponse struct {
 
 // GetAllCorrespondents retrieves all correspondents from the Paperless-NGX API
 func (client *PaperlessClient) GetAllCorrespondents(ctx context.Context) (map[string]int, error) {
+	client.catalogMu.Lock()
+	defer client.catalogMu.Unlock()
+	if client.correspondentsCache != nil && time.Since(client.correspondentsCachedAt) < catalogCacheTTL {
+		return copyCatalogMap(client.correspondentsCache), nil
+	}
+
 	correspondentIDMapping := make(map[string]int)
 	path := "api/correspondents/?page_size=9999"
 
@@ -1907,11 +1946,19 @@ func (client *PaperlessClient) GetAllCorrespondents(ctx context.Context) (map[st
 		correspondentIDMapping[correspondent.Name] = correspondent.ID
 	}
 
-	return correspondentIDMapping, nil
+	client.correspondentsCache = correspondentIDMapping
+	client.correspondentsCachedAt = time.Now()
+	return copyCatalogMap(correspondentIDMapping), nil
 }
 
 // GetAllDocumentTypes retrieves all document types from the Paperless-NGX API
 func (client *PaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
+	client.catalogMu.Lock()
+	defer client.catalogMu.Unlock()
+	if client.documentTypesCache != nil && time.Since(client.documentTypesCachedAt) < catalogCacheTTL {
+		return copyDocumentTypes(client.documentTypesCache), nil
+	}
+
 	var allDocumentTypes []DocumentType
 	path := "api/document_types/?page_size=1000" // Assuming a reasonable limit
 
@@ -1937,7 +1984,9 @@ func (client *PaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]Docum
 
 	allDocumentTypes = append(allDocumentTypes, response.Results...)
 
-	return allDocumentTypes, nil
+	client.documentTypesCache = allDocumentTypes
+	client.documentTypesCachedAt = time.Now()
+	return copyDocumentTypes(allDocumentTypes), nil
 }
 
 // GetCustomFields retrieves all custom fields from the Paperless-NGX API
@@ -2078,6 +2127,10 @@ func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (i
 		return 0, fmt.Errorf("error parsing created tag response: %w", err)
 	}
 
+	client.catalogMu.Lock()
+	client.tagsCache = nil
+	client.tagsCachedAt = time.Time{}
+	client.catalogMu.Unlock()
 	return createdTag.ID, nil
 }
 

@@ -81,6 +81,27 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 	return response, nil
 }
 
+// validateCorrespondentSuggestion keeps the metadata boundary closed over the
+// existing Paperless catalog. The model may explain or invent a sender even
+// when the prompt asks for a bare name; that value must remain review-empty.
+func validateCorrespondentSuggestion(response string, available, blacklist []string) string {
+	candidate := strings.TrimSpace(strings.Trim(response, "`\"'"))
+	if candidate == "" || strings.EqualFold(candidate, "unknown") {
+		return ""
+	}
+	for _, blocked := range blacklist {
+		if strings.EqualFold(candidate, strings.TrimSpace(blocked)) {
+			return ""
+		}
+	}
+	for _, name := range available {
+		if strings.EqualFold(candidate, strings.TrimSpace(name)) {
+			return strings.TrimSpace(name)
+		}
+	}
+	return ""
+}
+
 // getSuggestedTags generates suggested tags for a document using the LLM.
 // tmplOverride, when non-nil, replaces the global tagTemplate for this call.
 func (app *App) getSuggestedTags(
@@ -786,6 +807,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 			log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
 		}
+		suggestedCorrespondent = validateCorrespondentSuggestion(suggestedCorrespondent, generationContext.availableCorrespondentNames, correspondentBlackList)
 	}
 
 	if suggestionRequest.GenerateDocumentTypes {
