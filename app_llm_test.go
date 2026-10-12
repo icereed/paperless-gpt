@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -1063,5 +1065,40 @@ func usePromptsSandbox(t *testing.T, prompts map[string]string) {
 	require.NoError(t, os.MkdirAll("prompts", 0o755))
 	for name, content := range prompts {
 		require.NoError(t, os.WriteFile(filepath.Join("prompts", name), []byte(content), 0o644))
+	}
+}
+
+// A prompt in prompts/ that is still an earlier default was never customised
+// and gets the current default; a customised prompt is left alone.
+func TestLoadTemplatesUpdatesOutdatedDefaults(t *testing.T) {
+	const outdated = "an earlier default custom field prompt {{ .CustomFieldsXML }}"
+	sum := sha256.Sum256([]byte(outdated))
+	previous := previousDefaultPrompts
+	previousDefaultPrompts = map[string][]string{"custom_field_prompt.tmpl": {hex.EncodeToString(sum[:])}}
+	t.Cleanup(func() { previousDefaultPrompts = previous })
+
+	usePromptsSandbox(t, map[string]string{
+		"custom_field_prompt.tmpl": outdated,
+		"title_prompt.tmpl":        "my own title prompt {{ .Content }}",
+	})
+	require.NoError(t, loadTemplates())
+
+	current, err := os.ReadFile("default_prompts/custom_field_prompt.tmpl")
+	require.NoError(t, err)
+	got, err := os.ReadFile("prompts/custom_field_prompt.tmpl")
+	require.NoError(t, err)
+	assert.Equal(t, string(current), string(got), "the outdated default is replaced")
+
+	got, err = os.ReadFile("prompts/title_prompt.tmpl")
+	require.NoError(t, err)
+	assert.Equal(t, "my own title prompt {{ .Content }}", string(got), "a customised prompt is kept")
+}
+
+func TestPreviousDefaultPromptsAreForExistingPrompts(t *testing.T) {
+	for name, sums := range previousDefaultPrompts {
+		current, err := os.ReadFile(filepath.Join("default_prompts", name))
+		require.NoError(t, err, "history entry for a prompt that no longer exists: %s", name)
+		sum := sha256.Sum256(current)
+		assert.NotContains(t, sums, hex.EncodeToString(sum[:]), "%s: the current default must not be listed as outdated", name)
 	}
 }

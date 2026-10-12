@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"paperless-gpt/sanitize"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1141,6 +1144,20 @@ func loadTemplates() error {
 			return nil, fmt.Errorf("failed to read prompt '%s': %w", name, err)
 		}
 
+		// A prompt that is still an earlier default was never customised:
+		// give it the current default, so fixes to the default prompts reach
+		// existing installations too.
+		if isPreviousDefaultPrompt(name, content) {
+			if defaultContent, err := os.ReadFile(defaultPromptPath); err == nil && !bytes.Equal(defaultContent, content) {
+				if err := os.WriteFile(promptPath, defaultContent, 0644); err != nil {
+					log.Warnf("Prompt '%s' is an outdated default but could not be updated: %v", name, err)
+				} else {
+					log.Infof("Prompt '%s' was an unchanged earlier default; updated it to the current default", name)
+					content = defaultContent
+				}
+			}
+		}
+
 		// Parse and return the template
 		tmpl, err := template.New(name).Funcs(sprig.FuncMap()).Parse(string(content))
 		if err != nil {
@@ -1494,4 +1511,11 @@ func ollamaHTTPClientWithTimeout() *http.Client {
 	}
 	base.Timeout = timeout
 	return base
+}
+
+// isPreviousDefaultPrompt reports whether content is an earlier version of the
+// default prompt called name.
+func isPreviousDefaultPrompt(name string, content []byte) bool {
+	sum := sha256.Sum256(content)
+	return slices.Contains(previousDefaultPrompts[name], hex.EncodeToString(sum[:]))
 }
