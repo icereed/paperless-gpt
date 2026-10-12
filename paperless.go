@@ -813,10 +813,11 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		if document.SuggestedCorrespondent != "" && !strings.EqualFold(strings.TrimSpace(document.SuggestedCorrespondent), originalDoc.Correspondent) &&
 			!(preserveExistingMetadata && originalDoc.Correspondent != "") {
 			if isNoMatchCorrespondent(document.SuggestedCorrespondent) {
-				// An explicit no-match is not a correspondent. Leave it out of
-				// the PATCH and report it for review instead of creating a literal
-				// "Unknown" correspondent.
-				partialDroppedFields = append(partialDroppedFields, "correspondent")
+				// The correspondent prompt answers "Unknown" when nothing fits.
+				// That is a valid answer meaning "no correspondent", not a
+				// failure: leave the correspondent alone and do not flag the
+				// document, and never create a correspondent named "Unknown".
+				log.Infof("Document %d: no correspondent found (%q), leaving it unchanged", documentID, strings.TrimSpace(document.SuggestedCorrespondent))
 			} else if _, corrID, exists := lookupNamedID("Correspondent", availableCorrespondents, document.SuggestedCorrespondent); exists {
 				originalFields["correspondent"] = originalDoc.Correspondent
 				updatedFields["correspondent"] = corrID
