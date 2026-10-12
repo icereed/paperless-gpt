@@ -601,6 +601,21 @@ func TestSplitBackgroundSkipsPersistedAndTaggedSources(t *testing.T) {
 	assert.False(t, held)
 }
 
+func TestSplitBackgroundHoldByStatus(t *testing.T) {
+	for _, status := range []string{"generating", "review", "skipped", "applying", "submitted", "uncertain", "failed", "kept"} {
+		t.Run(status, func(t *testing.T) {
+			app, _, suggestion := splitApplyFixture(t)
+			require.NoError(t, app.Database.Model(suggestion).Update("status", status).Error)
+			held, err := app.splitHeld(context.Background(), suggestion.DocumentID, []string{"auto"})
+			require.NoError(t, err)
+			assert.Equal(t, status != "failed" && status != "kept", held)
+			held, err = app.splitHeld(context.Background(), suggestion.DocumentID, []string{"SPLIT"})
+			require.NoError(t, err)
+			assert.True(t, held, "the split tag must hold every status")
+		})
+	}
+}
+
 func TestSplitRegenerationInvalidatesOnlyPagePreviews(t *testing.T) {
 	client := NewPaperlessClient("http://unused", "test")
 	client.CacheFolder = t.TempDir()

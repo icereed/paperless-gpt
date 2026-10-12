@@ -47,7 +47,7 @@ func (app *App) splitHeld(ctx context.Context, id int, tags []string) (bool, err
 		return true, nil
 	}
 	var count int64
-	err := app.Database.WithContext(ctx).Model(&SplitSuggestion{}).Where("document_id = ? AND status <> ?", id, "kept").Count(&count).Error
+	err := app.Database.WithContext(ctx).Model(&SplitSuggestion{}).Where("document_id = ? AND status NOT IN ?", id, []string{"failed", "kept"}).Count(&count).Error
 	return count != 0, err
 }
 
