@@ -186,6 +186,12 @@ func injectZDRPreference(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
+	// A body of just `null` decodes into a nil map, and writing to it would
+	// panic. It is not an object we can add a preference to.
+	if payload == nil {
+		return nil, fmt.Errorf("JSON body is not an object")
+	}
+
 	provider, _ := payload["provider"].(map[string]interface{})
 	if provider == nil {
 		provider = map[string]interface{}{}

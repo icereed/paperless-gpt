@@ -294,3 +294,10 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 func TestMain_openrouterZDREnvIsolation(t *testing.T) {
 	t.Cleanup(func() { _ = os.Unsetenv("OPENROUTER_ENFORCE_ZDR") })
 }
+
+// A body of just `null` is not an object; it must be refused, not panic.
+func TestInjectZDRPreferenceRejectsNull(t *testing.T) {
+	if _, err := injectZDRPreference([]byte(`null`)); err == nil {
+		t.Fatal("expected an error for a null body")
+	}
+}
