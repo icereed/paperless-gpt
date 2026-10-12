@@ -229,8 +229,6 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 // suggestion pipeline for each of them, with the workflow the router picks
 // for the document or the global settings.
 func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int, error) {
-	app.splitMu.Lock()
-	defer app.splitMu.Unlock()
 	documents, err := app.processingDocuments(ctx, triggerTag)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with tag %q: %w", triggerTag, err)
@@ -259,122 +257,131 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 			continue
 		}
 
-		held, err := app.splitHeld(ctx, document.ID, document.Tags)
+		err = func() error {
+			app.splitMu.Lock()
+			defer app.splitMu.Unlock()
+
+			held, err := app.splitHeld(ctx, document.ID, document.Tags)
+			if err != nil {
+				return err
+			}
+			if held {
+				return nil
+			}
+
+			// Skip documents that have the autoOcrTag
+			if slices.Contains(document.Tags, autoOcrTag) {
+				log.Debugf("Skipping document %d as it has the OCR tag %s", document.ID, autoOcrTag)
+				return nil
+			}
+
+			docLogger := documentLogger(document.ID)
+			workflow := app.workflowRouter().WorkflowFor(document, triggerTag)
+			if workflow != nil {
+				docLogger.Infof("Processing document for workflow %q (trigger tag: %s)", workflow.ID, triggerTag)
+			} else {
+				docLogger.Info("Processing document for auto-tagging")
+			}
+
+			// Optional per-workflow OCR before metadata generation.
+			if workflow != nil {
+				if wf := *workflow; workflowWantsOCR(wf) {
+					if !app.isOcrEnabled() {
+						// Retrying cannot help until the configuration changes, so
+						// take the document out of the loop right away instead of
+						// fetching it again on every poll.
+						err = fmt.Errorf("workflow %q has enable_ocr but no OCR provider is configured", wf.ID)
+						docLogger.Error(err.Error())
+						if recErr := markProcessingFailed(ctx, app.Client, app.Database, document, triggerTag, "workflow OCR is enabled but no OCR provider is configured"); recErr != nil {
+							errs = append(errs, fmt.Errorf("%w (removing the %q tag failed: %v)", err, triggerTag, recErr))
+						}
+						return nil
+					}
+					updatedDoc, ocrErr := app.runWorkflowDocumentOCR(ctx, document, wf, triggerTag, docLogger)
+					if ocrErr != nil {
+						errs = append(errs, ocrErr)
+						return nil
+					}
+					if updatedDoc == nil {
+						// OCR skipped or document left the queue (e.g. max retries).
+						return nil
+					}
+					document = *updatedDoc
+				}
+			}
+
+			suggestionRequest := globalAutoProcessingRequest(document)
+			suggestionRequest.IsAutoProcessing = true
+			suggestionRequest.Workflow = workflow
+			suggestionRequest.TriggerTag = triggerTag
+
+			suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
+			if err != nil {
+				err = fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
+				docLogger.Error(err.Error())
+
+				// Without a loop-break here the auto tag stays on the document and
+				// it is picked up again every poll cycle, forever. A permanent LLM
+				// error (a prompt that cannot fit the context, a model that no
+				// longer exists) therefore re-bills the same request indefinitely,
+				// and because GetDocumentsByTag fetches one unordered page, enough
+				// such documents fill that page and starve every document behind
+				// them, silently, since the container stays healthy. See #1071.
+				//
+				// A canceled poll-loop context is a shutdown, not a document
+				// problem, so it must never count against the document. Same
+				// reasoning as the auto-OCR poll below.
+				if autoTagMaxRetries > 0 && ctx.Err() == nil {
+					attempts := app.suggestionFailures.recordFailure(document.ID)
+					if attempts >= autoTagMaxRetries {
+						reason := fmt.Sprintf("suggestion generation failed %d times", attempts)
+						if recErr := markProcessingFailed(ctx, app.Client, app.Database, document, triggerTag, reason); recErr != nil {
+							// Keep the failure count so the tag removal is retried
+							// on the next poll cycle.
+							docLogger.Errorf("Removing %q tag after repeated suggestion failures also failed: %v. The document will be retried on the next poll cycle.", triggerTag, recErr)
+							errs = append(errs, err)
+							return nil
+						}
+						app.suggestionFailures.reset(document.ID)
+						// The document is out of the queue now; don't let its
+						// handled error keep the whole loop in backoff.
+						return nil
+					}
+				}
+				errs = append(errs, err)
+				return nil
+			}
+			// Suggestions came back, a previous failure streak is over, whatever
+			// the update below does.
+			app.suggestionFailures.reset(document.ID)
+
+			err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
+			if err != nil {
+				var partial *PartialUpdateError
+				if errors.As(err, &partial) {
+					// Update went through but paperless-ngx rejected some fields,
+					// which UpdateDocuments dropped in order to land the rest.
+					// The auto tag is already gone (it was part of the successful
+					// retry's tag update). Apply the fail tag so the user sees
+					// that this document needs review.
+					applyFailTagAfterPartialSuccess(ctx, app.Client, app.Database, partial.DocumentID, partial.DroppedFields)
+					processedCount++
+					return nil
+				}
+				err = fmt.Errorf("error updating document %d: %w", document.ID, err)
+				docLogger.Error(err.Error())
+				errs = append(errs, err)
+				recoverFromFailedUpdate(ctx, app.Client, app.Database, document, triggerTag)
+				return nil
+			}
+
+			docLogger.Info("Successfully processed document")
+			processedCount++
+			return nil
+		}()
 		if err != nil {
 			return processedCount, err
 		}
-		if held {
-			continue
-		}
-
-		// Skip documents that have the autoOcrTag
-		if slices.Contains(document.Tags, autoOcrTag) {
-			log.Debugf("Skipping document %d as it has the OCR tag %s", document.ID, autoOcrTag)
-			continue
-		}
-
-		docLogger := documentLogger(document.ID)
-		workflow := app.workflowRouter().WorkflowFor(document, triggerTag)
-		if workflow != nil {
-			docLogger.Infof("Processing document for workflow %q (trigger tag: %s)", workflow.ID, triggerTag)
-		} else {
-			docLogger.Info("Processing document for auto-tagging")
-		}
-
-		// Optional per-workflow OCR before metadata generation.
-		if workflow != nil {
-			if wf := *workflow; workflowWantsOCR(wf) {
-				if !app.isOcrEnabled() {
-					// Retrying cannot help until the configuration changes, so
-					// take the document out of the loop right away instead of
-					// fetching it again on every poll.
-					err = fmt.Errorf("workflow %q has enable_ocr but no OCR provider is configured", wf.ID)
-					docLogger.Error(err.Error())
-					if recErr := markProcessingFailed(ctx, app.Client, app.Database, document, triggerTag, "workflow OCR is enabled but no OCR provider is configured"); recErr != nil {
-						errs = append(errs, fmt.Errorf("%w (removing the %q tag failed: %v)", err, triggerTag, recErr))
-					}
-					continue
-				}
-				updatedDoc, ocrErr := app.runWorkflowDocumentOCR(ctx, document, wf, triggerTag, docLogger)
-				if ocrErr != nil {
-					errs = append(errs, ocrErr)
-					continue
-				}
-				if updatedDoc == nil {
-					// OCR skipped or document left the queue (e.g. max retries).
-					continue
-				}
-				document = *updatedDoc
-			}
-		}
-
-		suggestionRequest := globalAutoProcessingRequest(document)
-		suggestionRequest.IsAutoProcessing = true
-		suggestionRequest.Workflow = workflow
-		suggestionRequest.TriggerTag = triggerTag
-
-		suggestions, err := app.generateDocumentSuggestions(ctx, suggestionRequest, docLogger)
-		if err != nil {
-			err = fmt.Errorf("error generating suggestions for document %d: %w", document.ID, err)
-			docLogger.Error(err.Error())
-
-			// Without a loop-break here the auto tag stays on the document and
-			// it is picked up again every poll cycle, forever. A permanent LLM
-			// error (a prompt that cannot fit the context, a model that no
-			// longer exists) therefore re-bills the same request indefinitely,
-			// and because GetDocumentsByTag fetches one unordered page, enough
-			// such documents fill that page and starve every document behind
-			// them — silently, since the container stays healthy. See #1071.
-			//
-			// A canceled poll-loop context is a shutdown, not a document
-			// problem, so it must never count against the document. Same
-			// reasoning as the auto-OCR poll below.
-			if autoTagMaxRetries > 0 && ctx.Err() == nil {
-				attempts := app.suggestionFailures.recordFailure(document.ID)
-				if attempts >= autoTagMaxRetries {
-					reason := fmt.Sprintf("suggestion generation failed %d times", attempts)
-					if recErr := markProcessingFailed(ctx, app.Client, app.Database, document, triggerTag, reason); recErr != nil {
-						// Keep the failure count so the tag removal is retried
-						// on the next poll cycle.
-						docLogger.Errorf("Removing %q tag after repeated suggestion failures also failed: %v. The document will be retried on the next poll cycle.", triggerTag, recErr)
-						errs = append(errs, err)
-						continue
-					}
-					app.suggestionFailures.reset(document.ID)
-					// The document is out of the queue now; don't let its
-					// handled error keep the whole loop in backoff.
-					continue
-				}
-			}
-			errs = append(errs, err)
-			continue
-		}
-		// Suggestions came back — a previous failure streak is over, whatever
-		// the update below does.
-		app.suggestionFailures.reset(document.ID)
-
-		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
-		if err != nil {
-			var partial *PartialUpdateError
-			if errors.As(err, &partial) {
-				// Update went through but paperless-ngx rejected some fields,
-				// which UpdateDocuments dropped in order to land the rest.
-				// The auto tag is already gone (it was part of the successful
-				// retry's tag update). Apply the fail tag so the user sees
-				// that this document needs review.
-				applyFailTagAfterPartialSuccess(ctx, app.Client, app.Database, partial.DocumentID, partial.DroppedFields)
-				processedCount++
-				continue
-			}
-			err = fmt.Errorf("error updating document %d: %w", document.ID, err)
-			docLogger.Error(err.Error())
-			errs = append(errs, err)
-			recoverFromFailedUpdate(ctx, app.Client, app.Database, document, triggerTag)
-			continue
-		}
-
-		docLogger.Info("Successfully processed document")
-		processedCount++
 	}
 
 	if len(errs) > 0 {
@@ -508,8 +515,6 @@ func (app *App) runWorkflowDocumentOCR(ctx context.Context, document Document, w
 
 // processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
 func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
-	app.splitMu.Lock()
-	defer app.splitMu.Unlock()
 	documents, err := app.processingDocuments(ctx, autoOcrTag)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
@@ -526,189 +531,198 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 	var errs []error
 
 	for _, document := range documents {
-		held, holdErr := app.splitHeld(ctx, document.ID, document.Tags)
-		if holdErr != nil {
-			return successCount, holdErr
-		}
-		if held {
-			continue
-		}
-		docLogger := documentLogger(document.ID)
-		docLogger.Info("Processing document for OCR")
+		err = func() error {
+			app.splitMu.Lock()
+			defer app.splitMu.Unlock()
 
-		// Skip OCR if the document already has the OCR complete tag and tagging is enabled
-		if app.pdfOCRTagging {
-			hasCompleteTag := false
-			for _, tag := range document.Tags {
-				if tag == app.pdfOCRCompleteTag {
-					hasCompleteTag = true
-					break
-				}
+			held, holdErr := app.splitHeld(ctx, document.ID, document.Tags)
+			if holdErr != nil {
+				return holdErr
 			}
-
-			if hasCompleteTag {
-				docLogger.Infof("Document already has OCR complete tag '%s', skipping OCR processing", app.pdfOCRCompleteTag)
-
-				// Remove only the autoOcrTag to take it out of the processing queue
-				// while preserving the OCR complete tag
-				err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
-					{
-						ID:               document.ID,
-						OriginalDocument: document,
-						RemoveTags:       []string{autoOcrTag},
-					},
-				}, app.Database, false)
-
-				if err != nil {
-					docLogger.Errorf("Update to remove autoOcrTag failed: %v", err)
-					errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
-					continue
-				}
-
-				docLogger.Info("Successfully removed auto OCR tag")
-				successCount++
-				continue
-			}
-		}
-
-		options := app.effectiveOCRDefaults()
-		options.ExistingContent = document.Content
-
-		// Every auto run is tracked exactly like a manual one: registered in
-		// the in-memory job store (live progress) and persisted as an OCR Run
-		// (Activity log), so hands-off users can audit what happened.
-		jobID := generateJobID()
-		jobStore.addJob(&Job{
-			ID:         jobID,
-			DocumentID: document.ID,
-			Status:     "in_progress",
-			CreatedAt:  time.Now(),
-			UpdatedAt:  time.Now(),
-			Options:    options,
-		})
-		if err := CreateOCRRun(app.Database, &OCRRun{
-			JobID:           jobID,
-			DocumentID:      document.ID,
-			DocumentTitle:   document.Title,
-			Trigger:         "auto",
-			LimitPages:      options.LimitPages,
-			ProcessMode:     options.ProcessMode,
-			UploadPDF:       options.UploadPDF,
-			UploadMode:      options.UploadMode,
-			ReplaceOriginal: options.ReplaceOriginal,
-			CopyMetadata:    options.CopyMetadata,
-			Provider:        app.ocrProviderLabel,
-			PDFAction:       "none",
-		}); err != nil {
-			docLogger.Warnf("Failed to persist auto OCR run: %v", err)
-		}
-
-		// Use the DocumentProcessor interface instead of calling the method directly
-		var processedDoc *ProcessedDocument
-		var err error
-		if app.docProcessor != nil {
-			// Use injected processor if available
-			processedDoc, err = app.docProcessor.ProcessDocumentOCR(ctx, document.ID, options, jobID)
-		} else {
-			// Use the app's own implementation if no processor is injected
-			processedDoc, err = app.ProcessDocumentOCR(ctx, document.ID, options, jobID)
-		}
-
-		pagesDone, totalPages := jobStore.progress(jobID)
-		if err != nil {
-			docLogger.Errorf("OCR processing failed: %v", err)
-			jobStore.updateJobStatus(jobID, "failed", err.Error())
-			finishOCRRunLogged(app, jobID, "failed", err.Error(), pagesDone, totalPages, "", "")
-
-			// A canceled/expired poll-loop context is a shutdown, not a
-			// document problem — never count it against the document.
-			// Deliberately checked on ctx rather than via errors.Is on err:
-			// providers wrap their calls in their own timeout contexts
-			// (e.g. Azure, ocr/azure_provider.go), and those per-document
-			// timeouts must count toward the limit.
-			if ocrMaxRetries > 0 && ctx.Err() == nil {
-				attempts := app.ocrFailures.recordFailure(document.ID)
-				if attempts >= ocrMaxRetries {
-					reason := fmt.Sprintf("OCR failed %d times", attempts)
-					if recErr := markProcessingFailed(ctx, app.Client, app.Database, document, autoOcrTag, reason); recErr != nil {
-						// Keep the failure count so the tag removal is
-						// retried on the next poll cycle.
-						docLogger.Errorf("Removing %q tag after repeated OCR failures also failed: %v. The document will be retried on the next poll cycle.", autoOcrTag, recErr)
-						errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
-						continue
-					}
-					app.ocrFailures.reset(document.ID)
-					// The document is out of the queue now; don't let its
-					// handled error keep the whole loop in backoff.
-					continue
-				}
-			}
-			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
-			continue
-		}
-		// OCR itself succeeded — a previous failure streak is over,
-		// whatever the update below does.
-		app.ocrFailures.reset(document.ID)
-		if processedDoc == nil {
-			docLogger.Info("OCR processing skipped for document")
-			jobStore.updateJobStatus(jobID, "completed", "Skipped (already processed)")
-			finishOCRRunLogged(app, jobID, "completed", "", pagesDone, totalPages, "none", "Skipped (already processed)")
-			continue
-		}
-		jobStore.updateJobStatus(jobID, "completed", processedDoc.Text)
-		finishOCRRunLogged(app, jobID, "completed", "", pagesDone, totalPages, processedDoc.PDFAction, processedDoc.PDFDetail)
-		if err := PruneOCRRuns(app.Database, document.ID); err != nil {
-			docLogger.Warnf("Failed to prune OCR runs: %v", err)
-		}
-		docLogger.Debug("OCR processing completed")
-
-		documentSuggestion := DocumentSuggestion{
-			ID:               document.ID,
-			OriginalDocument: document,
-			SuggestedContent: processedDoc.Text,
-			RemoveTags:       []string{autoOcrTag},
-			// Add OCR complete tag if tagging is enabled and PDF wasn't uploaded (upload handles tagging)
-			AddTags: func() []string {
-				if app.pdfOCRTagging && !options.UploadPDF {
-					return []string{app.pdfOCRCompleteTag}
-				}
+			if held {
 				return nil
-			}(),
-		}
-
-		if (app.pdfOCRTagging) && app.pdfOCRCompleteTag != "" {
-			// Add the OCR complete tag if tagging is enabled
-			documentSuggestion.SuggestedTags = []string{app.pdfOCRCompleteTag}
-			documentSuggestion.KeepOriginalTags = true
-			docLogger.Infof("Adding OCR complete tag '%s'", app.pdfOCRCompleteTag)
-		}
-
-		// Skip updating the original document if it was actually replaced (deleted) during OCR.
-		// The replacement document will be processed as a new document on the next cycle.
-		if options.ReplaceOriginal && processedDoc != nil && processedDoc.ReplacedOriginal {
-			docLogger.Info("Skipping tag update for replaced document (original was deleted)")
-		} else {
-			err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
-				documentSuggestion,
-			}, app.Database, false)
-			if err != nil {
-				var partial *PartialUpdateError
-				if errors.As(err, &partial) {
-					applyFailTagAfterPartialSuccess(ctx, app.Client, app.Database, partial.DocumentID, partial.DroppedFields)
-					// Treat as a (partial) success: tag was removed, fail tag applied.
-					docLogger.Info("Successfully processed document OCR (with partial-update fail-tag marker)")
-					successCount++
-					continue
-				}
-				docLogger.Errorf("Update after OCR failed: %v", err)
-				errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
-				recoverFromFailedUpdate(ctx, app.Client, app.Database, document, autoOcrTag)
-				continue
 			}
-		}
+			docLogger := documentLogger(document.ID)
+			docLogger.Info("Processing document for OCR")
 
-		docLogger.Info("Successfully processed document OCR")
-		successCount++
+			// Skip OCR if the document already has the OCR complete tag and tagging is enabled
+			if app.pdfOCRTagging {
+				hasCompleteTag := false
+				for _, tag := range document.Tags {
+					if tag == app.pdfOCRCompleteTag {
+						hasCompleteTag = true
+						break
+					}
+				}
+
+				if hasCompleteTag {
+					docLogger.Infof("Document already has OCR complete tag '%s', skipping OCR processing", app.pdfOCRCompleteTag)
+
+					// Remove only the autoOcrTag to take it out of the processing queue
+					// while preserving the OCR complete tag
+					err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+						{
+							ID:               document.ID,
+							OriginalDocument: document,
+							RemoveTags:       []string{autoOcrTag},
+						},
+					}, app.Database, false)
+
+					if err != nil {
+						docLogger.Errorf("Update to remove autoOcrTag failed: %v", err)
+						errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
+						return nil
+					}
+
+					docLogger.Info("Successfully removed auto OCR tag")
+					successCount++
+					return nil
+				}
+			}
+
+			options := app.effectiveOCRDefaults()
+			options.ExistingContent = document.Content
+
+			// Every auto run is tracked exactly like a manual one: registered in
+			// the in-memory job store (live progress) and persisted as an OCR Run
+			// (Activity log), so hands-off users can audit what happened.
+			jobID := generateJobID()
+			jobStore.addJob(&Job{
+				ID:         jobID,
+				DocumentID: document.ID,
+				Status:     "in_progress",
+				CreatedAt:  time.Now(),
+				UpdatedAt:  time.Now(),
+				Options:    options,
+			})
+			if err := CreateOCRRun(app.Database, &OCRRun{
+				JobID:           jobID,
+				DocumentID:      document.ID,
+				DocumentTitle:   document.Title,
+				Trigger:         "auto",
+				LimitPages:      options.LimitPages,
+				ProcessMode:     options.ProcessMode,
+				UploadPDF:       options.UploadPDF,
+				UploadMode:      options.UploadMode,
+				ReplaceOriginal: options.ReplaceOriginal,
+				CopyMetadata:    options.CopyMetadata,
+				Provider:        app.ocrProviderLabel,
+				PDFAction:       "none",
+			}); err != nil {
+				docLogger.Warnf("Failed to persist auto OCR run: %v", err)
+			}
+
+			// Use the DocumentProcessor interface instead of calling the method directly
+			var processedDoc *ProcessedDocument
+			var err error
+			if app.docProcessor != nil {
+				// Use injected processor if available
+				processedDoc, err = app.docProcessor.ProcessDocumentOCR(ctx, document.ID, options, jobID)
+			} else {
+				// Use the app's own implementation if no processor is injected
+				processedDoc, err = app.ProcessDocumentOCR(ctx, document.ID, options, jobID)
+			}
+
+			pagesDone, totalPages := jobStore.progress(jobID)
+			if err != nil {
+				docLogger.Errorf("OCR processing failed: %v", err)
+				jobStore.updateJobStatus(jobID, "failed", err.Error())
+				finishOCRRunLogged(app, jobID, "failed", err.Error(), pagesDone, totalPages, "", "")
+
+				// A canceled/expired poll-loop context is a shutdown, not a
+				// document problem, never count it against the document.
+				// Deliberately checked on ctx rather than via errors.Is on err:
+				// providers wrap their calls in their own timeout contexts
+				// (e.g. Azure, ocr/azure_provider.go), and those per-document
+				// timeouts must count toward the limit.
+				if ocrMaxRetries > 0 && ctx.Err() == nil {
+					attempts := app.ocrFailures.recordFailure(document.ID)
+					if attempts >= ocrMaxRetries {
+						reason := fmt.Sprintf("OCR failed %d times", attempts)
+						if recErr := markProcessingFailed(ctx, app.Client, app.Database, document, autoOcrTag, reason); recErr != nil {
+							// Keep the failure count so the tag removal is
+							// retried on the next poll cycle.
+							docLogger.Errorf("Removing %q tag after repeated OCR failures also failed: %v. The document will be retried on the next poll cycle.", autoOcrTag, recErr)
+							errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
+							return nil
+						}
+						app.ocrFailures.reset(document.ID)
+						// The document is out of the queue now; don't let its
+						// handled error keep the whole loop in backoff.
+						return nil
+					}
+				}
+				errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
+				return nil
+			}
+			// OCR itself succeeded, a previous failure streak is over,
+			// whatever the update below does.
+			app.ocrFailures.reset(document.ID)
+			if processedDoc == nil {
+				docLogger.Info("OCR processing skipped for document")
+				jobStore.updateJobStatus(jobID, "completed", "Skipped (already processed)")
+				finishOCRRunLogged(app, jobID, "completed", "", pagesDone, totalPages, "none", "Skipped (already processed)")
+				return nil
+			}
+			jobStore.updateJobStatus(jobID, "completed", processedDoc.Text)
+			finishOCRRunLogged(app, jobID, "completed", "", pagesDone, totalPages, processedDoc.PDFAction, processedDoc.PDFDetail)
+			if err := PruneOCRRuns(app.Database, document.ID); err != nil {
+				docLogger.Warnf("Failed to prune OCR runs: %v", err)
+			}
+			docLogger.Debug("OCR processing completed")
+
+			documentSuggestion := DocumentSuggestion{
+				ID:               document.ID,
+				OriginalDocument: document,
+				SuggestedContent: processedDoc.Text,
+				RemoveTags:       []string{autoOcrTag},
+				// Add OCR complete tag if tagging is enabled and PDF wasn't uploaded (upload handles tagging)
+				AddTags: func() []string {
+					if app.pdfOCRTagging && !options.UploadPDF {
+						return []string{app.pdfOCRCompleteTag}
+					}
+					return nil
+				}(),
+			}
+
+			if (app.pdfOCRTagging) && app.pdfOCRCompleteTag != "" {
+				// Add the OCR complete tag if tagging is enabled
+				documentSuggestion.SuggestedTags = []string{app.pdfOCRCompleteTag}
+				documentSuggestion.KeepOriginalTags = true
+				docLogger.Infof("Adding OCR complete tag '%s'", app.pdfOCRCompleteTag)
+			}
+
+			// Skip updating the original document if it was actually replaced (deleted) during OCR.
+			// The replacement document will be processed as a new document on the next cycle.
+			if options.ReplaceOriginal && processedDoc != nil && processedDoc.ReplacedOriginal {
+				docLogger.Info("Skipping tag update for replaced document (original was deleted)")
+			} else {
+				err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+					documentSuggestion,
+				}, app.Database, false)
+				if err != nil {
+					var partial *PartialUpdateError
+					if errors.As(err, &partial) {
+						applyFailTagAfterPartialSuccess(ctx, app.Client, app.Database, partial.DocumentID, partial.DroppedFields)
+						// Treat as a (partial) success: tag was removed, fail tag applied.
+						docLogger.Info("Successfully processed document OCR (with partial-update fail-tag marker)")
+						successCount++
+						return nil
+					}
+					docLogger.Errorf("Update after OCR failed: %v", err)
+					errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
+					recoverFromFailedUpdate(ctx, app.Client, app.Database, document, autoOcrTag)
+					return nil
+				}
+			}
+
+			docLogger.Info("Successfully processed document OCR")
+			successCount++
+			return nil
+		}()
+		if err != nil {
+			return successCount, err
+		}
 	}
 
 	if len(errs) > 0 {

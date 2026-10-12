@@ -606,6 +606,79 @@ func (r *recordingClient) GetAllTags(ctx context.Context) (map[string]int, error
 	return map[string]int{}, nil
 }
 
+type splitLockClient struct {
+	*recordingClient
+	checkLock func(bool)
+}
+
+func (c *splitLockClient) GetDocumentsByTag(ctx context.Context, tag string, size int) ([]Document, error) {
+	c.checkLock(false)
+	return c.recordingClient.GetDocumentsByTag(ctx, tag, size)
+}
+
+func (c *splitLockClient) GetDocument(ctx context.Context, id int) (Document, error) {
+	c.checkLock(false)
+	return c.recordingClient.GetDocument(ctx, id)
+}
+
+func (c *splitLockClient) GetAllTags(ctx context.Context) (map[string]int, error) {
+	c.checkLock(true)
+	return c.recordingClient.GetAllTags(ctx)
+}
+
+func (c *splitLockClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
+	c.checkLock(true)
+	return c.recordingClient.UpdateDocuments(ctx, documents, db, isUndo)
+}
+
+func TestBackgroundSplitLockScope(t *testing.T) {
+	for _, kind := range []string{"metadata", "ocr", "ocr-update-error"} {
+		t.Run(kind, func(t *testing.T) {
+			app := &App{pdfOCRTagging: true, pdfOCRCompleteTag: "complete"}
+			checks := 0
+			client := &splitLockClient{
+				recordingClient: &recordingClient{
+					taggedDocuments: map[string][]Document{autoOcrTag: {
+						{ID: 1, Tags: []string{"complete"}},
+						{ID: 2, Tags: []string{"complete"}},
+					}},
+					getAllTagsErr: errors.New("suggestions unavailable"),
+				},
+				checkLock: func(wantLocked bool) {
+					checks++
+					locked := !app.splitMu.TryLock()
+					if !locked {
+						app.splitMu.Unlock()
+					}
+					assert.Equal(t, wantLocked, locked)
+				},
+			}
+			app.Client = client
+			if kind == "metadata" {
+				count, err := app.processTagDocuments(context.Background(), autoOcrTag)
+				assert.Zero(t, count)
+				assert.ErrorContains(t, err, "suggestions unavailable")
+				assert.Equal(t, 5, checks)
+			} else {
+				if kind == "ocr-update-error" {
+					client.updateErr = errors.New("update unavailable")
+					client.failAfterNCalls = 2
+				}
+				count, err := app.processAutoOcrTagDocuments(context.Background())
+				if kind == "ocr-update-error" {
+					assert.Zero(t, count)
+					assert.ErrorContains(t, err, "update unavailable")
+				} else {
+					assert.Equal(t, 2, count)
+					assert.NoError(t, err)
+				}
+				assert.Equal(t, 3, checks)
+			}
+			client.checkLock(false)
+		})
+	}
+}
+
 // callsFor filters the recorded UpdateDocuments suggestions by document ID.
 func (r *recordingClient) callsFor(documentID int) []DocumentSuggestion {
 	var out []DocumentSuggestion
