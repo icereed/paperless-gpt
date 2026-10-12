@@ -117,9 +117,12 @@ test('a lost Apply response requires a refresh and keeps an uncertain split disa
 
 test('the Suggestion list can recover from a load error and supports pagination', async ({ page }) => {
   const gpt = `http://localhost:${environment.paperlessGpt.getMappedPort(PORTS.paperlessGpt)}`;
-  let fail = true;
+  let failures = 0;
   await page.route('**/api/split-suggestions?*', route => {
-    if (fail) { fail = false; return route.fulfill({ status: 503, json: { error: 'Temporarily unavailable' } }); }
+    failures++;
+    if (failures === 1) return route.fulfill({ status: 502, contentType: 'text/html', body: '<h1>Bad Gateway</h1>' });
+    if (failures === 2) return route.fulfill({ status: 503, contentType: 'application/json', body: 'null' });
+    if (failures === 3) return route.fulfill({ status: 503, json: { error: 'Temporarily unavailable' } });
     const secondPage = new URL(route.request().url()).searchParams.get('page') === '2';
     return route.fulfill({ json: {
       count: 51, config: { dry_run: true, delete_originals: false, tag: 'paperless-gpt-split' },
@@ -129,6 +132,10 @@ test('the Suggestion list can recover from a load error and supports pagination'
   });
   await page.route('**/api/documents/900/pages/*/image?*', route => route.fulfill({ status: 503 }));
   await page.goto(`${gpt}/splitting`);
+  await expect(page.getByRole('alert')).toContainText('Request failed (502)');
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Request failed (503)');
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Temporarily unavailable');
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await page.getByRole('button', { name: 'Next', exact: true }).click();

@@ -36,9 +36,11 @@ const statusLabels: Record<string, string> = {
 
 async function splitRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`./api/${path}`, init);
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
-  return data;
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    throw new Error(data?.error || `Request failed (${response.status})`);
+  }
+  return response.json();
 }
 
 function PageThumbnail({ src, page, onOpen }: { src: string; page: number; onOpen: () => void }) {
