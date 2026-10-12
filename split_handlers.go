@@ -7,6 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// splitAvailable reports whether split configuration and storage are available,
+// writing a 503 JSON response when either is missing.
 func (app *App) splitAvailable(c *gin.Context) bool {
 	if app.splitConfig == nil || app.Database == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Split processing unavailable"})
@@ -15,6 +17,8 @@ func (app *App) splitAvailable(c *gin.Context) bool {
 	return true
 }
 
+// splitRequestID parses a nonzero 32-bit ID from the route, writing a 400 JSON
+// response and returning false when parsing or validation fails.
 func splitRequestID(c *gin.Context) (uint, bool) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil || id == 0 {
@@ -24,6 +28,9 @@ func splitRequestID(c *gin.Context) (uint, bool) {
 	return uint(id), true
 }
 
+// listSplitSuggestionsHandler returns 50 suggestions per one-based page, newest
+// first, with an optional status filter, total count, and split configuration.
+// Invalid pages receive 400; database failures receive 500.
 func (app *App) listSplitSuggestionsHandler(c *gin.Context) {
 	if !app.splitAvailable(c) {
 		return
@@ -50,6 +57,8 @@ func (app *App) listSplitSuggestionsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"results": suggestions, "count": total, "page": page, "config": app.splitConfig})
 }
 
+// generateSplitSuggestionHandler generates or regenerates a document ID's
+// suggestion while holding splitMu, returning the suggestion or a 409 on generation failure.
 func (app *App) generateSplitSuggestionHandler(c *gin.Context) {
 	if !app.splitAvailable(c) {
 		return
@@ -68,6 +77,9 @@ func (app *App) generateSplitSuggestionHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, suggestion)
 }
 
+// applySplitSuggestionHandler applies a suggestion ID's one-based after-page
+// boundaries while holding splitMu; an empty array keeps the document intact.
+// Invalid JSON receives 400, while Apply errors receive 409 with any suggestion.
 func (app *App) applySplitSuggestionHandler(c *gin.Context) {
 	if !app.splitAvailable(c) {
 		return
@@ -94,6 +106,9 @@ func (app *App) applySplitSuggestionHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, suggestion)
 }
 
+// skipSplitSuggestionHandler marks a review or already skipped suggestion as
+// skipped while holding splitMu. Database failures receive 500; missing or
+// ineligible suggestions receive 409.
 func (app *App) skipSplitSuggestionHandler(c *gin.Context) {
 	if !app.splitAvailable(c) {
 		return

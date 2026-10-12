@@ -26,6 +26,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// newSplitDB creates an in-memory split database with one connection and closes it after the test.
 func newSplitDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -50,20 +51,34 @@ type splitTestClient struct {
 	list       []int
 }
 
+// InvalidateSplitPreviews reports success without maintaining a preview cache.
 func (c *splitTestClient) InvalidateSplitPreviews(int) error { return nil }
 
+// GetSplitSource returns the configured source metadata.
 func (c *splitTestClient) GetSplitSource(context.Context, int) (splitSource, error) {
 	return c.source, nil
 }
+
+// DownloadPDF returns the configured PDF bytes.
 func (c *splitTestClient) DownloadPDF(context.Context, Document) ([]byte, error) { return c.data, nil }
+
+// ListSplitDocumentIDs returns the configured split queue.
 func (c *splitTestClient) ListSplitDocumentIDs(context.Context, string) ([]int, error) {
 	return c.list, nil
 }
+
+// GetAllTags returns the configured tag names and IDs.
 func (c *splitTestClient) GetAllTags(context.Context) (map[string]int, error) { return c.tags, nil }
-func (c *splitTestClient) EnsureTagExists(context.Context, string) error      { return nil }
+
+// EnsureTagExists reports success without changing the configured tags.
+func (c *splitTestClient) EnsureTagExists(context.Context, string) error { return nil }
+
+// GetDocument returns the source ID and a copy of its tag IDs.
 func (c *splitTestClient) GetDocument(context.Context, int) (Document, error) {
 	return Document{ID: c.source.ID, TagIDs: slices.Clone(c.source.Tags)}, nil
 }
+
+// SetSplitTags records tag changes and injects configured swap or cleanup failures.
 func (c *splitTestClient) SetSplitTags(_ context.Context, _ int, tags []int) error {
 	c.events = append(c.events, fmt.Sprintf("tags:%v", tags))
 	if len(c.events) == 1 && c.swapErr != nil {
@@ -75,11 +90,14 @@ func (c *splitTestClient) SetSplitTags(_ context.Context, _ int, tags []int) err
 	c.source.Tags = slices.Clone(tags)
 	return nil
 }
+
+// SplitDocument records the original-deletion choice and returns the configured submission error.
 func (c *splitTestClient) SplitDocument(_ context.Context, _ int, _ int, _ []int, deleteOriginals bool) error {
 	c.events = append(c.events, fmt.Sprintf("split:delete=%t", deleteOriginals))
 	return c.splitErr
 }
 
+// splitApplyFixture creates a review suggestion with matching source checksums and configured split and output tags.
 func splitApplyFixture(t *testing.T) (*App, *splitTestClient, *SplitSuggestion) {
 	t.Helper()
 	data := []byte("unchanged archive")
@@ -93,6 +111,7 @@ func splitApplyFixture(t *testing.T) (*App, *splitTestClient, *SplitSuggestion) 
 	return app, client, s
 }
 
+// TestSplitApplyTagOrderAndDuplicate checks tag-update ordering, persisted application details, and duplicate-submission rejection.
 func TestSplitApplyTagOrderAndDuplicate(t *testing.T) {
 	app, client, s := splitApplyFixture(t)
 	result, err := app.applySplitSuggestion(context.Background(), s.ID, []int{3, 4})
@@ -112,6 +131,7 @@ func TestSplitApplyTagOrderAndDuplicate(t *testing.T) {
 	assert.True(t, held)
 }
 
+// TestSplitApplyGuards checks that dry-run mode, changed source data, and invalid boundaries prevent external changes.
 func TestSplitApplyGuards(t *testing.T) {
 	for _, kind := range []string{"dry-run", "changed-original", "changed-archive", "invalid-boundaries"} {
 		t.Run(kind, func(t *testing.T) {
@@ -134,6 +154,7 @@ func TestSplitApplyGuards(t *testing.T) {
 	}
 }
 
+// TestSplitKeepWhole checks that empty boundaries update tags, release the processing hold, and reject repeated application.
 func TestSplitKeepWhole(t *testing.T) {
 	for _, pages := range []int{1, 3} {
 		for _, status := range []string{"review", "skipped"} {
@@ -164,6 +185,7 @@ func TestSplitKeepWhole(t *testing.T) {
 	}
 }
 
+// TestSplitKeepWholeGuards checks that invalid or failed keep requests retain the processing hold without submitting a split.
 func TestSplitKeepWholeGuards(t *testing.T) {
 	for _, kind := range []string{"dry-run", "changed-original", "changed-archive", "tag-failure", "submitted", "uncertain"} {
 		t.Run(kind, func(t *testing.T) {
@@ -198,6 +220,7 @@ type splitQueueSnapshotClient struct {
 	afterList func()
 }
 
+// GetDocument adds configured tag names to the current source snapshot.
 func (c *splitQueueSnapshotClient) GetDocument(ctx context.Context, id int) (Document, error) {
 	doc, err := c.splitTestClient.GetDocument(ctx, id)
 	for name, tagID := range c.tags {
@@ -208,6 +231,7 @@ func (c *splitQueueSnapshotClient) GetDocument(ctx context.Context, id int) (Doc
 	return doc, err
 }
 
+// GetDocumentsByTagExcluding captures the source document before running the queue-change callback.
 func (c *splitQueueSnapshotClient) GetDocumentsByTagExcluding(ctx context.Context, _ string, _ int, _ string, _ int) ([]Document, error) {
 	doc, err := c.GetDocument(ctx, c.source.ID)
 	if err != nil {
@@ -217,6 +241,7 @@ func (c *splitQueueSnapshotClient) GetDocumentsByTagExcluding(ctx context.Contex
 	return []Document{doc}, nil
 }
 
+// TestAutoOCRPreservesSplitKeepTagsFromQueuedDocuments checks that OCR refreshes tags after a queued document is kept whole.
 func TestAutoOCRPreservesSplitKeepTagsFromQueuedDocuments(t *testing.T) {
 	app, splitClient, suggestion := splitApplyFixture(t)
 	splitClient.tags[autoOcrTag] = 4
@@ -249,6 +274,7 @@ func TestAutoOCRPreservesSplitKeepTagsFromQueuedDocuments(t *testing.T) {
 	assert.Equal(t, []string{autoOcrTag}, recorder.calls[0].RemoveTags)
 }
 
+// TestSplitApplyFailureRecovery checks that tag-swap failures restore review state while submission or cleanup failures block retries.
 func TestSplitApplyFailureRecovery(t *testing.T) {
 	for _, stage := range []string{"swap", "submit", "cleanup"} {
 		t.Run(stage, func(t *testing.T) {
@@ -278,6 +304,7 @@ func TestSplitApplyFailureRecovery(t *testing.T) {
 	}
 }
 
+// TestSplitInterruptedState checks that interrupted generation becomes failed and interrupted application becomes uncertain.
 func TestSplitInterruptedState(t *testing.T) {
 	db := newSplitDB(t)
 	require.NoError(t, db.Create(&SplitSuggestion{DocumentID: 1, Status: "generating"}).Error)
@@ -289,6 +316,7 @@ func TestSplitInterruptedState(t *testing.T) {
 	assert.Equal(t, "uncertain", records[1].Status)
 }
 
+// TestSplitAPIRequest checks the authenticated split payload and rejects failed or malformed responses.
 func TestSplitAPIRequest(t *testing.T) {
 	for _, response := range []string{`{"result":"OK"}`, `{"result":"FAILED"}`, `invalid`} {
 		t.Run(response, func(t *testing.T) {
@@ -313,6 +341,7 @@ func TestSplitAPIRequest(t *testing.T) {
 	}
 }
 
+// TestSplitAPIPaginationAndTagVerification checks local pagination and rejection when updated tags differ from the requested tags.
 func TestSplitAPIPaginationAndTagVerification(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "PATCH" {
@@ -341,6 +370,7 @@ type splitTestLLM struct {
 	err       error
 }
 
+// Call counts invocations and returns a configured error or successive responses, repeating the last response.
 func (m *splitTestLLM) Call(context.Context, string, ...llms.CallOption) (string, error) {
 	m.calls++
 	if m.err != nil {
@@ -349,6 +379,7 @@ func (m *splitTestLLM) Call(context.Context, string, ...llms.CallOption) (string
 	return m.responses[min(m.calls-1, len(m.responses)-1)], nil
 }
 
+// TestSplitGenerationRetryAndPersistence checks one retry for invalid model output and reuse of persisted success or failure results.
 func TestSplitGenerationRetryAndPersistence(t *testing.T) {
 	for _, failed := range []bool{false, true} {
 		t.Run(fmt.Sprint(failed), func(t *testing.T) {
@@ -390,6 +421,7 @@ func TestSplitGenerationRetryAndPersistence(t *testing.T) {
 	}
 }
 
+// TestSplitAutomaticBackground checks automatic-application eligibility, failure states, and suppression of retries for existing suggestions.
 func TestSplitAutomaticBackground(t *testing.T) {
 	previousTemplate := splitTemplate
 	t.Cleanup(func() { splitTemplate = previousTemplate })
@@ -486,6 +518,7 @@ func syntheticSplitPDF(pages int) []byte {
 	return b.Bytes()
 }
 
+// TestSplitConcurrentApplyHandlers checks that simultaneous requests submit one split and return one conflict.
 func TestSplitConcurrentApplyHandlers(t *testing.T) {
 	app, client, s := splitApplyFixture(t)
 	router := gin.New()
@@ -519,11 +552,13 @@ type splitReviewContext struct {
 	betweenDocuments func()
 }
 
+// Err runs the between-document probe before returning the underlying context error.
 func (ctx splitReviewContext) Err() error {
 	ctx.betweenDocuments()
 	return ctx.Context.Err()
 }
 
+// TestSplitReleasesLockBetweenQueuedDocuments checks that review can acquire the split lock between queue items and skip a suggestion afterward.
 func TestSplitReleasesLockBetweenQueuedDocuments(t *testing.T) {
 	app, client, suggestion := splitApplyFixture(t)
 	client.data = syntheticSplitPDF(2)
@@ -562,6 +597,7 @@ func TestSplitReleasesLockBetweenQueuedDocuments(t *testing.T) {
 	assert.Equal(t, "skipped", suggestion.Status)
 }
 
+// TestSplitListAndSkip checks suggestion listing and persistence of the skipped status through HTTP handlers.
 func TestSplitListAndSkip(t *testing.T) {
 	app, _, s := splitApplyFixture(t)
 	router := gin.New()
@@ -583,6 +619,7 @@ func TestSplitListAndSkip(t *testing.T) {
 	assert.Equal(t, "skipped", s.Status)
 }
 
+// TestSplitProcessingExcludesBeforeLimit checks that API filtering precedes queue limits and a missing subsequent page ends pagination.
 func TestSplitProcessingExcludesBeforeLimit(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()
@@ -613,6 +650,7 @@ func TestSplitProcessingExcludesBeforeLimit(t *testing.T) {
 	assert.Empty(t, docs)
 }
 
+// TestSplitHundredPageBatchHasNoWindowEdgeSplits checks every adjacent page pair without treating window edges as boundaries.
 func TestSplitHundredPageBatchHasNoWindowEdgeSplits(t *testing.T) {
 	windows := splitWindows(105, 8)
 	results := make([]splitWindowResult, 0, len(windows))
@@ -628,6 +666,7 @@ func TestSplitHundredPageBatchHasNoWindowEdgeSplits(t *testing.T) {
 	assert.Empty(t, mergeSplitWindows(results), "window edges never imply boundaries")
 }
 
+// TestSplitSourceRejectsUnsupportedOrIncompleteMetadata checks rejection of non-PDF sources and invalid page counts.
 func TestSplitSourceRejectsUnsupportedOrIncompleteMetadata(t *testing.T) {
 	for _, source := range []string{`{"id":1,"page_count":3}`, `{"id":1,"page_count":0}`} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -644,6 +683,7 @@ func TestSplitSourceRejectsUnsupportedOrIncompleteMetadata(t *testing.T) {
 	}
 }
 
+// TestSplitBackgroundSkipsPersistedAndTaggedSources checks holds for persisted suggestions and case-insensitive split tags.
 func TestSplitBackgroundSkipsPersistedAndTaggedSources(t *testing.T) {
 	app, _, _ := splitApplyFixture(t)
 	held, err := app.splitHeld(context.Background(), 17, []string{"auto"})
@@ -657,6 +697,7 @@ func TestSplitBackgroundSkipsPersistedAndTaggedSources(t *testing.T) {
 	assert.False(t, held)
 }
 
+// TestSplitBackgroundHoldByStatus checks that only failed or kept suggestions release processing unless the split tag remains.
 func TestSplitBackgroundHoldByStatus(t *testing.T) {
 	for _, status := range []string{"generating", "review", "skipped", "applying", "submitted", "uncertain", "failed", "kept"} {
 		t.Run(status, func(t *testing.T) {
@@ -672,6 +713,7 @@ func TestSplitBackgroundHoldByStatus(t *testing.T) {
 	}
 }
 
+// TestSplitRegenerationInvalidatesOnlyPagePreviews checks that invalidation preserves OCR images and tolerates missing caches.
 func TestSplitRegenerationInvalidatesOnlyPagePreviews(t *testing.T) {
 	client := NewPaperlessClient("http://unused", "test")
 	client.CacheFolder = t.TempDir()
@@ -695,6 +737,7 @@ type splitPollingClient struct {
 	pages []int
 }
 
+// GetDocumentsByTagExcluding records requested pages and exposes document 26 on the second page.
 func (c *splitPollingClient) GetDocumentsByTagExcluding(_ context.Context, _ string, size int, _ string, page int) ([]Document, error) {
 	c.pages = append(c.pages, page)
 	if page == 2 {
@@ -707,6 +750,7 @@ func (c *splitPollingClient) GetDocumentsByTagExcluding(_ context.Context, _ str
 	return documents, nil
 }
 
+// TestSplitRetainedOriginalsDoNotStarveQueue checks that polling advances past a full page of submitted originals to an eligible document.
 func TestSplitRetainedOriginalsDoNotStarveQueue(t *testing.T) {
 	client := &splitPollingClient{}
 	app := &App{Client: client, Database: newSplitDB(t), splitConfig: &SplitConfig{Tag: "split"}}

@@ -11,7 +11,7 @@ test.skip(!isMockLlmMode(), 'requires WireMock');
 let environment: TestEnvironment;
 
 
-// Each two-page pair is a separate synthetic letter. No private document fixtures.
+/** Builds a PDF of synthetic two-page letters, with an optional label to distinguish uploads. */
 function batchPDF(label = '', pages = 6): Buffer {
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
   const kids: string[] = [];

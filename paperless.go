@@ -348,10 +348,15 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 	return client.getDocumentsByTag(ctx, tag, pageSize, "", 1)
 }
 
+// GetDocumentsByTagExcluding returns tagged documents without excludedTag on a
+// one-based page ordered by ID. An empty excludedTag instead selects the first
+// tagged page without exclusion or explicit ordering.
 func (client *PaperlessClient) GetDocumentsByTagExcluding(ctx context.Context, tag string, pageSize int, excludedTag string, page int) ([]Document, error) {
 	return client.getDocumentsByTag(ctx, tag, pageSize, excludedTag, page)
 }
 
+// getDocumentsByTag resolves document metadata for a tag query and optionally
+// excludes a second tag. A missing page after the first ends an exclusion query.
 func (client *PaperlessClient) getDocumentsByTag(ctx context.Context, tag string, pageSize int, excludedTag string, page int) ([]Document, error) {
 	documentCount, err := client.GetDocumentCountByTag(ctx, tag)
 	if err != nil {

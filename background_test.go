@@ -612,11 +612,13 @@ type splitLockClient struct {
 	getDocumentErrors map[int]error
 }
 
+// GetDocumentsByTag checks that queue fetching leaves the split lock available.
 func (c *splitLockClient) GetDocumentsByTag(ctx context.Context, tag string, size int) ([]Document, error) {
 	c.checkLock(false)
 	return c.recordingClient.GetDocumentsByTag(ctx, tag, size)
 }
 
+// GetDocument checks that the split lock is held and injects configured fetch errors.
 func (c *splitLockClient) GetDocument(ctx context.Context, id int) (Document, error) {
 	c.checkLock(true)
 	if err := c.getDocumentErrors[id]; err != nil {
@@ -625,16 +627,19 @@ func (c *splitLockClient) GetDocument(ctx context.Context, id int) (Document, er
 	return c.recordingClient.GetDocument(ctx, id)
 }
 
+// GetAllTags checks that tag lookup holds the split lock.
 func (c *splitLockClient) GetAllTags(ctx context.Context) (map[string]int, error) {
 	c.checkLock(true)
 	return c.recordingClient.GetAllTags(ctx)
 }
 
+// UpdateDocuments checks that document updates hold the split lock.
 func (c *splitLockClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
 	c.checkLock(true)
 	return c.recordingClient.UpdateDocuments(ctx, documents, db, isUndo)
 }
 
+// TestBackgroundSplitLockScope checks that metadata and OCR processing hold the split lock per document and release it on errors.
 func TestBackgroundSplitLockScope(t *testing.T) {
 	for _, kind := range []string{"metadata", "ocr", "ocr-update-error"} {
 		t.Run(kind, func(t *testing.T) {
@@ -683,6 +688,7 @@ func TestBackgroundSplitLockScope(t *testing.T) {
 	}
 }
 
+// TestBackgroundDocumentFetchErrorsContinueQueue checks that fetch failures accumulate without stopping later queue items or retaining the split lock.
 func TestBackgroundDocumentFetchErrorsContinueQueue(t *testing.T) {
 	for _, kind := range []string{"metadata", "ocr"} {
 		t.Run(kind, func(t *testing.T) {

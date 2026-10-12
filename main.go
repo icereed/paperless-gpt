@@ -156,6 +156,7 @@ type App struct {
 	WorkflowRouter     WorkflowRouter         // Maps documents to workflows; nil uses one trigger tag per workflow
 }
 
+// main loads configuration and processing state, starts background workers, and serves the HTTP API and UI.
 func main() {
 	// Context for proper control of background-thread
 	ctx, cancel := context.WithCancel(context.Background())

@@ -32,6 +32,8 @@ type SplitSuggestion struct {
 	UpdatedAt         time.Time       `json:"updated_at"`
 }
 
+// markInterruptedSplits marks interrupted generation as failed and interrupted
+// Apply as uncertain, returning the first database error.
 func markInterruptedSplits(db *gorm.DB) error {
 	if err := db.Model(&SplitSuggestion{}).Where("status = ?", "generating").Updates(map[string]interface{}{"status": "failed", "error": "Generation interrupted; generate again to retry"}).Error; err != nil {
 		return err
@@ -39,6 +41,9 @@ func markInterruptedSplits(db *gorm.DB) error {
 	return db.Model(&SplitSuggestion{}).Where("status = ?", "applying").Updates(map[string]interface{}{"status": "uncertain", "error": "Apply interrupted; inspect paperless-ngx before any further split"}).Error
 }
 
+// splitHeld reports whether a document is reserved for splitting by its trigger
+// tag or a suggestion whose status is neither failed nor kept. It returns false
+// when splitting is disabled and propagates database errors.
 func (app *App) splitHeld(ctx context.Context, id int, tags []string) (bool, error) {
 	if app.splitConfig == nil {
 		return false, nil
@@ -51,6 +56,9 @@ func (app *App) splitHeld(ctx context.Context, id int, tags []string) (bool, err
 	return count != 0, err
 }
 
+// processSplitTagDocuments processes documents bearing the configured split tag
+// and returns the number of successfully generated suggestions. Per-document
+// errors are joined; cancellation stops processing with the count so far.
 func (app *App) processSplitTagDocuments(ctx context.Context) (int, error) {
 	if app == nil || app.splitConfig == nil {
 		return 0, nil
@@ -80,6 +88,9 @@ func (app *App) processSplitTagDocuments(ctx context.Context) (int, error) {
 	return count, errors.Join(failures...)
 }
 
+// processSplitDocument holds splitMu while generating a document's first
+// suggestion and applying eligible automatic boundaries. It returns false if a
+// suggestion already exists or generation fails, and true even if Apply fails.
 func (app *App) processSplitDocument(ctx context.Context, id int) (bool, error) {
 	app.splitMu.Lock()
 	defer app.splitMu.Unlock()
@@ -103,7 +114,11 @@ func (app *App) processSplitDocument(ctx context.Context, id int) (bool, error) 
 	return true, nil
 }
 
-// Callers hold splitMu, shared with OCR and metadata processing through Apply cleanup.
+// generateSplitSuggestion analyzes a document and persists boundaries for review.
+// It reuses an existing suggestion unless regenerate is true, which permits
+// replacing review, failed, or skipped suggestions. Generation failures attempt
+// to save a failed status and add FAIL_TAG, returning any cleanup errors too.
+// Callers must hold splitMu, shared with OCR and metadata processing.
 func (app *App) generateSplitSuggestion(ctx context.Context, id int, regenerate bool) (*SplitSuggestion, error) {
 	client, ok := app.Client.(splitClient)
 	if !ok {
@@ -205,6 +220,8 @@ func (app *App) generateSplitSuggestion(ctx context.Context, id int, regenerate 
 	return &suggestion, nil
 }
 
+// tagSplitFailure ensures FAIL_TAG exists and adds it to the document's current
+// tags, returning tag lookup or API errors.
 func (app *App) tagSplitFailure(ctx context.Context, client splitClient, id int) error {
 	if err := client.EnsureTagExists(ctx, failTag); err != nil {
 		return err
@@ -228,6 +245,12 @@ func (app *App) tagSplitFailure(ctx context.Context, client splitClient, id int)
 	return client.SetSplitTags(ctx, id, doc.TagIDs)
 }
 
+// applySplitSuggestion validates and claims a suggestion, replaces its trigger
+// tag with output tags, and submits a split at one-based after-page positions.
+// Empty boundaries keep the document intact with the output tags. Split requests
+// use DeleteOriginals; submission or tag cleanup failures mark the result uncertain.
+// It returns validation, API, or persistence errors. Callers must hold splitMu
+// until it returns, including tag cleanup after a split attempt.
 func (app *App) applySplitSuggestion(ctx context.Context, id uint, boundaries []int) (*SplitSuggestion, error) {
 	if app.splitConfig.DryRun {
 		return nil, fmt.Errorf("SPLIT_DRY_RUN prevents Apply")
@@ -336,8 +359,13 @@ func (app *App) applySplitSuggestion(ctx context.Context, id uint, boundaries []
 	return &s, errors.Join(combined, saveErr)
 }
 
+// splitJSON returns v encoded as JSON, or an empty string if encoding fails.
 func splitJSON(v interface{}) string { b, _ := json.Marshal(v); return string(b) }
 
+// restoreSplitTags removes the split trigger and output tags added for Apply while
+// preserving unrelated current tags. It restores an original trigger tag when
+// requested and tolerates a missing source when DeleteOriginals is enabled.
+// Other API errors are returned; callers must hold splitMu through cleanup.
 func (app *App) restoreSplitTags(ctx context.Context, client splitClient, s *SplitSuggestion, restoreTrigger bool) error {
 	// Read current tags so unrelated edits made during the split are not overwritten.
 	doc, err := client.GetSplitSource(ctx, s.DocumentID)
@@ -355,7 +383,10 @@ func (app *App) restoreSplitTags(ctx context.Context, client splitClient, s *Spl
 	return client.SetSplitTags(ctx, s.DocumentID, tags)
 }
 
-// Exclude pending split batches before the server applies the 25-document poll limit.
+// processingDocuments returns the first page containing eligible tagged documents,
+// excluding split trigger tags before the 25-document limit when the client supports
+// it and filtering held suggestions afterward. Otherwise it uses the normal tag
+// query. API and database errors are returned.
 func (app *App) processingDocuments(ctx context.Context, tag string) ([]Document, error) {
 	if app.splitConfig != nil {
 		if client, ok := app.Client.(interface {

@@ -330,6 +330,7 @@ func TestValidateWorkflowTags(t *testing.T) {
 	}
 }
 
+// TestValidateWorkflowSplitTag checks that workflow tags cannot reuse the split tag, regardless of case.
 func TestValidateWorkflowSplitTag(t *testing.T) {
 	previous := splitTag
 	t.Cleanup(func() { splitTag = previous })

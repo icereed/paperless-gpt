@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestParseSplitBoundaries checks both response formats and rejects malformed, unordered, duplicate, or out-of-window boundaries.
 func TestParseSplitBoundaries(t *testing.T) {
 	for _, input := range []string{
 		`not json`, `null`, `{}`, `[{}]`,
@@ -57,6 +58,7 @@ func TestParseSplitBoundaries(t *testing.T) {
 	}
 }
 
+// TestSplitWindowsAndMerge checks window overlap, disagreement detection, and minimum confidence for shared boundaries.
 func TestSplitWindowsAndMerge(t *testing.T) {
 	assert.Equal(t, []splitWindow{{1, 8}, {7, 14}, {13, 20}, {19, 21}}, splitWindows(21, 8))
 	assert.Equal(t, []splitWindow{{1, 8}}, splitWindows(8, 8))
@@ -84,6 +86,7 @@ func TestSplitWindowsAndMerge(t *testing.T) {
 	assert.False(t, merged[0].Conflict)
 }
 
+// TestParseSplitDecisions checks that complete boolean page decisions produce only selected boundaries and reject mixed formats.
 func TestParseSplitDecisions(t *testing.T) {
 	boundaries, err := parseSplitBoundaries(`[
 		{"page":8,"split":false,"confidence":1,"reason":"Same invoice continues"},
@@ -113,6 +116,7 @@ func TestParseSplitDecisions(t *testing.T) {
 	}
 }
 
+// TestSplitPagesString checks page-range formatting and rejects missing, unordered, duplicate, or out-of-range boundaries.
 func TestSplitPagesString(t *testing.T) {
 	pages, err := splitPagesString(9, []int{3, 4})
 	require.NoError(t, err)
@@ -123,6 +127,7 @@ func TestSplitPagesString(t *testing.T) {
 	}
 }
 
+// TestSplitSignalsAndRules checks page signals and pagination guards, including footers beyond the text excerpt.
 func TestSplitSignalsAndRules(t *testing.T) {
 	p := splitPageSignals(7, 595, 842, pdfrender.PageAnalysis{Text: "Firma Beispiel\nBerlin\n01.10.2026\nSeite 1 von 3", ImageCoverage: 1})
 	assert.Equal(t, "portrait", p.Orientation)
@@ -148,6 +153,7 @@ func TestSplitSignalsAndRules(t *testing.T) {
 	assert.LessOrEqual(t, len(strings.Split(p.Text, "\n")), 40)
 }
 
+// TestSplitPrompt checks that the default prompt includes page content, decision bounds, and German document guidance.
 func TestSplitPrompt(t *testing.T) {
 	content, err := os.ReadFile("default_prompts/split_prompt.tmpl")
 	require.NoError(t, err)
@@ -162,6 +168,7 @@ func TestSplitPrompt(t *testing.T) {
 	assert.Contains(t, prompt, "German")
 }
 
+// TestSplitSparseOCRBlocksAutomaticApply checks that image pages with fewer than ten text characters block adjacent boundaries and automatic application.
 func TestSplitSparseOCRBlocksAutomaticApply(t *testing.T) {
 	for _, length := range []int{0, 9, 10} {
 		pages := []SplitPage{{Page: 1, TextLength: 100}, {Page: 2, TextLength: length, ImageCoverage: 1}, {Page: 3, TextLength: 100}, {Page: 4, TextLength: 100}}
@@ -180,6 +187,7 @@ func TestSplitSparseOCRBlocksAutomaticApply(t *testing.T) {
 	}
 }
 
+// TestSplitConfigValidation checks defaults, automatic mode, and rejection of invalid environment settings.
 func TestSplitConfigValidation(t *testing.T) {
 	for _, key := range []string{"SPLIT_TAG", "SPLIT_DRY_RUN", "SPLIT_CONFIDENCE_THRESHOLD", "SPLIT_AUTO", "SPLIT_DELETE_ORIGINALS", "SPLIT_WINDOW_SIZE", "SPLIT_OUTPUT_TAGS"} {
 		t.Setenv(key, "")
@@ -202,6 +210,7 @@ func TestSplitConfigValidation(t *testing.T) {
 	}
 }
 
+// TestAutomaticSplitBoundaries checks that automatic application requires every boundary and the suggestion configuration to qualify.
 func TestAutomaticSplitBoundaries(t *testing.T) {
 	for _, kind := range []string{"eligible", "threshold", "low-confidence", "blocked", "conflict", "empty", "dry-run", "disabled", "skipped", "invalid"} {
 		t.Run(kind, func(t *testing.T) {
@@ -238,6 +247,7 @@ func TestAutomaticSplitBoundaries(t *testing.T) {
 	}
 }
 
+// TestSplitCanceledExtraction checks that extraction returns an error for a canceled context and invalid PDF data.
 func TestSplitCanceledExtraction(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

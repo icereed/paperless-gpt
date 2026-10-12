@@ -52,6 +52,10 @@ export function isMockLlmMode(): boolean {
   return process.env.E2E_LLM_MODE === 'mock';
 }
 
+/**
+ * Starts Paperless and GPT containers with the requested OCR and split settings.
+ * Returns container handles and cleanup; failed setup stops resources already started.
+ */
 export async function setupTestEnvironment(config?: TestEnvironmentConfig): Promise<TestEnvironment> {
   console.log('Setting up test environment...');
   const paperlessPort = PORTS.paperlessNgx;

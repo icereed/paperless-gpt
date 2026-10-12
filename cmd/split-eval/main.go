@@ -25,6 +25,9 @@ type options struct {
 	batchSize                          int
 }
 
+// main reads evaluation flags and environment settings, then runs with the
+// configured timeout. Nonpositive timeouts and evaluation errors are printed to
+// stderr and exit with status 1.
 func main() {
 	var opts options
 	flag.StringVar(&opts.input, "input", "", "Folder of single-document PDFs, read in filename order")
@@ -46,6 +49,8 @@ func main() {
 	}
 }
 
+// validateURL rejects raw unless it is an HTTP(S) URL with a host and without
+// embedded credentials, a query or a fragment.
 func validateURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
@@ -54,6 +59,10 @@ func validateURL(raw string) error {
 	return nil
 }
 
+// evaluate uploads batches of opts.input PDFs in filename order and writes
+// boundary scores to out, using ctx for requests and polling. It checks dry-run
+// mode before each upload and suggestion request; uploaded documents are retained
+// in paperless-ngx. Invalid inputs, PDF processing and API failures return errors.
 func evaluate(ctx context.Context, opts options, out io.Writer) error {
 	if opts.input == "" || opts.batchSize < 2 || opts.token == "" {
 		return fmt.Errorf("provide -input, -batch-size >= 2 and PAPERLESS_API_TOKEN")
@@ -152,6 +161,9 @@ func evaluate(ctx context.Context, opts options, out io.Writer) error {
 	return nil
 }
 
+// mergeBatch concatenates files in order and returns PDF bytes, one-based page
+// numbers to split after, and the total page count. Reading,
+// counting or merging failures, including empty source PDFs, return an error.
 func mergeBatch(files []string) ([]byte, []int, int, error) {
 	readers := make([]io.ReadSeeker, 0, len(files))
 	var truth []int
@@ -186,6 +198,10 @@ type endpoint struct {
 	base, token string
 }
 
+// request sends method and body to e.base+path using ctx, adding token and
+// content-type headers when set, then decodes response JSON into result with an
+// 8 MiB read limit. It returns request, transport, non-2xx status or decode errors;
+// HTTP status errors omit the response body.
 func (e endpoint) request(ctx context.Context, method, path string, body io.Reader, contentType string, result interface{}) error {
 	req, err := http.NewRequestWithContext(ctx, method, e.base+path, body)
 	if err != nil {
@@ -208,6 +224,8 @@ func (e endpoint) request(ctx context.Context, method, path string, body io.Read
 	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(result)
 }
 
+// requireDryRun reads gpt's split configuration using ctx and returns an error
+// if the request fails or dry-run mode is not reported as enabled.
 func requireDryRun(ctx context.Context, gpt endpoint) error {
 	var list struct {
 		Config struct {
@@ -223,6 +241,8 @@ func requireDryRun(ctx context.Context, gpt endpoint) error {
 	return nil
 }
 
+// waitForDocument polls ngx for task with one-second waits until it returns a
+// document ID, a request or task error occurs, or ctx is canceled.
 func waitForDocument(ctx context.Context, ngx endpoint, task string) (int, error) {
 	for {
 		var payload json.RawMessage
@@ -241,6 +261,10 @@ func waitForDocument(ctx context.Context, ngx endpoint, task string) (int, error
 	}
 }
 
+// taskDocumentID reads a task array or paginated results from payload and returns
+// the first successful task's available document ID, preferring result_data.
+// It returns zero when no ID is available, or an error for malformed JSON or an
+// encountered failed or revoked task.
 func taskDocumentID(payload []byte) (int, error) {
 	var tasks []struct {
 		Status  string `json:"status"`
@@ -277,6 +301,9 @@ func taskDocumentID(payload []byte) (int, error) {
 	return 0, nil
 }
 
+// reportBoundaries writes expected and predicted splits after each one-based
+// page number before pages to out, returning true positives, false positives and
+// false negatives from exact matches against truth and predicted.
 func reportBoundaries(out io.Writer, pages int, truth, predicted []int) (tp, fp, fn int) {
 	fmt.Fprintln(out, "after_page\texpected\tpredicted\tresult")
 	for page := 1; page < pages; page++ {
@@ -298,6 +325,8 @@ func reportBoundaries(out io.Writer, pages int, truth, predicted []int) (tp, fp,
 	return
 }
 
+// ratio formats numerator/denominator to four decimal places, or returns "n/a"
+// when denominator is zero.
 func ratio(numerator, denominator int) string {
 	if denominator == 0 {
 		return "n/a"

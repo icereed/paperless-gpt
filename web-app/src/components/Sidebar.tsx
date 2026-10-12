@@ -23,6 +23,7 @@ interface MenuItem {
   title: string;
 }
 
+/** Renders page links with active-route state and a persisted, responsive collapse setting. */
 const Sidebar: React.FC = () => {
   const [collapsed, setCollapsed] = useState(
     () =>

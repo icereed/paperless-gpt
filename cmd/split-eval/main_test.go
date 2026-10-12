@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestBoundaryReport checks boundary classifications, aggregate counts, and zero-denominator ratio formatting.
 func TestBoundaryReport(t *testing.T) {
 	var out bytes.Buffer
 	tp, fp, fn := reportBoundaries(&out, 6, []int{2, 4}, []int{2, 3})
@@ -27,6 +28,7 @@ func TestBoundaryReport(t *testing.T) {
 	assert.Equal(t, "0.5000", ratio(1, 2))
 }
 
+// TestEvaluateDryRun checks batch evaluation, token isolation, and rejection before upload when dry-run mode is disabled.
 func TestEvaluateDryRun(t *testing.T) {
 	for _, dryRun := range []bool{true, false} {
 		t.Run(fmt.Sprint(dryRun), func(t *testing.T) {
@@ -86,6 +88,7 @@ func TestEvaluateDryRun(t *testing.T) {
 	}
 }
 
+// TestTaskAndSuggestionValidation checks task result shapes, failure handling, URL restrictions, and undefined ratios.
 func TestTaskAndSuggestionValidation(t *testing.T) {
 	for _, body := range []string{`[]`, `{"results":[{"status":"STARTED"}]}`} {
 		id, err := taskDocumentID([]byte(body))

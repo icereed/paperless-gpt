@@ -27,6 +27,8 @@ type SplitConfig struct {
 	OutputTags          []string `json:"output_tags"`
 }
 
+// readSplitConfig reads split settings from the environment, applying defaults
+// and rejecting invalid values or collisions with other processing tags.
 func readSplitConfig() (*SplitConfig, error) {
 	value := func(key, fallback string) string {
 		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
@@ -67,6 +69,9 @@ func readSplitConfig() (*SplitConfig, error) {
 	return cfg, nil
 }
 
+// automaticSplitBoundaries returns one-based after-page positions only when
+// automatic Apply is enabled and every proposed boundary passes its checks.
+// It returns nil for dry runs, ineligible suggestions, or invalid page ranges.
 func automaticSplitBoundaries(cfg *SplitConfig, s *SplitSuggestion) []int {
 	if !cfg.Auto || cfg.DryRun || s.Status != "review" || len(s.Boundaries) == 0 {
 		return nil
@@ -84,6 +89,7 @@ func automaticSplitBoundaries(cfg *SplitConfig, s *SplitSuggestion) []int {
 	return pages
 }
 
+// hasSplitTag reports whether tags contains a case-insensitive match for tag.
 func hasSplitTag(tags []string, tag string) bool {
 	for _, candidate := range tags {
 		if strings.EqualFold(candidate, tag) {
@@ -119,6 +125,8 @@ type SplitPage struct {
 var splitPagination = regexp.MustCompile(`(?i)\b(?:page|seite)\s+(\d+)\s*(?:of|von)\s*(\d+)\b`)
 var splitDates = regexp.MustCompile(`\b(?:\d{1,2}[./]\d{1,2}[./]\d{4}|\d{4}-\d{2}-\d{2})\b`)
 
+// splitPageSignals derives bounded text excerpts, layout, and pagination signals
+// for a one-based page number with dimensions measured in points.
 func splitPageSignals(page int, width, height float64, a pdfrender.PageAnalysis) SplitPage {
 	text := strings.TrimSpace(strings.ReplaceAll(a.Text, "\r\n", "\n"))
 	lines := strings.Split(text, "\n")
@@ -144,6 +152,8 @@ func splitPageSignals(page int, width, height float64, a pdfrender.PageAnalysis)
 	return s
 }
 
+// truncateSplitText returns at most limit Unicode code points from s.
+// The limit must be nonnegative.
 func truncateSplitText(s string, limit int) string {
 	r := []rune(s)
 	if len(r) > limit {
@@ -152,6 +162,8 @@ func truncateSplitText(s string, limit int) string {
 	return s
 }
 
+// extractSplitPages analyzes PDF bytes in document order using one-based page
+// numbers, returning PDF processing or context cancellation errors.
 func extractSplitPages(ctx context.Context, data []byte) ([]SplitPage, error) {
 	pdf, err := pdfrender.Open(ctx, data)
 	if err != nil {
@@ -182,6 +194,8 @@ type splitWindowResult struct {
 	Boundaries []SplitBoundary
 }
 
+// splitWindows returns inclusive one-based page ranges with a two-page overlap.
+// It returns nil when there are fewer than two pages or size is below three.
 func splitWindows(pages, size int) []splitWindow {
 	var windows []splitWindow
 	if pages < 2 || size < 3 {
@@ -197,6 +211,9 @@ func splitWindows(pages, size int) []splitWindow {
 	return windows
 }
 
+// renderSplitPrompt executes tmpl with a window's page signals and document page
+// count. It rejects a nil template or fewer than two pages and returns encoding
+// or template errors, possibly with partial output for template errors.
 func renderSplitPrompt(tmpl *template.Template, pages []SplitPage, total int) (string, error) {
 	if tmpl == nil || len(pages) < 2 {
 		return "", fmt.Errorf("split template or window unavailable")
@@ -210,6 +227,9 @@ func renderSplitPrompt(tmpl *template.Template, pages []SplitPage, total int) (s
 	return out.String(), err
 }
 
+// parseSplitBoundaries validates model JSON for an inclusive one-based window.
+// It accepts ordered after_page boundaries or decisions for every page after
+// first through last, returning only selected boundaries or a validation error.
 func parseSplitBoundaries(response string, first, last int) ([]SplitBoundary, error) {
 	if len(response) > 1024*1024 {
 		return nil, fmt.Errorf("split response exceeds 1 MiB")
@@ -278,6 +298,8 @@ func parseSplitBoundaries(response string, first, last int) ([]SplitBoundary, er
 	return out, nil
 }
 
+// mergeSplitWindows merges boundaries in page order, retaining the lowest
+// confidence and marking a conflict when any covering window omits a boundary.
 func mergeSplitWindows(results []splitWindowResult) []SplitBoundary {
 	merged := map[int]SplitBoundary{}
 	votes := map[int]int{}
@@ -304,6 +326,8 @@ func mergeSplitWindows(results []splitWindowResult) []SplitBoundary {
 	return out
 }
 
+// applySplitRules sets BlockedReason in place for boundaries beside pages with
+// insufficient text or inside a printed pagination range contained in the PDF.
 func applySplitRules(pages []SplitPage, boundaries []SplitBoundary) {
 	for _, p := range pages {
 		if p.TextLength < 10 {
@@ -330,6 +354,9 @@ func applySplitRules(pages []SplitPage, boundaries []SplitBoundary) {
 	}
 }
 
+// splitPagesString converts one-based after-page positions into comma-separated
+// inclusive page ranges. It rejects empty, unordered, duplicate, or out-of-range
+// boundaries and documents with fewer than two pages.
 func splitPagesString(total int, boundaries []int) (string, error) {
 	if total < 2 || len(boundaries) == 0 {
 		return "", fmt.Errorf("a split requires at least one boundary")

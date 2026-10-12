@@ -35,10 +35,13 @@ type splitSource struct {
 
 type splitHTTPError struct{ Status int }
 
+// Error reports the HTTP status returned by a failed split API request.
 func (e *splitHTTPError) Error() string {
 	return fmt.Sprintf("paperless split request returned HTTP %d", e.Status)
 }
 
+// splitRequest sends an optional JSON body and decodes a 200 response into result
+// with an 8 MiB read limit. It returns encoding, transport, status, or decoding errors.
 func (client *PaperlessClient) splitRequest(ctx context.Context, method, path string, body interface{}, result interface{}) error {
 	var data []byte
 	var err error
@@ -62,6 +65,8 @@ func (client *PaperlessClient) splitRequest(ctx context.Context, method, path st
 	return nil
 }
 
+// ListSplitDocumentIDs collects IDs across all pages of a case-insensitive tag
+// query ordered by ID. A request failure returns an error without partial results.
 func (client *PaperlessClient) ListSplitDocumentIDs(ctx context.Context, tag string) ([]int, error) {
 	var ids []int
 	for page := 1; ; page++ {
@@ -84,6 +89,9 @@ func (client *PaperlessClient) ListSplitDocumentIDs(ctx context.Context, tag str
 	}
 }
 
+// GetSplitSource fetches document details and metadata, requiring a matching ID,
+// PDF MIME type, checksum, and positive page count. It returns the details fetched
+// so far alongside any request or validation error.
 func (client *PaperlessClient) GetSplitSource(ctx context.Context, id int) (splitSource, error) {
 	var source splitSource
 	if err := client.splitRequest(ctx, http.MethodGet, fmt.Sprintf("api/documents/%d/", id), nil, &source); err != nil {
@@ -103,6 +111,8 @@ func (client *PaperlessClient) GetSplitSource(ctx context.Context, id int) (spli
 	return source, nil
 }
 
+// SetSplitTags replaces a document's tags, treating nil as an empty list, and
+// returns an error if the request fails or the returned tags differ after sorting.
 func (client *PaperlessClient) SetSplitTags(ctx context.Context, id int, tags []int) error {
 	if tags == nil {
 		tags = []int{}
@@ -122,6 +132,9 @@ func (client *PaperlessClient) SetSplitTags(ctx context.Context, id int, tags []
 	return nil
 }
 
+// SplitDocument submits one document for splitting at one-based after-page
+// positions, forwarding deleteOriginals to the bulk-edit API. It returns boundary
+// validation, request, or non-OK result errors without waiting for split completion.
 func (client *PaperlessClient) SplitDocument(ctx context.Context, id, total int, boundaries []int, deleteOriginals bool) error {
 	pages, err := splitPagesString(total, boundaries)
 	if err != nil {
@@ -142,7 +155,9 @@ func (client *PaperlessClient) SplitDocument(ctx context.Context, id, total int,
 	return nil
 }
 
-// Regeneration must not reuse thumbnails from an earlier source version.
+// InvalidateSplitPreviews removes cached page thumbnails so regeneration cannot
+// reuse an earlier source version, returning glob or removal errors and ignoring
+// files that are already missing.
 func (client *PaperlessClient) InvalidateSplitPreviews(documentID int) error {
 	paths, err := filepath.Glob(filepath.Join(client.GetCacheFolder(), fmt.Sprintf("document-%d", documentID), "preview-page*.jpg"))
 	if err != nil {

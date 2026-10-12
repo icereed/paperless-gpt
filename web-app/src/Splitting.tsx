@@ -34,6 +34,7 @@ const statusLabels: Record<string, string> = {
   uncertain: 'Needs inspection', failed: 'Failed', generating: 'Generating', applying: 'Applying',
 };
 
+/** Returns JSON from a split API request, throwing the API error or status on HTTP failure. */
 async function splitRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`./api/${path}`, init);
   if (!response.ok) {
@@ -43,6 +44,7 @@ async function splitRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json();
 }
 
+/** Opens an available page preview or shows a fallback when its image cannot load. */
 function PageThumbnail({ src, page, onOpen }: { src: string; page: number; onOpen: () => void }) {
   const [failed, setFailed] = useState(false);
   return failed ? (
@@ -54,6 +56,7 @@ function PageThumbnail({ src, page, onOpen }: { src: string; page: number; onOpe
   );
 }
 
+/** Edits one suggestion's boundaries and requires a refresh after an action's response is lost. */
 function SplitReview({ suggestion, config, busy, setBusy, onUpdate, onSkip }: {
   suggestion: Suggestion;
   config: SplitList['config'];
@@ -72,13 +75,16 @@ function SplitReview({ suggestion, config, busy, setBusy, onUpdate, onSkip }: {
     const first = index === 0 ? 1 : boundaries[index - 1] + 1;
     return first === last ? `${first}` : `${first}-${last}`;
   });
+  /** Converts a one-based page number to an image URL keyed by the suggestion's revision. */
   const imageURL = (page: number) => `./api/documents/${suggestion.document_id}/pages/${page - 1}/image?revision=${encodeURIComponent(suggestion.updated_at)}`;
   const hasRuleOverride = (suggestion.boundaries ?? []).some(b => boundaries.includes(b.after_page) && (b.blocked_reason || b.conflict));
 
+  /** Adds or removes the boundary after a one-based page while keeping boundaries sorted. */
   const toggle = (page: number) => {
     setBoundaries(current => current.includes(page) ? current.filter(p => p !== page) : [...current, page].sort((a, b) => a - b));
   };
 
+  /** Submits a review action and blocks repeat submissions after any failed response. */
   const act = async (action: 'apply' | 'skip' | 'generate') => {
     setConfirm(false);
     setBusy(true);
@@ -153,6 +159,7 @@ function SplitReview({ suggestion, config, busy, setBusy, onUpdate, onSkip }: {
   );
 }
 
+/** Lists paginated split suggestions and coordinates selection, review actions, and refreshes. */
 export default function Splitting() {
   const [data, setData] = useState<SplitList | null>(null);
   const [page, setPage] = useState(1);
@@ -173,10 +180,12 @@ export default function Splitting() {
     return () => { ignore = true; controller.abort(); };
   }, [page, revision]);
 
+  /** Reloads the requested page, clearing selection and notices even when the page is unchanged. */
   const refresh = (nextPage = page) => {
     setLoading(true); setError(''); setMessage(''); setSelectedId(null);
     setPage(nextPage); setRevision(current => current + 1);
   };
+  /** Replaces a visible suggestion after an action and displays its optional notice. */
   const update = (suggestion: Suggestion, notice = '') => {
     setData(current => current && ({ ...current, results: current.results.map(item => item.id === suggestion.id ? suggestion : item) }));
     setMessage(notice);
