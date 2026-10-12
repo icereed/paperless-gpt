@@ -1965,3 +1965,64 @@ func TestUpdateDocuments_DroppedCorrespondentWithoutOtherChangesIsReported(t *te
 	require.ErrorAs(t, err, &partial)
 	assert.Equal(t, []string{"correspondent"}, partial.DroppedFields)
 }
+
+// Tag suggestions never contain paperless-gpt's own tags, so applying them
+// used to replace the document's tags and drop PDF_OCR_COMPLETE_TAG and the
+// like (#1156). They are kept; trigger tags still come off via RemoveTags;
+// an undo restores exactly what it is given.
+func TestUpdateDocuments_KeepsSystemTagsWhenSuggestionsReplaceTags(t *testing.T) {
+	prev := struct{ manual, auto, ocrAuto, fail, complete, ocrComplete string }{manualTag, autoTag, autoOcrTag, failTag, autoTagComplete, pdfOCRCompleteTag}
+	manualTag, autoTag, autoOcrTag = "paperless-gpt", "paperless-gpt-auto", "paperless-gpt-ocr-auto"
+	failTag, autoTagComplete, pdfOCRCompleteTag = "paperless-gpt-failed", "paperless-gpt-auto-complete", "paperless-gpt-ocr-complete"
+	t.Cleanup(func() {
+		manualTag, autoTag, autoOcrTag = prev.manual, prev.auto, prev.ocrAuto
+		failTag, autoTagComplete, pdfOCRCompleteTag = prev.fail, prev.complete, prev.ocrComplete
+	})
+	isolateWorkflowSettings(t)
+	useWorkflows(t, WorkflowConfig{ID: "contracts", TriggerTag: "contracts", CompletionTag: "contracts-done"})
+
+	tests := []struct {
+		name     string
+		original []string
+		isUndo   bool
+		want     []interface{}
+	}{
+		{"manual review keeps the OCR complete tag, drops the manual tag", []string{"paperless-gpt-ocr-complete", "Invoice", "paperless-gpt"}, false,
+			[]interface{}{float64(4), float64(10)}}, // ocr-complete, Bills
+		{"another workflow's completion tag stays", []string{"contracts-done", "paperless-gpt-auto"}, false,
+			[]interface{}{float64(6), float64(10)}}, // contracts-done, Bills
+		{"an undo restores exactly the given tags", []string{"paperless-gpt-ocr-complete", "Invoice"}, true,
+			[]interface{}{float64(10)}}, // Bills only
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			defer env.teardown()
+			env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"results":[
+					{"id":1,"name":"paperless-gpt"},{"id":2,"name":"paperless-gpt-auto"},
+					{"id":4,"name":"paperless-gpt-ocr-complete"},{"id":6,"name":"contracts-done"},
+					{"id":9,"name":"Invoice"},{"id":10,"name":"Bills"}],"next":null}`))
+			})
+			var patched map[string]interface{}
+			env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPatch {
+					_ = json.NewDecoder(r.Body).Decode(&patched)
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{}`))
+			})
+
+			doc := DocumentSuggestion{
+				ID:               1,
+				OriginalDocument: Document{ID: 1, Tags: tt.original},
+				SuggestedTags:    []string{"Bills"},
+				RemoveTags:       []string{"paperless-gpt", "paperless-gpt-auto"},
+			}
+			require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{doc}, env.db, tt.isUndo))
+			require.Contains(t, patched, "tags")
+			assert.ElementsMatch(t, tt.want, patched["tags"])
+		})
+	}
+}
