@@ -196,6 +196,62 @@ test('a document with only AUTO_TAG still goes through the default processing', 
   expect(doc.correspondent, 'the default processing sets a correspondent').not.toBeNull();
 });
 
+test('a workflow fills only its own custom fields, not the ones selected in Settings', async ({ page }) => {
+  // Two custom fields in paperless-ngx; Settings selects only "Invoice number".
+  const createField = async (name: string, dataType: string) => {
+    const res = await fetch(`${paperlessUrl}/api/custom_fields/`, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, data_type: dataType }),
+    });
+    expect(res.ok).toBeTruthy();
+    return ((await res.json()) as { id: number }).id;
+  };
+  const grossPay = await createField('Gross pay', 'monetary');
+  const invoiceNumber = await createField('Invoice number', 'string');
+
+  await gptApi('GET', '/api/custom_fields?force_pull=true');
+  const current = (await (await gptApi('GET', '/api/settings')).json()).settings;
+  const saved = await gptApi('POST', '/api/settings', {
+    ...current,
+    custom_fields_enable: true,
+    custom_fields_selected_ids: [invoiceNumber],
+    custom_fields_write_mode: 'append',
+  });
+  expect(saved.ok).toBeTruthy();
+  await expect
+    .poll(async () => ((await (await gptApi('GET', '/api/workflows/defaults')).json()).custom_fields as { name: string }[]).map((f) => f.name), { timeout: 30_000 })
+    .toContain('Gross pay');
+
+  // A payslip workflow that only fills "Gross pay".
+  await openNewWorkflow(page);
+  await page.getByLabel('Name').fill('E2E Payslips');
+  await page.getByLabel(/Trigger tag/).fill('e2e-payslips');
+  for (const step of ['Title', 'Tags', 'Correspondent', 'Document type', 'Created date']) {
+    await page.getByRole('radiogroup', { name: step }).getByRole('radio', { name: 'Off', exact: true }).click();
+  }
+  await page.getByRole('radiogroup', { name: 'Custom fields', exact: true }).getByRole('radio', { name: 'On', exact: true }).click();
+  const picker = page.getByRole('radiogroup', { name: 'Custom fields to fill' });
+  await expect(picker.getByText('Invoice number'), 'the Settings selection is shown').toBeVisible();
+  await picker.getByLabel('Only these fields for this workflow').check();
+  await picker.getByLabel('Gross pay').check();
+  // Its own custom field prompt carries the marker the mock answers.
+  await page.getByRole('tab', { name: /^Custom fields/ }).click();
+  await page.getByRole('button', { name: 'Write own prompt for this workflow' }).click();
+  await page.getByLabel('Custom fields prompt', { exact: true }).fill('E2E-PAYSLIP-MARKER: extract these fields.\n{{ .CustomFieldsXML }}\n{{ .Content }}');
+  await page.getByRole('button', { name: 'Create workflow' }).click();
+  await expect(page.getByText('Workflow created.')).toBeVisible();
+  await expect(page.getByText('Fills: Gross pay')).toBeVisible();
+
+  // The mock only answers a prompt that asks for "Gross pay" and not for
+  // "Invoice number", so a filled field proves the workflow's selection was used.
+  const { id: documentId } = await uploadDocument(paperlessUrl, fixture, 'Payslip September', credentials);
+  await setTags(documentId, [await tagId('e2e-payslips')]);
+  type WithFields = PaperlessDoc & { custom_fields: { field: number; value: string }[] };
+  const doc = (await waitForProcessed(documentId, (d) => (d as WithFields).custom_fields.length > 0)) as WithFields;
+  expect(doc.custom_fields).toEqual([{ field: grossPay, value: 'EUR4200.00' }]);
+});
+
 test('workflows that would loop are refused, in the UI and by the API', async ({ page }) => {
   await openNewWorkflow(page);
   await page.getByLabel(/Trigger tag/).fill('Paperless-GPT-Auto');

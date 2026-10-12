@@ -36,6 +36,7 @@ interface WorkflowConfig {
   generate_custom_fields?: boolean | null;
   enable_ocr?: boolean | null;
   ocr_limit_pages?: number | null;
+  custom_field_ids?: number[];
   prompts?: Record<string, string>;
 }
 
@@ -56,6 +57,8 @@ interface WorkflowDefaults {
   ocr_prompt_override_supported: boolean;
   generate: Record<FlagKey, boolean>;
   prompts: Record<string, string>;
+  custom_fields: { id: number; name: string; data_type: string }[];
+  custom_field_ids: number[];
 }
 
 interface WaitingDocument {
@@ -185,6 +188,70 @@ const FieldError: React.FC<{ message?: string }> = ({ message }) =>
   ) : null;
 
 /** Inherit / On / Off, showing what "inherit" currently means. */
+/** Which custom fields a workflow fills: the global selection, or its own. */
+const CustomFieldPicker: React.FC<{
+  defaults: WorkflowDefaults | null;
+  value: number[] | undefined;
+  onChange: (ids: number[]) => void;
+}> = ({ defaults, value, onChange }) => {
+  const [own, setOwn] = useState((value?.length ?? 0) > 0);
+  const fields = defaults?.custom_fields ?? [];
+  const nameOf = (id: number) => fields.find((f) => f.id === id)?.name ?? `#${id}`;
+  const globalNames = (defaults?.custom_field_ids ?? []).map(nameOf);
+  const selected = value ?? [];
+  const toggle = (id: number) =>
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+
+  return (
+    <div className="space-y-2 rounded-md border border-line px-3 py-2" role="radiogroup" aria-label="Custom fields to fill">
+      <p className="text-sm">Custom fields to fill</p>
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="radio"
+          className="mt-1 accent-[var(--color-primary)]"
+          checked={!own}
+          onChange={() => {
+            setOwn(false);
+            onChange([]);
+          }}
+        />
+        <span>
+          Same as Settings
+          <span className="block text-xs text-muted">
+            {globalNames.length > 0 ? globalNames.join(", ") : "No fields selected in Settings"}
+          </span>
+        </span>
+      </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="radio" className="mt-1 accent-[var(--color-primary)]" checked={own} onChange={() => setOwn(true)} />
+        <span>Only these fields for this workflow</span>
+      </label>
+      {own &&
+        (fields.length === 0 ? (
+          <p className="pl-6 text-xs text-muted">There are no custom fields in paperless-ngx yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-1 pl-6 sm:grid-cols-2">
+            {fields.map((f) => (
+              <label key={f.id} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="accent-[var(--color-primary)]"
+                  checked={selected.includes(f.id)}
+                  onChange={() => toggle(f.id)}
+                />
+                <span>{f.name}</span>
+                <span className="text-xs text-faint">{f.data_type}</span>
+              </label>
+            ))}
+            {selected.length === 0 && (
+              <p className="text-xs text-warn sm:col-span-2">Choose at least one field, or use the Settings selection.</p>
+            )}
+          </div>
+        ))}
+    </div>
+  );
+};
+
 const StepToggle: React.FC<{
   label: string;
   value: boolean | null | undefined;
@@ -572,6 +639,13 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
             />
           ))}
         </div>
+        {stepRuns("generate_custom_fields") && (
+          <CustomFieldPicker
+            defaults={defaults}
+            value={wf.custom_field_ids}
+            onChange={(ids) => set("custom_field_ids", ids)}
+          />
+        )}
         <div className="rounded-md border border-line px-3 py-2">
           <label className="flex items-center justify-between gap-3">
             <span className="text-sm">
@@ -812,6 +886,14 @@ const WorkflowCard: React.FC<{
               ? `Own prompts: ${prompts.map((k) => PROMPT_KEYS.find((p) => p.key === k)?.label ?? k).join(", ")}`
               : "Uses the global prompts"}
           </p>
+          {(wf.custom_field_ids?.length ?? 0) > 0 && (
+            <p className="text-xs text-muted">
+              Fills:{" "}
+              {wf.custom_field_ids!
+                .map((id) => defaults?.custom_fields.find((f) => f.id === id)?.name ?? `#${id}`)
+                .join(", ")}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 gap-1">
           <Button size="sm" variant="ghost" onClick={onEdit} aria-label={`Edit ${wf.name || wf.id}`} title="Edit">
