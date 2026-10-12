@@ -301,6 +301,7 @@ services:
       # DOCLING_IMAGE_EXPORT_MODE: "placeholder" # Optional, defaults to "embedded"
       # DOCLING_OCR_PIPELINE: "standard" # Optional, defaults to "vlm"
       # DOCLING_OCR_ENGINE: "easyocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE is set to 'standard')
+      # DOCLING_OUTPUT_FORMAT: "md" # Optional, defaults to "md", other option: "text"
 
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
@@ -459,6 +460,7 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   DOCLING_IMAGE_EXPORT_MODE: "placeholder" # Optional, defaults to "embedded"
   DOCLING_OCR_PIPELINE: "standard" # Optional, defaults to "vlm"
   DOCLING_OCR_ENGINE: "macocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE is set to 'standard')
+  DOCLING_OUTPUT_FORMAT: "md" # Optional, defaults to "md", other option: "text"
   ```
 
 ## OCR Processing Modes
@@ -678,6 +680,7 @@ For best results with the enhanced OCR features:
 | `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                                   | No       |                            |
 | `OPENAI_BASE_URL`                   | Base URL for OpenAI API. Use it to point to any OpenAI-compatible endpoint (OpenRouter, LM Studio, vLLM, LiteLLM, llama.cpp, Groq, …) — see [OpenAI-compatible providers](docs/openai_compatible_providers.md) for ready-made configurations. For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                            |
 | `OPENAI_HEADERS`                    | Comma-separated `Key=Value` pairs added as HTTP headers to every OpenAI-compatible request (e.g. `OPENAI_HEADERS=User-Agent=paperless-gpt/1.0`).                                                                                     | No       |                            |
+| `OPENROUTER_ENFORCE_ZDR`            | When `true` and `OPENAI_BASE_URL` points at openrouter.ai, adds `"provider": {"data_collection": "deny", "zdr": true}` to every LLM/VisionLLM/OCR request so OpenRouter only routes to upstream providers offering a Zero Data Retention guarantee. Requests to any other endpoint are unaffected. Narrows the provider pool for the configured model — check `https://openrouter.ai/<model>/providers` for multiple ZDR-capable providers before enabling this with a single-provider model, or a 429/5xx with no fallback can result. | No       | false                      |
 | `LLM_LANGUAGE`                      | Likely language for documents (e.g. `English`). Appears in the prompt to help the LLM.                                                                                                                                               | No       | English                    |
 | `LLM_TEMPERATURE`                   | (Ollama metadata only) Sampling temperature for title, tag, and other metadata generation. A non-negative finite value supplies the global setting; invalid, negative, `NaN`, and `Inf` values are ignored with a warning. The base fallback is `0`. An explicit per-call option still wins. It does not apply to other LLM providers or Vision OCR; use `VISION_LLM_TEMPERATURE` for supported vision providers. | No       | 0                          |
 | `LLM_MAX_TOKENS`                    | (Ollama metadata only) Positive integer or `-1`, mapped to Ollama `num_predict` as the output-token budget. When unset, paperless-gpt preserves the model/base setting. It is independent of `TOKEN_LIMIT` and `OLLAMA_CONTEXT_LENGTH`. | No | Model/base setting |
@@ -717,6 +720,7 @@ For best results with the enhanced OCR features:
 | `DOCLING_IMAGE_EXPORT_MODE`         | Mode for image export. Optional; defaults to `embedded` if unset.                                                                                                                             | No       | embedded                   |
 | `DOCLING_OCR_PIPELINE`              | Sets the pipeline type. Optional; defaults to `vlm` if unset.                                                                                                                                 | No       | vlm                        |
 | `DOCLING_OCR_ENGINE`                | Sets the ocr engine, if `DOCLING_OCR_PIPELINE` is set to `standard`. Optional; defaults to `easyocr`                                                                                          | No       | easyocr                    |
+| `DOCLING_OUTPUT_FORMAT`             | Output format requested from Docling (`to_formats`): `md` (Markdown, keeps tables and headings) or `text` (plain text). Optional; defaults to `md`.                                           | No       | md                         |
 | `CREATE_LOCAL_HOCR`                 | Whether to save hOCR files locally.                                                                                                                                                           | No       | false                      |
 | `LOCAL_HOCR_PATH`                   | Path where hOCR files will be saved when hOCR generation is enabled.                                                                                                                          | No       | /app/hocr                  |
 | `CREATE_LOCAL_PDF`                  | Whether to save enhanced PDFs locally.                                                                                                                                                        | No       | false                      |

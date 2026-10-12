@@ -20,6 +20,7 @@ type DoclingProvider struct {
 	imageExportMode string
 	pipeline        string
 	ocrEngine       string
+	outputFormat    string
 	httpClient      *retryablehttp.Client
 }
 
@@ -41,6 +42,7 @@ func newDoclingProvider(config Config) (*DoclingProvider, error) {
 		imageExportMode: config.DoclingImageExportMode,
 		pipeline:        config.DoclingOCRPipeline,
 		ocrEngine:       config.DoclingOCREngine,
+		outputFormat:    config.DoclingOutputFormat,
 		httpClient:      client,
 	}
 
@@ -90,7 +92,7 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 
 	// Add required form fields
 	// Note: Docling expects boolean fields as strings "true"/"false"
-	if err := writer.WriteField("to_formats", "md"); err != nil {
+	if err := writer.WriteField("to_formats", p.outputFormat); err != nil {
 		return nil, fmt.Errorf("set to_formats: %w", err)
 	}
 	if err := writer.WriteField("do_ocr", "true"); err != nil {
@@ -127,7 +129,7 @@ func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte,
 	logger.Debug("Sending request to Docling server")
 	// Add detailed logging of request parameters
 	logger.WithFields(logrus.Fields{
-		"to_formats":        "md",
+		"to_formats":        p.outputFormat,
 		"do_ocr":            "true",
 		"pipeline":          p.pipeline,
 		"ocr_engine":        p.ocrEngine,

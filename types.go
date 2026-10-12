@@ -139,7 +139,10 @@ type WorkflowConfig struct {
 	GenerateCustomFields   *bool `json:"generate_custom_fields,omitempty"`
 	// EnableOCR, when true, runs OCR on the document before metadata generation.
 	// nil or false means OCR is skipped for this workflow.
-	EnableOCR *bool `json:"enable_ocr,omitempty"`
+	// CustomFieldIDs are the custom fields this workflow fills. Empty means the
+	// global selection from Settings.
+	CustomFieldIDs []int `json:"custom_field_ids,omitempty"`
+	EnableOCR      *bool `json:"enable_ocr,omitempty"`
 	// OCRLimitPages overrides the effective OCR page limit for this workflow.
 	// nil = use effective defaults (settings over env); 0 = no limit.
 	OCRLimitPages *int `json:"ocr_limit_pages,omitempty"`

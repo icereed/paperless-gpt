@@ -36,6 +36,7 @@ interface WorkflowConfig {
   generate_custom_fields?: boolean | null;
   enable_ocr?: boolean | null;
   ocr_limit_pages?: number | null;
+  custom_field_ids?: number[];
   prompts?: Record<string, string>;
 }
 
@@ -56,6 +57,8 @@ interface WorkflowDefaults {
   ocr_prompt_override_supported: boolean;
   generate: Record<FlagKey, boolean>;
   prompts: Record<string, string>;
+  custom_fields: { id: number; name: string; data_type: string }[];
+  custom_field_ids: number[];
 }
 
 interface WaitingDocument {
@@ -185,6 +188,71 @@ const FieldError: React.FC<{ message?: string }> = ({ message }) =>
   ) : null;
 
 /** Inherit / On / Off, showing what "inherit" currently means. */
+/** Which custom fields a workflow fills: the global selection, or its own. */
+const CustomFieldPicker: React.FC<{
+  defaults: WorkflowDefaults | null;
+  value: number[] | undefined;
+  onChange: (ids: number[]) => void;
+  own: boolean;
+  onOwnChange: (own: boolean) => void;
+}> = ({ defaults, value, onChange, own, onOwnChange: setOwn }) => {
+  const fields = defaults?.custom_fields ?? [];
+  const nameOf = (id: number) => fields.find((f) => f.id === id)?.name ?? `#${id}`;
+  const globalNames = (defaults?.custom_field_ids ?? []).map(nameOf);
+  const selected = value ?? [];
+  const toggle = (id: number) =>
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+
+  return (
+    <div className="space-y-2 rounded-md border border-line px-3 py-2" role="radiogroup" aria-label="Custom fields to fill">
+      <p className="text-sm">Custom fields to fill</p>
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="radio"
+          className="mt-1 accent-[var(--color-primary)]"
+          checked={!own}
+          onChange={() => {
+            setOwn(false);
+            onChange([]);
+          }}
+        />
+        <span>
+          Same as Settings
+          <span className="block text-xs text-muted">
+            {globalNames.length > 0 ? globalNames.join(", ") : "No fields selected in Settings"}
+          </span>
+        </span>
+      </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="radio" className="mt-1 accent-[var(--color-primary)]" checked={own} onChange={() => setOwn(true)} />
+        <span>Only these fields for this workflow</span>
+      </label>
+      {own &&
+        (fields.length === 0 ? (
+          <p className="pl-6 text-xs text-muted">There are no custom fields in paperless-ngx yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-1 pl-6 sm:grid-cols-2">
+            {fields.map((f) => (
+              <label key={f.id} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="accent-[var(--color-primary)]"
+                  checked={selected.includes(f.id)}
+                  onChange={() => toggle(f.id)}
+                />
+                <span>{f.name}</span>
+                <span className="text-xs text-faint">{f.data_type}</span>
+              </label>
+            ))}
+            {selected.length === 0 && (
+              <p className="text-xs text-warn sm:col-span-2">Choose at least one field, or use the Settings selection.</p>
+            )}
+          </div>
+        ))}
+    </div>
+  );
+};
+
 const StepToggle: React.FC<{
   label: string;
   value: boolean | null | undefined;
@@ -244,7 +312,7 @@ const ResultRow: React.FC<{ label: string; before?: string; after: string }> = (
   </div>
 );
 
-const TryIt: React.FC<{ workflow: WorkflowConfig; savedId?: string }> = ({ workflow, savedId }) => {
+const TryIt: React.FC<{ workflow: WorkflowConfig; savedId?: string; blocked?: string }> = ({ workflow, savedId, blocked }) => {
   const [waiting, setWaiting] = useState<WaitingDocument[] | null>(null);
   const [documentId, setDocumentId] = useState("");
   const [running, setRunning] = useState(false);
@@ -318,7 +386,8 @@ const TryIt: React.FC<{ workflow: WorkflowConfig; savedId?: string }> = ({ workf
           variant="primary"
           onClick={run}
           loading={running}
-          disabled={!documentId || Number(documentId) <= 0}
+          disabled={!documentId || Number(documentId) <= 0 || !!blocked}
+          title={blocked}
         >
           <BeakerIcon className="h-4 w-4" aria-hidden="true" /> Run test
         </Button>
@@ -460,7 +529,9 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
     if (chained) return `This is the trigger of "${chained.name || chained.id}"; workflows can't be chained.`;
     return undefined;
   })();
-  const canSave = !!wf.trigger_tag.trim() && !triggerError && !completionError;
+  // "Only these fields" with nothing checked would silently fall back to the
+  // Settings selection, so it blocks saving and test runs instead.
+  const [ownFields, setOwnFields] = useState((initial.custom_field_ids?.length ?? 0) > 0);
 
   const tagExists = (name?: string) => !!name?.trim() && tagNames.some((t) => sameTag(t, name));
   const newTagHint = (name?: string) =>
@@ -472,6 +543,8 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
   // the editor small. An own prompt of a hidden step is kept, not deleted.
   const stepRuns = (step: FlagKey | "enable_ocr") =>
     step === "enable_ocr" ? !!wf.enable_ocr : (wf[step] ?? defaults?.generate[step] ?? true);
+  const fieldsIncomplete = ownFields && (wf.custom_field_ids?.length ?? 0) === 0 && stepRuns("generate_custom_fields");
+  const canSave = !!wf.trigger_tag.trim() && !triggerError && !completionError && !fieldsIncomplete;
   const visiblePrompts = PROMPT_KEYS.filter((p) => stepRuns(p.step));
   const hiddenOwnPrompts = PROMPT_KEYS.filter((p) => !stepRuns(p.step) && ownPrompts.has(p.key));
   const active = visiblePrompts.find((p) => p.key === activePrompt) ?? visiblePrompts[0];
@@ -572,6 +645,15 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
             />
           ))}
         </div>
+        {stepRuns("generate_custom_fields") && (
+          <CustomFieldPicker
+            defaults={defaults}
+            value={wf.custom_field_ids}
+            onChange={(ids) => set("custom_field_ids", ids)}
+            own={ownFields}
+            onOwnChange={setOwnFields}
+          />
+        )}
         <div className="rounded-md border border-line px-3 py-2">
           <label className="flex items-center justify-between gap-3">
             <span className="text-sm">
@@ -727,7 +809,7 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
 
       <Section title="Try it" hint="See what this workflow does to a real document before you save it.">
         {showTryIt ? (
-          <TryIt workflow={wf} savedId={isNew ? undefined : initial.id} />
+          <TryIt workflow={wf} savedId={isNew ? undefined : initial.id} blocked={fieldsIncomplete ? "Choose at least one custom field first." : undefined} />
         ) : (
           <Button variant="secondary" onClick={() => setShowTryIt(true)}>
             <BeakerIcon className="h-4 w-4" aria-hidden="true" /> Test on a document
@@ -786,6 +868,11 @@ const WorkflowCard: React.FC<{
   });
   const prompts = customPromptKeys(wf);
   const completion = wf.completion_tag || defaults?.auto_tag_complete;
+  // The fields the custom fields step will actually fill: the workflow's own
+  // selection, or the one from Settings it inherits.
+  const fillsCustomFields = steps.some(({ key }) => key === "generate_custom_fields");
+  const ownFieldIDs = (wf.custom_field_ids?.length ?? 0) > 0;
+  const fieldIDs = ownFieldIDs ? wf.custom_field_ids! : (defaults?.custom_field_ids ?? []);
 
   return (
     <div className="rounded-lg border border-line bg-surface p-5 shadow-card">
@@ -812,6 +899,12 @@ const WorkflowCard: React.FC<{
               ? `Own prompts: ${prompts.map((k) => PROMPT_KEYS.find((p) => p.key === k)?.label ?? k).join(", ")}`
               : "Uses the global prompts"}
           </p>
+          {fillsCustomFields && fieldIDs.length > 0 && (
+            <p className="text-xs text-muted">
+              Fills: {fieldIDs.map((id) => defaults?.custom_fields.find((f) => f.id === id)?.name ?? `#${id}`).join(", ")}
+              {!ownFieldIDs && " (from Settings)"}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 gap-1">
           <Button size="sm" variant="ghost" onClick={onEdit} aria-label={`Edit ${wf.name || wf.id}`} title="Edit">
