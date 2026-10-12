@@ -89,17 +89,16 @@ func pdfSourceForOCR(ctx context.Context, filename, password string) (string, fu
 	conf.OwnerPW = ""
 	if err := api.DecryptFile(filename, tmpName, conf); err != nil {
 		os.Remove(tmpName)
-		// PDFium can report encrypted documents with a numeric/backend error.
-		// Give pdfcpu a chance to handle that even for an empty password, but
-		// preserve the original renderer error when pdfcpu proves this is an
-		// unrelated malformed or unsupported PDF.
-		if password == "" {
-			lower := strings.ToLower(err.Error())
-			if !strings.Contains(lower, "password") && !strings.Contains(lower, "encrypt") && !strings.Contains(lower, "decrypt") {
-				return "", func() {}, originalOpenErr
-			}
+		// Only pdfcpu's authentication sentinel proves that a user password is
+		// required. Filesystem, malformed-PDF, and unsupported-encryption errors
+		// must retain their actionable cause rather than becoming password hints.
+		if errors.Is(err, pdfcpu.ErrWrongPassword) {
+			return "", func() {}, fmt.Errorf("%w: %v", ErrPDFPasswordRequired, err)
 		}
-		return "", func() {}, fmt.Errorf("%w: %v", ErrPDFPasswordRequired, err)
+		if password == "" {
+			return "", func() {}, originalOpenErr
+		}
+		return "", func() {}, fmt.Errorf("decrypt PDF for OCR: %w", err)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		os.Remove(tmpName)
