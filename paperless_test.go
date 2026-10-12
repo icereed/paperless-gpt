@@ -242,6 +242,48 @@ func TestCatalogCachesAvoidRepeatedLookupsAndReturnCopies(t *testing.T) {
 	assert.Equal(t, []DocumentType{{ID: 3, Name: "Receipt"}}, secondTypes)
 }
 
+func TestUpdateDocumentsReusesCreatedCorrespondentInBatch(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+	createCalls := 0
+	patchCalls := 0
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[],"next":null}`))
+	})
+	env.setMockResponse("/api/correspondents/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			createCalls++
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":42}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	})
+	env.setMockResponse("/api/document_types/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	})
+	for _, id := range []int{1, 2} {
+		documentID := id
+		env.setMockResponse(fmt.Sprintf("/api/documents/%d/", documentID), func(w http.ResponseWriter, r *http.Request) {
+			patchCalls++
+			var body map[string]interface{}
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			assert.Equal(t, float64(42), body["correspondent"])
+			w.WriteHeader(http.StatusOK)
+		})
+	}
+	documents := []DocumentSuggestion{
+		{ID: 1, OriginalDocument: Document{ID: 1}, SuggestedCorrespondent: "New Vendor"},
+		{ID: 2, OriginalDocument: Document{ID: 2}, SuggestedCorrespondent: "New Vendor"},
+	}
+	require.NoError(t, env.client.UpdateDocuments(context.Background(), documents, env.db, false))
+	assert.Equal(t, 1, createCalls)
+	assert.Equal(t, 2, patchCalls)
+}
+
 // TestGetDocumentCountByTag tests the GetDocumentCountByTag method
 func TestGetDocumentCountByTag(t *testing.T) {
 	env := newTestEnv(t)

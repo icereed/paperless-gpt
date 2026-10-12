@@ -42,11 +42,13 @@ type PaperlessClient struct {
 	// Catalogs change infrequently but are needed by every document read and
 	// suggestion batch. Keep a short-lived per-client snapshot so a UI refresh
 	// does not refetch every page of tags/correspondents/types.
-	catalogMu              sync.Mutex
+	tagsMu                 sync.Mutex
 	tagsCache              map[string]int
 	tagsCachedAt           time.Time
+	correspondentsMu       sync.Mutex
 	correspondentsCache    map[string]int
 	correspondentsCachedAt time.Time
+	documentTypesMu        sync.Mutex
 	documentTypesCache     []DocumentType
 	documentTypesCachedAt  time.Time
 }
@@ -289,8 +291,8 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 
 // GetAllTags retrieves all tags from the Paperless-NGX API
 func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, error) {
-	client.catalogMu.Lock()
-	defer client.catalogMu.Unlock()
+	client.tagsMu.Lock()
+	defer client.tagsMu.Unlock()
 	if client.tagsCache != nil && time.Since(client.tagsCachedAt) < catalogCacheTTL {
 		return copyCatalogMap(client.tagsCache), nil
 	}
@@ -869,6 +871,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					log.Warnf("Document %d: could not use correspondent %q, applying the other changes without it: %v", documentID, document.SuggestedCorrespondent, err)
 					partialDroppedFields = append(partialDroppedFields, "correspondent")
 				} else {
+					availableCorrespondents[newCorr.Name] = newCorrID
 					originalFields["correspondent"] = originalDoc.Correspondent
 					updatedFields["correspondent"] = newCorrID
 				}
@@ -1902,6 +1905,10 @@ func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, cor
 		return 0, err
 	}
 
+	client.correspondentsMu.Lock()
+	client.correspondentsCache = nil
+	client.correspondentsCachedAt = time.Time{}
+	client.correspondentsMu.Unlock()
 	return createdCorrespondent.ID, nil
 }
 
@@ -1915,8 +1922,8 @@ type CorrespondentResponse struct {
 
 // GetAllCorrespondents retrieves all correspondents from the Paperless-NGX API
 func (client *PaperlessClient) GetAllCorrespondents(ctx context.Context) (map[string]int, error) {
-	client.catalogMu.Lock()
-	defer client.catalogMu.Unlock()
+	client.correspondentsMu.Lock()
+	defer client.correspondentsMu.Unlock()
 	if client.correspondentsCache != nil && time.Since(client.correspondentsCachedAt) < catalogCacheTTL {
 		return copyCatalogMap(client.correspondentsCache), nil
 	}
@@ -1953,8 +1960,8 @@ func (client *PaperlessClient) GetAllCorrespondents(ctx context.Context) (map[st
 
 // GetAllDocumentTypes retrieves all document types from the Paperless-NGX API
 func (client *PaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
-	client.catalogMu.Lock()
-	defer client.catalogMu.Unlock()
+	client.documentTypesMu.Lock()
+	defer client.documentTypesMu.Unlock()
 	if client.documentTypesCache != nil && time.Since(client.documentTypesCachedAt) < catalogCacheTTL {
 		return copyDocumentTypes(client.documentTypesCache), nil
 	}
@@ -2127,11 +2134,16 @@ func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (i
 		return 0, fmt.Errorf("error parsing created tag response: %w", err)
 	}
 
-	client.catalogMu.Lock()
+	client.invalidateTagCatalog()
+	return createdTag.ID, nil
+}
+
+// invalidateTagCatalog drops the short-lived snapshot after a tag mutation.
+func (client *PaperlessClient) invalidateTagCatalog() {
+	client.tagsMu.Lock()
 	client.tagsCache = nil
 	client.tagsCachedAt = time.Time{}
-	client.catalogMu.Unlock()
-	return createdTag.ID, nil
+	client.tagsMu.Unlock()
 }
 
 // EnsureTagExists checks whether a tag with the given name exists in paperless-ngx
