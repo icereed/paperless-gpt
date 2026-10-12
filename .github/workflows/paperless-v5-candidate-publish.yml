@@ -4,14 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Fork branch or commit to build
+        description: The approved candidate branch to build
         required: true
         default: codex/paperless-v5-candidate
-        type: string
-      source_repo:
-        description: Repository containing source_ref
-        required: true
-        default: MaxRink/paperless-gpt
         type: string
       source_sha:
         description: Expected source commit embedded in image metadata
@@ -29,6 +24,11 @@ permissions:
 
 jobs:
   test:
+    # Candidate publishing is intentionally limited to the maintained fork's
+    # named candidate branch. This condition is evaluated before checkout, so
+    # an arbitrary dispatcher-supplied repository/ref cannot reach the test or
+    # publish jobs.
+    if: inputs.source_ref == 'codex/paperless-v5-candidate'
     permissions:
       contents: read
     outputs:
@@ -38,7 +38,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: ${{ inputs.source_repo }}
+          repository: MaxRink/paperless-gpt
           ref: ${{ inputs.source_ref }}
           persist-credentials: false
       - name: Verify immutable source revision
@@ -82,6 +82,7 @@ jobs:
 
   publish:
     needs: test
+    if: needs.test.result == 'success'
     permissions:
       contents: read
       packages: write
@@ -92,7 +93,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: ${{ inputs.source_repo }}
+          repository: MaxRink/paperless-gpt
           ref: ${{ needs.test.outputs.source_sha }}
           persist-credentials: false
       - name: Set up Buildx
