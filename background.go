@@ -81,11 +81,9 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 					count += ocrCount
 				}
 
-				// Run auto-tagging after OCR
+				// Run auto-tagging after OCR (cycle errors counted per tag kind inside).
 				autoCount, autoErr := app.processAutoTagDocuments(ctx)
 				if autoErr != nil {
-					// Kind is refined inside processTagDocuments; cycle-level uses auto_tag.
-					incBackgroundCycleError(bgKindAutoTag)
 					return 0, fmt.Errorf("error in processAutoTagDocuments: %w", autoErr)
 				}
 				count += autoCount
@@ -212,6 +210,11 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 		n, err := app.processTagDocuments(ctx, tag)
 		totalProcessed += n
 		if err != nil {
+			kind := bgKindAutoTag
+			if tag != autoTag {
+				kind = bgKindWorkflowTag
+			}
+			incBackgroundCycleError(kind)
 			allErrs = append(allErrs, err)
 		}
 	}

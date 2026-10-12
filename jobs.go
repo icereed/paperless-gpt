@@ -68,14 +68,19 @@ func generateJobID() string {
 const maxOCRJobs = 200
 
 func (store *JobStore) addJob(job *Job) {
+	counts := store.addJobLocked(job)
+	ocrJobsCreatedTotal.Inc()
+	refreshJobGauges(ocrJobs, counts)
+}
+
+func (store *JobStore) addJobLocked(job *Job) map[string]float64 {
 	store.Lock()
-	job.PagesDone = 0 // Initialize PagesDone to 0
+	defer store.Unlock()
+	job.PagesDone = 0
 	store.jobs[job.ID] = job
 	store.evictOldestTerminalLocked()
 	logger.Infof("Job added: %v", job)
-	store.Unlock()
-	ocrJobsCreatedTotal.Inc()
-	refreshOCRJobGauges()
+	return countOCRJobStatusesLocked()
 }
 
 // evictOldestTerminalLocked drops the oldest finished jobs while over capacity.
@@ -130,27 +135,30 @@ func (store *JobStore) GetAllJobs() []*Job {
 }
 
 func (store *JobStore) updateJobStatus(jobID, status, result string) {
+	createdAt, becameTerminal, counts := store.updateJobStatusLocked(jobID, status, result)
+	refreshJobGauges(ocrJobs, counts)
+	if becameTerminal {
+		observeOCRJobCompleted(status, createdAt)
+	}
+}
+
+func (store *JobStore) updateJobStatusLocked(jobID, status, result string) (createdAt time.Time, becameTerminal bool, counts map[string]float64) {
 	store.Lock()
-	var createdAt time.Time
-	terminal := false
+	defer store.Unlock()
 	if job, exists := store.jobs[jobID]; exists {
+		prev := job.Status
 		job.Status = status
 		if result != "" {
 			job.Result = result
 		}
 		job.UpdatedAt = time.Now()
 		logger.Infof("Job status updated: %v", job)
-		switch status {
-		case "completed", "failed", "cancelled":
-			terminal = true
+		if isTerminalJobStatus(status) && !isTerminalJobStatus(prev) {
+			becameTerminal = true
 			createdAt = job.CreatedAt
 		}
 	}
-	store.Unlock()
-	refreshOCRJobGauges()
-	if terminal {
-		observeOCRJobCompleted(status, createdAt)
-	}
+	return createdAt, becameTerminal, countOCRJobStatusesLocked()
 }
 
 func (store *JobStore) updatePagesDone(jobID string, pagesDone int) {

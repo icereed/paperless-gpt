@@ -180,12 +180,8 @@ var (
 )
 
 func init() {
-	// Register Go and process collectors once on the default registerer.
-	// Ignore AlreadyRegistered so tests / re-init do not panic.
 	registerCollectorOnce(collectors.NewGoCollector())
 	registerCollectorOnce(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-
-	// Zero job gauges so series exist before the first job.
 	for _, status := range []string{
 		jobStatusPending, jobStatusInProgress, jobStatusCompleted, jobStatusFailed, jobStatusCanceled,
 	} {
@@ -279,6 +275,15 @@ func jobStatusMetricLabel(status string) string {
 	return status
 }
 
+func isTerminalJobStatus(status string) bool {
+	switch jobStatusMetricLabel(status) {
+	case jobStatusCompleted, jobStatusFailed, jobStatusCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
 func jobResultFromStatus(status string) string {
 	switch jobStatusMetricLabel(status) {
 	case jobStatusCompleted:
@@ -322,6 +327,10 @@ func paperlessOperation(method, path string) string {
 		if len(parts) >= 4 && parts[3] == "download" {
 			return opDownload
 		}
+		// Document subresources other than download (e.g. thumb) are unlisted.
+		if len(parts) >= 4 && parts[3] != "" {
+			return opOther
+		}
 		if method == "DELETE" {
 			return opDeleteDocument
 		}
@@ -332,9 +341,6 @@ func paperlessOperation(method, path string) string {
 			return opGetDocument
 		}
 		if method == "GET" {
-			if strings.Contains(path, "query=") || strings.Contains(path, "ordering=") || strings.Contains(path, "tags__name") {
-				return opSearchDocuments
-			}
 			return opSearchDocuments
 		}
 	}
@@ -373,46 +379,50 @@ func observePDFCreated(action string, start time.Time) {
 	observeDuration(ocrPDFCreatedDuration.WithLabelValues(action), start)
 }
 
-func refreshOCRJobGauges() {
-	counts := map[string]float64{
+// recordPDFResult observes created-duration for attached/replaced/local only.
+func recordPDFResult(action string, start time.Time) {
+	switch action {
+	case pdfActionAttached, pdfActionReplaced, pdfActionLocal:
+		observePDFCreated(action, start)
+	}
+}
+
+func emptyJobStatusCounts() map[string]float64 {
+	return map[string]float64{
 		jobStatusPending:    0,
 		jobStatusInProgress: 0,
 		jobStatusCompleted:  0,
 		jobStatusFailed:     0,
 		jobStatusCanceled:   0,
 	}
-	jobStore.RLock()
+}
+
+func refreshJobGauges(gauge *prometheus.GaugeVec, counts map[string]float64) {
+	for status, n := range counts {
+		gauge.WithLabelValues(status).Set(n)
+	}
+}
+
+func countOCRJobStatusesLocked() map[string]float64 {
+	counts := emptyJobStatusCounts()
 	for _, job := range jobStore.jobs {
 		label := jobStatusMetricLabel(job.Status)
 		if _, ok := counts[label]; ok {
 			counts[label]++
 		}
 	}
-	jobStore.RUnlock()
-	for status, n := range counts {
-		ocrJobs.WithLabelValues(status).Set(n)
-	}
+	return counts
 }
 
-func refreshSuggestionJobGauges() {
-	counts := map[string]float64{
-		jobStatusPending:    0,
-		jobStatusInProgress: 0,
-		jobStatusCompleted:  0,
-		jobStatusFailed:     0,
-		jobStatusCanceled:   0,
-	}
-	suggestionJobStore.RLock()
+func countSuggestionJobStatusesLocked() map[string]float64 {
+	counts := emptyJobStatusCounts()
 	for _, job := range suggestionJobStore.jobs {
 		label := jobStatusMetricLabel(job.Status)
 		if _, ok := counts[label]; ok {
 			counts[label]++
 		}
 	}
-	suggestionJobStore.RUnlock()
-	for status, n := range counts {
-		suggestionJobs.WithLabelValues(status).Set(n)
-	}
+	return counts
 }
 
 func observeOCRJobCompleted(status string, createdAt time.Time) {
@@ -434,7 +444,7 @@ func incBackgroundCycleError(kind string) {
 // metricsMiddleware records inbound HTTP RED metrics, skipping /metrics.
 func metricsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request.URL.Path == "/metrics" {
+		if strings.TrimSuffix(c.Request.URL.Path, "/") == "/metrics" {
 			c.Next()
 			return
 		}

@@ -66,15 +66,20 @@ func init() {
 const maxSuggestionJobs = 200
 
 func (store *SuggestionJobStore) addJob(job *SuggestionJob) {
+	counts := store.addJobLocked(job)
+	suggestionJobsCreatedTotal.Inc()
+	refreshJobGauges(suggestionJobs, counts)
+}
+
+func (store *SuggestionJobStore) addJobLocked(job *SuggestionJob) map[string]float64 {
 	store.Lock()
+	defer store.Unlock()
 	job.DocumentsDone = 0
 	job.TotalDocuments = len(job.Request.Documents)
 	store.jobs[job.ID] = job
 	store.evictOldestTerminalLocked()
 	suggestionLogger.Infof("Suggestion job added: %s", job.ID)
-	store.Unlock()
-	suggestionJobsCreatedTotal.Inc()
-	refreshSuggestionJobGauges()
+	return countSuggestionJobStatusesLocked()
 }
 
 // evictOldestTerminalLocked drops the oldest finished jobs while the store is
@@ -185,48 +190,64 @@ func (store *SuggestionJobStore) getAllJobs() []SuggestionJob {
 }
 
 func (store *SuggestionJobStore) startPending(jobID string) bool {
+	started, counts := store.startPendingLocked(jobID)
+	if started {
+		refreshJobGauges(suggestionJobs, counts)
+	}
+	return started
+}
+
+func (store *SuggestionJobStore) startPendingLocked(jobID string) (bool, map[string]float64) {
 	store.Lock()
+	defer store.Unlock()
 	job, exists := store.jobs[jobID]
 	if !exists || job.Status != "pending" {
-		store.Unlock()
-		return false
+		return false, nil
 	}
-
 	job.Status = "in_progress"
 	job.Error = ""
 	job.UpdatedAt = time.Now()
-	store.Unlock()
-	refreshSuggestionJobGauges()
-	return true
+	return true, countSuggestionJobStatusesLocked()
 }
 
 func (store *SuggestionJobStore) updateStatus(jobID, status, message string) {
+	createdAt, becameTerminal, counts := store.updateStatusLocked(jobID, status, message)
+	refreshJobGauges(suggestionJobs, counts)
+	if becameTerminal {
+		observeSuggestionJobCompleted(status, createdAt)
+	}
+}
+
+func (store *SuggestionJobStore) updateStatusLocked(jobID, status, message string) (createdAt time.Time, becameTerminal bool, counts map[string]float64) {
 	store.Lock()
-	var createdAt time.Time
-	terminal := false
+	defer store.Unlock()
 	if job, exists := store.jobs[jobID]; exists {
+		prev := job.Status
 		job.Status = status
 		if message != "" {
 			job.Error = message
 		}
 		job.UpdatedAt = time.Now()
-		switch status {
-		case "completed", "failed", "cancelled":
-			terminal = true
+		if isTerminalJobStatus(status) && !isTerminalJobStatus(prev) {
+			becameTerminal = true
 			createdAt = job.CreatedAt
 		}
 	}
-	store.Unlock()
-	refreshSuggestionJobGauges()
-	if terminal {
-		observeSuggestionJobCompleted(status, createdAt)
-	}
+	return createdAt, becameTerminal, countSuggestionJobStatusesLocked()
 }
 
 func (store *SuggestionJobStore) cancelPending(jobID string) bool {
+	createdAt, cancelled, counts := store.cancelPendingLocked(jobID)
+	if cancelled {
+		refreshJobGauges(suggestionJobs, counts)
+		observeSuggestionJobCompleted("cancelled", createdAt)
+	}
+	return cancelled
+}
+
+func (store *SuggestionJobStore) cancelPendingLocked(jobID string) (createdAt time.Time, cancelled bool, counts map[string]float64) {
 	store.Lock()
-	var createdAt time.Time
-	cancelled := false
+	defer store.Unlock()
 	if job, exists := store.jobs[jobID]; exists && job.Status == "pending" {
 		job.Status = "cancelled"
 		job.Error = "Job cancelled by user"
@@ -234,12 +255,7 @@ func (store *SuggestionJobStore) cancelPending(jobID string) bool {
 		createdAt = job.CreatedAt
 		cancelled = true
 	}
-	store.Unlock()
-	if cancelled {
-		refreshSuggestionJobGauges()
-		observeSuggestionJobCompleted("cancelled", createdAt)
-	}
-	return cancelled
+	return createdAt, cancelled, countSuggestionJobStatusesLocked()
 }
 
 func (store *SuggestionJobStore) updateProgress(jobID string, documentsDone int, currentDocumentID int) {
@@ -253,10 +269,18 @@ func (store *SuggestionJobStore) updateProgress(jobID string, documentsDone int,
 }
 
 func (store *SuggestionJobStore) complete(jobID string, result []DocumentSuggestion, failures []SuggestionJobDocumentFailure) {
+	createdAt, becameTerminal, counts := store.completeLocked(jobID, result, failures)
+	refreshJobGauges(suggestionJobs, counts)
+	if becameTerminal {
+		observeSuggestionJobCompleted("completed", createdAt)
+	}
+}
+
+func (store *SuggestionJobStore) completeLocked(jobID string, result []DocumentSuggestion, failures []SuggestionJobDocumentFailure) (createdAt time.Time, becameTerminal bool, counts map[string]float64) {
 	store.Lock()
-	var createdAt time.Time
-	ok := false
+	defer store.Unlock()
 	if job, exists := store.jobs[jobID]; exists {
+		prev := job.Status
 		job.Status = "completed"
 		job.Result = result
 		job.FailedDocuments = failures
@@ -264,33 +288,37 @@ func (store *SuggestionJobStore) complete(jobID string, result []DocumentSuggest
 		job.DocumentsDone = job.TotalDocuments
 		job.CurrentDocumentID = 0
 		job.UpdatedAt = time.Now()
-		createdAt = job.CreatedAt
-		ok = true
+		if isTerminalJobStatus("completed") && !isTerminalJobStatus(prev) {
+			becameTerminal = true
+			createdAt = job.CreatedAt
+		}
 	}
-	store.Unlock()
-	if ok {
-		refreshSuggestionJobGauges()
-		observeSuggestionJobCompleted("completed", createdAt)
-	}
+	return createdAt, becameTerminal, countSuggestionJobStatusesLocked()
 }
 
 func (store *SuggestionJobStore) failWithFailures(jobID, message string, failures []SuggestionJobDocumentFailure) {
+	createdAt, becameTerminal, counts := store.failWithFailuresLocked(jobID, message, failures)
+	refreshJobGauges(suggestionJobs, counts)
+	if becameTerminal {
+		observeSuggestionJobCompleted("failed", createdAt)
+	}
+}
+
+func (store *SuggestionJobStore) failWithFailuresLocked(jobID, message string, failures []SuggestionJobDocumentFailure) (createdAt time.Time, becameTerminal bool, counts map[string]float64) {
 	store.Lock()
-	var createdAt time.Time
-	ok := false
+	defer store.Unlock()
 	if job, exists := store.jobs[jobID]; exists {
+		prev := job.Status
 		job.Status = "failed"
 		job.Error = message
 		job.FailedDocuments = failures
 		job.UpdatedAt = time.Now()
-		createdAt = job.CreatedAt
-		ok = true
+		if isTerminalJobStatus("failed") && !isTerminalJobStatus(prev) {
+			becameTerminal = true
+			createdAt = job.CreatedAt
+		}
 	}
-	store.Unlock()
-	if ok {
-		refreshSuggestionJobGauges()
-		observeSuggestionJobCompleted("failed", createdAt)
-	}
+	return createdAt, becameTerminal, countSuggestionJobStatusesLocked()
 }
 
 func startSuggestionWorkerPool(app *App, numWorkers int) {

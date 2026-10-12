@@ -266,7 +266,14 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 		}
 	}
 
-	observePaperlessRequest(method, operation, resultSuccess, start)
+	result := resultSuccess
+	if resp.StatusCode >= 400 {
+		result = resultError
+	}
+	if ctx.Err() == context.Canceled {
+		result = resultCanceled
+	}
+	observePaperlessRequest(method, operation, result, start)
 	return resp, nil
 }
 
