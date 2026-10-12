@@ -705,7 +705,16 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			if document.KeepOriginalTags {
 				finalTagNames = append(finalTagNames, document.SuggestedTags...)
 			} else {
-				finalTagNames = document.SuggestedTags
+				finalTagNames = append([]string{}, document.SuggestedTags...)
+				// Suggestions never contain paperless-gpt's own tags (they are
+				// filtered out of the LLM's view), so replacing the tags with
+				// them used to drop PDF_OCR_COMPLETE_TAG, AUTO_TAG_COMPLETE,
+				// FAIL_TAG or another workflow's tags already on the document
+				// (#1156). Keep them; the RemoveTags pass below still takes the
+				// trigger tags off. An undo restores an exact earlier state.
+				if !isUndo {
+					finalTagNames = append(finalTagNames, keptSystemTags(originalDoc.Tags)...)
+				}
 			}
 		}
 		var cleanedTags []string
@@ -2219,4 +2228,18 @@ func (client *PaperlessClient) UploadDocumentVersion(ctx context.Context, docume
 
 	log.Infof("Successfully uploaded new version of document %d, received task ID: %s", documentID, taskID)
 	return taskID, nil
+}
+
+// keptSystemTags returns the tags in names that belong to paperless-gpt itself
+// (OCR complete, fail, completion and trigger tags, workflow tags), compared
+// case-insensitively.
+func keptSystemTags(names []string) []string {
+	system := systemTags()
+	var kept []string
+	for _, name := range names {
+		if slices.ContainsFunc(system, func(t string) bool { return strings.EqualFold(t, name) }) {
+			kept = append(kept, name)
+		}
+	}
+	return kept
 }
