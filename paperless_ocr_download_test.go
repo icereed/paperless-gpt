@@ -39,6 +39,23 @@ func TestIsPDFData(t *testing.T) {
 	assert.False(t, isPDFData([]byte("%PD")))
 }
 
+func TestWriteAndCloseTempPDFClosesAfterSuccess(t *testing.T) {
+	file, err := os.CreateTemp(t.TempDir(), "paperless-gpt-close-success-*.pdf")
+	require.NoError(t, err)
+
+	require.NoError(t, writeAndCloseTempPDF(file, []byte("%PDF-1.7\n")))
+	_, err = file.Write([]byte("after close"))
+	assert.Error(t, err, "the temporary PDF must be closed before it is opened for OCR")
+}
+
+func TestWriteAndCloseTempPDFClosesAfterWriteFailure(t *testing.T) {
+	file, err := os.Open("/dev/null")
+	require.NoError(t, err)
+	err = writeAndCloseTempPDF(file, []byte("%PDF-1.7\n"))
+	require.Error(t, err)
+	assert.Error(t, file.Close(), "the write-error path must close the temporary-file handle")
+}
+
 // TestDownloadDocumentAsImages_NonPDFImage verifies that an image download
 // (e.g. original served with PAPERLESS_ARCHIVE_FILE_GENERATION=never) passes
 // through as a single page instead of failing in fitz.

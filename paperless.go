@@ -1565,6 +1565,17 @@ func describeDownload(data []byte) string {
 	return mime.String()
 }
 
+// writeAndCloseTempPDF writes the downloaded PDF before any reader opens it.
+// Closing on both the write-error and success paths prevents descriptor leaks
+// when a full temporary-file write fails.
+func writeAndCloseTempPDF(file *os.File, data []byte) error {
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
+
 // DownloadDocumentAsImages downloads the specified document and converts it to images.
 // Single images pass through as one page; other non-PDF downloads fail with a
 // descriptive error instead of a PDF parsing failure.
@@ -1619,11 +1630,9 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 		return nil, 0, err
 	}
 	defer os.Remove(tmpFile.Name())
-	_, err = tmpFile.Write(pdfData)
-	if err != nil {
+	if err := writeAndCloseTempPDF(tmpFile, pdfData); err != nil {
 		return nil, 0, err
 	}
-	tmpFile.Close()
 
 	doc, cleanup, err := openPDFForOCR(ctx, tmpFile.Name(), pdfPasswordFromContext(ctx))
 	if err != nil {
@@ -1809,11 +1818,9 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	}
 	defer os.Remove(tmpFile.Name())
 
-	_, err = tmpFile.Write(pdfData)
-	if err != nil {
+	if err := writeAndCloseTempPDF(tmpFile, pdfData); err != nil {
 		return nil, nil, 0, err
 	}
-	tmpFile.Close()
 
 	ocrSource, cleanup, err := pdfSourceForOCR(ctx, tmpFile.Name(), pdfPasswordFromContext(ctx))
 	if err != nil {
