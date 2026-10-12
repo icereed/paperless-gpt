@@ -724,6 +724,7 @@ func TestSplitProcessingStopsBeforeDocuments(t *testing.T) {
 		{name: "empty queue", countStatus: http.StatusOK, tagStatus: http.StatusOK},
 		{name: "count error", countStatus: http.StatusServiceUnavailable, tagStatus: http.StatusOK, wantError: true},
 		{name: "tag catalog error", count: 26, countStatus: http.StatusOK, tagStatus: http.StatusServiceUnavailable, wantTags: 1, wantError: true},
+		{name: "missing split tag", count: 26, countStatus: http.StatusOK, tagStatus: http.StatusOK, wantTags: 1, wantError: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env := newTestEnv(t)

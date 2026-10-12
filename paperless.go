@@ -377,7 +377,8 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 // GetDocumentsByTagExcluding returns tagged documents without excludedTag on a
 // one-based page ordered by ID, using the caller's tag catalog for filtering and
 // tag names. An empty excludedTag instead selects the first tagged page without
-// exclusion or explicit ordering.
+// exclusion or explicit ordering. A nonempty excludedTag missing from the catalog
+// returns an error before requesting documents.
 func (client *PaperlessClient) GetDocumentsByTagExcluding(ctx context.Context, tag string, pageSize int, excludedTag string, page int, allTags map[string]int) ([]Document, error) {
 	return client.getDocumentsByTag(ctx, tag, pageSize, excludedTag, page, allTags)
 }
@@ -388,10 +389,11 @@ func (client *PaperlessClient) GetDocumentsByTagExcluding(ctx context.Context, t
 func (client *PaperlessClient) getDocumentsByTag(ctx context.Context, tag string, pageSize int, excludedTag string, page int, allTags map[string]int) ([]Document, error) {
 	path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=%d", url.QueryEscape(tag), pageSize)
 	if excludedTag != "" {
-		path += fmt.Sprintf("&page=%d&ordering=id", page)
-		if _, id, found := lookupTagID(allTags, excludedTag); found {
-			path += fmt.Sprintf("&tags__id__none=%d", id)
+		_, id, found := lookupTagID(allTags, excludedTag)
+		if !found {
+			return nil, fmt.Errorf("excluded tag %q not found in tag catalog", excludedTag)
 		}
+		path += fmt.Sprintf("&page=%d&ordering=id&tags__id__none=%d", page, id)
 	}
 
 	resp, err := client.Do(ctx, "GET", path, nil)
