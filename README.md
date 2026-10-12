@@ -790,6 +790,8 @@ The application uses two directories for management:
 - **`prompts/`**: Your working directory. On first run, the default templates are copied here. All edits made in the UI are saved to the files in this directory.
 - **`prompts/workflows/`**: One folder per [AI workflow](docs/workflows.md), with that workflow's settings and the prompts it changes.
 
+A prompt in `prompts/` that you never changed is updated to the current default on startup, so improvements to the default prompts reach existing installations. Prompts you edited are never touched.
+
 To ensure your custom prompts persist across container restarts, you must mount the `prompts` directory as a volume in your `docker-compose.yml`:
 
 ```yaml
