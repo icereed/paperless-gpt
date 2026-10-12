@@ -15,6 +15,14 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// llmPurpose is the metrics label for which LLM role a RateLimitedLLM serves.
+type llmPurpose string
+
+const (
+	llmPurposeMetadata llmPurpose = "metadata"
+	llmPurposeVision   llmPurpose = "vision"
+)
+
 // RateLimitedLLM wraps an LLM client with rate limiting and retry capabilities
 type RateLimitedLLM struct {
 	llm          llms.Model
@@ -23,7 +31,7 @@ type RateLimitedLLM struct {
 	backoffMin   time.Duration
 	backoffMax   time.Duration
 	backoffScale float64
-	purpose      string // metrics label: metadata or vision
+	purpose      llmPurpose
 }
 
 const maxProviderRetryDelay = 15 * time.Minute
@@ -114,6 +122,7 @@ func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llm
 			observeLLMRequest(purpose, resultFromContext(ctx, ctx.Err()), start)
 			return "", ctx.Err()
 		case <-time.After(jitter):
+			// Continue with retry
 			incLLMRetry(purpose)
 			attempt++
 			lastErr = err
@@ -141,9 +150,9 @@ type RateLimitConfig struct {
 	// Defaults to 30 seconds if not specified
 	BackoffMaxWait time.Duration
 
-	// Purpose is the metrics label for this LLM (metadata or vision).
-	// Defaults to metadata when empty.
-	Purpose string
+	// Purpose is which LLM role this wrapper serves for metrics labeling.
+	// Defaults to llmPurposeMetadata when empty.
+	Purpose llmPurpose
 }
 
 // NewRateLimitedLLM creates a new rate-limited LLM client
@@ -184,7 +193,7 @@ func NewRateLimitedLLM(llm llms.Model, config RateLimitConfig) *RateLimitedLLM {
 	}
 }
 
-func (r *RateLimitedLLM) metricsPurpose() string {
+func (r *RateLimitedLLM) metricsPurpose() llmPurpose {
 	if r.purpose == "" {
 		return llmPurposeMetadata
 	}
@@ -253,6 +262,7 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 			observeLLMRequest(purpose, resultFromContext(ctx, ctx.Err()), start)
 			return nil, ctx.Err()
 		case <-time.After(jitter):
+			// Continue with retry
 			incLLMRetry(purpose)
 			attempt++
 			lastErr = err

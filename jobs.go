@@ -68,19 +68,15 @@ func generateJobID() string {
 const maxOCRJobs = 200
 
 func (store *JobStore) addJob(job *Job) {
-	counts := store.addJobLocked(job)
-	ocrJobsCreatedTotal.Inc()
-	refreshJobGauges(ocrJobs, counts)
-}
-
-func (store *JobStore) addJobLocked(job *Job) map[string]float64 {
 	store.Lock()
-	defer store.Unlock()
 	job.PagesDone = 0
 	store.jobs[job.ID] = job
 	store.evictOldestTerminalLocked()
 	logger.Infof("Job added: %v", job)
-	return countOCRJobStatusesLocked()
+	counts := countOCRJobStatusesLocked()
+	store.Unlock()
+	ocrJobsCreatedTotal.Inc()
+	refreshJobGauges(ocrJobs, counts)
 }
 
 // evictOldestTerminalLocked drops the oldest finished jobs while over capacity.

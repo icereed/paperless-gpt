@@ -276,12 +276,12 @@ func TestLLMObserveIncrementsHistogram(t *testing.T) {
 		},
 	}
 	llm := NewRateLimitedLLM(mock, RateLimitConfig{MaxRetries: 1, Purpose: llmPurposeMetadata})
-	before := histogramCount(t, llmRequestDuration.WithLabelValues(llmPurposeMetadata, resultSuccess))
+	before := histogramCount(t, llmRequestDuration.WithLabelValues(string(llmPurposeMetadata), resultSuccess))
 	_, err := llm.GenerateContent(context.Background(), []llms.MessageContent{
 		{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "hi"}}},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, before+1, histogramCount(t, llmRequestDuration.WithLabelValues(llmPurposeMetadata, resultSuccess)))
+	assert.Equal(t, before+1, histogramCount(t, llmRequestDuration.WithLabelValues(string(llmPurposeMetadata), resultSuccess)))
 }
 
 func TestLLMRetryCounter(t *testing.T) {
@@ -295,12 +295,12 @@ func TestLLMRetryCounter(t *testing.T) {
 		MaxRetries: 3, BackoffMaxWait: 10 * time.Millisecond, Purpose: llmPurposeVision,
 	})
 	llm.backoffMin = time.Millisecond
-	before := testutil.ToFloat64(llmRetriesTotal.WithLabelValues(llmPurposeVision))
+	before := testutil.ToFloat64(llmRetriesTotal.WithLabelValues(string(llmPurposeVision)))
 	_, err := llm.GenerateContent(context.Background(), []llms.MessageContent{
 		{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "hi"}}},
 	})
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, testutil.ToFloat64(llmRetriesTotal.WithLabelValues(llmPurposeVision))-before, float64(1))
+	assert.GreaterOrEqual(t, testutil.ToFloat64(llmRetriesTotal.WithLabelValues(string(llmPurposeVision)))-before, float64(1))
 }
 
 func TestDocumentFieldEditCounter(t *testing.T) {

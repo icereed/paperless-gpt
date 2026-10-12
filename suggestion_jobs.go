@@ -66,20 +66,16 @@ func init() {
 const maxSuggestionJobs = 200
 
 func (store *SuggestionJobStore) addJob(job *SuggestionJob) {
-	counts := store.addJobLocked(job)
-	suggestionJobsCreatedTotal.Inc()
-	refreshJobGauges(suggestionJobs, counts)
-}
-
-func (store *SuggestionJobStore) addJobLocked(job *SuggestionJob) map[string]float64 {
 	store.Lock()
-	defer store.Unlock()
 	job.DocumentsDone = 0
 	job.TotalDocuments = len(job.Request.Documents)
 	store.jobs[job.ID] = job
 	store.evictOldestTerminalLocked()
 	suggestionLogger.Infof("Suggestion job added: %s", job.ID)
-	return countSuggestionJobStatusesLocked()
+	counts := countSuggestionJobStatusesLocked()
+	store.Unlock()
+	suggestionJobsCreatedTotal.Inc()
+	refreshJobGauges(suggestionJobs, counts)
 }
 
 // evictOldestTerminalLocked drops the oldest finished jobs while the store is

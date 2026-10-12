@@ -27,9 +27,6 @@ const (
 	jobStatusFailed     = "failed"
 	jobStatusCanceled   = "canceled"
 
-	llmPurposeMetadata = "metadata"
-	llmPurposeVision   = "vision"
-
 	opGetDocument         = "get_document"
 	opUpdateDocument      = "update_document"
 	opDownload            = "download"
@@ -351,12 +348,12 @@ func observePaperlessRequest(method, operation, result string, start time.Time) 
 	observeDuration(paperlessRequestDuration.WithLabelValues(method, operation, result), start)
 }
 
-func observeLLMRequest(purpose, result string, start time.Time) {
-	observeDuration(llmRequestDuration.WithLabelValues(purpose, result), start)
+func observeLLMRequest(purpose llmPurpose, result string, start time.Time) {
+	observeDuration(llmRequestDuration.WithLabelValues(string(purpose), result), start)
 }
 
-func incLLMRetry(purpose string) {
-	llmRetriesTotal.WithLabelValues(purpose).Inc()
+func incLLMRetry(purpose llmPurpose) {
+	llmRetriesTotal.WithLabelValues(string(purpose)).Inc()
 }
 
 func observeOCRPage(result string, start time.Time) {

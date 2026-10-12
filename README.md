@@ -123,7 +123,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Using a Different AI Provider](#using-a-different-ai-provider)
     - [Custom Prompt Templates](#custom-prompt-templates)
       - [Template Variables](#template-variables)
-  - [Prometheus metrics](#prometheus-metrics)
+  - [Exported metrics](#exported-metrics)
   - [LLM-Based OCR: Compare for Yourself](#llm-based-ocr-compare-for-yourself)
     - [Example 1](#example-1)
     - [Example 2](#example-2)
@@ -1061,11 +1061,9 @@ P.O. Box 94515
 
 ---
 
-## Prometheus metrics
+## Exported metrics
 
-paperless-gpt exposes Prometheus metrics at **`GET /metrics`** on the same Gin listener as the web UI and API (`LISTEN_INTERFACE`, default `:8080`). Metrics are always on; there is no separate port or auth.
-
-> **Security:** Keep the scrape on a private network (or behind a reverse proxy that blocks `/metrics` from the public internet). The scrape endpoint shares the app port with the SPA and API and has no authentication.
+paperless-gpt exposes metrics at **`GET /metrics`** on the same Gin listener as the web UI and API (`LISTEN_INTERFACE`, default `:8080`). Metrics are always on; there is no separate port or auth.
 
 ### Scrape URL
 
@@ -1073,11 +1071,9 @@ paperless-gpt exposes Prometheus metrics at **`GET /metrics`** on the same Gin l
 http://<paperless-gpt-host>:8080/metrics
 ```
 
-Namespace: `paperless_gpt_`. Process identity (paperless host, LLM/OCR/vision backends and models) lives only on `paperless_gpt_build_info` (gauge=1). Use Prometheus `instance` / `job` target labels for multi-instance identity.
+Namespace: `paperless_gpt_`. Process identity (paperless host, LLM/OCR/vision backends and models) lives only on `paperless_gpt_build_info` (gauge=1).
 
-### Metric layers (do not sum across layers)
-
-Inbound HTTP, outbound paperless-ngx, LLM, OCR, field edits, searchable PDFs, and job/background work are separate layers. One user action fans out across several; build **per-layer** panels rather than a single “total work” figure.
+### Metric layers
 
 | Layer | Key metrics |
 |-------|-------------|
@@ -1109,26 +1105,6 @@ Inbound HTTP, outbound paperless-ngx, LLM, OCR, field edits, searchable PDFs, an
 | `action` (PDF) | `none`, `attached`, `replaced`, `skipped`, `failed`, `local` |
 | `kind` (background) | `auto_tag`, `auto_ocr`, `workflow_tag` |
 | `path` (HTTP) | Gin route template or `unmatched` |
-
-### Example PromQL
-
-```promql
-# Request rate and p95 latency (HTTP)
-rate(paperless_gpt_http_requests_total[5m])
-histogram_quantile(0.95, sum by (le) (rate(paperless_gpt_http_request_duration_seconds_bucket[5m])))
-
-# Timed operation rate / mean latency from histogram _count / _sum
-rate(paperless_gpt_llm_request_duration_seconds_count[5m])
-rate(paperless_gpt_llm_request_duration_seconds_sum[5m])
-  / rate(paperless_gpt_llm_request_duration_seconds_count[5m])
-
-# Average pending OCR jobs (no gauge time-integral series)
-avg_over_time(paperless_gpt_ocr_jobs{status="pending"}[5m])
-
-# Job create rate vs completion rate
-rate(paperless_gpt_ocr_jobs_created_total[5m])
-rate(paperless_gpt_ocr_jobs_completed_duration_seconds_count[5m])
-```
 
 ---
 

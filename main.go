@@ -464,11 +464,7 @@ func main() {
 		ocrProviderLabel:   ocrProviderLabel(),
 	}
 
-	ocrBackend := os.Getenv("OCR_PROVIDER")
-	if ocrBackend == "" {
-		ocrBackend = "llm"
-	}
-	InitMetricsInfo(client.BaseURL, llmProvider, llmModel, ocrBackend, visionLlmProvider, visionLlmModel)
+	InitMetricsInfo(client.BaseURL, llmProvider, llmModel, providerType, visionLlmProvider, visionLlmModel)
 
 	rawAutoTagMaxRetries := os.Getenv("AUTO_TAG_MAX_RETRIES")
 	if rawAutoTagMaxRetries == "" {
