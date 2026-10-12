@@ -99,7 +99,10 @@ func pdfSourceForOCR(ctx context.Context, filename, password string) (string, fu
 			return "", func() {}, fmt.Errorf("%w: %v", ErrPDFPasswordRequired, err)
 		}
 		if password == "" {
-			return "", func() {}, originalOpenErr
+			// Keep both causes: PDFium explains why the original could not be
+			// opened, while pdfcpu may identify the actionable filesystem,
+			// malformed-PDF, or unsupported-encryption failure.
+			return "", func() {}, errors.Join(originalOpenErr, fmt.Errorf("decrypt PDF for OCR: %w", err))
 		}
 		return "", func() {}, fmt.Errorf("decrypt PDF for OCR: %w", err)
 	}
