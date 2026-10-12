@@ -1,10 +1,12 @@
 package ocr
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,4 +93,49 @@ func TestHeaderClientPreservesRetryAfterOn429(t *testing.T) {
 	require.NoError(t, readErr)
 	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 	assert.Contains(t, string(body), "retry-after-ms:2000")
+}
+
+type recordingRoundTripper struct {
+	body   []byte
+	header http.Header
+}
+
+func (r *recordingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.header = req.Header.Clone()
+	if req.Body != nil {
+		r.body, _ = io.ReadAll(req.Body)
+	}
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`)), Header: http.Header{}, Request: req}, nil
+}
+
+// The shared OpenAI-compatible client (text LLM, vision LLM, LLM OCR) adds
+// both the configured headers and, with OPENROUTER_ENFORCE_ZDR, the
+// zero-data-retention preference for requests to OpenRouter.
+func TestOpenAIHTTPClientEnforcesOpenRouterZDR(t *testing.T) {
+	t.Setenv("OPENROUTER_ENFORCE_ZDR", "true")
+	t.Setenv("OPENAI_HEADERS", "X-Team=docs")
+	rec := &recordingRoundTripper{}
+	previous := http.DefaultTransport
+	http.DefaultTransport = rec
+	t.Cleanup(func() { http.DefaultTransport = previous })
+
+	client := OpenAIHTTPClient()
+	resp, err := client.Post("https://openrouter.ai/api/v1/chat/completions", "application/json", strings.NewReader(`{"model":"m"}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	var sent map[string]any
+	require.NoError(t, json.Unmarshal(rec.body, &sent))
+	provider, ok := sent["provider"].(map[string]any)
+	require.True(t, ok, "the provider preference is added")
+	assert.Equal(t, true, provider["zdr"])
+	assert.Equal(t, "deny", provider["data_collection"])
+	assert.Equal(t, "docs", rec.header.Get("X-Team"))
+	assert.Equal(t, "paperless-gpt", rec.header.Get("X-Title"))
+
+	// Other hosts are left alone.
+	resp, err = client.Post("https://api.openai.com/v1/chat/completions", "application/json", strings.NewReader(`{"model":"m"}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.JSONEq(t, `{"model":"m"}`, string(rec.body))
 }

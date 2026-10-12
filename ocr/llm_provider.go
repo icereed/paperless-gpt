@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"paperless-gpt/internal/openrouterzdr"
 	"paperless-gpt/internal/textsanitize"
 	"strconv"
 	"strings"
@@ -317,7 +318,12 @@ func OpenAIHTTPClient() *http.Client {
 	for key, value := range ParseHeaderList(os.Getenv("OPENAI_HEADERS")) {
 		headers[key] = value
 	}
-	return headerClient(headers)
+	client := headerClient(headers)
+	// OPENROUTER_ENFORCE_ZDR: a passthrough unless enabled and the request goes
+	// to openrouter.ai; see internal/openrouterzdr. It sits below the header
+	// transport, so it covers the text LLM, the vision LLM and LLM OCR alike.
+	client.Transport.(*headerTransport).base = openrouterzdr.NewTransport(http.DefaultTransport)
+	return client
 }
 
 // headerClient adds headers to every request. The headers are configured for
