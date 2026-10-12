@@ -562,6 +562,7 @@ type recordingClient struct {
 	updateErr       error                 // returned by UpdateDocuments while non-nil
 	failAfterNCalls int                   // 0 = always succeed, N>0 = fail first N calls then succeed
 	taggedDocuments map[string][]Document // served by GetDocumentsByTag
+	tagFetches      []string              // tags requested via GetDocumentsByTag, in order
 	getAllTagsErr   error                 // when set, GetAllTags fails — used to make suggestion generation fail
 }
 
@@ -577,6 +578,7 @@ func (r *recordingClient) UpdateDocuments(ctx context.Context, documents []Docum
 }
 
 func (r *recordingClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
+	r.tagFetches = append(r.tagFetches, tag)
 	return r.taggedDocuments[tag], nil
 }
 
@@ -934,4 +936,97 @@ func TestProcessAutoTagDocuments_FailTagAfterMaxRetries(t *testing.T) {
 		assert.Empty(t, client.calls,
 			"shutdown is not a document problem — it must not burn an attempt or fail-tag the document")
 	})
+}
+
+func TestProcessTagDocuments_WorkflowTriggerRemovedAfterMaxRetries(t *testing.T) {
+	prevFailTag, prevAutoTag, prevMaxRetries := failTag, autoTag, autoTagMaxRetries
+	t.Cleanup(func() {
+		failTag, autoTag, autoTagMaxRetries = prevFailTag, prevAutoTag, prevMaxRetries
+	})
+	failTag = "paperless-gpt-failed"
+	autoTag = "paperless-gpt-auto"
+	autoTagMaxRetries = 3
+	isolateWorkflowSettings(t)
+
+	const trigger = "paperless-gpt-invoices"
+	useWorkflows(t, []WorkflowConfig{{
+		ID:         "invoices",
+		TriggerTag: trigger,
+	}}...)
+
+	client := &recordingClient{
+		taggedDocuments: map[string][]Document{
+			trigger: {{ID: 21, Title: "Invoice", Tags: []string{trigger}}},
+		},
+		getAllTagsErr: errors.New("exceeds the available context size"),
+	}
+	app := &App{Client: client}
+
+	for round := 1; round <= 2; round++ {
+		count, err := app.processAutoTagDocuments(context.Background())
+		assert.Error(t, err, "round %d should surface the suggestion error", round)
+		assert.Equal(t, 0, count)
+		assert.Empty(t, client.calls, "no PATCH before the limit is reached")
+	}
+
+	count, err := app.processAutoTagDocuments(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, 0, count)
+	require.Len(t, client.calls, 1)
+	got := client.calls[0]
+	assert.Equal(t, 21, got.ID)
+	assert.Equal(t, []string{trigger}, got.RemoveTags, "the workflow trigger tag must be removed, not the global AUTO_TAG")
+	assert.Equal(t, []string{failTag}, got.SuggestedTags)
+	assert.NotContains(t, got.RemoveTags, autoTag)
+}
+
+// A workflow saved with enable_ocr while no OCR provider is configured (for
+// example before the provider was removed) can never succeed. The document
+// has to leave the loop on the first attempt instead of being fetched on
+// every poll.
+func TestProcessTagDocuments_WorkflowOCRWithoutProviderBreaksLoop(t *testing.T) {
+	prevFailTag, prevAutoTag := failTag, autoTag
+	t.Cleanup(func() { failTag, autoTag = prevFailTag, prevAutoTag })
+	failTag = "paperless-gpt-failed"
+	autoTag = "paperless-gpt-auto"
+	isolateWorkflowSettings(t)
+
+	const trigger = "paperless-gpt-scans"
+	on := true
+	useWorkflows(t, WorkflowConfig{ID: "scans", TriggerTag: trigger, EnableOCR: &on})
+
+	client := &recordingClient{
+		taggedDocuments: map[string][]Document{
+			trigger: {{ID: 31, Title: "Scan", Tags: []string{trigger}}},
+		},
+	}
+	app := &App{Client: client} // no OCR provider
+
+	_, _ = app.processAutoTagDocuments(context.Background())
+	require.Len(t, client.calls, 1, "the first attempt must already remove the trigger tag")
+	assert.Equal(t, []string{trigger}, client.calls[0].RemoveTags)
+	assert.Equal(t, []string{failTag}, client.calls[0].SuggestedTags)
+}
+
+func TestProcessAutoTagDocuments_SkipsWorkflowThatDuplicatesAutoTag(t *testing.T) {
+	prevAutoTag := autoTag
+	t.Cleanup(func() { autoTag = prevAutoTag })
+	autoTag = "paperless-gpt-auto"
+	isolateWorkflowSettings(t)
+
+	useWorkflows(t, WorkflowConfig{ID: "dup", TriggerTag: autoTag})
+
+	client := &recordingClient{taggedDocuments: map[string][]Document{}}
+	app := &App{Client: client}
+	count, err := app.processAutoTagDocuments(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+
+	autoFetches := 0
+	for _, tag := range client.tagFetches {
+		if tag == autoTag {
+			autoFetches++
+		}
+	}
+	assert.Equal(t, 1, autoFetches, "a workflow whose trigger is AUTO_TAG must not poll that tag a second time")
 }

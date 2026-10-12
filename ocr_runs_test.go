@@ -203,6 +203,7 @@ func TestSubmitOCRJobHandlerValidation(t *testing.T) {
 }
 
 func TestUpdateOCRDefaultsRejectsUploadWithoutHOCR(t *testing.T) {
+	t.Chdir(t.TempDir()) // the handlers save config/settings.json relative to the working directory
 	gin.SetMode(gin.TestMode)
 	db := newOCRRunTestDB(t)
 	app := &App{Database: db, ocrProcessMode: "image"} // no ocrProvider → no hOCR
@@ -238,6 +239,7 @@ func TestReplaceAfterUploadErrorUnwraps(t *testing.T) {
 }
 
 func TestOCRDefaultsSourcesAndReset(t *testing.T) {
+	t.Chdir(t.TempDir()) // the handlers save config/settings.json relative to the working directory
 	gin.SetMode(gin.TestMode)
 	app := &App{ocrProcessMode: "image"}
 

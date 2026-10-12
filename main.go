@@ -3,14 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
 	"paperless-gpt/extension"
+	"paperless-gpt/internal/pdfrender"
 	"paperless-gpt/ocr"
 	"paperless-gpt/sanitize"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,6 +85,7 @@ var (
 	localHOCRPath                 = os.Getenv("LOCAL_HOCR_PATH")
 	localPDFPath                  = os.Getenv("LOCAL_PDF_PATH")
 	pdfUpload                     = os.Getenv("PDF_UPLOAD") == "true"
+	pdfUploadMode                 = strings.ToLower(strings.TrimSpace(os.Getenv("PDF_UPLOAD_MODE")))
 	pdfReplace                    = os.Getenv("PDF_REPLACE") == "true"
 	pdfCopyMetadata               = os.Getenv("PDF_COPY_METADATA") == "true"
 	pdfOCRCompleteTag             = os.Getenv("PDF_OCR_COMPLETE_TAG")
@@ -90,6 +95,7 @@ var (
 	doclingImageExportMode        = os.Getenv("DOCLING_IMAGE_EXPORT_MODE")
 	doclingOCRPipeline            = os.Getenv("DOCLING_OCR_PIPELINE")
 	doclingOCREngine              = os.Getenv("DOCLING_OCR_ENGINE")
+	doclingOutputFormat           = os.Getenv("DOCLING_OUTPUT_FORMAT")
 	googleThinkingBudget          *int32 // Will be parsed from GOOGLEAI_THINKING_BUDGET
 
 	// Templates
@@ -110,10 +116,15 @@ var (
 	customFieldsCacheMu sync.RWMutex
 )
 
+// startupCallTimeout bounds each paperless-ngx call made during startup, so
+// the HTTP server comes up even when paperless-ngx is slow or unreachable;
+// the background workers retry later.
+const startupCallTimeout = 30 * time.Second
+
 // refreshCustomFieldsCache fetches custom fields from Paperless and updates the cache.
-func refreshCustomFieldsCache(client ClientInterface) {
+func refreshCustomFieldsCache(ctx context.Context, client ClientInterface) {
 	log.Info("Refreshing custom fields cache...")
-	fields, err := client.GetCustomFields(context.Background())
+	fields, err := client.GetCustomFields(ctx)
 	if err != nil {
 		log.Errorf("Error refreshing custom fields cache: %v", err)
 		return
@@ -138,6 +149,7 @@ type App struct {
 	createLocalHOCR    bool                   // Whether to save hOCR files locally
 	createLocalPDF     bool                   // Whether to create PDF files locally
 	pdfUpload          bool                   // Whether to upload processed PDFs to paperless-ngx
+	pdfUploadMode      string                 // PDFUploadModeNew or PDFUploadModeVersion
 	pdfReplace         bool                   // Whether to replace original document after upload
 	pdfCopyMetadata    bool                   // Whether to copy metadata from original to uploaded PDF
 	pdfOCRCompleteTag  string                 // Tag to add to documents that have been OCR processed
@@ -147,6 +159,7 @@ type App struct {
 	ocrProviderLabel   string                 // Human-readable provider description for run records ("llm (ollama/minicpm-v)")
 	ocrFailures        documentFailureTracker // Per-document OCR failure counts for the auto-OCR poll
 	suggestionFailures documentFailureTracker // Per-document suggestion failure counts for the auto-tag poll
+	WorkflowRouter     WorkflowRouter         // Maps documents to workflows; nil uses one trigger tag per workflow
 }
 
 func main() {
@@ -167,6 +180,9 @@ func main() {
 
 	// Load settings from file
 	loadSettings()
+	persistence := checkPersistence()
+	logPersistenceIssues(persistence)
+	migrateWorkflowsFromSettings(workflows)
 
 	if settings.CustomFieldsEnable && len(settings.CustomFieldsSelectedIDs) == 0 {
 		log.Warn("Custom fields are enabled, but no custom fields are selected in the settings.")
@@ -190,12 +206,28 @@ func main() {
 	// Linked-in extensions read paperless-ngx through this client.
 	extension.SetHost(extensionHost{client: client})
 
+	// Bound startup metadata calls so the HTTP server can still come up when
+	// Paperless-ngx is temporarily unavailable. Background workers retry later.
+	// Each call gets its own deadline, so a slow call cannot use up the time
+	// of the ones after it.
+	var startupCancels []context.CancelFunc
+	defer func() {
+		for _, cancel := range startupCancels {
+			cancel()
+		}
+	}()
+	startupCtx := func() context.Context {
+		callCtx, cancel := context.WithTimeout(ctx, startupCallTimeout)
+		startupCancels = append(startupCancels, cancel)
+		return callCtx
+	}
+
 	// Ensure the fail tag exists in paperless-ngx. paperless-gpt applies this
 	// tag mechanically when document processing fails (see processAutoTagDocuments),
 	// so it must be available regardless of the CREATE_NEW_TAGS setting.
 	// A failure here is logged but non-fatal: the loop-break path still removes
 	// the auto tag, the fail tag is just not applied.
-	if err := client.EnsureTagExists(ctx, failTag); err != nil {
+	if err := client.EnsureTagExists(startupCtx(), failTag); err != nil {
 		log.Warnf("Failed to ensure fail tag %q exists: %v. Recovery from a failed document update will still remove the auto tag (loop break works), but the fail tag will not be added.", failTag, err)
 	}
 
@@ -205,7 +237,7 @@ func main() {
 	// without this, users who never created the tag by hand see the trigger
 	// tag disappear and no completion tag appear.
 	if autoTagComplete != "" {
-		if err := client.EnsureTagExists(ctx, autoTagComplete); err != nil {
+		if err := client.EnsureTagExists(startupCtx(), autoTagComplete); err != nil {
 			log.Warnf("Failed to ensure auto tag complete %q exists: %v. Auto-processing will still work, but documents will not be marked as complete.", autoTagComplete, err)
 		}
 	}
@@ -216,13 +248,21 @@ func main() {
 	// paperless-ngx workflows on — so silently dropping it breaks more than a
 	// label.
 	if pdfOCRTagging && pdfOCRCompleteTag != "" {
-		if err := client.EnsureTagExists(ctx, pdfOCRCompleteTag); err != nil {
+		if err := client.EnsureTagExists(startupCtx(), pdfOCRCompleteTag); err != nil {
 			log.Warnf("Failed to ensure OCR complete tag %q exists: %v. OCR will still run, but documents will not be marked as OCR-processed.", pdfOCRCompleteTag, err)
 		}
 	}
 
+	ensureWorkflowTagsExist(startupCtx(), client.EnsureTagExists)
+	// Workflows added or changed by editing their files get their tags too.
+	workflows.OnChange(func([]WorkflowConfig) {
+		ensureCtx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		ensureWorkflowTagsExist(ensureCtx, client.EnsureTagExists)
+	})
+
 	// Initial fetch of custom fields
-	refreshCustomFieldsCache(client)
+	refreshCustomFieldsCache(startupCtx(), client)
 
 	// Start a goroutine to refresh the cache every hour
 	go func() {
@@ -233,7 +273,7 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				refreshCustomFieldsCache(client)
+				refreshCustomFieldsCache(ctx, client)
 			}
 		}
 	}()
@@ -374,6 +414,7 @@ func main() {
 		DoclingImageExportMode:   doclingImageExportMode,
 		DoclingOCRPipeline:       doclingOCRPipeline,
 		DoclingOCREngine:         doclingOCREngine,
+		DoclingOutputFormat:      doclingOutputFormat,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 		VisionLLMMaxTokens:       visionLlmMaxTokens,
 		VisionLLMTemperature:     visionLlmTemperature,
@@ -423,6 +464,7 @@ func main() {
 		createLocalHOCR:    createLocalHOCR,
 		createLocalPDF:     createLocalPDF,
 		pdfUpload:          pdfUpload,
+		pdfUploadMode:      pdfUploadMode,
 		pdfReplace:         pdfReplace,
 		pdfCopyMetadata:    pdfCopyMetadata,
 		pdfOCRCompleteTag:  pdfOCRCompleteTag,
@@ -465,6 +507,19 @@ func main() {
 				log.Fatalf("Invalid OCR_MAX_RETRIES value: %q (must be a non-negative integer, 0 disables the limit)", rawOcrMaxRetries)
 			}
 		}
+
+		// Compile the PDF renderer in the background so the first OCR run or
+		// page preview after a restart doesn't pay for it. Not started when
+		// OCR is disabled: nothing renders PDFs then, and it would only cost
+		// CPU at startup and memory for the compiled module.
+		go func() {
+			start := time.Now()
+			if err := pdfrender.Warm(); err != nil {
+				log.Errorf("Preparing the PDF renderer failed: %v. PDF rendering stays unavailable until paperless-gpt is restarted.", err)
+				return
+			}
+			log.Infof("PDF renderer ready after %v", time.Since(start).Round(time.Millisecond))
+		}()
 	}
 
 	// Start Background-Tasks for Auto-Tagging and Auto-OCR (if enabled)
@@ -536,6 +591,16 @@ func main() {
 
 		// Get version information
 		api.GET("/version", getVersionHandler)
+
+		// Workflows
+		api.GET("/workflows", app.listWorkflowsHandler)
+		api.POST("/workflows", app.createWorkflowHandler)
+		api.GET("/workflows/defaults", app.workflowDefaultsHandler)
+		api.GET("/persistence", persistenceHandler(persistence))
+		api.POST("/workflows/preview", app.workflowPreviewHandler)
+		api.PUT("/workflows/:id", app.updateWorkflowHandler)
+		api.DELETE("/workflows/:id", app.deleteWorkflowHandler)
+		api.GET("/workflows/:id/documents", app.workflowDocumentsHandler)
 	}
 
 	// Endpoints and pages of linked-in extensions
@@ -562,6 +627,9 @@ func main() {
 			c.File("web-app/dist/index.html")
 		})
 		router.GET("/adhoc-analysis", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
+		router.GET("/workflows", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
 		// Client-side routes without a server route, e.g. extension pages
@@ -604,6 +672,10 @@ func main() {
 		})
 		// adhoc-analysis route
 		router.GET("/adhoc-analysis", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		// workflows route
+		router.GET("/workflows", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
 		// Client-side routes without a server route, e.g. extension pages
@@ -665,6 +737,9 @@ func initLogger() {
 			log.Fatalf("Invalid log level: '%s'.", logLevel)
 		}
 	}
+
+	// The OCR package has its own logger; keep it in sync with LOG_LEVEL.
+	ocr.SetLogLevel(log.GetLevel())
 
 	log.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
@@ -861,6 +936,19 @@ func validateOrDefaultEnvVars() {
 		}
 	}
 
+	switch pdfUploadMode {
+	case "":
+		pdfUploadMode = PDFUploadModeNew
+	case PDFUploadModeNew, PDFUploadModeVersion:
+	default:
+		// No silent fallback: "new" would add a duplicate document for every PDF.
+		log.Fatalf("Invalid PDF_UPLOAD_MODE value: %q (must be %q or %q)", pdfUploadMode, PDFUploadModeNew, PDFUploadModeVersion)
+	}
+	if pdfUploadMode == PDFUploadModeVersion && pdfReplace {
+		log.Warnf("PDF_REPLACE is ignored when PDF_UPLOAD_MODE=%s: versions never delete anything", PDFUploadModeVersion)
+		pdfReplace = false
+	}
+
 	if ocrProcessMode == "" {
 		ocrProcessMode = "image"
 		log.Infof("OCR_PROCESS_MODE not set, defaulting to %s", ocrProcessMode)
@@ -959,7 +1047,11 @@ func validateOrDefaultEnvVars() {
 		}
 	}
 	if pdfUpload {
-		log.Infof("PDF upload to paperless-ngx is enabled")
+		if pdfUploadMode == PDFUploadModeVersion {
+			log.Infof("PDF upload to paperless-ngx is enabled: searchable PDFs are added as new versions of the same document")
+		} else {
+			log.Infof("PDF upload to paperless-ngx is enabled")
+		}
 		if pdfReplace {
 			log.Infof("Original documents will be replaced after OCR upload")
 		}
@@ -989,8 +1081,9 @@ func removeTagFromList(tags []string, tagToRemove string) []string {
 }
 
 // systemTags returns every tag paperless-gpt manages itself: the triggers it
-// watches for and the markers it writes. None of them describe a document, so
-// none of them belong in a suggestion prompt.
+// watches for and the markers it writes, including per-workflow trigger and
+// completion tags. None of them describe a document, so none of them belong
+// in a suggestion prompt.
 //
 // Configured-empty tags are skipped, because "" would otherwise match nothing
 // useful and only obscures intent.
@@ -1003,11 +1096,16 @@ func systemTags() []string {
 		autoTagComplete,
 		pdfOCRCompleteTag,
 	}
+	configured = append(configured, workflowManagedTags()...)
+	seen := make(map[string]bool, len(configured))
 	tags := make([]string, 0, len(configured))
 	for _, tag := range configured {
-		if tag != "" {
-			tags = append(tags, tag)
+		key := strings.ToLower(tag)
+		if tag == "" || seen[key] {
+			continue
 		}
+		seen[key] = true
+		tags = append(tags, tag)
 	}
 	return tags
 }
@@ -1088,6 +1186,20 @@ func loadTemplates() error {
 		content, err := os.ReadFile(promptPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read prompt '%s': %w", name, err)
+		}
+
+		// A prompt that is still an earlier default was never customised:
+		// give it the current default, so fixes to the default prompts reach
+		// existing installations too.
+		if isPreviousDefaultPrompt(name, content) {
+			if defaultContent, err := os.ReadFile(defaultPromptPath); err == nil && !bytes.Equal(defaultContent, content) {
+				if err := os.WriteFile(promptPath, defaultContent, 0644); err != nil {
+					log.Warnf("Prompt '%s' is an outdated default but could not be updated: %v", name, err)
+				} else {
+					log.Infof("Prompt '%s' was an unchanged earlier default; updated it to the current default", name)
+					content = defaultContent
+				}
+			}
 		}
 
 		// Parse and return the template
@@ -1271,7 +1383,12 @@ func createLLM() (llms.Model, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create GoogleAI provider: %w", err)
 		}
-		return provider, nil
+
+		// Apply rate limiting with isVision=false. The Google AI client has
+		// no limiter of its own, so this is what makes
+		// LLM_REQUESTS_PER_MINUTE and LLM_MAX_RETRIES apply to suggestion
+		// calls.
+		return NewRateLimitedLLM(provider, getRateLimitConfig(false)), nil
 	case "anthropic":
 		apiKey := os.Getenv("ANTHROPIC_API_KEY")
 		if apiKey == "" {
@@ -1400,19 +1517,7 @@ func createVisionLLM() (llms.Model, error) {
 }
 
 func createCustomHTTPClient() *http.Client {
-	// Create custom transport that adds headers
-	customTransport := &headerTransport{
-		transport: http.DefaultTransport,
-		headers: map[string]string{
-			"X-Title": "paperless-gpt",
-		},
-	}
-
-	// Create custom client with the transport
-	httpClient := http.DefaultClient
-	httpClient.Transport = customTransport
-
-	return httpClient
+	return ocr.OpenAIHTTPClient()
 }
 
 // ollamaRequestTimeout returns the per-request timeout for Ollama HTTP calls.
@@ -1452,17 +1557,9 @@ func ollamaHTTPClientWithTimeout() *http.Client {
 	return base
 }
 
-// headerTransport is a custom http.RoundTripper that adds custom headers to requests
-type headerTransport struct {
-	transport http.RoundTripper
-	headers   map[string]string
-}
-
-// RoundTrip implements the http.RoundTripper interface
-func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	req = req.Clone(req.Context())
-	for key, value := range t.headers {
-		req.Header.Set(key, value)
-	}
-	return t.transport.RoundTrip(req)
+// isPreviousDefaultPrompt reports whether content is an earlier version of the
+// default prompt called name.
+func isPreviousDefaultPrompt(name string, content []byte) bool {
+	sum := sha256.Sum256(content)
+	return slices.Contains(previousDefaultPrompts[name], hex.EncodeToString(sum[:]))
 }

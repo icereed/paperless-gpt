@@ -25,7 +25,7 @@ COPY web-app /app/
 RUN npm run build
 
 # Stage 2: Build the Go binary
-FROM docker.io/golang:1.27.1-alpine3.24 AS builder
+FROM docker.io/golang:1.27.2-alpine3.24 AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -79,7 +79,7 @@ RUN sed -i \
 RUN CGO_ENABLED=1 GOMAXPROCS=$(nproc) go build -tags musl -o paperless-gpt .
 
 # Stage 3: Create a lightweight image with just the binary
-FROM docker.io/alpine:3.24.1
+FROM docker.io/alpine:3.24.2
 
 ENV GIN_MODE=release
 

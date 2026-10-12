@@ -7,6 +7,8 @@ export interface OCRRunOptions {
   upload_pdf: boolean;
   replace_original: boolean;
   copy_metadata: boolean;
+  /** Server-side PDF_UPLOAD_MODE; read-only, reported in the OCR config defaults. */
+  upload_mode?: "new" | "version";
 }
 
 export type OCRDefaultsSource = "env" | "saved";
@@ -34,6 +36,7 @@ export interface OCRRun {
   limit_pages: number;
   process_mode: string;
   upload_pdf: boolean;
+  upload_mode?: "new" | "version";
   replace_original: boolean;
   copy_metadata: boolean;
   prompt_overridden: boolean;
@@ -41,7 +44,7 @@ export interface OCRRun {
   provider: string;
   pages_done: number;
   total_pages: number;
-  pdf_action: "none" | "attached" | "replaced" | "skipped" | "failed" | "";
+  pdf_action: "none" | "attached" | "versioned" | "replaced" | "skipped" | "failed" | "";
   pdf_detail?: string;
   error?: string;
   started_at: string;
@@ -190,7 +193,13 @@ export function formatRunOptions(run: OCRRun): string {
   parts.push(run.process_mode || "image");
   parts.push(run.limit_pages > 0 ? `max ${run.limit_pages} pages` : "all pages");
   if (run.upload_pdf) {
-    parts.push(run.replace_original ? "PDF replaces original" : "PDF attached");
+    parts.push(
+      run.upload_mode === "version" || run.pdf_action === "versioned"
+        ? "PDF as new version"
+        : run.replace_original
+          ? "PDF replaces original"
+          : "PDF attached",
+    );
   }
   if (run.prompt_overridden) {
     parts.push("custom prompt");

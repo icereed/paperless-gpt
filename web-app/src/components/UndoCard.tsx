@@ -46,15 +46,33 @@ const UndoCard: React.FC<ModificationProps> = ({
   onUndo,
   paperlessUrl,
 }) => {
+  const parseTags = (value: string): string[] | null => {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.map(String);
+      return null;
+    } catch {
+      // Fall through to legacy Go fmt.Sprintf("%v") format, e.g. "[a b]" or "[3 2]"
+    }
+    const trimmed = value.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      const inner = trimmed.slice(1, -1).trim();
+      if (!inner) return [];
+      return inner.split(/\s+/);
+    }
+    return null;
+  };
+
   const formatValue = (value: string, field: string) => {
     if (field === 'tags') {
-      try {
-        const tags = JSON.parse(value) as string[];
+      const tags = parseTags(value);
+      if (tags !== null) {
         return (
           <div className="flex flex-wrap gap-1">
-            {tags.map((tag) => (
+            {tags.map((tag, i) => (
               <span
-                key={tag}
+                key={`${tag}-${i}`}
                 className="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs font-medium px-2.5 py-0.5 rounded-full"
               >
                 {tag}
@@ -62,9 +80,8 @@ const UndoCard: React.FC<ModificationProps> = ({
             ))}
           </div>
         );
-      } catch {
-        return value;
       }
+      return value;
     } else if (field.toLowerCase().includes('date')) {
       return formatDate(value);
     }

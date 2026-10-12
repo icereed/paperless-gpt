@@ -22,6 +22,7 @@ func (app *App) effectiveOCRDefaults() OCROptions {
 
 	opts := OCROptions{
 		UploadPDF:       app.pdfUpload,
+		UploadMode:      app.pdfUploadMode,
 		ReplaceOriginal: app.pdfReplace,
 		CopyMetadata:    app.pdfCopyMetadata,
 		LimitPages:      limitOcrPages,
@@ -44,8 +45,26 @@ func (app *App) effectiveOCRDefaults() OCROptions {
 		opts.CopyMetadata = *o.CopyMetadata
 	}
 	// Replace without upload is invalid; never let persisted defaults create it.
-	if !opts.UploadPDF {
+	// A new version never deletes anything, so replace has no meaning there.
+	if !opts.UploadPDF || opts.UploadMode == PDFUploadModeVersion {
 		opts.ReplaceOriginal = false
+	}
+	return opts
+}
+
+// effectiveOCROptionsForWorkflow resolves OCR run options for a workflow:
+// global effective defaults, then optional per-workflow page limit and OCR prompt.
+// Searchable PDF upload/replace stay off for workflow OCR so the original
+// document (and its trigger tag) remain for the subsequent metadata pass.
+func (app *App) effectiveOCROptionsForWorkflow(wf WorkflowConfig) OCROptions {
+	opts := app.effectiveOCRDefaults()
+	opts.UploadPDF = false
+	opts.ReplaceOriginal = false
+	if wf.OCRLimitPages != nil {
+		opts.LimitPages = *wf.OCRLimitPages
+	}
+	if prompt := strings.TrimSpace(wf.Prompts["ocr_prompt"]); prompt != "" {
+		opts.PromptOverride = prompt
 	}
 	return opts
 }
