@@ -211,10 +211,12 @@ func processJob(app *App, job *Job) {
 	// Create OCR options from job options or the effective defaults
 	// (settings-persisted values override env-derived ones).
 	options := job.Options
+	// Keep the transient password only until the worker has copied it into the
+	// local options used by this run; never retain it in the global job record.
+	jobStore.clearPDFPassword(job.ID)
 	if (options == OCROptions{}) {
 		options = app.effectiveOCRDefaults()
 	}
-	defer jobStore.clearPDFPassword(job.ID)
 
 	processedDoc, err := app.ProcessDocumentOCR(jobCtx, job.DocumentID, options, job.ID)
 	pagesDone, totalPages := jobStore.progress(job.ID)

@@ -1630,7 +1630,6 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 		return nil, 0, err
 	}
 	defer cleanup()
-	defer doc.Close()
 
 	totalPages := doc.NumPages()
 	pagesToProcess := totalPages
@@ -1733,7 +1732,11 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 	}
 
 	if err := g.Wait(); err != nil {
+		doc.Close()
 		return nil, totalPages, err
+	}
+	if err := doc.Close(); err != nil {
+		return nil, totalPages, fmt.Errorf("close PDF after rendering: %w", err)
 	}
 
 	// sort the image paths to ensure they are in order
