@@ -72,8 +72,13 @@ jobs:
       - name: Build frontend
         run: npm run build
         working-directory: web-app
-      - name: Run frontend tests
-        run: npm test -- --runInBand
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: web-app
+      - name: Build deterministic E2E test image
+        run: docker build --tag icereed/paperless-gpt:e2e .
+      - name: Run deterministic frontend E2E tests
+        run: npm run test:e2e:mock
         working-directory: web-app
       - name: Download Go dependencies
         run: go mod download
