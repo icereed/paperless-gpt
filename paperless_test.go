@@ -2290,8 +2290,18 @@ func TestUpdateDocuments_NoMatchCorrespondentDoesNotCreate(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"results":[]}`))
 	})
-	err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{{ID: 1, OriginalDocument: Document{ID: 1, Title: "Scan"}, SuggestedCorrespondent: " Unknown "}}, env.db, false)
-	var partial *PartialUpdateError
-	require.ErrorAs(t, err, &partial)
-	assert.Equal(t, []string{"correspondent"}, partial.DroppedFields)
+	var patched map[string]interface{}
+	env.setMockResponse("/api/documents/1/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			_ = json.NewDecoder(r.Body).Decode(&patched)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	// "Unknown" is the prompt's answer for "no correspondent": not an error,
+	// so the rest is applied and the document is not flagged for review.
+	err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{{ID: 1, OriginalDocument: Document{ID: 1, Title: "Scan"}, SuggestedTitle: "Bill", SuggestedCorrespondent: " Unknown "}}, env.db, false)
+	require.NoError(t, err)
+	assert.Equal(t, "Bill", patched["title"])
+	assert.NotContains(t, patched, "correspondent")
 }
