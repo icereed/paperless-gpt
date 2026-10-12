@@ -153,3 +153,8 @@ func NewProvider(config Config) (Provider, error) {
 func SetLogLevel(level logrus.Level) {
 	log.SetLevel(level)
 }
+
+// GetLogLevel returns the current logging level of the OCR package
+func GetLogLevel() logrus.Level {
+	return log.GetLevel()
+}

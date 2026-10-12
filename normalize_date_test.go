@@ -34,3 +34,33 @@ func TestNormalizeCreatedDate(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateCustomFieldValue(t *testing.T) {
+	cases := []struct {
+		name     string
+		dataType string
+		value    interface{}
+		wantErr  bool
+	}{
+		{"date_valid", "date", "2026-09-30", false},
+		{"date_leap_day", "date", "2024-02-29", false},
+		{"date_impossible_day", "date", "2026-09-31", true},
+		{"date_not_leap_year", "date", "2026-02-29", true},
+		{"date_day_first", "date", "01.02.2023", true},
+		{"date_empty", "date", "", true},
+		{"date_not_a_string", "date", 20260930, true},
+		{"date_nil_clears_field", "date", nil, false},
+		{"string_not_checked", "string", "2026-09-31", false},
+		{"monetary_not_checked", "monetary", "EUR786.50", false},
+		{"unknown_type_not_checked", "", "2026-09-31", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateCustomFieldValue(tc.dataType, tc.value)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("validateCustomFieldValue(%q, %#v) error = %v, wantErr %v", tc.dataType, tc.value, err, tc.wantErr)
+			}
+		})
+	}
+}
