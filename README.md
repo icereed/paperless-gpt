@@ -1081,22 +1081,34 @@ Inbound HTTP, outbound paperless-ngx, LLM, OCR, field edits, searchable PDFs, an
 
 | Layer | Key metrics |
 |-------|-------------|
-| HTTP | `http_requests_total{method,path,code}`, `http_request_duration_seconds{method,path}` |
-| Paperless | `paperless_request_duration_seconds{method,operation,result}` |
-| LLM | `llm_request_duration_seconds{purpose,result}`, `llm_retries_total{purpose}` |
-| OCR | `ocr_page_duration_seconds{result}`, `ocr_document_duration_seconds{result}` |
-| Field edits | `document_field_edits_total{field}` (success-only; failures show on paperless `update_document`) |
-| PDF | `ocr_pdf_outcomes_total{action}`, `ocr_pdf_created_duration_seconds{action}` (created ⊂ attached/replaced/local) |
-| Jobs | gauges `ocr_jobs` / `suggestion_jobs` by `status`; created counters `*_jobs_created_total`; completion lifetimes as `*_jobs_completed_duration_seconds{result}` |
-| Background | `background_documents_processed_duration_seconds{kind,result}`, `background_cycle_errors_total{kind}` |
+| HTTP | `paperless_gpt_http_requests_total{method,path,code}`, `paperless_gpt_http_request_duration_seconds{method,path}` |
+| Paperless | `paperless_gpt_paperless_request_duration_seconds{method,operation,result}` |
+| LLM | `paperless_gpt_llm_request_duration_seconds{purpose,result}`, `paperless_gpt_llm_retries_total{purpose}` |
+| OCR | `paperless_gpt_ocr_page_duration_seconds{result}`, `paperless_gpt_ocr_document_duration_seconds{result}` |
+| Field edits | `paperless_gpt_document_field_edits_total{field}` (success-only; failures show on paperless `update_document`) |
+| PDF | `paperless_gpt_ocr_pdf_outcomes_total{action}`, `paperless_gpt_ocr_pdf_created_duration_seconds{action}` (created ⊂ attached/replaced/local) |
+| Jobs | gauges `paperless_gpt_ocr_jobs` / `paperless_gpt_suggestion_jobs` by `status`; created counters `paperless_gpt_ocr_jobs_created_total` / `paperless_gpt_suggestion_jobs_created_total`; completion lifetimes as `paperless_gpt_*_jobs_completed_duration_seconds{result}` |
+| Background | `paperless_gpt_background_documents_processed_duration_seconds{kind,result}`, `paperless_gpt_background_cycle_errors_total{kind}` |
 
 **Jobs — created vs gauge vs completion**
 
-- `*_jobs_created_total` — how many jobs were enqueued (monotone counter).
-- `ocr_jobs` / `suggestion_jobs{status=…}` — current depth by queue state (`pending`, `in_progress`, `completed`, `failed`, `canceled`). Average pending depth: `avg_over_time(paperless_gpt_ocr_jobs{status="pending"}[5m])`.
-- `*_jobs_completed_duration_seconds` — job lifetime to a terminal state; use `_count` / `_sum` for rates and averages (no twin completed counter).
+- `paperless_gpt_ocr_jobs_created_total` / `paperless_gpt_suggestion_jobs_created_total` — how many jobs were enqueued (monotone counters).
+- `paperless_gpt_ocr_jobs` / `paperless_gpt_suggestion_jobs{status=…}` — current depth by queue state. Average pending depth: `avg_over_time(paperless_gpt_ocr_jobs{status="pending"}[5m])`.
+- `paperless_gpt_*_jobs_completed_duration_seconds` — job lifetime to a terminal state; use `_count` / `_sum` for rates and averages (no twin completed counter).
 
-Frozen outcome label: `result` ∈ `success`, `error`, `canceled`. HTTP uses `code` (status string; transport failure before status → `0`). Job gauges use `status` for queue state only.
+### Label values
+
+| Label | Allowed values |
+|-------|----------------|
+| `result` | `success`, `error`, `canceled` |
+| `code` | HTTP status as string (`200`, `404`, `500`, …) |
+| `status` (job gauges only) | `pending`, `in_progress`, `completed`, `failed`, `canceled` |
+| `purpose` (LLM) | `metadata`, `vision` |
+| `operation` (Paperless) | `get_document`, `update_document`, `download`, `upload_document`, `list_tags`, `search_documents`, `get_task`, `delete_document`, `create_tag`, `create_correspondent`, `list_correspondents`, `list_document_types`, `list_custom_fields`, `other` |
+| `field` (edits) | `title`, `tags`, `correspondent`, `document_type`, `created_date`, `content`, `custom_fields` |
+| `action` (PDF) | `none`, `attached`, `replaced`, `skipped`, `failed`, `local` |
+| `kind` (background) | `auto_tag`, `auto_ocr`, `workflow_tag` |
+| `path` (HTTP) | Gin route template or `unmatched` |
 
 ### Example PromQL
 
