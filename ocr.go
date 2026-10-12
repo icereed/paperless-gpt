@@ -47,6 +47,8 @@ type ProcessedDocument struct {
 	PDFDetail        string // human-readable reason for "skipped"/"failed"
 }
 
+const decryptedPDFUploadWarning = "The searchable PDF was uploaded without the source PDF password; the original password-protected document remains unchanged unless replacement was explicitly requested."
+
 // HOCRCapable defines an interface for OCR providers that can generate hOCR
 type HOCRCapable interface {
 	// IsHOCREnabled returns whether hOCR generation is enabled
@@ -557,14 +559,26 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 								switch {
 								case err == nil && options.UploadMode == PDFUploadModeVersion:
 									processedDoc.PDFAction = "versioned"
+									if options.PDFPassword != "" {
+										processedDoc.PDFDetail = decryptedPDFUploadWarning
+									}
 								case errors.As(err, &unconfirmedErr):
 									processedDoc.PDFAction = "versioned"
 									processedDoc.PDFDetail = fmt.Sprintf("Uploaded, but paperless-ngx had not confirmed the new version when paperless-gpt stopped waiting; check task %s in paperless-ngx.", unconfirmedErr.taskID)
+									if options.PDFPassword != "" {
+										processedDoc.PDFDetail += " " + decryptedPDFUploadWarning
+									}
 								case err == nil && options.ReplaceOriginal:
 									processedDoc.ReplacedOriginal = true
 									processedDoc.PDFAction = "replaced"
+									if options.PDFPassword != "" {
+										processedDoc.PDFDetail = decryptedPDFUploadWarning
+									}
 								case err == nil:
 									processedDoc.PDFAction = "attached"
+									if options.PDFPassword != "" {
+										processedDoc.PDFDetail = decryptedPDFUploadWarning
+									}
 								case errors.As(err, &replaceErr):
 									// The searchable PDF was uploaded; only deleting the
 									// original failed. Report it as attached-with-warning
@@ -573,6 +587,9 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 									docLogger.WithError(err).Error("PDF uploaded but original could not be replaced")
 									processedDoc.PDFAction = "attached"
 									processedDoc.PDFDetail = fmt.Sprintf("Searchable PDF was uploaded, but the original could not be deleted: %v", replaceErr.cause)
+									if options.PDFPassword != "" {
+										processedDoc.PDFDetail += " " + decryptedPDFUploadWarning
+									}
 								default:
 									docLogger.WithError(err).Error("Failed to upload processed PDF")
 									processedDoc.PDFAction = "failed"
