@@ -46,6 +46,7 @@ func (t *documentFailureTracker) reset(documentID int) {
 
 // This is our interface, allowing us to enable proper testing
 type BackgroundProcessor interface {
+	processSplitTagDocuments(ctx context.Context) (int, error)
 	processAutoOcrTagDocuments(ctx context.Context) (int, error)
 	processAutoTagDocuments(ctx context.Context) (int, error)
 	isOcrEnabled() bool
@@ -70,6 +71,12 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 
 			processedCount, err := func() (count int, err error) {
 				count = 0
+
+				splitCount, err := app.processSplitTagDocuments(ctx)
+				if err != nil {
+					return 0, fmt.Errorf("error in processSplitTagDocuments: %w", err)
+				}
+				count += splitCount
 
 				// If OCR is enabled, run OCR tagging first
 				if app.isOcrEnabled() {
@@ -222,7 +229,9 @@ func (app *App) processAutoTagDocuments(ctx context.Context) (int, error) {
 // suggestion pipeline for each of them, with the workflow the router picks
 // for the document or the global settings.
 func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int, error) {
-	documents, err := app.Client.GetDocumentsByTag(ctx, triggerTag, 25)
+	app.splitMu.Lock()
+	defer app.splitMu.Unlock()
+	documents, err := app.processingDocuments(ctx, triggerTag)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with tag %q: %w", triggerTag, err)
 	}
@@ -247,6 +256,14 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 			err = fmt.Errorf("error fetching full details for document %d: %w", docSummary.ID, err)
 			documentLogger(docSummary.ID).Error(err.Error())
 			errs = append(errs, err)
+			continue
+		}
+
+		held, err := app.splitHeld(ctx, document.ID, document.Tags)
+		if err != nil {
+			return processedCount, err
+		}
+		if held {
 			continue
 		}
 
@@ -491,7 +508,9 @@ func (app *App) runWorkflowDocumentOCR(ctx context.Context, document Document, w
 
 // processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
 func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
-	documents, err := app.Client.GetDocumentsByTag(ctx, autoOcrTag, 25)
+	app.splitMu.Lock()
+	defer app.splitMu.Unlock()
+	documents, err := app.processingDocuments(ctx, autoOcrTag)
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
 	}
@@ -507,6 +526,13 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 	var errs []error
 
 	for _, document := range documents {
+		held, holdErr := app.splitHeld(ctx, document.ID, document.Tags)
+		if holdErr != nil {
+			return successCount, holdErr
+		}
+		if held {
+			continue
+		}
 		docLogger := documentLogger(document.ID)
 		docLogger.Info("Processing document for OCR")
 

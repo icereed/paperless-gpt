@@ -32,6 +32,13 @@ var envCategoryOrder = []string{
 // consumed by the container entrypoint / cloud SDKs (PUID, PGID,
 // GOOGLE_APPLICATION_CREDENTIALS) that never appear as os.Getenv calls in Go.
 var envRegistry = []EnvVar{
+	{Name: "SPLIT_TAG", Category: "Tags & automation", Default: "paperless-gpt-split", Description: "Tag that queues a batch PDF for split Suggestions before OCR and metadata processing."},
+	{Name: "SPLIT_DRY_RUN", Category: "Tags & automation", Default: "true", Description: "Store and log split Suggestions, but prevent every split API submission, including manual Apply."},
+	{Name: "SPLIT_CONFIDENCE_THRESHOLD", Category: "Tags & automation", Default: "0.9", Description: "Every boundary must meet this confidence threshold for automatic splitting."},
+	{Name: "SPLIT_AUTO", Category: "Tags & automation", Default: "false", Description: "Automatically Apply new background Suggestions only when every boundary meets the threshold and has no rule or window conflict. Dry-run prevents Apply."},
+	{Name: "SPLIT_DELETE_ORIGINALS", Category: "Tags & automation", Default: "false", Description: "Ask paperless-ngx to delete the batch after consuming all children. Requires ownership and delete permission."},
+	{Name: "SPLIT_WINDOW_SIZE", Category: "Tags & automation", Default: "8", Description: "Maximum pages per split LLM request, at least 3. Consecutive windows overlap by two pages."},
+	{Name: "SPLIT_OUTPUT_TAGS", Category: "Tags & automation", Default: "AUTO_TAG", Description: "Comma-separated tags added to split children. Defaults to the effective AUTO_TAG; must not include SPLIT_TAG."},
 	{Name: "ANTHROPIC_API_KEY", Category: "LLM", Secret: true, Default: "", Description: "Anthropic API key (required if using Anthropic/Claude)."},
 	{Name: "AUTO_GENERATE_CORRESPONDENTS", Category: "Tags & automation", Secret: false, Default: "true", Description: "Generate correspondents automatically if `paperless-gpt-auto` is used."},
 	{Name: "AUTO_GENERATE_CREATED_DATE", Category: "Tags & automation", Secret: false, Default: "true", Description: "Generate the created dates automatically if `paperless-gpt-auto` is used."},

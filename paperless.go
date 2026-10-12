@@ -345,6 +345,14 @@ func (client *PaperlessClient) GetDocumentCountByTag(ctx context.Context, tag st
 
 // GetDocumentsByTag retrieves documents that match the specified tag
 func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
+	return client.getDocumentsByTag(ctx, tag, pageSize, "", 1)
+}
+
+func (client *PaperlessClient) GetDocumentsByTagExcluding(ctx context.Context, tag string, pageSize int, excludedTag string, page int) ([]Document, error) {
+	return client.getDocumentsByTag(ctx, tag, pageSize, excludedTag, page)
+}
+
+func (client *PaperlessClient) getDocumentsByTag(ctx context.Context, tag string, pageSize int, excludedTag string, page int) ([]Document, error) {
 	documentCount, err := client.GetDocumentCountByTag(ctx, tag)
 	if err != nil {
 		return nil, fmt.Errorf("error checking document count for tag %s: %w", tag, err)
@@ -354,6 +362,16 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 	}
 
 	path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=%d", url.QueryEscape(tag), pageSize)
+	if excludedTag != "" {
+		path += fmt.Sprintf("&page=%d&ordering=id", page)
+		tags, err := client.GetAllTags(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if _, id, found := lookupTagID(tags, excludedTag); found {
+			path += fmt.Sprintf("&tags__id__none=%d", id)
+		}
+	}
 
 	resp, err := client.Do(ctx, "GET", path, nil)
 	if err != nil {
@@ -367,6 +385,9 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
+	if excludedTag != "" && page > 1 && resp.StatusCode == http.StatusNotFound {
+		return []Document{}, nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		log.WithFields(logrus.Fields{
 			"status_code": resp.StatusCode,

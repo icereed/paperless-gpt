@@ -46,6 +46,7 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 		"custom_field_prompt.tmpl",
 		"ocr_prompt.tmpl",
 		"adhoc-analysis_prompt.tmpl",
+		"split_prompt.tmpl",
 	}
 	for _, file := range promptFiles {
 		require.NoError(
@@ -326,6 +327,24 @@ func TestValidateWorkflowTags(t *testing.T) {
 				assert.Error(t, err)
 			}
 		})
+	}
+}
+
+func TestValidateWorkflowSplitTag(t *testing.T) {
+	previous := splitTag
+	t.Cleanup(func() { splitTag = previous })
+	for _, tag := range []string{"paperless-gpt-split", "batch-scans"} {
+		splitTag = tag
+		for _, wf := range []WorkflowConfig{
+			{TriggerTag: strings.ToUpper(tag)},
+			{TriggerTag: "contracts", CompletionTag: strings.ToUpper(tag)},
+		} {
+			t.Run(tag+"/"+wf.TriggerTag, func(t *testing.T) {
+				status, err := validateWorkflowTags(wf, nil)
+				assert.Equal(t, http.StatusBadRequest, status)
+				require.ErrorContains(t, err, "SPLIT_TAG")
+			})
+		}
 	}
 }
 

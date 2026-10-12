@@ -249,6 +249,7 @@ func validateWorkflowTags(wf WorkflowConfig, others []WorkflowConfig) (int, erro
 		return http.StatusBadRequest, fmt.Errorf("trigger_tag is required")
 	}
 	reserved := []struct{ env, tag string }{
+		{"SPLIT_TAG", splitTag},
 		{"AUTO_TAG", autoTag},
 		{"MANUAL_TAG", manualTag},
 		{"AUTO_OCR_TAG", autoOcrTag},
