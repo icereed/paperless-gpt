@@ -809,12 +809,10 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	}
 
 	if suggestionRequest.GenerateCustomFields {
-		settingsMutex.RLock()
-		selectedIDs := settings.CustomFieldsSelectedIDs
-		settingsMutex.RUnlock()
+		selectedIDs := customFieldIDsFor(suggestionRequest.Workflow)
 
 		if len(selectedIDs) == 0 {
-			log.Warnf("Custom field generation is enabled, but no custom fields are selected in the settings. Please select at least one custom field for this feature to work.")
+			log.Warnf("Custom field generation is enabled, but no custom fields are selected (in Settings, or in the AI workflow). Please select at least one custom field for this feature to work.")
 		} else {
 			suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger, wfTemplate("custom_field_prompt", customFieldTemplate))
 			if err != nil {
@@ -1142,4 +1140,15 @@ func handoverTags(autoTagComplete string, isAutoProcessing bool, triggerTag stri
 		add = []string{completionTag}
 	}
 	return remove, add
+}
+
+// customFieldIDsFor returns the custom fields to fill: the workflow's own
+// selection when it has one, the global selection from Settings otherwise.
+func customFieldIDsFor(workflow *WorkflowConfig) []int {
+	if workflow != nil && len(workflow.CustomFieldIDs) > 0 {
+		return slices.Clone(workflow.CustomFieldIDs)
+	}
+	settingsMutex.RLock()
+	defer settingsMutex.RUnlock()
+	return slices.Clone(settings.CustomFieldsSelectedIDs)
 }

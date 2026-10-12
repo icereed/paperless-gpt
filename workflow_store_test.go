@@ -299,3 +299,34 @@ func TestWorkflowStorePathFor(t *testing.T) {
 		assert.Error(t, err, id)
 	}
 }
+
+func TestWorkflowCustomFieldSelection(t *testing.T) {
+	// Stored and read back with the workflow.
+	store := newWorkflowStore(t.TempDir())
+	wf := WorkflowConfig{ID: "payslips", TriggerTag: "payslips", GenerateCustomFields: boolPtr(true), CustomFieldIDs: []int{4, 7}}
+	_, err := store.Save(wf, true, nil)
+	require.NoError(t, err)
+	got, ok := store.Get("payslips")
+	require.True(t, ok)
+	assert.Equal(t, []int{4, 7}, got.CustomFieldIDs)
+	raw, err := os.ReadFile(filepath.Join(store.dir, "payslips", workflowFileName))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"custom_field_ids"`)
+
+	// The workflow's own selection wins; without one, the global one applies.
+	settingsMutex.Lock()
+	previous := settings.CustomFieldsSelectedIDs
+	settings.CustomFieldsSelectedIDs = []int{1, 2}
+	settingsMutex.Unlock()
+	t.Cleanup(func() {
+		settingsMutex.Lock()
+		settings.CustomFieldsSelectedIDs = previous
+		settingsMutex.Unlock()
+	})
+	assert.Equal(t, []int{4, 7}, customFieldIDsFor(&wf))
+	assert.Equal(t, []int{1, 2}, customFieldIDsFor(&WorkflowConfig{ID: "other"}))
+	assert.Equal(t, []int{1, 2}, customFieldIDsFor(nil), "the default AUTO_TAG path uses the global selection")
+
+	// Duplicates and invalid ids are dropped, order is kept.
+	assert.Equal(t, []int{7, 4}, normalizeWorkflow(WorkflowConfig{CustomFieldIDs: []int{7, 0, 4, 7, -1}}).CustomFieldIDs)
+}

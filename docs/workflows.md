@@ -34,8 +34,21 @@ Each workflow card shows how many documents are currently waiting for it.
 | **Trigger tag** (required) | Documents with this tag are processed by the workflow. The tag is removed once processing succeeds. |
 | **Completion tag** | Added after successful processing, **instead of** `AUTO_TAG_COMPLETE`. Leave it empty to get `AUTO_TAG_COMPLETE`. |
 | **Steps** | Title, tags, correspondent, document type, created date, custom fields. Each one is Default, On or Off. |
+| **Custom fields** | Which custom fields the workflow fills: the selection from Settings, or its own, e.g. only *Gross pay* and *Net pay* for payslips. Shown when the custom fields step runs. |
 | **OCR** | Run OCR before generating metadata, with its own page limit and, for the LLM OCR provider, its own OCR prompt. |
 | **Prompts** | Your own version of any prompt. Prompts you leave empty use the global ones from Settings. |
+
+## Example: payslips
+
+Payslips look the same every month, which makes them a good fit for structured data you can query later, e.g. "how much did I earn before tax this year?" through an MCP client connected to paperless-ngx.
+
+1. In paperless-ngx, create custom fields such as **Gross pay** and **Net pay** (type *Monetary*) and **Pay period** (type *Date*).
+2. In paperless-gpt, create a **Payslips** workflow with a trigger tag like `payslip`. Turn the **Custom fields** step on and choose **Only these fields for this workflow** with the three fields. Turn off the steps you don't need, e.g. tags.
+3. Optionally write the workflow's own custom fields prompt, e.g. telling the model that "Gross pay" is the total before deductions.
+4. Use **Test on a document** with one payslip, then save.
+5. Tag payslips with `payslip`, by hand or with a paperless-ngx rule on upload.
+
+Your invoice or contract workflows keep their own fields; payslips only get payslip fields.
 
 ## Workflows are files
 
@@ -69,7 +82,7 @@ A minimal `workflow.json`:
 }
 ```
 
-Steps you leave out use the default. Other optional fields: `generate_titles`, `generate_correspondents`, `generate_document_types`, `generate_created_date`, `generate_custom_fields`, `enable_ocr`, `ocr_limit_pages`.
+Steps you leave out use the default. Other optional fields: `generate_titles`, `generate_correspondents`, `generate_document_types`, `generate_created_date`, `generate_custom_fields`, `custom_field_ids` (paperless-ngx custom field ids; empty uses the Settings selection), `enable_ocr`, `ocr_limit_pages`.
 
 If you used workflows from an earlier build, they were stored in `config/settings.json`. paperless-gpt moves them into `prompts/workflows/` on the first start and logs each one it moved.
 
