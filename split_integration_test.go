@@ -193,6 +193,62 @@ func TestSplitKeepWholeGuards(t *testing.T) {
 	}
 }
 
+type splitQueueSnapshotClient struct {
+	*splitTestClient
+	afterList func()
+}
+
+func (c *splitQueueSnapshotClient) GetDocument(ctx context.Context, id int) (Document, error) {
+	doc, err := c.splitTestClient.GetDocument(ctx, id)
+	for name, tagID := range c.tags {
+		if slices.Contains(doc.TagIDs, tagID) {
+			doc.Tags = append(doc.Tags, name)
+		}
+	}
+	return doc, err
+}
+
+func (c *splitQueueSnapshotClient) GetDocumentsByTagExcluding(ctx context.Context, _ string, _ int, _ string, _ int) ([]Document, error) {
+	doc, err := c.GetDocument(ctx, c.source.ID)
+	if err != nil {
+		return nil, err
+	}
+	c.afterList()
+	return []Document{doc}, nil
+}
+
+func TestAutoOCRPreservesSplitKeepTagsFromQueuedDocuments(t *testing.T) {
+	app, splitClient, suggestion := splitApplyFixture(t)
+	splitClient.tags[autoOcrTag] = 4
+	splitClient.tags["complete"] = 5
+	splitClient.source.Tags = []int{4, 5, 90}
+	suggestion.Status = "failed"
+	require.NoError(t, app.Database.Save(suggestion).Error)
+	recorder := &recordingClient{}
+	splitClient.ClientInterface = recorder
+	client := &splitQueueSnapshotClient{splitTestClient: splitClient}
+	client.afterList = func() {
+		app.splitMu.Lock()
+		defer app.splitMu.Unlock()
+		// Regeneration and Keep finish after the queue snapshot was fetched.
+		suggestion.Status = "review"
+		require.NoError(t, app.Database.Save(suggestion).Error)
+		result, err := app.applySplitSuggestion(context.Background(), suggestion.ID, nil)
+		require.NoError(t, err)
+		require.Equal(t, "kept", result.Status)
+	}
+	app.Client = client
+	app.pdfOCRTagging, app.pdfOCRCompleteTag = true, "complete"
+
+	count, err := app.processAutoOcrTagDocuments(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	require.Len(t, recorder.calls, 1)
+	assert.Contains(t, recorder.calls[0].OriginalDocument.Tags, "auto")
+	assert.Contains(t, recorder.calls[0].OriginalDocument.TagIDs, 2)
+	assert.Equal(t, []string{autoOcrTag}, recorder.calls[0].RemoveTags)
+}
+
 func TestSplitApplyFailureRecovery(t *testing.T) {
 	for _, stage := range []string{"swap", "submit", "cleanup"} {
 		t.Run(stage, func(t *testing.T) {

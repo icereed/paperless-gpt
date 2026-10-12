@@ -248,18 +248,18 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 	processedCount := 0
 
 	for _, docSummary := range documents {
-		// Get the full document details, including custom fields
-		document, err := app.Client.GetDocument(ctx, docSummary.ID)
-		if err != nil {
-			err = fmt.Errorf("error fetching full details for document %d: %w", docSummary.ID, err)
-			documentLogger(docSummary.ID).Error(err.Error())
-			errs = append(errs, err)
-			continue
-		}
-
 		err = func() error {
 			app.splitMu.Lock()
 			defer app.splitMu.Unlock()
+
+			// Read under the lock so split resolution cannot invalidate the tags.
+			document, err := app.Client.GetDocument(ctx, docSummary.ID)
+			if err != nil {
+				err = fmt.Errorf("error fetching full details for document %d: %w", docSummary.ID, err)
+				documentLogger(docSummary.ID).Error(err.Error())
+				errs = append(errs, err)
+				return nil
+			}
 
 			held, err := app.splitHeld(ctx, document.ID, document.Tags)
 			if err != nil {
@@ -530,10 +530,19 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 	successCount := 0
 	var errs []error
 
-	for _, document := range documents {
+	for _, docSummary := range documents {
 		err = func() error {
 			app.splitMu.Lock()
 			defer app.splitMu.Unlock()
+
+			// Split resolution may have changed tags since the queue was fetched.
+			document, fetchErr := app.Client.GetDocument(ctx, docSummary.ID)
+			if fetchErr != nil {
+				fetchErr = fmt.Errorf("error fetching full details for document %d: %w", docSummary.ID, fetchErr)
+				documentLogger(docSummary.ID).Error(fetchErr.Error())
+				errs = append(errs, fetchErr)
+				return nil
+			}
 
 			held, holdErr := app.splitHeld(ctx, document.ID, document.Tags)
 			if holdErr != nil {

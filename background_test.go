@@ -608,7 +608,8 @@ func (r *recordingClient) GetAllTags(ctx context.Context) (map[string]int, error
 
 type splitLockClient struct {
 	*recordingClient
-	checkLock func(bool)
+	checkLock         func(bool)
+	getDocumentErrors map[int]error
 }
 
 func (c *splitLockClient) GetDocumentsByTag(ctx context.Context, tag string, size int) ([]Document, error) {
@@ -617,7 +618,10 @@ func (c *splitLockClient) GetDocumentsByTag(ctx context.Context, tag string, siz
 }
 
 func (c *splitLockClient) GetDocument(ctx context.Context, id int) (Document, error) {
-	c.checkLock(false)
+	c.checkLock(true)
+	if err := c.getDocumentErrors[id]; err != nil {
+		return Document{}, err
+	}
 	return c.recordingClient.GetDocument(ctx, id)
 }
 
@@ -672,8 +676,49 @@ func TestBackgroundSplitLockScope(t *testing.T) {
 					assert.Equal(t, 2, count)
 					assert.NoError(t, err)
 				}
-				assert.Equal(t, 3, checks)
+				assert.Equal(t, 5, checks)
 			}
+			client.checkLock(false)
+		})
+	}
+}
+
+func TestBackgroundDocumentFetchErrorsContinueQueue(t *testing.T) {
+	for _, kind := range []string{"metadata", "ocr"} {
+		t.Run(kind, func(t *testing.T) {
+			firstErr, secondErr := errors.New("first fetch failed"), errors.New("second fetch failed")
+			client := &splitLockClient{
+				recordingClient: &recordingClient{
+					taggedDocuments: map[string][]Document{autoOcrTag: {
+						{ID: 1, Tags: []string{"complete"}},
+						{ID: 2, Tags: []string{"complete"}},
+						{ID: 3, Tags: []string{autoOcrTag, "complete"}},
+					}},
+				},
+				getDocumentErrors: map[int]error{1: firstErr, 2: secondErr},
+			}
+			app := &App{Client: client, pdfOCRTagging: true, pdfOCRCompleteTag: "complete"}
+			client.checkLock = func(wantLocked bool) {
+				locked := !app.splitMu.TryLock()
+				if !locked {
+					app.splitMu.Unlock()
+				}
+				assert.Equal(t, wantLocked, locked)
+			}
+			var count int
+			var err error
+			if kind == "metadata" {
+				count, err = app.processTagDocuments(context.Background(), autoOcrTag)
+				assert.Zero(t, count)
+				assert.Empty(t, client.calls)
+			} else {
+				count, err = app.processAutoOcrTagDocuments(context.Background())
+				assert.Equal(t, 1, count)
+				require.Len(t, client.calls, 1)
+				assert.Equal(t, 3, client.calls[0].ID)
+			}
+			assert.ErrorIs(t, err, firstErr)
+			assert.ErrorIs(t, err, secondErr)
 			client.checkLock(false)
 		})
 	}
