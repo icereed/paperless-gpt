@@ -193,8 +193,9 @@ const CustomFieldPicker: React.FC<{
   defaults: WorkflowDefaults | null;
   value: number[] | undefined;
   onChange: (ids: number[]) => void;
-}> = ({ defaults, value, onChange }) => {
-  const [own, setOwn] = useState((value?.length ?? 0) > 0);
+  own: boolean;
+  onOwnChange: (own: boolean) => void;
+}> = ({ defaults, value, onChange, own, onOwnChange: setOwn }) => {
   const fields = defaults?.custom_fields ?? [];
   const nameOf = (id: number) => fields.find((f) => f.id === id)?.name ?? `#${id}`;
   const globalNames = (defaults?.custom_field_ids ?? []).map(nameOf);
@@ -311,7 +312,7 @@ const ResultRow: React.FC<{ label: string; before?: string; after: string }> = (
   </div>
 );
 
-const TryIt: React.FC<{ workflow: WorkflowConfig; savedId?: string }> = ({ workflow, savedId }) => {
+const TryIt: React.FC<{ workflow: WorkflowConfig; savedId?: string; blocked?: string }> = ({ workflow, savedId, blocked }) => {
   const [waiting, setWaiting] = useState<WaitingDocument[] | null>(null);
   const [documentId, setDocumentId] = useState("");
   const [running, setRunning] = useState(false);
@@ -385,7 +386,8 @@ const TryIt: React.FC<{ workflow: WorkflowConfig; savedId?: string }> = ({ workf
           variant="primary"
           onClick={run}
           loading={running}
-          disabled={!documentId || Number(documentId) <= 0}
+          disabled={!documentId || Number(documentId) <= 0 || !!blocked}
+          title={blocked}
         >
           <BeakerIcon className="h-4 w-4" aria-hidden="true" /> Run test
         </Button>
@@ -527,7 +529,9 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
     if (chained) return `This is the trigger of "${chained.name || chained.id}"; workflows can't be chained.`;
     return undefined;
   })();
-  const canSave = !!wf.trigger_tag.trim() && !triggerError && !completionError;
+  // "Only these fields" with nothing checked would silently fall back to the
+  // Settings selection, so it blocks saving and test runs instead.
+  const [ownFields, setOwnFields] = useState((initial.custom_field_ids?.length ?? 0) > 0);
 
   const tagExists = (name?: string) => !!name?.trim() && tagNames.some((t) => sameTag(t, name));
   const newTagHint = (name?: string) =>
@@ -539,6 +543,8 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
   // the editor small. An own prompt of a hidden step is kept, not deleted.
   const stepRuns = (step: FlagKey | "enable_ocr") =>
     step === "enable_ocr" ? !!wf.enable_ocr : (wf[step] ?? defaults?.generate[step] ?? true);
+  const fieldsIncomplete = ownFields && (wf.custom_field_ids?.length ?? 0) === 0 && stepRuns("generate_custom_fields");
+  const canSave = !!wf.trigger_tag.trim() && !triggerError && !completionError && !fieldsIncomplete;
   const visiblePrompts = PROMPT_KEYS.filter((p) => stepRuns(p.step));
   const hiddenOwnPrompts = PROMPT_KEYS.filter((p) => !stepRuns(p.step) && ownPrompts.has(p.key));
   const active = visiblePrompts.find((p) => p.key === activePrompt) ?? visiblePrompts[0];
@@ -644,6 +650,8 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
             defaults={defaults}
             value={wf.custom_field_ids}
             onChange={(ids) => set("custom_field_ids", ids)}
+            own={ownFields}
+            onOwnChange={setOwnFields}
           />
         )}
         <div className="rounded-md border border-line px-3 py-2">
@@ -801,7 +809,7 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
 
       <Section title="Try it" hint="See what this workflow does to a real document before you save it.">
         {showTryIt ? (
-          <TryIt workflow={wf} savedId={isNew ? undefined : initial.id} />
+          <TryIt workflow={wf} savedId={isNew ? undefined : initial.id} blocked={fieldsIncomplete ? "Choose at least one custom field first." : undefined} />
         ) : (
           <Button variant="secondary" onClick={() => setShowTryIt(true)}>
             <BeakerIcon className="h-4 w-4" aria-hidden="true" /> Test on a document
@@ -860,6 +868,11 @@ const WorkflowCard: React.FC<{
   });
   const prompts = customPromptKeys(wf);
   const completion = wf.completion_tag || defaults?.auto_tag_complete;
+  // The fields the custom fields step will actually fill: the workflow's own
+  // selection, or the one from Settings it inherits.
+  const fillsCustomFields = steps.some(({ key }) => key === "generate_custom_fields");
+  const ownFieldIDs = (wf.custom_field_ids?.length ?? 0) > 0;
+  const fieldIDs = ownFieldIDs ? wf.custom_field_ids! : (defaults?.custom_field_ids ?? []);
 
   return (
     <div className="rounded-lg border border-line bg-surface p-5 shadow-card">
@@ -886,12 +899,10 @@ const WorkflowCard: React.FC<{
               ? `Own prompts: ${prompts.map((k) => PROMPT_KEYS.find((p) => p.key === k)?.label ?? k).join(", ")}`
               : "Uses the global prompts"}
           </p>
-          {(wf.custom_field_ids?.length ?? 0) > 0 && (
+          {fillsCustomFields && fieldIDs.length > 0 && (
             <p className="text-xs text-muted">
-              Fills:{" "}
-              {wf.custom_field_ids!
-                .map((id) => defaults?.custom_fields.find((f) => f.id === id)?.name ?? `#${id}`)
-                .join(", ")}
+              Fills: {fieldIDs.map((id) => defaults?.custom_fields.find((f) => f.id === id)?.name ?? `#${id}`).join(", ")}
+              {!ownFieldIDs && " (from Settings)"}
             </p>
           )}
         </div>
