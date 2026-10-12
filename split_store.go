@@ -385,15 +385,27 @@ func (app *App) restoreSplitTags(ctx context.Context, client splitClient, s *Spl
 
 // processingDocuments returns the first page containing eligible tagged documents,
 // excluding split trigger tags before the 25-document limit when the client supports
-// it and filtering held suggestions afterward. Otherwise it uses the normal tag
-// query. API and database errors are returned.
+// it and filtering held suggestions afterward. The count and tag catalog are fetched
+// once per poll. Otherwise it uses the normal tag query. API and database errors
+// are returned.
 func (app *App) processingDocuments(ctx context.Context, tag string) ([]Document, error) {
 	if app.splitConfig != nil {
 		if client, ok := app.Client.(interface {
-			GetDocumentsByTagExcluding(context.Context, string, int, string, int) ([]Document, error)
+			GetDocumentsByTagExcluding(context.Context, string, int, string, int, map[string]int) ([]Document, error)
 		}); ok {
+			documentCount, err := app.Client.GetDocumentCountByTag(ctx, tag)
+			if err != nil {
+				return nil, fmt.Errorf("error checking document count for tag %s: %w", tag, err)
+			}
+			if documentCount == 0 {
+				return []Document{}, nil
+			}
+			allTags, err := app.Client.GetAllTags(ctx)
+			if err != nil {
+				return nil, err
+			}
 			for page := 1; ; page++ {
-				documents, err := client.GetDocumentsByTagExcluding(ctx, tag, 25, app.splitConfig.Tag, page)
+				documents, err := client.GetDocumentsByTagExcluding(ctx, tag, 25, app.splitConfig.Tag, page, allTags)
 				if err != nil {
 					return nil, err
 				}

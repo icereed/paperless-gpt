@@ -360,19 +360,6 @@ func (client *PaperlessClient) GetDocumentCountByTag(ctx context.Context, tag st
 
 // GetDocumentsByTag retrieves documents that match the specified tag
 func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error) {
-	return client.getDocumentsByTag(ctx, tag, pageSize, "", 1)
-}
-
-// GetDocumentsByTagExcluding returns tagged documents without excludedTag on a
-// one-based page ordered by ID. An empty excludedTag instead selects the first
-// tagged page without exclusion or explicit ordering.
-func (client *PaperlessClient) GetDocumentsByTagExcluding(ctx context.Context, tag string, pageSize int, excludedTag string, page int) ([]Document, error) {
-	return client.getDocumentsByTag(ctx, tag, pageSize, excludedTag, page)
-}
-
-// getDocumentsByTag resolves document metadata for a tag query and optionally
-// excludes a second tag. A missing page after the first ends an exclusion query.
-func (client *PaperlessClient) getDocumentsByTag(ctx context.Context, tag string, pageSize int, excludedTag string, page int) ([]Document, error) {
 	documentCount, err := client.GetDocumentCountByTag(ctx, tag)
 	if err != nil {
 		return nil, fmt.Errorf("error checking document count for tag %s: %w", tag, err)
@@ -380,15 +367,29 @@ func (client *PaperlessClient) getDocumentsByTag(ctx context.Context, tag string
 	if documentCount == 0 {
 		return []Document{}, nil
 	}
+	allTags, err := client.GetAllTags(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.getDocumentsByTag(ctx, tag, pageSize, "", 1, allTags)
+}
 
+// GetDocumentsByTagExcluding returns tagged documents without excludedTag on a
+// one-based page ordered by ID, using the caller's tag catalog for filtering and
+// tag names. An empty excludedTag instead selects the first tagged page without
+// exclusion or explicit ordering.
+func (client *PaperlessClient) GetDocumentsByTagExcluding(ctx context.Context, tag string, pageSize int, excludedTag string, page int, allTags map[string]int) ([]Document, error) {
+	return client.getDocumentsByTag(ctx, tag, pageSize, excludedTag, page, allTags)
+}
+
+// getDocumentsByTag resolves document metadata using the supplied tag catalog and
+// optionally excludes a second tag. A missing page after the first ends an
+// exclusion query.
+func (client *PaperlessClient) getDocumentsByTag(ctx context.Context, tag string, pageSize int, excludedTag string, page int, allTags map[string]int) ([]Document, error) {
 	path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=%d", url.QueryEscape(tag), pageSize)
 	if excludedTag != "" {
 		path += fmt.Sprintf("&page=%d&ordering=id", page)
-		tags, err := client.GetAllTags(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if _, id, found := lookupTagID(tags, excludedTag); found {
+		if _, id, found := lookupTagID(allTags, excludedTag); found {
 			path += fmt.Sprintf("&tags__id__none=%d", id)
 		}
 	}
@@ -426,11 +427,6 @@ func (client *PaperlessClient) getDocumentsByTag(ctx context.Context, tag string
 			"error":         err,
 		}).Error("Failed to parse JSON response in GetDocumentsByTag")
 		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
-	}
-
-	allTags, err := client.GetAllTags(ctx)
-	if err != nil {
-		return nil, err
 	}
 
 	allCorrespondents, err := client.GetAllCorrespondents(ctx)

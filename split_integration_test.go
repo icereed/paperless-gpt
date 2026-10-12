@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"text/template"
 
@@ -220,6 +221,11 @@ type splitQueueSnapshotClient struct {
 	afterList func()
 }
 
+// GetDocumentCountByTag reports the single queued source document.
+func (c *splitQueueSnapshotClient) GetDocumentCountByTag(context.Context, string) (int, error) {
+	return 1, nil
+}
+
 // GetDocument adds configured tag names to the current source snapshot.
 func (c *splitQueueSnapshotClient) GetDocument(ctx context.Context, id int) (Document, error) {
 	doc, err := c.splitTestClient.GetDocument(ctx, id)
@@ -232,7 +238,7 @@ func (c *splitQueueSnapshotClient) GetDocument(ctx context.Context, id int) (Doc
 }
 
 // GetDocumentsByTagExcluding captures the source document before running the queue-change callback.
-func (c *splitQueueSnapshotClient) GetDocumentsByTagExcluding(ctx context.Context, _ string, _ int, _ string, _ int) ([]Document, error) {
+func (c *splitQueueSnapshotClient) GetDocumentsByTagExcluding(ctx context.Context, _ string, _ int, _ string, _ int, _ map[string]int) ([]Document, error) {
 	doc, err := c.GetDocument(ctx, c.source.ID)
 	if err != nil {
 		return nil, err
@@ -645,9 +651,112 @@ func TestSplitProcessingExcludesBeforeLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, docs, 1)
 	assert.Equal(t, 30, docs[0].ID)
-	docs, err = env.client.GetDocumentsByTagExcluding(context.Background(), "auto", 25, "split", 2)
+	docs, err = env.client.GetDocumentsByTagExcluding(context.Background(), "auto", 25, "split", 2, map[string]int{"split": 1, "auto": 2})
 	require.NoError(t, err)
 	assert.Empty(t, docs)
+}
+
+// TestSplitProcessingReusesTagsWithinPoll checks that pagination shares one count and tag catalog while later polls refresh tag IDs.
+func TestSplitProcessingReusesTagsWithinPoll(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+	var tagOffset, countRequests, tagRequests, documentRequests atomic.Int32
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("name__iexact") != "" {
+			countRequests.Add(1)
+			assert.Equal(t, "auto", r.URL.Query().Get("name__iexact"))
+			fmt.Fprint(w, `{"count":1,"results":[{"document_count":26}]}`)
+			return
+		}
+		tagRequests.Add(1)
+		assert.Equal(t, "1000", r.URL.Query().Get("page_size"))
+		offset := tagOffset.Load()
+		fmt.Fprintf(w, `{"results":[{"id":%d,"name":"SPLIT"},{"id":%d,"name":"auto"},{"id":%d,"name":"invoice"}]}`, offset+1, offset+2, offset+3)
+	})
+	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		request := documentRequests.Add(1)
+		offset := tagOffset.Load()
+		assert.Equal(t, "auto", r.URL.Query().Get("tags__name__iexact"))
+		assert.Equal(t, fmt.Sprint(offset+1), r.URL.Query().Get("tags__id__none"))
+		assert.Equal(t, "25", r.URL.Query().Get("page_size"))
+		assert.Equal(t, "id", r.URL.Query().Get("ordering"))
+		assert.Equal(t, fmt.Sprint((request-1)%2+1), r.URL.Query().Get("page"))
+		if r.URL.Query().Get("page") == "2" {
+			fmt.Fprintf(w, `{"count":26,"results":[{"id":26,"tags":[%d,%d,999],"correspondent":2}]}`, offset+2, offset+3)
+			return
+		}
+		results := make([]map[string]any, 25)
+		for i := range results {
+			results[i] = map[string]any{"id": i + 1, "tags": []int32{offset + 2}}
+		}
+		assert.NoError(t, json.NewEncoder(w).Encode(map[string]any{"count": 26, "results": results}))
+	})
+	app := &App{Client: env.client, Database: newSplitDB(t), splitConfig: &SplitConfig{Tag: "split"}}
+	for id := 1; id <= 25; id++ {
+		require.NoError(t, app.Database.Create(&SplitSuggestion{DocumentID: id, Status: "submitted"}).Error)
+	}
+	for poll := int32(1); poll <= 2; poll++ {
+		offset := (poll - 1) * 100
+		tagOffset.Store(offset)
+		documents, err := app.processingDocuments(context.Background(), "auto")
+		require.NoError(t, err)
+		require.Len(t, documents, 1)
+		assert.Equal(t, 26, documents[0].ID)
+		assert.ElementsMatch(t, []string{"auto", "invoice"}, documents[0].Tags)
+		assert.Equal(t, []int{int(offset + 2), int(offset + 3), 999}, documents[0].TagIDs)
+		assert.Equal(t, "Beta", documents[0].Correspondent)
+		assert.Equal(t, poll, countRequests.Load(), "one count lookup per poll")
+		assert.Equal(t, poll, tagRequests.Load(), "one tag catalog retrieval per poll")
+		assert.Equal(t, poll*2, documentRequests.Load(), "both document pages are fetched per poll")
+	}
+}
+
+// TestSplitProcessingStopsBeforeDocuments checks that empty queues and lookup errors prevent document requests.
+func TestSplitProcessingStopsBeforeDocuments(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		count       int
+		countStatus int
+		tagStatus   int
+		wantTags    int32
+		wantError   bool
+	}{
+		{name: "empty queue", countStatus: http.StatusOK, tagStatus: http.StatusOK},
+		{name: "count error", countStatus: http.StatusServiceUnavailable, tagStatus: http.StatusOK, wantError: true},
+		{name: "tag catalog error", count: 26, countStatus: http.StatusOK, tagStatus: http.StatusServiceUnavailable, wantTags: 1, wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			defer env.teardown()
+			var countRequests, tagRequests, documentRequests atomic.Int32
+			env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Query().Get("name__iexact") != "" {
+					countRequests.Add(1)
+					w.WriteHeader(tc.countStatus)
+					fmt.Fprintf(w, `{"count":1,"results":[{"document_count":%d}]}`, tc.count)
+					return
+				}
+				tagRequests.Add(1)
+				w.WriteHeader(tc.tagStatus)
+				fmt.Fprint(w, `{"results":[]}`)
+			})
+			env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+				documentRequests.Add(1)
+				fmt.Fprint(w, `{"results":[]}`)
+			})
+			app := &App{Client: env.client, Database: newSplitDB(t), splitConfig: &SplitConfig{Tag: "split"}}
+			documents, err := app.processingDocuments(context.Background(), "auto")
+			if tc.wantError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Empty(t, documents)
+			assert.Equal(t, int32(1), countRequests.Load())
+			assert.Equal(t, tc.wantTags, tagRequests.Load())
+			assert.Zero(t, documentRequests.Load())
+		})
+	}
 }
 
 // TestSplitHundredPageBatchHasNoWindowEdgeSplits checks every adjacent page pair without treating window edges as boundaries.
@@ -737,8 +846,18 @@ type splitPollingClient struct {
 	pages []int
 }
 
+// GetDocumentCountByTag reports the retained originals and the eligible document.
+func (c *splitPollingClient) GetDocumentCountByTag(context.Context, string) (int, error) {
+	return 26, nil
+}
+
+// GetAllTags returns the processing and split tag IDs for the poll.
+func (c *splitPollingClient) GetAllTags(context.Context) (map[string]int, error) {
+	return map[string]int{"split": 1, "auto": 2}, nil
+}
+
 // GetDocumentsByTagExcluding records requested pages and exposes document 26 on the second page.
-func (c *splitPollingClient) GetDocumentsByTagExcluding(_ context.Context, _ string, size int, _ string, page int) ([]Document, error) {
+func (c *splitPollingClient) GetDocumentsByTagExcluding(_ context.Context, _ string, size int, _ string, page int, _ map[string]int) ([]Document, error) {
 	c.pages = append(c.pages, page)
 	if page == 2 {
 		return []Document{{ID: 26}}, nil
