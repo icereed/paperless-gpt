@@ -1458,7 +1458,7 @@ func describeDownload(data []byte) string {
 
 // DownloadDocumentAsImages downloads the specified document and converts it to images.
 // Single images pass through as one page; other non-PDF downloads fail with a
-// descriptive error instead of a fitz failure.
+// descriptive error instead of a PDF parsing failure.
 // If limitPages > 0, only the first N pages will be processed
 // Returns the image paths and the total number of pages in the original document
 func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, documentID int, limitPages int) ([]string, int, error) {
