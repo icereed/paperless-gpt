@@ -28,6 +28,7 @@ import (
 	"github.com/disintegration/imaging"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -91,16 +92,16 @@ func pdfSourceForOCR(ctx context.Context, filename, password string) (string, fu
 	conf.OwnerPW = ""
 	if err := api.DecryptFile(filename, tmpName, conf); err != nil {
 		os.Remove(tmpName)
-		// An empty-password retry is useful for PDFium's numeric/backend
-		// encryption errors. Preserve the original renderer error when pdfcpu
-		// clearly reports an unrelated malformed or unsupported PDF instead.
-		if password == "" {
-			lower := strings.ToLower(err.Error())
-			if !strings.Contains(lower, "password") && !strings.Contains(lower, "encrypt") && !strings.Contains(lower, "decrypt") {
-				return "", func() {}, originalOpenErr
-			}
+		// Only pdfcpu's authentication sentinel proves that a user password is
+		// required. Filesystem, malformed-PDF, and unsupported-encryption errors
+		// must retain their actionable cause rather than becoming password hints.
+		if errors.Is(err, pdfcpu.ErrWrongPassword) {
+			return "", func() {}, fmt.Errorf("%w: %v", ErrPDFPasswordRequired, err)
 		}
-		return "", func() {}, fmt.Errorf("%w: %v", ErrPDFPasswordRequired, err)
+		if password == "" {
+			return "", func() {}, originalOpenErr
+		}
+		return "", func() {}, fmt.Errorf("decrypt PDF for OCR: %w", err)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		os.Remove(tmpName)
