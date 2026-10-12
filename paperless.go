@@ -62,6 +62,9 @@ func pdfPasswordFromContext(ctx context.Context) string {
 // those against a temporary decrypted copy so the Paperless original is never
 // modified. A non-empty password remains a hard failure.
 func pdfSourceForOCR(ctx context.Context, filename, password string) (string, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return "", func() {}, err
+	}
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return "", func() {}, err
@@ -71,15 +74,7 @@ func pdfSourceForOCR(ctx context.Context, filename, password string) (string, fu
 		doc.Close()
 		return filename, func() {}, nil
 	}
-	// PDFium may report encrypted documents with a numeric/backend error
-	// instead of the words "password" or "encrypt".  When the authenticated
-	// OCR request supplied a transient password, always give pdfcpu a chance
-	// to decrypt the temporary copy before classifying the document as
-	// password-protected.  Passwordless generic/corrupt failures retain the
-	// original error and are not mislabeled.
-	if password == "" && !strings.Contains(strings.ToLower(err.Error()), "password") && !strings.Contains(strings.ToLower(err.Error()), "encrypt") {
-		return "", func() {}, err
-	}
+	originalOpenErr := err
 	tmp, err := os.CreateTemp(filepath.Dir(filename), ".paperless-gpt-empty-password-*.pdf")
 	if err != nil {
 		return "", func() {}, fmt.Errorf("create temporary PDF for empty-password retry: %w", err)
@@ -94,15 +89,30 @@ func pdfSourceForOCR(ctx context.Context, filename, password string) (string, fu
 	conf.OwnerPW = ""
 	if err := api.DecryptFile(filename, tmpName, conf); err != nil {
 		os.Remove(tmpName)
-		if errors.Is(err, pdfcpu.ErrWrongPassword) {
-			return "", func() {}, fmt.Errorf("%w: %v", ErrPDFPasswordRequired, err)
+		// PDFium can report encrypted documents with a numeric/backend error.
+		// Give pdfcpu a chance to handle that even for an empty password, but
+		// preserve the original renderer error when pdfcpu proves this is an
+		// unrelated malformed or unsupported PDF.
+		if password == "" {
+			lower := strings.ToLower(err.Error())
+			if !strings.Contains(lower, "password") && !strings.Contains(lower, "encrypt") && !strings.Contains(lower, "decrypt") {
+				return "", func() {}, originalOpenErr
+			}
 		}
-		return "", func() {}, fmt.Errorf("decrypt PDF for OCR: %w", err)
+		return "", func() {}, fmt.Errorf("%w: %v", ErrPDFPasswordRequired, err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		os.Remove(tmpName)
+		return "", func() {}, ctxErr
 	}
 	decrypted, err := os.ReadFile(tmpName)
 	if err != nil {
 		os.Remove(tmpName)
 		return "", func() {}, fmt.Errorf("read empty-password PDF copy: %w", err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		os.Remove(tmpName)
+		return "", func() {}, ctxErr
 	}
 	doc, err = pdfrender.Open(ctx, decrypted)
 	if err != nil {
