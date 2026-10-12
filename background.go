@@ -73,17 +73,20 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 
 				// If OCR is enabled, run OCR tagging first
 				if app.isOcrEnabled() {
-					ocrCount, err := app.processAutoOcrTagDocuments(ctx)
-					if err != nil {
-						return 0, fmt.Errorf("error in processAutoOcrTagDocuments: %w", err)
+					ocrCount, ocrErr := app.processAutoOcrTagDocuments(ctx)
+					if ocrErr != nil {
+						incBackgroundCycleError(bgKindAutoOCR)
+						return 0, fmt.Errorf("error in processAutoOcrTagDocuments: %w", ocrErr)
 					}
 					count += ocrCount
 				}
 
 				// Run auto-tagging after OCR
-				autoCount, err := app.processAutoTagDocuments(ctx)
-				if err != nil {
-					return 0, fmt.Errorf("error in processAutoTagDocuments: %w", err)
+				autoCount, autoErr := app.processAutoTagDocuments(ctx)
+				if autoErr != nil {
+					// Kind is refined inside processTagDocuments; cycle-level uses auto_tag.
+					incBackgroundCycleError(bgKindAutoTag)
+					return 0, fmt.Errorf("error in processAutoTagDocuments: %w", autoErr)
 				}
 				count += autoCount
 
@@ -241,12 +244,19 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 	processedCount := 0
 
 	for _, docSummary := range documents {
+		docStart := time.Now()
+		kind := bgKindAutoTag
+		if triggerTag != autoTag {
+			kind = bgKindWorkflowTag
+		}
+
 		// Get the full document details, including custom fields
 		document, err := app.Client.GetDocument(ctx, docSummary.ID)
 		if err != nil {
 			err = fmt.Errorf("error fetching full details for document %d: %w", docSummary.ID, err)
 			documentLogger(docSummary.ID).Error(err.Error())
 			errs = append(errs, err)
+			observeBackgroundDocument(kind, resultFromContext(ctx, err), docStart)
 			continue
 		}
 
@@ -259,6 +269,7 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 		docLogger := documentLogger(document.ID)
 		workflow := app.workflowRouter().WorkflowFor(document, triggerTag)
 		if workflow != nil {
+			kind = bgKindWorkflowTag
 			docLogger.Infof("Processing document for workflow %q (trigger tag: %s)", workflow.ID, triggerTag)
 		} else {
 			docLogger.Info("Processing document for auto-tagging")
@@ -276,15 +287,18 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 					if recErr := markProcessingFailed(ctx, app.Client, app.Database, document, triggerTag, "workflow OCR is enabled but no OCR provider is configured"); recErr != nil {
 						errs = append(errs, fmt.Errorf("%w (removing the %q tag failed: %v)", err, triggerTag, recErr))
 					}
+					observeBackgroundDocument(kind, resultError, docStart)
 					continue
 				}
 				updatedDoc, ocrErr := app.runWorkflowDocumentOCR(ctx, document, wf, triggerTag, docLogger)
 				if ocrErr != nil {
 					errs = append(errs, ocrErr)
+					observeBackgroundDocument(kind, resultFromContext(ctx, ocrErr), docStart)
 					continue
 				}
 				if updatedDoc == nil {
 					// OCR skipped or document left the queue (e.g. max retries).
+					observeBackgroundDocument(kind, resultSuccess, docStart)
 					continue
 				}
 				document = *updatedDoc
@@ -321,15 +335,18 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 						// on the next poll cycle.
 						docLogger.Errorf("Removing %q tag after repeated suggestion failures also failed: %v. The document will be retried on the next poll cycle.", triggerTag, recErr)
 						errs = append(errs, err)
+						observeBackgroundDocument(kind, resultFromContext(ctx, err), docStart)
 						continue
 					}
 					app.suggestionFailures.reset(document.ID)
 					// The document is out of the queue now; don't let its
 					// handled error keep the whole loop in backoff.
+					observeBackgroundDocument(kind, resultError, docStart)
 					continue
 				}
 			}
 			errs = append(errs, err)
+			observeBackgroundDocument(kind, resultFromContext(ctx, err), docStart)
 			continue
 		}
 		// Suggestions came back — a previous failure streak is over, whatever
@@ -359,17 +376,20 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 				// that this document needs review.
 				applyFailTagAfterPartialSuccess(ctx, app.Client, app.Database, partial.DocumentID, partial.DroppedFields)
 				processedCount++
+				observeBackgroundDocument(kind, resultSuccess, docStart)
 				continue
 			}
 			err = fmt.Errorf("error updating document %d: %w", document.ID, err)
 			docLogger.Error(err.Error())
 			errs = append(errs, err)
 			recoverFromFailedUpdate(ctx, app.Client, app.Database, document, triggerTag)
+			observeBackgroundDocument(kind, resultFromContext(ctx, err), docStart)
 			continue
 		}
 
 		docLogger.Info("Successfully processed document")
 		processedCount++
+		observeBackgroundDocument(kind, resultSuccess, docStart)
 	}
 
 	if len(errs) > 0 {
@@ -519,6 +539,7 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 	var errs []error
 
 	for _, document := range documents {
+		docStart := time.Now()
 		docLogger := documentLogger(document.ID)
 		docLogger.Info("Processing document for OCR")
 
@@ -548,11 +569,13 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 				if err != nil {
 					docLogger.Errorf("Update to remove autoOcrTag failed: %v", err)
 					errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
+					observeBackgroundDocument(bgKindAutoOCR, resultFromContext(ctx, err), docStart)
 					continue
 				}
 
 				docLogger.Info("Successfully removed auto OCR tag")
 				successCount++
+				observeBackgroundDocument(bgKindAutoOCR, resultSuccess, docStart)
 				continue
 			}
 		}
@@ -621,15 +644,18 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 						// retried on the next poll cycle.
 						docLogger.Errorf("Removing %q tag after repeated OCR failures also failed: %v. The document will be retried on the next poll cycle.", autoOcrTag, recErr)
 						errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
+						observeBackgroundDocument(bgKindAutoOCR, resultFromContext(ctx, err), docStart)
 						continue
 					}
 					app.ocrFailures.reset(document.ID)
 					// The document is out of the queue now; don't let its
 					// handled error keep the whole loop in backoff.
+					observeBackgroundDocument(bgKindAutoOCR, resultError, docStart)
 					continue
 				}
 			}
 			errs = append(errs, fmt.Errorf("document %d OCR error: %w", document.ID, err))
+			observeBackgroundDocument(bgKindAutoOCR, resultFromContext(ctx, err), docStart)
 			continue
 		}
 		// OCR itself succeeded — a previous failure streak is over,
@@ -639,6 +665,7 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			docLogger.Info("OCR processing skipped for document")
 			jobStore.updateJobStatus(jobID, "completed", "Skipped (already processed)")
 			finishOCRRunLogged(app, jobID, "completed", "", pagesDone, totalPages, "none", "Skipped (already processed)")
+			observeBackgroundDocument(bgKindAutoOCR, resultSuccess, docStart)
 			continue
 		}
 		jobStore.updateJobStatus(jobID, "completed", processedDoc.Text)
@@ -684,17 +711,20 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 					// Treat as a (partial) success: tag was removed, fail tag applied.
 					docLogger.Info("Successfully processed document OCR (with partial-update fail-tag marker)")
 					successCount++
+					observeBackgroundDocument(bgKindAutoOCR, resultSuccess, docStart)
 					continue
 				}
 				docLogger.Errorf("Update after OCR failed: %v", err)
 				errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
 				recoverFromFailedUpdate(ctx, app.Client, app.Database, document, autoOcrTag)
+				observeBackgroundDocument(bgKindAutoOCR, resultFromContext(ctx, err), docStart)
 				continue
 			}
 		}
 
 		docLogger.Info("Successfully processed document OCR")
 		successCount++
+		observeBackgroundDocument(bgKindAutoOCR, resultSuccess, docStart)
 	}
 
 	if len(errs) > 0 {

@@ -464,6 +464,12 @@ func main() {
 		ocrProviderLabel:   ocrProviderLabel(),
 	}
 
+	ocrBackend := os.Getenv("OCR_PROVIDER")
+	if ocrBackend == "" {
+		ocrBackend = "llm"
+	}
+	InitMetricsInfo(client.BaseURL, llmProvider, llmModel, ocrBackend, visionLlmProvider, visionLlmModel)
+
 	rawAutoTagMaxRetries := os.Getenv("AUTO_TAG_MAX_RETRIES")
 	if rawAutoTagMaxRetries == "" {
 		autoTagMaxRetries = 3
@@ -517,6 +523,8 @@ func main() {
 
 	// Create a Gin router with default middleware (logger and recovery)
 	router := gin.Default()
+	router.Use(metricsMiddleware())
+	registerMetricsEndpoint(router)
 
 	// API routes
 	api := router.Group("/api")
@@ -1264,10 +1272,15 @@ func getRateLimitConfig(isVision bool) RateLimitConfig {
 		}
 	}
 
+	purpose := llmPurposeMetadata
+	if isVision {
+		purpose = llmPurposeVision
+	}
 	return RateLimitConfig{
 		RequestsPerMinute: rpm,
 		MaxRetries:        maxRetries,
 		BackoffMaxWait:    backoffMaxWait,
+		Purpose:           purpose,
 	}
 }
 

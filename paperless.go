@@ -203,9 +203,12 @@ func NewPaperlessClient(baseURL, apiToken string) *PaperlessClient {
 
 // Do method to make requests to the Paperless-NGX API
 func (client *PaperlessClient) Do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+	start := time.Now()
+	operation := paperlessOperation(method, path)
 	url := fmt.Sprintf("%s/%s", client.BaseURL, strings.TrimLeft(path, "/"))
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
+		observePaperlessRequest(method, operation, resultFromContext(ctx, err), start)
 		return nil, err
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Token %s", client.APIToken))
@@ -227,7 +230,9 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 			"method": method,
 			"error":  err,
 		}).Error("HTTP request failed")
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
+		wrapped := fmt.Errorf("HTTP request failed: %w", err)
+		observePaperlessRequest(method, operation, resultFromContext(ctx, wrapped), start)
+		return nil, wrapped
 	}
 
 	// Check if response is HTML instead of JSON for API endpoints
@@ -256,10 +261,12 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 				"full-headers": resp.Header,
 			}).Error("Received HTML response for API request")
 
+			observePaperlessRequest(method, operation, resultError, start)
 			return nil, fmt.Errorf("received HTML response instead of JSON (status: %d). This often indicates an SSL/TLS issue or invalid authentication. Check your PAPERLESS_URL, PAPERLESS_TOKEN and PAPERLESS_INSECURE_SKIP_VERIFY settings. Full response: %s", resp.StatusCode, string(bodyBytes))
 		}
 	}
 
+	observePaperlessRequest(method, operation, resultSuccess, start)
 	return resp, nil
 }
 
@@ -1183,6 +1190,8 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 								}
 								if err := InsertModification(db, &mod); err != nil {
 									log.Warnf("Error inserting tag modification record: %v", err)
+								} else {
+									incDocumentFieldEdit(fieldTags)
 								}
 							} else {
 								bodyBytes, _ := io.ReadAll(tagResp.Body)
@@ -1240,6 +1249,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			if err := InsertModification(db, &mod); err != nil {
 				return fmt.Errorf("error inserting modification record for document %d: %w", documentID, err)
 			}
+			incDocumentFieldEdit(field)
 		}
 		log.Printf("Document %d updated successfully.", documentID)
 	}
@@ -2111,7 +2121,12 @@ func (client *PaperlessClient) EnsureTagExists(ctx context.Context, tagName stri
 }
 
 // UploadDocument uploads a document to paperless-ngx
-func (client *PaperlessClient) UploadDocument(ctx context.Context, pdfData []byte, filename string, metadata map[string]interface{}) (string, error) {
+func (client *PaperlessClient) UploadDocument(ctx context.Context, pdfData []byte, filename string, metadata map[string]interface{}) (taskID string, err error) {
+	start := time.Now()
+	defer func() {
+		observePaperlessRequest("POST", opUploadDocument, resultFromContext(ctx, err), start)
+	}()
+
 	// Create a new multipart form
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -2184,7 +2199,7 @@ func (client *PaperlessClient) UploadDocument(ctx context.Context, pdfData []byt
 	}
 
 	// Trim any whitespace and quotes
-	taskID := strings.Trim(strings.TrimSpace(string(bodyBytes)), "\"")
+	taskID = strings.Trim(strings.TrimSpace(string(bodyBytes)), "\"")
 	if taskID == "" {
 		return "", fmt.Errorf("empty task ID returned")
 	}

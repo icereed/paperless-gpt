@@ -67,12 +67,14 @@ const maxSuggestionJobs = 200
 
 func (store *SuggestionJobStore) addJob(job *SuggestionJob) {
 	store.Lock()
-	defer store.Unlock()
 	job.DocumentsDone = 0
 	job.TotalDocuments = len(job.Request.Documents)
 	store.jobs[job.ID] = job
 	store.evictOldestTerminalLocked()
 	suggestionLogger.Infof("Suggestion job added: %s", job.ID)
+	store.Unlock()
+	suggestionJobsCreatedTotal.Inc()
+	refreshSuggestionJobGauges()
 }
 
 // evictOldestTerminalLocked drops the oldest finished jobs while the store is
@@ -184,41 +186,60 @@ func (store *SuggestionJobStore) getAllJobs() []SuggestionJob {
 
 func (store *SuggestionJobStore) startPending(jobID string) bool {
 	store.Lock()
-	defer store.Unlock()
-
 	job, exists := store.jobs[jobID]
 	if !exists || job.Status != "pending" {
+		store.Unlock()
 		return false
 	}
 
 	job.Status = "in_progress"
 	job.Error = ""
 	job.UpdatedAt = time.Now()
+	store.Unlock()
+	refreshSuggestionJobGauges()
 	return true
 }
 
 func (store *SuggestionJobStore) updateStatus(jobID, status, message string) {
 	store.Lock()
-	defer store.Unlock()
+	var createdAt time.Time
+	terminal := false
 	if job, exists := store.jobs[jobID]; exists {
 		job.Status = status
 		if message != "" {
 			job.Error = message
 		}
 		job.UpdatedAt = time.Now()
+		switch status {
+		case "completed", "failed", "cancelled":
+			terminal = true
+			createdAt = job.CreatedAt
+		}
+	}
+	store.Unlock()
+	refreshSuggestionJobGauges()
+	if terminal {
+		observeSuggestionJobCompleted(status, createdAt)
 	}
 }
 
 func (store *SuggestionJobStore) cancelPending(jobID string) bool {
 	store.Lock()
-	defer store.Unlock()
+	var createdAt time.Time
+	cancelled := false
 	if job, exists := store.jobs[jobID]; exists && job.Status == "pending" {
 		job.Status = "cancelled"
 		job.Error = "Job cancelled by user"
 		job.UpdatedAt = time.Now()
-		return true
+		createdAt = job.CreatedAt
+		cancelled = true
 	}
-	return false
+	store.Unlock()
+	if cancelled {
+		refreshSuggestionJobGauges()
+		observeSuggestionJobCompleted("cancelled", createdAt)
+	}
+	return cancelled
 }
 
 func (store *SuggestionJobStore) updateProgress(jobID string, documentsDone int, currentDocumentID int) {
@@ -233,7 +254,8 @@ func (store *SuggestionJobStore) updateProgress(jobID string, documentsDone int,
 
 func (store *SuggestionJobStore) complete(jobID string, result []DocumentSuggestion, failures []SuggestionJobDocumentFailure) {
 	store.Lock()
-	defer store.Unlock()
+	var createdAt time.Time
+	ok := false
 	if job, exists := store.jobs[jobID]; exists {
 		job.Status = "completed"
 		job.Result = result
@@ -242,17 +264,32 @@ func (store *SuggestionJobStore) complete(jobID string, result []DocumentSuggest
 		job.DocumentsDone = job.TotalDocuments
 		job.CurrentDocumentID = 0
 		job.UpdatedAt = time.Now()
+		createdAt = job.CreatedAt
+		ok = true
+	}
+	store.Unlock()
+	if ok {
+		refreshSuggestionJobGauges()
+		observeSuggestionJobCompleted("completed", createdAt)
 	}
 }
 
 func (store *SuggestionJobStore) failWithFailures(jobID, message string, failures []SuggestionJobDocumentFailure) {
 	store.Lock()
-	defer store.Unlock()
+	var createdAt time.Time
+	ok := false
 	if job, exists := store.jobs[jobID]; exists {
 		job.Status = "failed"
 		job.Error = message
 		job.FailedDocuments = failures
 		job.UpdatedAt = time.Now()
+		createdAt = job.CreatedAt
+		ok = true
+	}
+	store.Unlock()
+	if ok {
+		refreshSuggestionJobGauges()
+		observeSuggestionJobCompleted("failed", createdAt)
 	}
 }
 

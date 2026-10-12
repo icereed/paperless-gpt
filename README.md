@@ -123,6 +123,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Using a Different AI Provider](#using-a-different-ai-provider)
     - [Custom Prompt Templates](#custom-prompt-templates)
       - [Template Variables](#template-variables)
+  - [Prometheus metrics](#prometheus-metrics)
   - [LLM-Based OCR: Compare for Yourself](#llm-based-ocr-compare-for-yourself)
     - [Example 1](#example-1)
     - [Example 2](#example-2)
@@ -1057,6 +1058,65 @@ P.O. Box 94515
 - **LLM-Powered OCR** uses your chosen AI backend—OpenAI or Ollama—to interpret the image's text in a more context-aware manner. This leads to fewer errors and more coherent text.
 - **Google Document AI and Azure Document Intelligence** provide high-accuracy OCR with advanced layout analysis.
 - **Enhanced PDF Generation** combines OCR results with the original document to create searchable PDFs with properly positioned text layers.
+
+---
+
+## Prometheus metrics
+
+paperless-gpt exposes Prometheus metrics at **`GET /metrics`** on the same Gin listener as the web UI and API (`LISTEN_INTERFACE`, default `:8080`). Metrics are always on; there is no separate port or auth.
+
+> **Security:** Keep the scrape on a private network (or behind a reverse proxy that blocks `/metrics` from the public internet). The scrape endpoint shares the app port with the SPA and API and has no authentication.
+
+### Scrape URL
+
+```text
+http://<paperless-gpt-host>:8080/metrics
+```
+
+Namespace: `paperless_gpt_`. Process identity (paperless host, LLM/OCR/vision backends and models) lives only on `paperless_gpt_build_info` (gauge=1). Use Prometheus `instance` / `job` target labels for multi-instance identity.
+
+### Metric layers (do not sum across layers)
+
+Inbound HTTP, outbound paperless-ngx, LLM, OCR, field edits, searchable PDFs, and job/background work are separate layers. One user action fans out across several; build **per-layer** panels rather than a single “total work” figure.
+
+| Layer | Key metrics |
+|-------|-------------|
+| HTTP | `http_requests_total{method,path,code}`, `http_request_duration_seconds{method,path}` |
+| Paperless | `paperless_request_duration_seconds{method,operation,result}` |
+| LLM | `llm_request_duration_seconds{purpose,result}`, `llm_retries_total{purpose}` |
+| OCR | `ocr_page_duration_seconds{result}`, `ocr_document_duration_seconds{result}` |
+| Field edits | `document_field_edits_total{field}` (success-only; failures show on paperless `update_document`) |
+| PDF | `ocr_pdf_outcomes_total{action}`, `ocr_pdf_created_duration_seconds{action}` (created ⊂ attached/replaced/local) |
+| Jobs | gauges `ocr_jobs` / `suggestion_jobs` by `status`; created counters `*_jobs_created_total`; completion lifetimes as `*_jobs_completed_duration_seconds{result}` |
+| Background | `background_documents_processed_duration_seconds{kind,result}`, `background_cycle_errors_total{kind}` |
+
+**Jobs — created vs gauge vs completion**
+
+- `*_jobs_created_total` — how many jobs were enqueued (monotone counter).
+- `ocr_jobs` / `suggestion_jobs{status=…}` — current depth by queue state (`pending`, `in_progress`, `completed`, `failed`, `canceled`). Average pending depth: `avg_over_time(paperless_gpt_ocr_jobs{status="pending"}[5m])`.
+- `*_jobs_completed_duration_seconds` — job lifetime to a terminal state; use `_count` / `_sum` for rates and averages (no twin completed counter).
+
+Frozen outcome label: `result` ∈ `success`, `error`, `canceled`. HTTP uses `code` (status string; transport failure before status → `0`). Job gauges use `status` for queue state only.
+
+### Example PromQL
+
+```promql
+# Request rate and p95 latency (HTTP)
+rate(paperless_gpt_http_requests_total[5m])
+histogram_quantile(0.95, sum by (le) (rate(paperless_gpt_http_request_duration_seconds_bucket[5m])))
+
+# Timed operation rate / mean latency from histogram _count / _sum
+rate(paperless_gpt_llm_request_duration_seconds_count[5m])
+rate(paperless_gpt_llm_request_duration_seconds_sum[5m])
+  / rate(paperless_gpt_llm_request_duration_seconds_count[5m])
+
+# Average pending OCR jobs (no gauge time-integral series)
+avg_over_time(paperless_gpt_ocr_jobs{status="pending"}[5m])
+
+# Job create rate vs completion rate
+rate(paperless_gpt_ocr_jobs_created_total[5m])
+rate(paperless_gpt_ocr_jobs_completed_duration_seconds_count[5m])
+```
 
 ---
 

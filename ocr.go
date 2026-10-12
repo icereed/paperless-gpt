@@ -63,7 +63,15 @@ type HOCRCapable interface {
 }
 
 // ProcessDocumentOCR processes a document through OCR and returns the combined text, hOCR and PDF
-func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions, jobID string) (*ProcessedDocument, error) {
+func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions, jobID string) (processedDoc *ProcessedDocument, err error) {
+	docStart := time.Now()
+	defer func() {
+		observeOCRDocument(resultFromContext(ctx, err), docStart)
+		if processedDoc != nil && processedDoc.PDFAction != "" {
+			observePDFOutcome(processedDoc.PDFAction)
+		}
+	}()
+
 	// Validate options for safety
 	if !options.UploadPDF && options.ReplaceOriginal {
 		return nil, fmt.Errorf("invalid OCROptions: cannot set ReplaceOriginal=true when UploadPDF=false")
@@ -83,7 +91,6 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	// Use a call-scoped provider clone to avoid mutating the shared singleton.
 	provider := app.ocrProvider
 	var ocrPrompt string
-	var err error
 	if options.PromptOverride != "" {
 		ocrPrompt, err = renderOCRPromptOverride(options.PromptOverride, options.ExistingContent)
 		if err != nil {
@@ -218,15 +225,19 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		}).Debug("Processing whole PDF document")
 
 		// Process the whole PDF in one go
+		pageStart := time.Now()
 		result, err := provider.ProcessImage(ctx, originalPDFData, 0) // Page 0 indicates entire document
 		if err != nil {
+			observeOCRPage(resultFromContext(ctx, err), pageStart)
 			return nil, fmt.Errorf("error performing OCR for document %d: %w", documentID, err)
 		}
 
 		if result == nil {
+			observeOCRPage(resultError, pageStart)
 			docLogger.Error("Got nil result from OCR provider")
 			return nil, fmt.Errorf("error performing OCR for document %d: nil result", documentID)
 		}
+		observeOCRPage(resultSuccess, pageStart)
 
 		docLogger.WithField("content_length", len(result.Text)).
 			WithField("has_hocr_page", result.HOCRPage != nil).
@@ -291,14 +302,18 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			}
 
 			// Pass the page number (1-based index) to ProcessImage
+			pageStart := time.Now()
 			result, err := provider.ProcessImage(ctx, pdfContent, i+1)
 			if err != nil {
+				observeOCRPage(resultFromContext(ctx, err), pageStart)
 				return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
 			}
 			if result == nil {
+				observeOCRPage(resultError, pageStart)
 				pageLogger.Error("Got nil result from OCR provider")
 				return nil, fmt.Errorf("error performing OCR for document %d, page %d: nil result", documentID, i+1)
 			}
+			observeOCRPage(resultSuccess, pageStart)
 
 			pageLogger.WithField("has_hocr_page", result.HOCRPage != nil).
 				WithField("metadata", result.Metadata).
@@ -400,14 +415,18 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 				}
 			} else {
 				// Pass the page number (1-based index) to ProcessImage
+				pageStart := time.Now()
 				result, err = provider.ProcessImage(ctx, imageContent, i+1)
 				if err != nil {
+					observeOCRPage(resultFromContext(ctx, err), pageStart)
 					return nil, fmt.Errorf("error performing OCR for document %d, page %d: %w", documentID, i+1, err)
 				}
-			}
-			if result == nil {
-				pageLogger.Error("Got nil result from OCR provider")
-				return nil, fmt.Errorf("error performing OCR for document %d, page %d: nil result", documentID, i+1)
+				if result == nil {
+					observeOCRPage(resultError, pageStart)
+					pageLogger.Error("Got nil result from OCR provider")
+					return nil, fmt.Errorf("error performing OCR for document %d, page %d: nil result", documentID, i+1)
+				}
+				observeOCRPage(resultSuccess, pageStart)
 			}
 
 			if jobID != "" {
@@ -439,7 +458,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	fullText := strings.Join(ocrTexts, "\n\n")
 
 	// Create ProcessedDocument to hold all the results
-	processedDoc := &ProcessedDocument{
+	processedDoc = &ProcessedDocument{
 		ID:        documentID,
 		Text:      fullText,
 		PDFAction: "none",
@@ -502,6 +521,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 						}
 					} else {
 						docLogger.Info("Applying OCR to PDF")
+						pdfCreateStart := time.Now()
 
 						// Set up PDF configuration
 						pdfConfig := pdfocr.DefaultConfig()
@@ -546,6 +566,8 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 									docLogger.WithError(err).Error("Failed to save PDF file")
 								} else {
 									docLogger.Info("Successfully generated and saved PDF")
+									observePDFOutcome(pdfActionLocal)
+									observePDFCreated(pdfActionLocal, pdfCreateStart)
 								}
 							}
 
@@ -563,8 +585,10 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 								case err == nil && options.ReplaceOriginal:
 									processedDoc.ReplacedOriginal = true
 									processedDoc.PDFAction = "replaced"
+									observePDFCreated(pdfActionReplaced, pdfCreateStart)
 								case err == nil:
 									processedDoc.PDFAction = "attached"
+									observePDFCreated(pdfActionAttached, pdfCreateStart)
 								case errors.As(err, &replaceErr):
 									// The searchable PDF was uploaded; only deleting the
 									// original failed. Report it as attached-with-warning
@@ -573,6 +597,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 									docLogger.WithError(err).Error("PDF uploaded but original could not be replaced")
 									processedDoc.PDFAction = "attached"
 									processedDoc.PDFDetail = fmt.Sprintf("Searchable PDF was uploaded, but the original could not be deleted: %v", replaceErr.cause)
+									observePDFCreated(pdfActionAttached, pdfCreateStart)
 								default:
 									docLogger.WithError(err).Error("Failed to upload processed PDF")
 									processedDoc.PDFAction = "failed"
