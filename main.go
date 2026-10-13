@@ -95,6 +95,10 @@ var (
 	doclingOCRPipeline            = os.Getenv("DOCLING_OCR_PIPELINE")
 	doclingOCREngine              = os.Getenv("DOCLING_OCR_ENGINE")
 	doclingOutputFormat           = os.Getenv("DOCLING_OUTPUT_FORMAT")
+	minerUURL                     = os.Getenv("MINERU_URL")
+	minerUAPIKey                  = os.Getenv("MINERU_API_KEY")
+	minerUTier                    = os.Getenv("MINERU_TIER")
+	minerUTimeout                 int
 	googleThinkingBudget          *int32 // Will be parsed from GOOGLEAI_THINKING_BUDGET
 
 	// Templates
@@ -405,6 +409,10 @@ func main() {
 		DoclingOCRPipeline:       doclingOCRPipeline,
 		DoclingOCREngine:         doclingOCREngine,
 		DoclingOutputFormat:      doclingOutputFormat,
+		MinerUURL:                minerUURL,
+		MinerUAPIKey:             minerUAPIKey,
+		MinerUTier:               minerUTier,
+		MinerUTimeout:            minerUTimeout,
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 		VisionLLMMaxTokens:       visionLlmMaxTokens,
 		VisionLLMTemperature:     visionLlmTemperature,
@@ -767,6 +775,7 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
 		"docling":      {"image", "pdf", "whole_pdf"}, // Docling supports image and PDF modes
+		"mineru":       {"image", "pdf", "whole_pdf"}, // MinerU supports images and PDFs
 	}
 
 	// Google Gemini API natively handles PDF documents
@@ -889,6 +898,24 @@ func validateOrDefaultEnvVars() {
 		if doclingOCRPipeline == "standard" && doclingOCREngine == "" {
 			doclingOCREngine = "easyocr"
 			log.Infof("DOCLING_OCR_ENGINE not set, defaulting to %s", doclingOCREngine)
+		}
+	}
+
+	if ocrProvider == "mineru" {
+		if minerUURL == "" {
+			log.Fatal("Please set the MINERU_URL environment variable for MinerU provider")
+		}
+		if minerUTier == "" {
+			minerUTier = "standard"
+			log.Infof("MINERU_TIER not set, defaulting to %s", minerUTier)
+		}
+		minerUTimeout = 600
+		if v := os.Getenv("MINERU_TIMEOUT"); v != "" {
+			n, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil || n <= 0 {
+				log.Fatalf("Invalid MINERU_TIMEOUT %q: must be a positive number of seconds", v)
+			}
+			minerUTimeout = n
 		}
 	}
 

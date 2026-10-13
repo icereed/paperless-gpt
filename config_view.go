@@ -41,6 +41,7 @@ var urlEnvVars = map[string]bool{
 	"OPENAI_BASE_URL":      true,
 	"OLLAMA_HOST":          true,
 	"DOCLING_URL":          true,
+	"MINERU_URL":           true,
 }
 
 // scrubURLUserinfo removes any user:password@ component from a URL so
