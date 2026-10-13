@@ -81,6 +81,12 @@ type Config struct {
 	DoclingOCREngine       string // Optional, defaults to "easyocr", if DoclingOCRPipeline == "standard"
 	DoclingOutputFormat    string // Optional, "md" (default) or "text"
 
+	// MinerU settings
+	MinerUURL     string
+	MinerUAPIKey  string
+	MinerUTier    string // Optional, defaults to "standard"
+	MinerUTimeout int    // Optional, seconds per ProcessImage call (per page in image/pdf mode), defaults to 600
+
 	// OCR output options
 	EnableHOCR     bool   // Whether to generate hOCR data if supported by the provider
 	HOCROutputPath string // Where to save hOCR output files
@@ -144,6 +150,13 @@ func NewProvider(config Config) (Provider, error) {
 
 		log.WithField("url", config.DoclingURL).Info("Using Docling provider")
 		return newDoclingProvider(config)
+
+	case "mineru":
+		if strings.TrimSpace(config.MinerUURL) == "" {
+			return nil, fmt.Errorf("missing required MinerU configuration (MINERU_URL)")
+		}
+		log.WithField("url", redactURL(config.MinerUURL)).Info("Using MinerU provider")
+		return newMinerUProvider(config)
 
 	case "mistral_ocr":
 		if config.MistralAPIKey == "" {
