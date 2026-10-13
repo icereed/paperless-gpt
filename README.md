@@ -1063,13 +1063,7 @@ P.O. Box 94515
 
 ## Exported metrics
 
-paperless-gpt exposes metrics at **`GET /metrics`** on the same Gin listener as the web UI and API (`LISTEN_INTERFACE`, default `:8080`). Metrics are always on; there is no separate port or auth.
-
-### Scrape URL
-
-```text
-http://<paperless-gpt-host>:8080/metrics
-```
+paperless-gpt exposes metrics at `GET /metrics` on the same interface as the web UI and API. Metrics are always enabled and are not authenticated.
 
 Namespace: `paperless_gpt_`. Process identity (paperless host, LLM/OCR/vision backends and models) lives only on `paperless_gpt_build_info` (gauge=1).
 

@@ -131,16 +131,9 @@ func (store *JobStore) GetAllJobs() []*Job {
 }
 
 func (store *JobStore) updateJobStatus(jobID, status, result string) {
-	createdAt, becameTerminal, counts := store.updateJobStatusLocked(jobID, status, result)
-	refreshJobGauges(ocrJobs, counts)
-	if becameTerminal {
-		observeOCRJobCompleted(status, createdAt)
-	}
-}
-
-func (store *JobStore) updateJobStatusLocked(jobID, status, result string) (createdAt time.Time, becameTerminal bool, counts map[string]float64) {
 	store.Lock()
-	defer store.Unlock()
+	var createdAt time.Time
+	becameTerminal := false
 	if job, exists := store.jobs[jobID]; exists {
 		prev := job.Status
 		job.Status = status
@@ -154,7 +147,12 @@ func (store *JobStore) updateJobStatusLocked(jobID, status, result string) (crea
 			createdAt = job.CreatedAt
 		}
 	}
-	return createdAt, becameTerminal, countOCRJobStatusesLocked()
+	counts := countOCRJobStatusesLocked()
+	store.Unlock()
+	refreshJobGauges(ocrJobs, counts)
+	if becameTerminal {
+		observeOCRJobCompleted(status, createdAt)
+	}
 }
 
 func (store *JobStore) updatePagesDone(jobID string, pagesDone int) {
