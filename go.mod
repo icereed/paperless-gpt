@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go/documentai v1.50.0
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/disintegration/imaging v1.6.2
-	github.com/fatih/color v1.18.0
+	github.com/fatih/color v1.19.0
 	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/gardar/ocrchestra v0.0.0-20250521145628-aaae7e4d40e9
 	github.com/gin-gonic/gin v1.11.0
