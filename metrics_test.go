@@ -343,6 +343,74 @@ func TestObserveTimedMovesCounterAndHistogramTogether(t *testing.T) {
 	}
 }
 
+func TestObserveLLMTokensKeyStylesAndSkipAbsent(t *testing.T) {
+	purpose := llmPurposeMetadata
+	promptBefore := testutil.ToFloat64(llmPromptTokensTotal.WithLabelValues(string(purpose)))
+	compBefore := testutil.ToFloat64(llmCompletionTokensTotal.WithLabelValues(string(purpose)))
+
+	observeLLMTokens(purpose, map[string]any{
+		"PromptTokens":     10,
+		"CompletionTokens": 4,
+	})
+	assert.Equal(t, promptBefore+10, testutil.ToFloat64(llmPromptTokensTotal.WithLabelValues(string(purpose))))
+	assert.Equal(t, compBefore+4, testutil.ToFloat64(llmCompletionTokensTotal.WithLabelValues(string(purpose))))
+
+	promptMid := testutil.ToFloat64(llmPromptTokensTotal.WithLabelValues(string(purpose)))
+	compMid := testutil.ToFloat64(llmCompletionTokensTotal.WithLabelValues(string(purpose)))
+	observeLLMTokens(purpose, map[string]any{
+		"InputTokens":  7,
+		"OutputTokens": 3,
+	})
+	assert.Equal(t, promptMid+7, testutil.ToFloat64(llmPromptTokensTotal.WithLabelValues(string(purpose))))
+	assert.Equal(t, compMid+3, testutil.ToFloat64(llmCompletionTokensTotal.WithLabelValues(string(purpose))))
+
+	promptSkip := testutil.ToFloat64(llmPromptTokensTotal.WithLabelValues(string(purpose)))
+	compSkip := testutil.ToFloat64(llmCompletionTokensTotal.WithLabelValues(string(purpose)))
+	observeLLMTokens(purpose, nil)
+	observeLLMTokens(purpose, map[string]any{})
+	observeLLMTokens(purpose, map[string]any{"PromptTokens": 0, "CompletionTokens": 0})
+	assert.Equal(t, promptSkip, testutil.ToFloat64(llmPromptTokensTotal.WithLabelValues(string(purpose))))
+	assert.Equal(t, compSkip, testutil.ToFloat64(llmCompletionTokensTotal.WithLabelValues(string(purpose))))
+}
+
+func TestLLMGenerateContentRecordsProviderTokens(t *testing.T) {
+	mock := &rateLimitMockLLM{
+		generateResponses: []*llms.ContentResponse{
+			{Choices: []*llms.ContentChoice{{
+				Content: "ok",
+				GenerationInfo: map[string]any{
+					"PromptTokens":     12,
+					"CompletionTokens": 5,
+				},
+			}}},
+		},
+	}
+	llm := NewRateLimitedLLM(mock, RateLimitConfig{MaxRetries: 1, Purpose: llmPurposeVision})
+	promptBefore := testutil.ToFloat64(llmPromptTokensTotal.WithLabelValues(string(llmPurposeVision)))
+	compBefore := testutil.ToFloat64(llmCompletionTokensTotal.WithLabelValues(string(llmPurposeVision)))
+	_, err := llm.GenerateContent(context.Background(), []llms.MessageContent{
+		{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "hi"}}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, promptBefore+12, testutil.ToFloat64(llmPromptTokensTotal.WithLabelValues(string(llmPurposeVision))))
+	assert.Equal(t, compBefore+5, testutil.ToFloat64(llmCompletionTokensTotal.WithLabelValues(string(llmPurposeVision))))
+
+	mockNoUsage := &rateLimitMockLLM{
+		generateResponses: []*llms.ContentResponse{
+			{Choices: []*llms.ContentChoice{{Content: "ok"}}},
+		},
+	}
+	llm2 := NewRateLimitedLLM(mockNoUsage, RateLimitConfig{MaxRetries: 1, Purpose: llmPurposeVision})
+	promptMid := testutil.ToFloat64(llmPromptTokensTotal.WithLabelValues(string(llmPurposeVision)))
+	compMid := testutil.ToFloat64(llmCompletionTokensTotal.WithLabelValues(string(llmPurposeVision)))
+	_, err = llm2.GenerateContent(context.Background(), []llms.MessageContent{
+		{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "hi"}}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, promptMid, testutil.ToFloat64(llmPromptTokensTotal.WithLabelValues(string(llmPurposeVision))))
+	assert.Equal(t, compMid, testutil.ToFloat64(llmCompletionTokensTotal.WithLabelValues(string(llmPurposeVision))))
+}
+
 func TestLLMRetryCounter(t *testing.T) {
 	seq := &seqMockLLM{
 		calls: []seqCall{

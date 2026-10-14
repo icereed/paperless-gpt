@@ -1073,7 +1073,7 @@ Namespace: `paperless_gpt_`. Process identity (paperless host, LLM/OCR/vision ba
 |-------|-------------|
 | HTTP | `paperless_gpt_http_requests_total{method,path,code}`, `paperless_gpt_http_request_duration_seconds{method,path}` (`code` on counter only) |
 | Paperless | `paperless_gpt_paperless_requests_total` + `paperless_gpt_paperless_request_duration_seconds` `{method,operation,result}` |
-| LLM | `paperless_gpt_llm_requests_total` + `paperless_gpt_llm_request_duration_seconds` `{purpose,result}`; `paperless_gpt_llm_retries_total{purpose}` |
+| LLM | `paperless_gpt_llm_requests_total` + `paperless_gpt_llm_request_duration_seconds` `{purpose,result}`; `paperless_gpt_llm_retries_total{purpose}`; `paperless_gpt_llm_prompt_tokens_total{purpose}`, `paperless_gpt_llm_completion_tokens_total{purpose}` |
 | OCR | `paperless_gpt_ocr_pages_total` + `paperless_gpt_ocr_page_duration_seconds` `{result}`; `paperless_gpt_ocr_documents_total` + `paperless_gpt_ocr_document_duration_seconds` `{result}` |
 | Field edits | `paperless_gpt_document_field_edits_total{field}` (success-only; failures show on paperless `update_document`) |
 | PDF | `paperless_gpt_ocr_pdf_outcomes_total{action}`; `paperless_gpt_ocr_pdf_created_total` + `paperless_gpt_ocr_pdf_created_duration_seconds` `{action}` (created ⊂ attached/replaced/local) |
@@ -1081,6 +1081,10 @@ Namespace: `paperless_gpt_`. Process identity (paperless host, LLM/OCR/vision ba
 | Background | `paperless_gpt_background_documents_processed_total` + `paperless_gpt_background_documents_processed_duration_seconds` `{kind,result}`; `paperless_gpt_background_cycle_errors_total{kind}` |
 
 Timed layers (except HTTP) expose a matching `*_total` counter with the same labels as the duration histogram; both are updated together via a shared observe helper.
+
+**LLM token usage**
+
+- `paperless_gpt_llm_prompt_tokens_total` / `paperless_gpt_llm_completion_tokens_total` increment only when the LLM backend returns usage in `GenerationInfo` (OpenAI-style `PromptTokens`/`CompletionTokens` or Anthropic-style `InputTokens`/`OutputTokens`) with a positive count. If usage is missing, these counters stay unchanged (skipped). Local tiktoken estimates are not used.
 
 **Jobs — created vs gauge vs completion**
 

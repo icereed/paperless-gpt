@@ -220,6 +220,9 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 		resp, err := r.llm.GenerateContent(ctx, messages, options...)
 		if err == nil {
 			observeLLMRequest(purpose, resultSuccess, start)
+			if resp != nil && len(resp.Choices) > 0 && resp.Choices[0] != nil {
+				observeLLMTokens(purpose, resp.Choices[0].GenerationInfo)
+			}
 			// Return the pointer response directly
 			return resp, nil
 		}

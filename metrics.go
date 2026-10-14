@@ -114,6 +114,16 @@ var (
 		Help: "LLM retry attempts after a failed call.",
 	}, []string{"purpose"})
 
+	llmPromptTokensTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "paperless_gpt_llm_prompt_tokens_total",
+		Help: "LLM prompt/input tokens reported by the backend (skipped when usage is absent).",
+	}, []string{"purpose"})
+
+	llmCompletionTokensTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "paperless_gpt_llm_completion_tokens_total",
+		Help: "LLM completion/output tokens reported by the backend (skipped when usage is absent).",
+	}, []string{"purpose"})
+
 	ocrPagesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "paperless_gpt_ocr_pages_total",
 		Help: "Per-page (or whole-PDF) OCR provider calls.",
@@ -289,6 +299,52 @@ func observeDuration(hist prometheus.Observer, start time.Time) {
 func observeTimed(hist *prometheus.HistogramVec, counter *prometheus.CounterVec, start time.Time, labelValues ...string) {
 	hist.WithLabelValues(labelValues...).Observe(time.Since(start).Seconds())
 	counter.WithLabelValues(labelValues...).Inc()
+}
+
+func generationInfoFloat(info map[string]any, keys ...string) (float64, bool) {
+	if info == nil {
+		return 0, false
+	}
+	for _, key := range keys {
+		v, ok := info[key]
+		if !ok || v == nil {
+			continue
+		}
+		switch n := v.(type) {
+		case int:
+			return float64(n), true
+		case int32:
+			return float64(n), true
+		case int64:
+			return float64(n), true
+		case uint:
+			return float64(n), true
+		case uint32:
+			return float64(n), true
+		case uint64:
+			return float64(n), true
+		case float32:
+			return float64(n), true
+		case float64:
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// observeLLMTokens adds provider-reported usage from GenerationInfo.
+// Supports OpenAI-style PromptTokens/CompletionTokens and Anthropic InputTokens/OutputTokens.
+// Skips when usage keys are absent or non-positive.
+func observeLLMTokens(purpose llmPurpose, info map[string]any) {
+	prompt, promptOK := generationInfoFloat(info, "PromptTokens", "InputTokens")
+	completion, completionOK := generationInfoFloat(info, "CompletionTokens", "OutputTokens")
+	label := string(purpose)
+	if promptOK && prompt > 0 {
+		llmPromptTokensTotal.WithLabelValues(label).Add(prompt)
+	}
+	if completionOK && completion > 0 {
+		llmCompletionTokensTotal.WithLabelValues(label).Add(completion)
+	}
 }
 
 func resultFromError(err error) string {
