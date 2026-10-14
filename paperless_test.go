@@ -143,6 +143,32 @@ func TestDo(t *testing.T) {
 	assert.Equal(t, `{"message": "success"}`, string(body))
 }
 
+func TestGetDocumentRefreshesStaleTagCatalog(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	tagCalls := 0
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		tagCalls++
+		w.WriteHeader(http.StatusOK)
+		if tagCalls == 1 {
+			_, _ = w.Write([]byte(`{"results":[{"id":1,"name":"paperless-gpt-auto"}],"next":null}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"results":[{"id":1,"name":"paperless-gpt-auto"},{"id":2,"name":"paperless-gpt-done"}],"next":null}`))
+	})
+	env.setMockResponse("/api/documents/42/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":42,"title":"Invoice","tags":[2],"content":"body"}`))
+	})
+
+	document, err := env.client.GetDocument(context.Background(), 42)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"paperless-gpt-done"}, document.Tags)
+	assert.Equal(t, []int{2}, document.TagIDs)
+	assert.Equal(t, 2, tagCalls, "an unresolved tag ID must force one catalog refresh")
+}
+
 // TestGetAllTags tests the GetAllTags method, including pagination
 func TestGetAllTags(t *testing.T) {
 	env := newTestEnv(t)
