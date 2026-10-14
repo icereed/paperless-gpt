@@ -92,15 +92,18 @@ interface CustomField {
 
 const ACTIVE_JOB_KEY = "pgpt-active-suggestion-job";
 
+const APPROVALS_POLL_MS = 10000;
+
 // Approvals are optional for the page: if they can't be loaded, the manual
-// queue still works.
-const fetchApprovals = async (): Promise<DocumentSuggestion[]> => {
+// queue still works. null means unknown, which callers must not treat as
+// "nothing waits": the held documents would then join ordinary generation.
+const fetchApprovals = async (): Promise<DocumentSuggestion[] | null> => {
   try {
     const { data } = await axios.get<DocumentSuggestion[]>("./api/reviews");
     return data || [];
   } catch (err) {
     console.error("Error fetching suggestions waiting for approval:", err);
-    return [];
+    return null;
   }
 };
 const POLL_INTERVAL_MS = 1500;
@@ -110,6 +113,7 @@ const DocumentProcessor: React.FC = () => {
   // Suggestions workflows made and hold for approval; their documents carry
   // the review tag too, but are already generated.
   const [approvals, setApprovals] = useState<DocumentSuggestion[]>([]);
+  const [approvalsKnown, setApprovalsKnown] = useState(true);
   const [documentsLoaded, setDocumentsLoaded] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [suggestions, setSuggestions] = useState<DocumentSuggestion[] | null>(
@@ -162,7 +166,8 @@ const DocumentProcessor: React.FC = () => {
         ]);
 
       setFilterTag(filterTagRes.data.tag);
-      setApprovals(approvalsRes);
+      if (approvalsRes) setApprovals(approvalsRes);
+      setApprovalsKnown(approvalsRes !== null);
       setAllCustomFields(customFieldsRes.data || []);
       setDocuments(documentsRes.data);
       setDocumentsLoaded(true);
@@ -351,6 +356,12 @@ const DocumentProcessor: React.FC = () => {
   };
 
   const handleGenerateClick = () => {
+    if (!approvalsKnown) {
+      setError(
+        "Could not check which documents wait for a workflow approval. Refresh, then generate."
+      );
+      return;
+    }
     const docsToProcess = queue.filter((doc) => selectedIds.has(doc.id));
     if (docsToProcess.length === 0) return;
     startGeneration(docsToProcess);
@@ -404,7 +415,8 @@ const DocumentProcessor: React.FC = () => {
         fetchApprovals(),
       ]);
       setDocuments(data);
-      setApprovals(pending);
+      if (pending) setApprovals(pending);
+      setApprovalsKnown(pending !== null);
       setDocumentsLoaded(true);
       setSelectedIds(new Set(data.map((doc) => doc.id)));
     } catch (err) {
@@ -422,11 +434,7 @@ const DocumentProcessor: React.FC = () => {
         if (pollingDocumentsRef.current) return;
         pollingDocumentsRef.current = true;
         try {
-          const [{ data }, pending] = await Promise.all([
-            axios.get<Document[]>("./api/documents"),
-            fetchApprovals(),
-          ]);
-          setApprovals(pending);
+          const { data } = await axios.get<Document[]>("./api/documents");
           if (data.length > 0) {
             setDocuments(data);
             setSelectedIds(new Set(data.map((doc) => doc.id)));
@@ -441,6 +449,18 @@ const DocumentProcessor: React.FC = () => {
       return () => clearInterval(interval);
     }
   }, [queue.length, phase]);
+
+  // Workflows can hold new suggestions while the page is open, also when the
+  // manual queue isn't empty.
+  useEffect(() => {
+    if (phase !== "select") return;
+    const interval = setInterval(async () => {
+      const pending = await fetchApprovals();
+      if (pending) setApprovals(pending);
+      setApprovalsKnown(pending !== null);
+    }, APPROVALS_POLL_MS);
+    return () => clearInterval(interval);
+  }, [phase]);
 
   const startApprovalReview = () => {
     setError(null);
