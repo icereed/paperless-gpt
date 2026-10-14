@@ -35,10 +35,11 @@ import (
 
 // PaperlessClient struct to interact with the Paperless-NGX API
 type PaperlessClient struct {
-	BaseURL     string
-	APIToken    string
-	HTTPClient  *http.Client
-	CacheFolder string
+	BaseURL       string
+	APIToken      string
+	HTTPClient    *http.Client
+	CacheFolder   string
+	tagCreationMu sync.Mutex
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -782,7 +783,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					appliedTagNames = append(appliedTagNames, tagName)
 				} else if createNewTags {
 					// Create the new tag in paperless-ngx
-					newTagID, err := client.CreateTag(ctx, tagName)
+					newTagID, err := client.CreateOrGetTag(ctx, tagName)
 					if err != nil {
 						log.Warnf("Document %d: Failed to create new tag '%s': %v", documentID, tagName, err)
 						continue
@@ -2089,6 +2090,22 @@ func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (i
 	return createdTag.ID, nil
 }
 
+// CreateOrGetTag serializes the lookup and creation so concurrent misses
+// cannot issue duplicate POST requests for the same client.
+func (client *PaperlessClient) CreateOrGetTag(ctx context.Context, tagName string) (int, error) {
+	client.tagCreationMu.Lock()
+	defer client.tagCreationMu.Unlock()
+
+	tags, err := client.GetAllTags(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("error fetching tags: %w", err)
+	}
+	if _, id, exists := lookupTagID(tags, tagName); exists {
+		return id, nil
+	}
+	return client.CreateTag(ctx, tagName)
+}
+
 // EnsureTagExists checks whether a tag with the given name exists in paperless-ngx
 // and creates it if not. Used for paperless-gpt's internal marker tags (e.g. failTag)
 // which should always be available regardless of the CREATE_NEW_TAGS setting,
@@ -2097,14 +2114,7 @@ func (client *PaperlessClient) EnsureTagExists(ctx context.Context, tagName stri
 	if tagName == "" {
 		return nil
 	}
-	tags, err := client.GetAllTags(ctx)
-	if err != nil {
-		return fmt.Errorf("error fetching tags: %w", err)
-	}
-	if _, exists := tags[tagName]; exists {
-		return nil
-	}
-	if _, err := client.CreateTag(ctx, tagName); err != nil {
+	if _, err := client.CreateOrGetTag(ctx, tagName); err != nil {
 		return fmt.Errorf("error creating tag %q: %w", tagName, err)
 	}
 	return nil

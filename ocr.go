@@ -643,6 +643,15 @@ func (app *App) savePDFToFile(ctx context.Context, documentID int, pdfData []byt
 	return nil
 }
 
+func (app *App) createOCRTag(ctx context.Context, name string) (int, error) {
+	if creator, ok := app.Client.(interface {
+		CreateOrGetTag(context.Context, string) (int, error)
+	}); ok {
+		return creator.CreateOrGetTag(ctx, name)
+	}
+	return app.Client.CreateTag(ctx, name)
+}
+
 // Upload PDF to Paperless
 func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData []byte, options OCROptions, logger *logrus.Entry) error {
 	if options.UploadMode == PDFUploadModeVersion {
@@ -681,7 +690,7 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 					tagIDs = append(tagIDs, tagID)
 				} else {
 					// Create the tag if it doesn't exist
-					tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag)
+					tagID, err := app.createOCRTag(ctx, app.pdfOCRCompleteTag)
 					if err == nil {
 						tagIDs = append(tagIDs, tagID)
 					} else {
@@ -717,7 +726,7 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 				metadata["tags"] = []int{tagID}
 			} else {
 				// Create the tag if it doesn't exist
-				tagID, err := app.Client.CreateTag(ctx, app.pdfOCRCompleteTag)
+				tagID, err := app.createOCRTag(ctx, app.pdfOCRCompleteTag)
 				if err == nil {
 					metadata["tags"] = []int{tagID}
 				} else {
