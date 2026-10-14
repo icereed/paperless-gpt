@@ -439,14 +439,16 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 	}
 
 	documents := make([]Document, 0, len(documentsResponse.Results))
+	refreshedTagCatalog := false
 	for _, result := range documentsResponse.Results {
 		tagNames, invisibleTagIDs := resolveTagNames(result.Tags, allTags)
-		if len(invisibleTagIDs) > 0 {
+		if len(invisibleTagIDs) > 0 && !refreshedTagCatalog {
 			client.invalidateTagCatalog()
 			allTags, err = client.GetAllTags(ctx)
 			if err != nil {
 				return nil, err
 			}
+			refreshedTagCatalog = true
 			tagNames, invisibleTagIDs = resolveTagNames(result.Tags, allTags)
 		}
 		if len(invisibleTagIDs) > 0 {

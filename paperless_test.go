@@ -353,6 +353,38 @@ func TestGetDocumentsByTag(t *testing.T) {
 	assert.Equal(t, expectedDocuments, documents)
 }
 
+func TestGetDocumentsByTagRefreshesTagCatalogOnlyOnce(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(GetDocumentsApiResponse{Results: []GetDocumentApiResponseResult{
+			{ID: 1, Title: "Document 1", Tags: []int{1, 99}},
+			{ID: 2, Title: "Document 2", Tags: []int{2, 100}},
+		}})
+	})
+
+	var catalogCalls int
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("name__iexact") != "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"results": []map[string]interface{}{{"document_count": 2}}, "count": 1})
+			return
+		}
+		catalogCalls++
+		results := []map[string]interface{}{{"id": 1, "name": "tag1"}, {"id": 2, "name": "tag2"}}
+		if catalogCalls == 2 {
+			results = append(results, map[string]interface{}{"id": 99, "name": "tag99"}, map[string]interface{}{"id": 100, "name": "tag100"})
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"results": results, "next": nil})
+	})
+
+	documents, err := env.client.GetDocumentsByTag(context.Background(), "tag2", 25)
+	require.NoError(t, err)
+	assert.Equal(t, 2, catalogCalls)
+	assert.Equal(t, []string{"tag1", "tag99"}, documents[0].Tags)
+	assert.Equal(t, []string{"tag2", "tag100"}, documents[1].Tags)
+}
+
 // TestGetDocumentsByTagWithEmoji tests the GetDocumentsByTag method with emoji and special characters
 func TestGetDocumentsByTagWithEmoji(t *testing.T) {
 	env := newTestEnv(t)
