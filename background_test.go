@@ -142,6 +142,12 @@ func (a *appStubBG) processAutoTagDocuments(ctx context.Context) (int, error) {
 	return a.App.processAutoTagDocuments(ctx)
 }
 
+func (a *appStubBG) refreshPaperlessBacklogMetrics(ctx context.Context) {
+	if a.App != nil {
+		a.App.refreshPaperlessBacklogMetrics(ctx)
+	}
+}
+
 // Setup a Test
 func setupTest(t *testing.T) *testEnv {
 	// Initialize templates

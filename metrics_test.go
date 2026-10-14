@@ -452,6 +452,119 @@ func TestInitMetricsInfo(t *testing.T) {
 	)))
 }
 
+type countByTagClient struct {
+	mockPaperlessClient
+	counts map[string]int
+	errs   map[string]error
+	calls  []string
+}
+
+func (c *countByTagClient) GetDocumentCountByTag(_ context.Context, tag string) (int, error) {
+	c.calls = append(c.calls, tag)
+	if c.errs != nil {
+		if err, ok := c.errs[tag]; ok && err != nil {
+			return 0, err
+		}
+	}
+	if c.counts == nil {
+		return 0, nil
+	}
+	return c.counts[tag], nil
+}
+
+type pollTagsRouter struct {
+	tags []string
+}
+
+func (r pollTagsRouter) PollTags() []string                           { return r.tags }
+func (r pollTagsRouter) WorkflowFor(Document, string) *WorkflowConfig { return nil }
+
+func TestRefreshPaperlessBacklogMetrics(t *testing.T) {
+	prevAuto, prevOCR := autoTag, autoOcrTag
+	t.Cleanup(func() { autoTag, autoOcrTag = prevAuto, prevOCR })
+	autoTag = "paperless-gpt-auto"
+	autoOcrTag = "paperless-gpt-ocr-auto"
+
+	client := &countByTagClient{
+		counts: map[string]int{
+			autoOcrTag:  3,
+			autoTag:     5,
+			"invoices":  2,
+			"contracts": 4,
+		},
+	}
+	app := &App{
+		Client:         client,
+		WorkflowRouter: pollTagsRouter{tags: []string{"invoices", "contracts", autoTag}},
+	}
+
+	app.refreshPaperlessBacklogMetrics(context.Background())
+
+	assert.Equal(t, float64(3), testutil.ToFloat64(paperlessTagBacklog.WithLabelValues(bgKindAutoOCR)))
+	assert.Equal(t, float64(5), testutil.ToFloat64(paperlessTagBacklog.WithLabelValues(bgKindAutoTag)))
+	assert.Equal(t, float64(6), testutil.ToFloat64(paperlessTagBacklog.WithLabelValues(bgKindWorkflowTag)))
+	assert.Contains(t, client.calls, autoOcrTag)
+	assert.Contains(t, client.calls, autoTag)
+	assert.Contains(t, client.calls, "invoices")
+	assert.Contains(t, client.calls, "contracts")
+}
+
+func TestRefreshPaperlessBacklogMetricsKeepsLastOnError(t *testing.T) {
+	prevAuto, prevOCR := autoTag, autoOcrTag
+	t.Cleanup(func() { autoTag, autoOcrTag = prevAuto, prevOCR })
+	autoTag = "paperless-gpt-auto"
+	autoOcrTag = "paperless-gpt-ocr-auto"
+
+	client := &countByTagClient{
+		counts: map[string]int{autoOcrTag: 7, autoTag: 1},
+	}
+	app := &App{
+		Client:         client,
+		WorkflowRouter: pollTagsRouter{tags: []string{autoTag}},
+	}
+	app.refreshPaperlessBacklogMetrics(context.Background())
+	assert.Equal(t, float64(7), testutil.ToFloat64(paperlessTagBacklog.WithLabelValues(bgKindAutoOCR)))
+	assert.Equal(t, float64(0), testutil.ToFloat64(paperlessTagBacklog.WithLabelValues(bgKindWorkflowTag)))
+
+	client.errs = map[string]error{autoOcrTag: errors.New("paperless down")}
+	client.counts[autoOcrTag] = 0 // would invent zero if we incorrectly Set on error
+	client.counts[autoTag] = 9
+	app.refreshPaperlessBacklogMetrics(context.Background())
+
+	assert.Equal(t, float64(7), testutil.ToFloat64(paperlessTagBacklog.WithLabelValues(bgKindAutoOCR)),
+		"auto_ocr must keep last value when count API fails")
+	assert.Equal(t, float64(9), testutil.ToFloat64(paperlessTagBacklog.WithLabelValues(bgKindAutoTag)),
+		"successful kinds still update")
+}
+
+func TestRefreshPaperlessBacklogMetricsSkipsWorkflowAggregateOnPartialError(t *testing.T) {
+	prevAuto, prevOCR := autoTag, autoOcrTag
+	t.Cleanup(func() { autoTag, autoOcrTag = prevAuto, prevOCR })
+	autoTag = "paperless-gpt-auto"
+	autoOcrTag = "paperless-gpt-ocr-auto"
+
+	client := &countByTagClient{
+		counts: map[string]int{
+			autoOcrTag:  0,
+			autoTag:     0,
+			"invoices":  2,
+			"contracts": 4,
+		},
+	}
+	app := &App{
+		Client:         client,
+		WorkflowRouter: pollTagsRouter{tags: []string{"invoices", "contracts", autoTag}},
+	}
+	app.refreshPaperlessBacklogMetrics(context.Background())
+	assert.Equal(t, float64(6), testutil.ToFloat64(paperlessTagBacklog.WithLabelValues(bgKindWorkflowTag)))
+
+	client.errs = map[string]error{"contracts": errors.New("timeout")}
+	client.counts["invoices"] = 99
+	app.refreshPaperlessBacklogMetrics(context.Background())
+	assert.Equal(t, float64(6), testutil.ToFloat64(paperlessTagBacklog.WithLabelValues(bgKindWorkflowTag)),
+		"workflow_tag aggregate must not update with a partial sum")
+}
+
 func histogramCount(t *testing.T, obs prometheus.Observer) uint64 {
 	t.Helper()
 	h, ok := obs.(prometheus.Histogram)

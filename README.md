@@ -1078,9 +1078,13 @@ Namespace: `paperless_gpt_`. Process identity (paperless host, LLM/OCR/vision ba
 | Field edits | `paperless_gpt_document_field_edits_total{field}` (success-only; failures show on paperless `update_document`) |
 | PDF | `paperless_gpt_ocr_pdf_outcomes_total{action}`; `paperless_gpt_ocr_pdf_created_total` + `paperless_gpt_ocr_pdf_created_duration_seconds` `{action}` (created ⊂ attached/replaced/local) |
 | Jobs | gauges `paperless_gpt_ocr_jobs` / `paperless_gpt_suggestion_jobs` by `status`; created counters `paperless_gpt_ocr_jobs_created_total` / `paperless_gpt_suggestion_jobs_created_total`; completion `paperless_gpt_*_jobs_completed_total` + `paperless_gpt_*_jobs_completed_duration_seconds` `{result}` |
-| Background | `paperless_gpt_background_documents_processed_total` + `paperless_gpt_background_documents_processed_duration_seconds` `{kind,result}`; `paperless_gpt_background_cycle_errors_total{kind}` |
+| Background | `paperless_gpt_background_documents_processed_total` + `paperless_gpt_background_documents_processed_duration_seconds` `{kind,result}`; `paperless_gpt_background_cycle_errors_total{kind}`; `paperless_gpt_paperless_tag_backlog{kind}` |
 
 Timed layers (except HTTP) expose a matching `*_total` counter with the same labels as the duration histogram; both are updated together via a shared observe helper.
+
+**Paperless tag backlog**
+
+- `paperless_gpt_paperless_tag_backlog{kind}` — documents on paperless-ngx still carrying configured processing tags (`auto_ocr` = `AUTO_OCR_TAG`, `auto_tag` = `AUTO_TAG`, `workflow_tag` = sum of configured workflow trigger tags). Uses the Paperless tag `document_count` API (not the page-size-25 list). Refreshed at the start of each background poller cycle (about every 10s when idle; sooner while work remains; delayed by exponential backoff after cycle errors). Requires Paperless reachability: on count API errors the previous gauge value is kept (not reset to 0). In-app OCR/suggestion job queues remain on `paperless_gpt_ocr_jobs` / `paperless_gpt_suggestion_jobs`.
 
 **LLM token usage**
 

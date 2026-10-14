@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,6 +50,7 @@ type BackgroundProcessor interface {
 	processAutoOcrTagDocuments(ctx context.Context) (int, error)
 	processAutoTagDocuments(ctx context.Context) (int, error)
 	isOcrEnabled() bool
+	refreshPaperlessBacklogMetrics(ctx context.Context)
 }
 
 // Start our background tasks in a goroutine
@@ -70,6 +72,10 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 
 			processedCount, err := func() (count int, err error) {
 				count = 0
+
+				// Refresh Paperless tag backlog gauges before processing.
+				// Uses the count API (not page-size-25 list length).
+				app.refreshPaperlessBacklogMetrics(ctx)
 
 				// If OCR is enabled, run OCR tagging first
 				if app.isOcrEnabled() {
@@ -198,6 +204,45 @@ func recoverFromFailedUpdate(ctx context.Context, client ClientInterface, db *go
 	if err := markProcessingFailed(ctx, client, db, document, removeTag, "update failed"); err != nil {
 		documentLogger(document.ID).Errorf("Recovery update for failed document %d also failed: %v. The %q tag may still be present and the document may be re-processed on the next poll cycle.", document.ID, err, removeTag)
 	}
+}
+
+// refreshPaperlessBacklogMetrics updates paperless_gpt_paperless_tag_backlog
+// from Paperless tag document_count values. On API errors the previous gauge
+// value is left unchanged (no invented zero).
+func (app *App) refreshPaperlessBacklogMetrics(ctx context.Context) {
+	if app == nil || app.Client == nil {
+		return
+	}
+
+	if autoOcrTag != "" {
+		if n, err := app.Client.GetDocumentCountByTag(ctx, autoOcrTag); err != nil {
+			log.Debugf("paperless tag backlog: skip %s update: %v", bgKindAutoOCR, err)
+		} else {
+			setPaperlessTagBacklog(bgKindAutoOCR, n)
+		}
+	}
+
+	if autoTag != "" {
+		if n, err := app.Client.GetDocumentCountByTag(ctx, autoTag); err != nil {
+			log.Debugf("paperless tag backlog: skip %s update: %v", bgKindAutoTag, err)
+		} else {
+			setPaperlessTagBacklog(bgKindAutoTag, n)
+		}
+	}
+
+	total := 0
+	for _, tag := range app.workflowRouter().PollTags() {
+		if tag == "" || strings.EqualFold(tag, autoTag) {
+			continue
+		}
+		n, err := app.Client.GetDocumentCountByTag(ctx, tag)
+		if err != nil {
+			log.Debugf("paperless tag backlog: skip %s update: %v", bgKindWorkflowTag, err)
+			return
+		}
+		total += n
+	}
+	setPaperlessTagBacklog(bgKindWorkflowTag, total)
 }
 
 // processAutoTagDocuments handles the background auto-tagging of documents.

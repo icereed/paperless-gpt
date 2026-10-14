@@ -224,6 +224,11 @@ var (
 		Name: "paperless_gpt_background_cycle_errors_total",
 		Help: "Background poller cycle errors.",
 	}, []string{"kind"})
+
+	paperlessTagBacklog = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "paperless_gpt_paperless_tag_backlog",
+		Help: "Documents on paperless-ngx matching configured processing tags (refreshed each background poll cycle).",
+	}, []string{"kind"})
 )
 
 func init() {
@@ -538,6 +543,10 @@ func observeBackgroundDocument(kind, result string, start time.Time) {
 
 func incBackgroundCycleError(kind string) {
 	backgroundCycleErrorsTotal.WithLabelValues(kind).Inc()
+}
+
+func setPaperlessTagBacklog(kind string, count int) {
+	paperlessTagBacklog.WithLabelValues(kind).Set(float64(count))
 }
 
 // metricsMiddleware records inbound HTTP RED metrics, skipping /metrics.
