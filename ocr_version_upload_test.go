@@ -235,6 +235,14 @@ func (p *hocrStubProvider) GetHOCRDocument() (*hocr.HOCR, error) {
 func (p *hocrStubProvider) ResetHOCR() { p.pages = nil }
 
 func TestProcessDocumentOCRVersionModeUploadsSearchablePDF(t *testing.T) {
+	for _, mode := range []string{"pdf", "image"} {
+		t.Run(mode, func(t *testing.T) { testVersionModeUploadsSearchablePDF(t, mode) })
+	}
+}
+
+// In image mode the processed pages used to be counted from a shadowed,
+// always empty slice, so the searchable PDF was skipped every time (#1144).
+func testVersionModeUploadsSearchablePDF(t *testing.T, processMode string) {
 	env := newTestEnv(t)
 	defer env.teardown()
 	require.NoError(t, env.db.AutoMigrate(&OCRPageResult{}))
@@ -267,9 +275,9 @@ func TestProcessDocumentOCRVersionModeUploadsSearchablePDF(t *testing.T) {
 		t.Error("version mode must not upload a new document")
 	})
 
-	app := &App{Client: env.client, Database: env.db, ocrProvider: &hocrStubProvider{}, ocrProcessMode: "pdf"}
+	app := &App{Client: env.client, Database: env.db, ocrProvider: &hocrStubProvider{}, ocrProcessMode: processMode}
 	// A prompt override avoids needing the OCR prompt template, as in ocr_test.go.
-	options := OCROptions{UploadPDF: true, UploadMode: PDFUploadModeVersion, ProcessMode: "pdf", PromptOverride: "OCR"}
+	options := OCROptions{UploadPDF: true, UploadMode: PDFUploadModeVersion, ProcessMode: processMode, PromptOverride: "OCR"}
 
 	doc, err := app.ProcessDocumentOCR(context.Background(), documentID, options, "")
 	require.NoError(t, err)

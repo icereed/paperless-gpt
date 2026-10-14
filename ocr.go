@@ -322,7 +322,10 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 		}
 	} else {
 		// Process pages as images
-		imagePaths, imgPageCount, err := app.Client.DownloadDocumentAsImages(ctx, documentID, pageLimit)
+		// Assign, don't declare: the searchable PDF check after this branch
+		// counts the processed pages from the outer imagePaths (#1144).
+		var imgPageCount int
+		imagePaths, imgPageCount, err = app.Client.DownloadDocumentAsImages(ctx, documentID, pageLimit)
 		defer func() {
 			for _, imagePath := range imagePaths {
 				if err := os.Remove(imagePath); err != nil {
