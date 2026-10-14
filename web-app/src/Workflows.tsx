@@ -28,6 +28,7 @@ interface WorkflowConfig {
   name: string;
   trigger_tag: string;
   completion_tag?: string;
+  require_approval?: boolean;
   generate_titles?: boolean | null;
   generate_tags?: boolean | null;
   generate_correspondents?: boolean | null;
@@ -52,6 +53,7 @@ type FlagKey =
 interface WorkflowDefaults {
   auto_tag: string;
   auto_tag_complete: string;
+  manual_tag?: string;
   storage_dir: string;
   ocr_enabled: boolean;
   ocr_prompt_override_supported: boolean;
@@ -628,6 +630,24 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
             </div>
           )}
         </div>
+        <div className="mt-4 flex items-start gap-2.5 text-sm">
+          <input
+            id="wf-approval"
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 rounded border-line accent-primary"
+            checked={!!wf.require_approval}
+            onChange={(e) => set("require_approval", e.target.checked)}
+            aria-describedby="wf-approval-hint"
+          />
+          <div>
+            <label htmlFor="wf-approval">Wait for my approval before writing to paperless-ngx</label>
+            <p id="wf-approval-hint" className="mt-0.5 text-xs text-muted">
+              Suggestions wait on the Home page until you apply them; the document gets{" "}
+              {defaults?.manual_tag ? <span className="font-mono">{defaults.manual_tag}</span> : "the review tag"}{" "}
+              meanwhile. The completion tag is added when you apply.
+            </p>
+          </div>
+        </div>
       </Section>
 
       <Section
@@ -881,6 +901,11 @@ const WorkflowCard: React.FC<{
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="truncate font-semibold">{wf.name || wf.id}</h3>
             <WaitingBadge id={wf.id} />
+            {wf.require_approval && (
+              <span className="rounded-full bg-warn-tint px-2 py-0.5 text-xs font-medium text-ink">
+                Needs approval
+              </span>
+            )}
           </div>
           <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
             <TagChip>{wf.trigger_tag}</TagChip>

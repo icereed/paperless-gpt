@@ -309,6 +309,9 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 	}
 
 	err := app.Client.UpdateDocuments(ctx, documents, app.Database, false)
+	if err == nil || errors.As(err, new(*PartialUpdateError)) {
+		clearPendingReviews(app.Database, documents)
+	}
 	var partial *PartialUpdateError
 	if errors.As(err, &partial) {
 		// The update went through without some fields. Reporting it as a

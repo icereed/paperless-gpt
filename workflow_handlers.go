@@ -178,6 +178,7 @@ func (app *App) workflowDefaultsHandler(c *gin.Context) {
 		"custom_fields":                 fields,
 		"custom_field_ids":              globalFieldIDs,
 		"auto_tag":                      autoTag,
+		"manual_tag":                    manualTag,
 		"auto_tag_complete":             app.autoTagComplete,
 		"storage_dir":                   workflows.dir,
 		"ocr_enabled":                   app.isOcrEnabled(),
