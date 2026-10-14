@@ -74,6 +74,7 @@ func TestPaperlessDoHTTPErrorIsResultError(t *testing.T) {
 	client := NewPaperlessClient(server.URL, "token")
 	beforeErr := histogramCount(t, paperlessRequestDuration.WithLabelValues("PATCH", opUpdateDocument, resultError))
 	beforeOK := histogramCount(t, paperlessRequestDuration.WithLabelValues("PATCH", opUpdateDocument, resultSuccess))
+	beforeErrTotal := testutil.ToFloat64(paperlessRequestsTotal.WithLabelValues("PATCH", opUpdateDocument, resultError))
 
 	resp, err := client.Do(context.Background(), "PATCH", "api/documents/1/", nil)
 	require.NoError(t, err)
@@ -83,6 +84,7 @@ func TestPaperlessDoHTTPErrorIsResultError(t *testing.T) {
 
 	assert.Equal(t, beforeErr+1, histogramCount(t, paperlessRequestDuration.WithLabelValues("PATCH", opUpdateDocument, resultError)))
 	assert.Equal(t, beforeOK, histogramCount(t, paperlessRequestDuration.WithLabelValues("PATCH", opUpdateDocument, resultSuccess)))
+	assert.Equal(t, beforeErrTotal+1, testutil.ToFloat64(paperlessRequestsTotal.WithLabelValues("PATCH", opUpdateDocument, resultError)))
 }
 
 func TestPaperlessDoCanceledContext(t *testing.T) {
@@ -121,6 +123,7 @@ func TestRecordPDFResultTable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			beforeOutcome := testutil.ToFloat64(ocrPDFOutcomesTotal.WithLabelValues(tt.action))
 			beforeCreated := histogramCount(t, ocrPDFCreatedDuration.WithLabelValues(tt.action))
+			beforeCreatedTotal := testutil.ToFloat64(ocrPDFCreatedTotal.WithLabelValues(tt.action))
 			beforeLocal := testutil.ToFloat64(ocrPDFOutcomesTotal.WithLabelValues(pdfActionLocal))
 			beforeNone := testutil.ToFloat64(ocrPDFOutcomesTotal.WithLabelValues(pdfActionNone))
 
@@ -130,6 +133,7 @@ func TestRecordPDFResultTable(t *testing.T) {
 
 			assert.Equal(t, beforeOutcome+1, testutil.ToFloat64(ocrPDFOutcomesTotal.WithLabelValues(tt.action)))
 			assert.Equal(t, beforeCreated+tt.wantCreatedInc, histogramCount(t, ocrPDFCreatedDuration.WithLabelValues(tt.action)))
+			assert.Equal(t, beforeCreatedTotal+float64(tt.wantCreatedInc), testutil.ToFloat64(ocrPDFCreatedTotal.WithLabelValues(tt.action)))
 			if tt.action != pdfActionLocal {
 				assert.Equal(t, beforeLocal, testutil.ToFloat64(ocrPDFOutcomesTotal.WithLabelValues(pdfActionLocal)))
 			}
@@ -152,12 +156,15 @@ func TestOCRJobCompletionHistogramOnce(t *testing.T) {
 	jobStore.addJob(&Job{ID: id, Status: "pending", CreatedAt: time.Now(), UpdatedAt: time.Now()})
 
 	before := histogramCount(t, ocrJobsCompletedDuration.WithLabelValues(resultSuccess))
+	beforeTotal := testutil.ToFloat64(ocrJobsCompletedTotal.WithLabelValues(resultSuccess))
 	jobStore.updateJobStatus(id, "completed", "ok")
 	assert.Equal(t, before+1, histogramCount(t, ocrJobsCompletedDuration.WithLabelValues(resultSuccess)))
+	assert.Equal(t, beforeTotal+1, testutil.ToFloat64(ocrJobsCompletedTotal.WithLabelValues(resultSuccess)))
 
 	jobStore.updateJobStatus(id, "completed", "ok again")
 	assert.Equal(t, before+1, histogramCount(t, ocrJobsCompletedDuration.WithLabelValues(resultSuccess)),
 		"duplicate terminal write must not re-observe completion")
+	assert.Equal(t, beforeTotal+1, testutil.ToFloat64(ocrJobsCompletedTotal.WithLabelValues(resultSuccess)))
 }
 
 func TestOCRJobCancelMapsToCanceled(t *testing.T) {
@@ -277,11 +284,63 @@ func TestLLMObserveIncrementsHistogram(t *testing.T) {
 	}
 	llm := NewRateLimitedLLM(mock, RateLimitConfig{MaxRetries: 1, Purpose: llmPurposeMetadata})
 	before := histogramCount(t, llmRequestDuration.WithLabelValues(string(llmPurposeMetadata), resultSuccess))
+	beforeTotal := testutil.ToFloat64(llmRequestsTotal.WithLabelValues(string(llmPurposeMetadata), resultSuccess))
 	_, err := llm.GenerateContent(context.Background(), []llms.MessageContent{
 		{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "hi"}}},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, before+1, histogramCount(t, llmRequestDuration.WithLabelValues(string(llmPurposeMetadata), resultSuccess)))
+	assert.Equal(t, beforeTotal+1, testutil.ToFloat64(llmRequestsTotal.WithLabelValues(string(llmPurposeMetadata), resultSuccess)))
+}
+
+func TestObserveTimedMovesCounterAndHistogramTogether(t *testing.T) {
+	start := time.Now().Add(-5 * time.Millisecond)
+	cases := []struct {
+		name    string
+		observe func()
+		hist    prometheus.Observer
+		counter prometheus.Counter
+	}{
+		{
+			name:    "paperless",
+			observe: func() { observePaperlessRequest("GET", opGetDocument, resultSuccess, start) },
+			hist:    paperlessRequestDuration.WithLabelValues("GET", opGetDocument, resultSuccess),
+			counter: paperlessRequestsTotal.WithLabelValues("GET", opGetDocument, resultSuccess),
+		},
+		{
+			name:    "llm",
+			observe: func() { observeLLMRequest(llmPurposeVision, resultError, start) },
+			hist:    llmRequestDuration.WithLabelValues(string(llmPurposeVision), resultError),
+			counter: llmRequestsTotal.WithLabelValues(string(llmPurposeVision), resultError),
+		},
+		{
+			name:    "ocr page",
+			observe: func() { observeOCRPage(resultSuccess, start) },
+			hist:    ocrPageDuration.WithLabelValues(resultSuccess),
+			counter: ocrPagesTotal.WithLabelValues(resultSuccess),
+		},
+		{
+			name:    "ocr document",
+			observe: func() { observeOCRDocument(resultCanceled, start) },
+			hist:    ocrDocumentDuration.WithLabelValues(resultCanceled),
+			counter: ocrDocumentsTotal.WithLabelValues(resultCanceled),
+		},
+		{
+			name:    "background",
+			observe: func() { observeBackgroundDocument(bgKindAutoTag, resultSuccess, start) },
+			hist:    backgroundDocumentsProcessedDuration.WithLabelValues(bgKindAutoTag, resultSuccess),
+			counter: backgroundDocumentsProcessedTotal.WithLabelValues(bgKindAutoTag, resultSuccess),
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			beforeHist := histogramCount(t, tt.hist)
+			beforeTotal := testutil.ToFloat64(tt.counter)
+			tt.observe()
+			assert.Equal(t, beforeHist+1, histogramCount(t, tt.hist))
+			assert.Equal(t, beforeTotal+1, testutil.ToFloat64(tt.counter))
+		})
+	}
 }
 
 func TestLLMRetryCounter(t *testing.T) {

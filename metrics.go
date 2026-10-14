@@ -87,11 +87,21 @@ var (
 		Buckets: httpBuckets,
 	}, []string{"method", "path"})
 
+	paperlessRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "paperless_gpt_paperless_requests_total",
+		Help: "Outbound paperless-ngx API requests.",
+	}, []string{"method", "operation", "result"})
+
 	paperlessRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "paperless_gpt_paperless_request_duration_seconds",
 		Help:    "Outbound paperless-ngx API request latency in seconds.",
 		Buckets: httpBuckets,
 	}, []string{"method", "operation", "result"})
+
+	llmRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "paperless_gpt_llm_requests_total",
+		Help: "LLM requests (including retries until final outcome).",
+	}, []string{"purpose", "result"})
 
 	llmRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "paperless_gpt_llm_request_duration_seconds",
@@ -104,10 +114,20 @@ var (
 		Help: "LLM retry attempts after a failed call.",
 	}, []string{"purpose"})
 
+	ocrPagesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "paperless_gpt_ocr_pages_total",
+		Help: "Per-page (or whole-PDF) OCR provider calls.",
+	}, []string{"result"})
+
 	ocrPageDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "paperless_gpt_ocr_page_duration_seconds",
 		Help:    "Per-page (or whole-PDF) OCR provider call latency in seconds.",
 		Buckets: llmOCRJobBuckets,
+	}, []string{"result"})
+
+	ocrDocumentsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "paperless_gpt_ocr_documents_total",
+		Help: "End-to-end OCR document processing attempts.",
 	}, []string{"result"})
 
 	ocrDocumentDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -124,6 +144,11 @@ var (
 	ocrPDFOutcomesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "paperless_gpt_ocr_pdf_outcomes_total",
 		Help: "Searchable PDF outcomes from OCR processing.",
+	}, []string{"action"})
+
+	ocrPDFCreatedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "paperless_gpt_ocr_pdf_created_total",
+		Help: "Successful searchable PDF creates (attached, replaced, or local).",
 	}, []string{"action"})
 
 	ocrPDFCreatedDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -152,10 +177,20 @@ var (
 		Help: "Suggestion jobs enqueued (created) since process start.",
 	})
 
+	ocrJobsCompletedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "paperless_gpt_ocr_jobs_completed_total",
+		Help: "OCR jobs that reached a terminal status.",
+	}, []string{"result"})
+
 	ocrJobsCompletedDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "paperless_gpt_ocr_jobs_completed_duration_seconds",
 		Help:    "OCR job lifetime from creation to terminal status.",
 		Buckets: llmOCRJobBuckets,
+	}, []string{"result"})
+
+	suggestionJobsCompletedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "paperless_gpt_suggestion_jobs_completed_total",
+		Help: "Suggestion jobs that reached a terminal status.",
 	}, []string{"result"})
 
 	suggestionJobsCompletedDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -163,6 +198,11 @@ var (
 		Help:    "Suggestion job lifetime from creation to terminal status.",
 		Buckets: llmOCRJobBuckets,
 	}, []string{"result"})
+
+	backgroundDocumentsProcessedTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "paperless_gpt_background_documents_processed_total",
+		Help: "Background poller per-document processing attempts.",
+	}, []string{"kind", "result"})
 
 	backgroundDocumentsProcessedDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "paperless_gpt_background_documents_processed_duration_seconds",
@@ -243,6 +283,12 @@ func paperlessServerLabel(raw string) string {
 
 func observeDuration(hist prometheus.Observer, start time.Time) {
 	hist.Observe(time.Since(start).Seconds())
+}
+
+// observeTimed increments counter and observes hist with the same labels so they cannot drift.
+func observeTimed(hist *prometheus.HistogramVec, counter *prometheus.CounterVec, start time.Time, labelValues ...string) {
+	hist.WithLabelValues(labelValues...).Observe(time.Since(start).Seconds())
+	counter.WithLabelValues(labelValues...).Inc()
 }
 
 func resultFromError(err error) string {
@@ -345,11 +391,11 @@ func paperlessOperation(method, path string) string {
 }
 
 func observePaperlessRequest(method, operation, result string, start time.Time) {
-	observeDuration(paperlessRequestDuration.WithLabelValues(method, operation, result), start)
+	observeTimed(paperlessRequestDuration, paperlessRequestsTotal, start, method, operation, result)
 }
 
 func observeLLMRequest(purpose llmPurpose, result string, start time.Time) {
-	observeDuration(llmRequestDuration.WithLabelValues(string(purpose), result), start)
+	observeTimed(llmRequestDuration, llmRequestsTotal, start, string(purpose), result)
 }
 
 func incLLMRetry(purpose llmPurpose) {
@@ -357,11 +403,11 @@ func incLLMRetry(purpose llmPurpose) {
 }
 
 func observeOCRPage(result string, start time.Time) {
-	observeDuration(ocrPageDuration.WithLabelValues(result), start)
+	observeTimed(ocrPageDuration, ocrPagesTotal, start, result)
 }
 
 func observeOCRDocument(result string, start time.Time) {
-	observeDuration(ocrDocumentDuration.WithLabelValues(result), start)
+	observeTimed(ocrDocumentDuration, ocrDocumentsTotal, start, result)
 }
 
 func incDocumentFieldEdit(field string) {
@@ -373,7 +419,7 @@ func observePDFOutcome(action string) {
 }
 
 func observePDFCreated(action string, start time.Time) {
-	observeDuration(ocrPDFCreatedDuration.WithLabelValues(action), start)
+	observeTimed(ocrPDFCreatedDuration, ocrPDFCreatedTotal, start, action)
 }
 
 // recordPDFResult observes created-duration for attached/replaced/local only.
@@ -423,15 +469,15 @@ func countSuggestionJobStatusesLocked() map[string]float64 {
 }
 
 func observeOCRJobCompleted(status string, createdAt time.Time) {
-	ocrJobsCompletedDuration.WithLabelValues(jobResultFromStatus(status)).Observe(time.Since(createdAt).Seconds())
+	observeTimed(ocrJobsCompletedDuration, ocrJobsCompletedTotal, createdAt, jobResultFromStatus(status))
 }
 
 func observeSuggestionJobCompleted(status string, createdAt time.Time) {
-	suggestionJobsCompletedDuration.WithLabelValues(jobResultFromStatus(status)).Observe(time.Since(createdAt).Seconds())
+	observeTimed(suggestionJobsCompletedDuration, suggestionJobsCompletedTotal, createdAt, jobResultFromStatus(status))
 }
 
 func observeBackgroundDocument(kind, result string, start time.Time) {
-	observeDuration(backgroundDocumentsProcessedDuration.WithLabelValues(kind, result), start)
+	observeTimed(backgroundDocumentsProcessedDuration, backgroundDocumentsProcessedTotal, start, kind, result)
 }
 
 func incBackgroundCycleError(kind string) {

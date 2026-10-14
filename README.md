@@ -1071,20 +1071,22 @@ Namespace: `paperless_gpt_`. Process identity (paperless host, LLM/OCR/vision ba
 
 | Layer | Key metrics |
 |-------|-------------|
-| HTTP | `paperless_gpt_http_requests_total{method,path,code}`, `paperless_gpt_http_request_duration_seconds{method,path}` |
-| Paperless | `paperless_gpt_paperless_request_duration_seconds{method,operation,result}` |
-| LLM | `paperless_gpt_llm_request_duration_seconds{purpose,result}`, `paperless_gpt_llm_retries_total{purpose}` |
-| OCR | `paperless_gpt_ocr_page_duration_seconds{result}`, `paperless_gpt_ocr_document_duration_seconds{result}` |
+| HTTP | `paperless_gpt_http_requests_total{method,path,code}`, `paperless_gpt_http_request_duration_seconds{method,path}` (`code` on counter only) |
+| Paperless | `paperless_gpt_paperless_requests_total` + `paperless_gpt_paperless_request_duration_seconds` `{method,operation,result}` |
+| LLM | `paperless_gpt_llm_requests_total` + `paperless_gpt_llm_request_duration_seconds` `{purpose,result}`; `paperless_gpt_llm_retries_total{purpose}` |
+| OCR | `paperless_gpt_ocr_pages_total` + `paperless_gpt_ocr_page_duration_seconds` `{result}`; `paperless_gpt_ocr_documents_total` + `paperless_gpt_ocr_document_duration_seconds` `{result}` |
 | Field edits | `paperless_gpt_document_field_edits_total{field}` (success-only; failures show on paperless `update_document`) |
-| PDF | `paperless_gpt_ocr_pdf_outcomes_total{action}`, `paperless_gpt_ocr_pdf_created_duration_seconds{action}` (created ⊂ attached/replaced/local) |
-| Jobs | gauges `paperless_gpt_ocr_jobs` / `paperless_gpt_suggestion_jobs` by `status`; created counters `paperless_gpt_ocr_jobs_created_total` / `paperless_gpt_suggestion_jobs_created_total`; completion lifetimes as `paperless_gpt_*_jobs_completed_duration_seconds{result}` |
-| Background | `paperless_gpt_background_documents_processed_duration_seconds{kind,result}`, `paperless_gpt_background_cycle_errors_total{kind}` |
+| PDF | `paperless_gpt_ocr_pdf_outcomes_total{action}`; `paperless_gpt_ocr_pdf_created_total` + `paperless_gpt_ocr_pdf_created_duration_seconds` `{action}` (created ⊂ attached/replaced/local) |
+| Jobs | gauges `paperless_gpt_ocr_jobs` / `paperless_gpt_suggestion_jobs` by `status`; created counters `paperless_gpt_ocr_jobs_created_total` / `paperless_gpt_suggestion_jobs_created_total`; completion `paperless_gpt_*_jobs_completed_total` + `paperless_gpt_*_jobs_completed_duration_seconds` `{result}` |
+| Background | `paperless_gpt_background_documents_processed_total` + `paperless_gpt_background_documents_processed_duration_seconds` `{kind,result}`; `paperless_gpt_background_cycle_errors_total{kind}` |
+
+Timed layers (except HTTP) expose a matching `*_total` counter with the same labels as the duration histogram; both are updated together via a shared observe helper.
 
 **Jobs — created vs gauge vs completion**
 
 - `paperless_gpt_ocr_jobs_created_total` / `paperless_gpt_suggestion_jobs_created_total` — how many jobs were enqueued (monotone counters).
 - `paperless_gpt_ocr_jobs` / `paperless_gpt_suggestion_jobs{status=…}` — current depth by queue state. Average pending depth: `avg_over_time(paperless_gpt_ocr_jobs{status="pending"}[5m])`.
-- `paperless_gpt_*_jobs_completed_duration_seconds` — job lifetime to a terminal state; use `_count` / `_sum` for rates and averages (no twin completed counter).
+- `paperless_gpt_*_jobs_completed_total` + `paperless_gpt_*_jobs_completed_duration_seconds` — terminal completions and lifetime; counter and histogram `_count` move together.
 
 ### Label values
 
