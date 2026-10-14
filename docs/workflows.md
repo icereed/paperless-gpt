@@ -35,8 +35,20 @@ Each workflow card shows how many documents are currently waiting for it.
 | **Completion tag** | Added after successful processing, **instead of** `AUTO_TAG_COMPLETE`. Leave it empty to get `AUTO_TAG_COMPLETE`. |
 | **Steps** | Title, tags, correspondent, document type, created date, custom fields. Each one is Default, On or Off. |
 | **Custom fields** | Which custom fields the workflow fills: the selection from Settings, or its own, e.g. only *Gross pay* and *Net pay* for payslips. Shown when the custom fields step runs. |
+| **Approval** | *Wait for my approval before writing to paperless-ngx*: the suggestions wait on the Home page until you apply them. See [Approving before anything is written](#approving-before-anything-is-written). |
 | **OCR** | Run OCR before generating metadata, with its own page limit and, for the LLM OCR provider, its own OCR prompt. |
 | **Prompts** | Your own version of any prompt. Prompts you leave empty use the global ones from Settings. |
+
+## Approving before anything is written
+
+Not ready to let a workflow write on its own? Turn on **Wait for my approval before writing to paperless-ngx**. The workflow still runs in the background with its own prompts and steps, but keeps what it suggests instead of writing it:
+
+- The trigger tag is replaced by `MANUAL_TAG` (`paperless-gpt`), so you can see in paperless-ngx that the document waits for you, and it is processed only once.
+- The Home page shows **Waiting for your approval** with the workflows the suggestions came from. **Review** opens them next to the current values, ready to edit. No new generation is needed.
+- **Apply** writes what you approved and hands the tags over like the automatic run: `MANUAL_TAG` comes off and the completion tag goes on.
+- **Skip** leaves the document waiting. **Discard** drops the suggestions and only removes `MANUAL_TAG`: nothing else is written and the completion tag is not added. Removing `MANUAL_TAG` in paperless-ngx has the same effect.
+
+The suggestions are kept in the database (the `db/` volume) until you decide, so they survive a reload and a restart. Turning approval off later only changes new documents; the ones already waiting stay waiting.
 
 ## Example: payslips
 
@@ -82,7 +94,7 @@ A minimal `workflow.json`:
 }
 ```
 
-Steps you leave out use the default. Other optional fields: `generate_titles`, `generate_correspondents`, `generate_document_types`, `generate_created_date`, `generate_custom_fields`, `custom_field_ids` (paperless-ngx custom field ids; empty uses the Settings selection), `enable_ocr`, `ocr_limit_pages`.
+Steps you leave out use the default. Other optional fields: `generate_titles`, `generate_correspondents`, `generate_document_types`, `generate_created_date`, `generate_custom_fields`, `custom_field_ids` (paperless-ngx custom field ids; empty uses the Settings selection), `require_approval`, `enable_ocr`, `ocr_limit_pages`.
 
 If you used workflows from an earlier build, they were stored in `config/settings.json`. paperless-gpt moves them into `prompts/workflows/` on the first start and logs each one it moved.
 
@@ -111,3 +123,5 @@ If processing a document fails repeatedly (`AUTO_TAG_MAX_RETRIES`), the workflow
 | `GET /api/workflows/{id}/documents` | Documents waiting for the workflow |
 | `POST /api/workflows/preview` | Run a workflow (`{"workflow": {...}, "document_id": 123}`) without changing anything |
 | `GET /api/workflows/defaults` | What workflows inherit: global steps and prompts |
+| `GET /api/reviews` | Suggestions waiting for approval, against the documents' current values |
+| `POST /api/reviews/:id/discard` | Drop the suggestions waiting for document `:id` and remove `MANUAL_TAG` |

@@ -252,6 +252,153 @@ test('a workflow fills only its own custom fields, not the ones selected in Sett
   expect(doc.custom_fields).toEqual([{ field: grossPay, value: 'EUR4200.00' }]);
 });
 
+// --- approval ------------------------------------------------------------------
+//
+// Someone who doesn't trust full automation yet: a mail rule tags invoices,
+// the workflow prepares suggestions, and nothing lands in paperless-ngx until
+// they have looked at it, corrected it and applied it.
+
+const APPROVAL_WORKFLOW = 'E2E Approved Invoices';
+const APPROVAL_TRIGGER = 'e2e-approve';
+const APPROVAL_DONE = 'e2e-approve-done';
+const APPROVAL_TITLE = 'Approval Suggested Title'; // mocks/workflow-approval-title.json
+const REVIEW_TAG = 'paperless-gpt'; // MANUAL_TAG
+
+interface PendingReview {
+  id: number;
+  workflow_name: string;
+  created_at: string;
+}
+
+async function pendingReviews(): Promise<PendingReview[]> {
+  const res = await gptApi('GET', '/api/reviews');
+  expect(res.ok).toBeTruthy();
+  return res.json();
+}
+
+// Waits until the workflow has parked the document for approval.
+async function waitForApproval(documentId: number) {
+  const reviewTag = await tagId(REVIEW_TAG);
+  return waitForProcessed(documentId, (d) => d.tags.includes(reviewTag));
+}
+
+test('a workflow with approval holds its suggestions until the user corrects and applies them', async ({ page }) => {
+  // Set up: title and correspondent, with approval.
+  await openNewWorkflow(page);
+  await page.getByLabel('Name').fill(APPROVAL_WORKFLOW);
+  await page.getByLabel(/Trigger tag/).fill(APPROVAL_TRIGGER);
+  await page.getByLabel('Completion tag').fill(APPROVAL_DONE);
+  for (const step of ['Tags', 'Document type', 'Created date', 'Custom fields']) {
+    await page.getByRole('radiogroup', { name: step, exact: true }).getByRole('radio', { name: 'Off', exact: true }).click();
+  }
+  for (const step of ['Title', 'Correspondent']) {
+    await page.getByRole('radiogroup', { name: step, exact: true }).getByRole('radio', { name: 'On', exact: true }).click();
+  }
+  await page.getByRole('tab', { name: /^Title/ }).click();
+  await page.getByRole('button', { name: 'Write own prompt for this workflow' }).click();
+  await page.getByLabel('Title prompt', { exact: true }).fill('E2E-APPROVAL-MARKER: title this invoice.\n{{.Content}}');
+  await page.getByLabel('Wait for my approval before writing to paperless-ngx').check();
+  await page.getByRole('button', { name: 'Create workflow' }).click();
+  await expect(page.getByText('Workflow created.')).toBeVisible();
+  await expect(page.getByText('Needs approval')).toBeVisible();
+
+  // An invoice arrives; a mail rule would add the trigger tag.
+  const mine = await tagId('e2e-mine');
+  const { id: documentId } = await uploadDocument(paperlessUrl, fixture, 'Approval Original', credentials);
+  await setTags(documentId, [await tagId(APPROVAL_TRIGGER), mine]);
+
+  // Nothing but the tag handover is written: the trigger is replaced by the
+  // review tag, so the document visibly waits and isn't picked up again.
+  const parked = await waitForApproval(documentId);
+  expect(parked.title).toBe('Approval Original');
+  expect(parked.correspondent).toBeNull();
+  expect(parked.tags).not.toContain(await tagId(APPROVAL_TRIGGER));
+  expect(parked.tags, 'the completion tag only comes with the approval').not.toContain(await tagId(APPROVAL_DONE));
+  expect(parked.tags).toContain(mine);
+
+  // It is generated once: a later poll must not regenerate it.
+  const [first] = (await pendingReviews()).filter((r) => r.id === documentId);
+  expect(first.workflow_name).toBe(APPROVAL_WORKFLOW);
+  await page.waitForTimeout(15_000); // more than one poll cycle
+  const [again] = (await pendingReviews()).filter((r) => r.id === documentId);
+  expect(again.created_at).toBe(first.created_at);
+
+  // Home tells them something is waiting, also after a reload.
+  await page.goto(`${gptUrl()}/`);
+  const queue = page.getByRole('region', { name: 'Waiting for your approval' });
+  await expect(queue).toContainText(APPROVAL_WORKFLOW);
+  await page.reload();
+  await expect(queue).toBeVisible();
+  await queue.getByRole('button', { name: /^Review/ }).click();
+
+  // The suggestion says where it came from; they fix the title and keep the
+  // correspondent as it is.
+  const card = page.getByRole('article', { name: 'Suggestions for “Approval Original”' });
+  await expect(card.getByText(`From workflow: ${APPROVAL_WORKFLOW}`)).toBeVisible();
+  await expect(card.getByLabel('Suggested title', { exact: true })).toHaveValue(APPROVAL_TITLE);
+  await card.getByLabel('Suggested title', { exact: true }).fill('Invoice ACME 2026-10');
+  await card.getByLabel('Apply suggested correspondent').uncheck();
+  await card.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByText(/Applied \d+ field change/)).toBeVisible();
+
+  // In paperless-ngx: exactly what they approved, and the tags handed over.
+  const doc = await waitForProcessed(documentId, (d) => d.title === 'Invoice ACME 2026-10');
+  expect(doc.correspondent, 'the unticked correspondent is not written').toBeNull();
+  expect(doc.tags.sort()).toEqual([await tagId(APPROVAL_DONE), mine].sort());
+  expect((await pendingReviews()).map((r) => r.id)).not.toContain(documentId);
+  await expect(queue).toHaveCount(0);
+});
+
+test('a skipped approval stays waiting, a discarded one is released untouched, and switching approval off writes directly', async ({ page }) => {
+  const trigger = await tagId(APPROVAL_TRIGGER);
+  const done = await tagId(APPROVAL_DONE);
+  const reviewTag = await tagId(REVIEW_TAG);
+  const { id: later } = await uploadDocument(paperlessUrl, fixture, 'Approval Later', credentials);
+  const { id: mistake } = await uploadDocument(paperlessUrl, fixture, 'Approval Newsletter', credentials);
+  await setTags(later, [trigger]);
+  await setTags(mistake, [trigger]);
+  await waitForApproval(later);
+  await waitForApproval(mistake);
+
+  await page.goto(`${gptUrl()}/`);
+  await page.getByRole('region', { name: 'Waiting for your approval' }).getByRole('button', { name: 'Review 2' }).click();
+
+  // Routed by mistake: discard.
+  const mistakeCard = page.getByRole('article', { name: 'Suggestions for “Approval Newsletter”' });
+  await mistakeCard.getByRole('button', { name: 'Discard' }).click();
+  await expect(mistakeCard.getByText('Discarded — nothing was written')).toBeVisible();
+  // Not now: skip. That decides the last card and closes the review.
+  const laterCard = page.getByRole('article', { name: 'Suggestions for “Approval Later”' });
+  await laterCard.getByRole('button', { name: 'Skip' }).click();
+
+  // Back on Home, only the skipped one is still waiting.
+  await expect(page.getByRole('region', { name: 'Waiting for your approval' }).getByRole('button', { name: 'Review 1' })).toBeVisible();
+  const waiting = (await pendingReviews()).map((r) => r.id);
+  expect(waiting).toContain(later);
+  expect(waiting).not.toContain(mistake);
+
+  const discarded = await getDocument(mistake);
+  expect(discarded.title).toBe('Approval Newsletter');
+  expect(discarded.tags, 'released: no review tag, no trigger, no completion tag').toEqual([]);
+  expect((await getDocument(later)).tags).toEqual([reviewTag]);
+
+  // They trust it now: approval off. New documents are written directly; the
+  // one still waiting is not applied behind their back.
+  await page.goto(`${gptUrl()}/workflows`);
+  await page.getByRole('button', { name: `Edit ${APPROVAL_WORKFLOW}` }).click();
+  await page.getByLabel('Wait for my approval before writing to paperless-ngx').uncheck();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText('Workflow saved.')).toBeVisible();
+  await expect(page.getByText('Needs approval')).toHaveCount(0);
+
+  const { id: direct } = await uploadDocument(paperlessUrl, fixture, 'Approval Direct', credentials);
+  await setTags(direct, [trigger]);
+  const doc = await waitForProcessed(direct, (d) => d.title === APPROVAL_TITLE);
+  expect(doc.tags).toEqual([done]);
+  expect((await pendingReviews()).map((r) => r.id)).toContain(later);
+  expect((await getDocument(later)).title).toBe('Approval Later');
+});
+
 test('workflows that would loop are refused, in the UI and by the API', async ({ page }) => {
   await openNewWorkflow(page);
   await page.getByLabel(/Trigger tag/).fill('Paperless-GPT-Auto');

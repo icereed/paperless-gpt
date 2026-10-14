@@ -531,6 +531,8 @@ func main() {
 		api.GET("/jobs/suggestions", app.getAllSuggestionJobsHandler)
 		api.POST("/jobs/suggestions/:job_id/stop", app.stopSuggestionJobHandler)
 		api.PATCH("/update-documents", app.updateDocumentsHandler)
+		api.GET("/reviews", app.listPendingReviewsHandler)
+		api.POST("/reviews/:id/discard", app.discardPendingReviewHandler)
 		api.GET("/filter-tag", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"tag": manualTag})
 		})

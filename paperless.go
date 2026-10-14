@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -487,6 +488,10 @@ func (client *PaperlessClient) GetDocumentThumbnail(ctx context.Context, documen
 	return data, contentType, nil
 }
 
+// ErrDocumentNotFound is returned by GetDocument when paperless-ngx answers
+// 404: the document was deleted, or the API user can't see it.
+var ErrDocumentNotFound = errors.New("document not found")
+
 func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
 	// TODO: This function can be optimized by caching the results of GetAllTags, GetAllCorrespondents, and GetCustomFields.
 	// A simple time-based cache could be implemented in the PaperlessClient to avoid fetching this data on every call.
@@ -497,6 +502,9 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return Document{}, fmt.Errorf("error fetching document %d: %w", documentID, ErrDocumentNotFound)
+	}
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return Document{}, fmt.Errorf("error fetching document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
