@@ -32,6 +32,10 @@ import (
 
 const maxProviderRetryDelay = 15 * time.Minute
 
+// retryJitter returns the factor (0.8-1.2) a vision retry wait is scaled by.
+// A variable so tests can make it deterministic.
+var retryJitter = func() float64 { return 0.8 + 0.4*rand.Float64() }
+
 // LLMProvider implements OCR using LLM vision models
 type LLMProvider struct {
 	provider    string
@@ -217,7 +221,11 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		// Spread the waits by +/- 20% so parallel auto-OCR workers that hit a
 		// rate limit together don't all retry at the same instant. Retry-After
 		// is a server-provided lower bound, so it is applied after the jitter.
-		backoff = time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
+		backoff = time.Duration(float64(backoff) * retryJitter())
+		if backoff > backoffMax {
+			// The jittered wait stays within VISION_LLM_BACKOFF_MAX_WAIT.
+			backoff = backoffMax
+		}
 		backoff = retryAfterDelay(genErr, backoff)
 		if backoff > maxProviderRetryDelay {
 			return nil, fmt.Errorf("provider retry delay %s exceeds limit", backoff)

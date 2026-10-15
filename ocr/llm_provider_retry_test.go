@@ -156,3 +156,29 @@ func TestProcessImage_ZeroRetriesRestoresFailFast(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, 1, llm.calls)
 }
+
+// A wait already at VISION_LLM_BACKOFF_MAX_WAIT must not be pushed above it by
+// the jitter; with a 15m maximum that would exceed maxProviderRetryDelay and
+// fail the document instead of waiting.
+func TestProcessImage_JitterStaysWithinBackoffMax(t *testing.T) {
+	t.Setenv("VISION_LLM_MAX_RETRIES", "1")
+	t.Setenv("VISION_LLM_BACKOFF_MAX_WAIT", "15m")
+	previous := retryJitter
+	retryJitter = func() float64 { return 1.2 }
+	t.Cleanup(func() { retryJitter = previous })
+
+	llm := &fakeVisionLLM{errs: []error{
+		errors.New("API returned unexpected status code: 429"),
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	_, err := retryTestProvider(llm).ProcessImage(ctx, testJPEG(t), 1)
+
+	// Waiting (and then being cancelled) proves the wait was accepted; an
+	// over-cap wait would fail at once with "exceeds limit".
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, llm.calls)
+}
