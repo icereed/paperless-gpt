@@ -571,22 +571,32 @@ func (s *recordingOCRServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // byteHashOCRProvider answers with a digest of the page it is given, so the
 // recognized text identifies exactly which page was OCRed. PDF input is
 // rendered first, because split PDFs carry fresh IDs and timestamps on every
-// run. Each call takes a moment so that documents really overlap.
+// run. With meet set, the first two calls wait for each other, which proves
+// that two documents were OCRed at the same time without relying on timing.
 type byteHashOCRProvider struct {
-	inFlight    atomic.Int32
-	maxInFlight atomic.Int32
+	meet     bool
+	arrived  atomic.Int32
+	together chan struct{}
+	met      atomic.Bool
+}
+
+func newByteHashOCRProvider(meet bool) *byteHashOCRProvider {
+	return &byteHashOCRProvider{meet: meet, together: make(chan struct{})}
 }
 
 func (p *byteHashOCRProvider) ProcessImage(ctx context.Context, data []byte, pageNumber int) (*ocr.OCRResult, error) {
-	n := p.inFlight.Add(1)
-	defer p.inFlight.Add(-1)
-	for {
-		m := p.maxInFlight.Load()
-		if n <= m || p.maxInFlight.CompareAndSwap(m, n) {
-			break
+	if p.meet {
+		switch p.arrived.Add(1) {
+		case 1:
+			select {
+			case <-p.together:
+				p.met.Store(true)
+			case <-time.After(10 * time.Second):
+			}
+		case 2:
+			close(p.together)
 		}
 	}
-	time.Sleep(30 * time.Millisecond)
 	if bytes.HasPrefix(data, []byte("%PDF")) {
 		doc, err := pdfrender.Open(ctx, data)
 		if err != nil {
@@ -650,7 +660,7 @@ func TestAutoOCRWorkers_EndToEnd(t *testing.T) {
 		for _, id := range ids {
 			docs = append(docs, Document{ID: id, Title: fmt.Sprintf("Doc %d", id), Tags: []string{autoOcrTag}, TagIDs: []int{1}})
 		}
-		provider := &byteHashOCRProvider{}
+		provider := newByteHashOCRProvider(workers > 1)
 		db := newFileTestDB(t)
 		app := &App{
 			Client:            &listedDocumentsClient{PaperlessClient: client, documents: docs},
@@ -679,7 +689,7 @@ func TestAutoOCRWorkers_EndToEnd(t *testing.T) {
 			sequential, _, _ := run(t, tc.mode, tc.pageLimit, 1)
 			parallel, db, provider := run(t, tc.mode, tc.pageLimit, 4)
 
-			assert.Greater(t, provider.maxInFlight.Load(), int32(1), "documents must have been OCRed at the same time")
+			assert.True(t, provider.met.Load(), "two documents must have been OCRed at the same time")
 			require.Len(t, parallel, len(ids))
 			for _, id := range ids {
 				assert.NotEmpty(t, parallel[id], "document %d", id)
