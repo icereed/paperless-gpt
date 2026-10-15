@@ -134,14 +134,6 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	var parts []llms.ContentPart
 	var contentPart llms.ContentPart
 
-	// Place the prompt before the image so that content that doesn't change between
-	// requests can be cached. Many providers cache the encoded representation of
-	// tokens between requests until the first differing token between requests.
-	parts = []llms.ContentPart{
-		contentPart,
-		llms.TextPart(sanitize.Sanitize(p.prompt)),
-	}
-
 	if providerName == "openai" || providerName == "mistral" {
 		logger.Info("Using OpenAI image format")
 		contentPart = llms.ImageURLPart("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageContent))
@@ -157,6 +149,14 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	} else {
 		logger.Info("Using binary image format")
 		contentPart = llms.BinaryPart("image/jpeg", imageContent)
+	}
+
+	// Place the prompt before the image so that content that doesn't change between
+	// requests can be cached. Many providers cache the encoded representation of
+	// tokens between requests until the first differing token between requests.
+	parts = []llms.ContentPart{
+		llms.TextPart(sanitize.Sanitize(p.prompt)),
+		contentPart,
 	}
 
 	var callOpts []llms.CallOption
