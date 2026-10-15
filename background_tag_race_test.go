@@ -31,6 +31,8 @@ type fakePaperless struct {
 
 	patchStatus int // when non-zero, PATCH answers with this status
 	bulkStatus  int // when non-zero, bulk_edit answers with this status
+
+	parent map[int]int // tag hierarchy: child ID -> parent ID
 }
 
 func (f *fakePaperless) tagName(id int) string {
@@ -195,13 +197,32 @@ func (f *fakePaperless) register(env *testEnv) {
 				seen[id] = true
 			}
 		}
-		// Same order as paperless-ngx: remove first, then add.
+		// Same as paperless-ngx: remove (with descendants) first, then add
+		// (with ancestors).
+		isUnder := func(id, ancestor int) bool {
+			for p, ok := f.parent[id]; ok; p, ok = f.parent[p] {
+				if p == ancestor {
+					return true
+				}
+			}
+			return false
+		}
 		f.docTags = slices.DeleteFunc(f.docTags, func(id int) bool {
-			return slices.Contains(body.Parameters.RemoveTags, id)
+			for _, removed := range body.Parameters.RemoveTags {
+				if id == removed || isUnder(id, removed) {
+					return true
+				}
+			}
+			return false
 		})
 		for _, id := range body.Parameters.AddTags {
-			if !slices.Contains(f.docTags, id) {
-				f.docTags = append(f.docTags, id)
+			for ; ; id = f.parent[id] {
+				if !slices.Contains(f.docTags, id) {
+					f.docTags = append(f.docTags, id)
+				}
+				if _, ok := f.parent[id]; !ok {
+					break
+				}
 			}
 		}
 		json.NewEncoder(w).Encode(map[string]string{"result": "OK"})
@@ -453,6 +474,20 @@ func TestUpdateDocuments_TagsAsDelta(t *testing.T) {
 
 		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{s}, env.db, false))
 		assert.Empty(t, fake.docTagNames())
+	})
+
+	t.Run("marker tag nested under the trigger tag cannot bring the trigger back", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+		fake.parent = map[int]int{30: 26} // complete tag is a child of the trigger tag
+
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{deltaSuggestion("old text")}, env.db, false))
+
+		assert.Equal(t, []string{"bulk_edit", "bulk_edit"}, fake.ops)
+		assert.Equal(t, map[string]any{"add_tags": []any{}, "remove_tags": []any{float64(26)}}, fake.bulk[1]["parameters"])
+		// Like a PATCH: the trigger is gone, and with it its nested marker.
+		assert.Equal(t, []string{"inbox"}, fake.docTagNames())
 	})
 
 	t.Run("nothing to add or remove: no request at all", func(t *testing.T) {

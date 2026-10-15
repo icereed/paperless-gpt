@@ -1351,6 +1351,11 @@ func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, d
 	if err := client.modifyDocumentTags(ctx, documentID, addIDs, removeIDs); err != nil {
 		return fmt.Errorf("error updating tags of document %d: %w", documentID, err)
 	}
+	if len(addIDs) > 0 && len(removeIDs) > 0 {
+		if err := client.ensureTagsRemoved(ctx, documentID, removeIDs); err != nil {
+			return fmt.Errorf("error updating tags of document %d: %w", documentID, err)
+		}
+	}
 	log.Printf("Document %d: Updated tags: added %v, removed %v", documentID, addedNames, removedNames)
 
 	var newTagNames []string
@@ -1374,6 +1379,32 @@ func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, d
 		return fmt.Errorf("error inserting modification record for document %d: %w", documentID, err)
 	}
 	return nil
+}
+
+// ensureTagsRemoved removes removeTagIDs again if a modify_tags call that
+// also added tags brought one of them back. paperless-ngx removes first and
+// then adds the added tags' ancestors, so a marker tag nested under the
+// trigger tag being removed re-adds the trigger; the document would then be
+// picked up again on every poll. A PATCH lets the removal win, and so does
+// this second, remove-only call (which also drops the nested marker tag, as
+// the PATCH did). Failing to read the document is only logged.
+func (client *PaperlessClient) ensureTagsRemoved(ctx context.Context, documentID int, removeTagIDs []int) error {
+	current, err := client.getDocumentRaw(ctx, documentID)
+	if err != nil {
+		log.Warnf("Document %d: could not check the tag change: %v", documentID, err)
+		return nil
+	}
+	var back []int
+	for _, tagID := range removeTagIDs {
+		if slices.Contains(current.Tags, tagID) {
+			back = append(back, tagID)
+		}
+	}
+	if len(back) == 0 {
+		return nil
+	}
+	log.Warnf("Document %d: tag IDs %v came back after modify_tags, most likely because an added tag is nested under them in paperless-ngx; removing them again", documentID, back)
+	return client.modifyDocumentTags(ctx, documentID, nil, back)
 }
 
 // modifyDocumentTags adds and removes tags on one document in a single
