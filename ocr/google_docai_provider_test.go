@@ -202,3 +202,38 @@ func TestHOCRGeneration(t *testing.T) {
 		})
 	}
 }
+
+// TestGoogleDocAIProviderForDocumentIsolatesHOCR verifies that per-document
+// copies collect hOCR pages independently of each other and of the shared
+// provider, so documents OCRed at the same time cannot mix their pages.
+func TestGoogleDocAIProviderForDocumentIsolatesHOCR(t *testing.T) {
+	shared := &GoogleDocAIProvider{
+		projectID:   "project",
+		location:    "eu",
+		processorID: "processor",
+		enableHOCR:  true,
+		hocrPages:   make([]hocr.Page, 0),
+	}
+
+	first := shared.ForDocument()
+	second := shared.ForDocument()
+	if first == shared || second == shared || first == second {
+		t.Fatal("ForDocument must return a new provider each time")
+	}
+	if !first.IsHOCREnabled() || first.projectID != "project" || first.location != "eu" || first.processorID != "processor" {
+		t.Errorf("ForDocument must keep the configuration, got %+v", first)
+	}
+
+	first.hocrPages = append(first.hocrPages, hocr.Page{ID: "page_1", PageNumber: 1})
+	second.hocrPages = append(second.hocrPages, hocr.Page{ID: "page_1", PageNumber: 1}, hocr.Page{ID: "page_2", PageNumber: 2})
+
+	if got := len(first.GetHOCRPages()); got != 1 {
+		t.Errorf("first document should have 1 hOCR page, got %d", got)
+	}
+	if got := len(second.GetHOCRPages()); got != 2 {
+		t.Errorf("second document should have 2 hOCR pages, got %d", got)
+	}
+	if got := len(shared.GetHOCRPages()); got != 0 {
+		t.Errorf("the shared provider must not collect pages of per-document copies, got %d", got)
+	}
+}

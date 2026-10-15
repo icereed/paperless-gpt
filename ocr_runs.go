@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -53,6 +54,9 @@ const (
 	// Hard cap on stored run records (small rows; pruned oldest-first).
 	maxOCRRunRecords = 1000
 )
+
+// pruneOCRRunsMu serializes PruneOCRRuns; see there.
+var pruneOCRRunsMu sync.Mutex
 
 // CreateOCRRun inserts the record for a starting run.
 func CreateOCRRun(db *gorm.DB, run *OCRRun) error {
@@ -114,6 +118,12 @@ func GetOCRRunByJobID(db *gorm.DB, jobID string) (*OCRRun, error) {
 // the total number of run records. Best-effort; errors are returned for
 // logging but never abort a run.
 func PruneOCRRuns(db *gorm.DB, documentID int) error {
+	// Count-then-delete is not atomic: parallel auto-OCR workers pruning at
+	// the same time would each delete the same "excess" and together remove
+	// far more history than the cap asks for.
+	pruneOCRRunsMu.Lock()
+	defer pruneOCRRunsMu.Unlock()
+
 	// Collect the job IDs of the runs whose page texts we keep.
 	var keepJobIDs []string
 	if err := db.Model(&OCRRun{}).
@@ -142,7 +152,9 @@ func PruneOCRRuns(db *gorm.DB, documentID int) error {
 			JobID string
 		}
 		var oldest []oldestRun
-		if err := db.Model(&OCRRun{}).Order("started_at ASC").
+		// Runs still in progress are never evicted: their worker will
+		// finish them, and their page results are being written right now.
+		if err := db.Model(&OCRRun{}).Where("status <> ?", "in_progress").Order("started_at ASC").
 			Limit(int(total - maxOCRRunRecords)).
 			Find(&oldest).Error; err != nil {
 			return err
