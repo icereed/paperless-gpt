@@ -285,3 +285,231 @@ func TestProcessAutoOcrTagDocuments_KeepsTagChangesMadeDuringOCR(t *testing.T) {
 		})
 	}
 }
+
+// newDeltaTestFake returns a fake paperless-ngx with one document (ID 7)
+// carrying "inbox" and the OCR trigger tag.
+func newDeltaTestFake(env *testEnv) *fakePaperless {
+	fake := &fakePaperless{
+		tags: map[string]int{
+			"inbox":                      19,
+			"paperless-gpt-ocr-auto":     26,
+			"paperless-gpt-ocr-complete": 30,
+			"finance":                    45,
+		},
+		docID:   7,
+		docTags: []int{19, 26},
+		content: "old text",
+	}
+	fake.register(env)
+	return fake
+}
+
+func deltaSuggestion(content string) DocumentSuggestion {
+	return DocumentSuggestion{
+		ID: 7,
+		OriginalDocument: Document{
+			ID:      7,
+			Tags:    []string{"inbox", "paperless-gpt-ocr-auto"},
+			TagIDs:  []int{19, 26},
+			Content: "old text",
+		},
+		SuggestedContent: content,
+		RemoveTags:       []string{"paperless-gpt-ocr-auto"},
+		AddTags:          []string{"paperless-gpt-ocr-complete"},
+		TagsAsDelta:      true,
+	}
+}
+
+func TestUpdateDocuments_TagsAsDelta(t *testing.T) {
+	prevCreate := createNewTags
+	t.Cleanup(func() { createNewTags = prevCreate })
+	createNewTags = false
+
+	t.Run("fields are PATCHed without tags, then tags change via modify_tags", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+		db := newOCRRunTestDB(t)
+
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{deltaSuggestion("new text")}, db, false))
+
+		assert.Equal(t, []string{"PATCH", "bulk_edit"}, fake.ops)
+		require.Len(t, fake.patches, 1)
+		assert.NotContains(t, fake.patches[0], "tags", "a delta suggestion must never send a tag list")
+		assert.Equal(t, "new text", fake.patches[0]["content"])
+		require.Len(t, fake.bulk, 1)
+		assert.Equal(t, map[string]any{
+			"documents":  []any{float64(7)},
+			"method":     "modify_tags",
+			"parameters": map[string]any{"add_tags": []any{float64(30)}, "remove_tags": []any{float64(26)}},
+		}, fake.bulk[0])
+		assert.Equal(t, []string{"inbox", "paperless-gpt-ocr-complete"}, fake.docTagNames())
+
+		mods, err := GetAllModifications(db)
+		require.NoError(t, err)
+		var tagMods []ModificationHistory
+		for _, m := range mods {
+			if m.ModField == "tags" {
+				tagMods = append(tagMods, m)
+			}
+		}
+		require.Len(t, tagMods, 1)
+		assert.Equal(t, `["inbox","paperless-gpt-ocr-auto"]`, tagMods[0].PreviousValue)
+		assert.Equal(t, `["inbox","paperless-gpt-ocr-complete"]`, tagMods[0].NewValue)
+	})
+
+	t.Run("no field changes: only modify_tags, never a tag-list PATCH", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{deltaSuggestion("old text")}, env.db, false))
+
+		assert.Equal(t, []string{"bulk_edit"}, fake.ops)
+		assert.Equal(t, []string{"inbox", "paperless-gpt-ocr-complete"}, fake.docTagNames())
+	})
+
+	t.Run("remove-only delta sends an empty add list, not null", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+		s := deltaSuggestion("old text")
+		s.AddTags = nil
+
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{s}, env.db, false))
+
+		require.Len(t, fake.bulk, 1)
+		assert.Equal(t, map[string]any{"add_tags": []any{}, "remove_tags": []any{float64(26)}}, fake.bulk[0]["parameters"])
+		assert.Equal(t, []string{"inbox"}, fake.docTagNames())
+	})
+
+	t.Run("precedence and de-duplication match the full-list path", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+		s := deltaSuggestion("old text")
+		// A suggested tag that is also removed is removed; an AddTag that is
+		// also removed is added (same tag configured as trigger and
+		// completion tag). Case variants resolve to one ID.
+		s.SuggestedTags = []string{"inbox", "Finance", "finance"}
+		s.RemoveTags = []string{"INBOX", "paperless-gpt-ocr-auto", "paperless-gpt-ocr-complete", "does-not-exist"}
+		s.AddTags = []string{"paperless-gpt-ocr-complete", "unknown-tag"}
+
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{s}, env.db, false))
+
+		require.Len(t, fake.bulk, 1)
+		assert.Equal(t, map[string]any{
+			"add_tags":    []any{float64(45), float64(30)},
+			"remove_tags": []any{float64(19), float64(26)},
+		}, fake.bulk[0]["parameters"])
+		assert.Equal(t, []string{"finance", "paperless-gpt-ocr-complete"}, fake.docTagNames())
+	})
+
+	t.Run("trigger tag duplicated with different case: every variant is removed", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+		fake.tags["Paperless-GPT-OCR-Auto"] = 27
+		fake.docTags = []int{19, 27}
+		s := deltaSuggestion("old text")
+		s.OriginalDocument.Tags = []string{"inbox", "Paperless-GPT-OCR-Auto"}
+		s.OriginalDocument.TagIDs = []int{19, 27}
+
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{s}, env.db, false))
+
+		assert.Equal(t, map[string]any{
+			"add_tags":    []any{float64(30)},
+			"remove_tags": []any{float64(26), float64(27)},
+		}, fake.bulk[0]["parameters"])
+		assert.Equal(t, []string{"inbox", "paperless-gpt-ocr-complete"}, fake.docTagNames())
+	})
+
+	t.Run("removing the document's last tag works", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+		fake.docTags = []int{26}
+		s := deltaSuggestion("old text")
+		s.OriginalDocument.Tags = []string{"paperless-gpt-ocr-auto"}
+		s.OriginalDocument.TagIDs = []int{26}
+		s.AddTags = nil
+
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{s}, env.db, false))
+		assert.Empty(t, fake.docTagNames())
+	})
+
+	t.Run("nothing to add or remove: no request at all", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+		s := deltaSuggestion("old text")
+		s.RemoveTags = []string{"does-not-exist"}
+		s.AddTags = nil
+
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{s}, env.db, false))
+		assert.Empty(t, fake.ops)
+	})
+
+	t.Run("modify_tags failure is returned after the fields were written", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+		fake.bulkStatus = http.StatusInternalServerError
+		db := newOCRRunTestDB(t)
+
+		err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{deltaSuggestion("new text")}, db, false)
+		require.Error(t, err)
+		assert.Equal(t, []string{"PATCH", "bulk_edit"}, fake.ops)
+		assert.Equal(t, "new text", fake.content)
+		assert.Equal(t, []string{"inbox", "paperless-gpt-ocr-auto"}, fake.docTagNames(), "the trigger tag stays when the tag change failed")
+
+		mods, err := GetAllModifications(db)
+		require.NoError(t, err)
+		var fields []string
+		for _, m := range mods {
+			fields = append(fields, m.ModField)
+		}
+		assert.Equal(t, []string{"content"}, fields, "the written content stays undoable; no tag change is recorded")
+	})
+
+	t.Run("PATCH failure leaves the tags alone", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+		fake.patchStatus = http.StatusInternalServerError
+
+		err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{deltaSuggestion("new text")}, env.db, false)
+		require.Error(t, err)
+		assert.Equal(t, []string{"PATCH"}, fake.ops, "tags must not change when the fields could not be written")
+		assert.Equal(t, []string{"inbox", "paperless-gpt-ocr-auto"}, fake.docTagNames())
+	})
+}
+
+// The other auto-OCR writes that build on the batch snapshot use the delta
+// path too: dropping the OCR tag from a document that is already complete,
+// and taking a document out of the queue after repeated failures.
+func TestAutoOcrTagWritesUseTagDelta(t *testing.T) {
+	prevAutoOcrTag, prevFailTag := autoOcrTag, failTag
+	t.Cleanup(func() { autoOcrTag, failTag = prevAutoOcrTag, prevFailTag })
+	autoOcrTag = "paperless-gpt-ocr-auto"
+
+	t.Run("already complete", func(t *testing.T) {
+		doc := Document{ID: 5, Tags: []string{autoOcrTag, "paperless-gpt-ocr-complete"}}
+		client := &recordingClient{taggedDocuments: map[string][]Document{autoOcrTag: {doc}}}
+		app := &App{Client: client, Database: newOCRRunTestDB(t), pdfOCRTagging: true, pdfOCRCompleteTag: "paperless-gpt-ocr-complete"}
+
+		_, err := app.processAutoOcrTagDocuments(context.Background())
+		require.NoError(t, err)
+		require.Len(t, client.calls, 1)
+		assert.True(t, client.calls[0].TagsAsDelta)
+		assert.Equal(t, []string{autoOcrTag}, client.calls[0].RemoveTags)
+	})
+
+	t.Run("markProcessingFailed", func(t *testing.T) {
+		failTag = "paperless-gpt-failed"
+		client := &recordingClient{}
+		require.NoError(t, markProcessingFailed(context.Background(), client, nil, Document{ID: 6}, autoOcrTag, "OCR failed 3 times"))
+		require.Len(t, client.calls, 1)
+		assert.True(t, client.calls[0].TagsAsDelta)
+	})
+}

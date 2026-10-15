@@ -774,7 +774,8 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// when creation fails.
 		var appliedTagNames []string
 		// NOTE: this will dump the OCR complete tag if it doesn't exist in paperless-ngx
-		if !hasSameTags(originalDoc.Tags, finalTagNames) {
+		// TagsAsDelta suggestions never send a tag list; see applyTagDelta.
+		if !document.TagsAsDelta && !hasSameTags(originalDoc.Tags, finalTagNames) {
 			var finalTagIDs []int
 			for _, tagName := range finalTagNames {
 				if _, tagID, exists := lookupTagID(availableTags, tagName); exists {
@@ -987,6 +988,16 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 				originalFields["custom_fields"] = string(originalCustomFieldsJSON)
 				updatedFields["custom_fields"] = finalCustomFields
 			}
+		}
+
+		if len(updatedFields) == 0 && document.TagsAsDelta {
+			if err := client.applyTagDelta(ctx, db, document, availableTags); err != nil {
+				return err
+			}
+			if len(partialDroppedFields) > 0 && firstPartial == nil {
+				firstPartial = &PartialUpdateError{DocumentID: documentID, DroppedFields: partialDroppedFields}
+			}
+			continue
 		}
 
 		if len(updatedFields) == 0 {
@@ -1241,10 +1252,143 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 				return fmt.Errorf("error inserting modification record for document %d: %w", documentID, err)
 			}
 		}
+		// Tags go last, once the other fields and their history are written:
+		// removing the trigger tag is what marks the document done.
+		if document.TagsAsDelta {
+			if err := client.applyTagDelta(ctx, db, document, availableTags); err != nil {
+				return err
+			}
+		}
 		log.Printf("Document %d updated successfully.", documentID)
 	}
 	if firstPartial != nil {
 		return firstPartial
+	}
+	return nil
+}
+
+// applyTagDelta applies a TagsAsDelta suggestion's tag change with
+// modify_tags. OriginalDocument is only used for the history entry: the change
+// itself is an add/remove on the server, so tags someone else set or removed
+// since the document was fetched stay as they are.
+//
+// Precedence matches the full-list path in UpdateDocuments: RemoveTags beat
+// SuggestedTags, AddTags beat RemoveTags.
+func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, document DocumentSuggestion, availableTags map[string]int) error {
+	documentID := document.ID
+	containsFold := func(names []string, name string) bool {
+		return slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, name) })
+	}
+
+	var addNames []string
+	for _, tagName := range document.SuggestedTags {
+		if !containsFold(document.RemoveTags, tagName) {
+			addNames = append(addNames, tagName)
+		}
+	}
+	addNames = append(addNames, document.AddTags...)
+
+	var addIDs, removeIDs []int
+	var addedNames, removedNames []string
+	for _, tagName := range addNames {
+		name, tagID, exists := lookupTagID(availableTags, tagName)
+		if !exists {
+			if !createNewTags {
+				log.Warnf("Document %d: tag %q does not exist in paperless-ngx, not adding it", documentID, tagName)
+				continue
+			}
+			newTagID, err := client.CreateTag(ctx, tagName)
+			if err != nil {
+				log.Warnf("Document %d: Failed to create new tag '%s': %v", documentID, tagName, err)
+				continue
+			}
+			log.Infof("Document %d: Created new tag '%s' with ID %d", documentID, tagName, newTagID)
+			availableTags[tagName] = newTagID
+			name, tagID = tagName, newTagID
+		}
+		if !slices.Contains(addIDs, tagID) {
+			addIDs = append(addIDs, tagID)
+			addedNames = append(addedNames, name)
+		}
+	}
+	// Removal matches names case-insensitively like the full-list path, so
+	// every catalog entry that differs only by case is removed, not just the
+	// one lookupTagID would pick.
+	for _, tagName := range document.RemoveTags {
+		for name, tagID := range availableTags {
+			if !strings.EqualFold(name, tagName) || slices.Contains(addIDs, tagID) || slices.Contains(removeIDs, tagID) {
+				continue
+			}
+			removeIDs = append(removeIDs, tagID)
+			removedNames = append(removedNames, name)
+		}
+	}
+
+	if len(addIDs) == 0 && len(removeIDs) == 0 {
+		return nil
+	}
+	slices.Sort(removeIDs)
+	if err := client.modifyDocumentTags(ctx, documentID, addIDs, removeIDs); err != nil {
+		return fmt.Errorf("error updating tags of document %d: %w", documentID, err)
+	}
+	log.Printf("Document %d: Updated tags: added %v, removed %v", documentID, addedNames, removedNames)
+
+	// The history row describes the change against the snapshot the
+	// suggestion was built from; tags changed by others are not re-read.
+	var newTagNames []string
+	for _, tagName := range document.OriginalDocument.Tags {
+		if !containsFold(removedNames, tagName) {
+			newTagNames = append(newTagNames, tagName)
+		}
+	}
+	for _, tagName := range addedNames {
+		if !containsFold(newTagNames, tagName) {
+			newTagNames = append(newTagNames, tagName)
+		}
+	}
+	mod := ModificationHistory{
+		DocumentID:    uint(documentID),
+		ModField:      "tags",
+		PreviousValue: marshalTagsForHistory(document.OriginalDocument.Tags),
+		NewValue:      marshalTagsForHistory(newTagNames),
+	}
+	if err := InsertModification(db, &mod); err != nil {
+		return fmt.Errorf("error inserting modification record for document %d: %w", documentID, err)
+	}
+	return nil
+}
+
+// modifyDocumentTags adds and removes tags on one document in a single
+// paperless-ngx bulk_edit "modify_tags" call. paperless-ngx applies it in one
+// transaction against the document's current tags, so nothing is read back
+// and rewritten.
+func (client *PaperlessClient) modifyDocumentTags(ctx context.Context, documentID int, addTagIDs, removeTagIDs []int) error {
+	// paperless-ngx rejects null; send empty lists instead.
+	if addTagIDs == nil {
+		addTagIDs = []int{}
+	}
+	if removeTagIDs == nil {
+		removeTagIDs = []int{}
+	}
+	payload, err := json.Marshal(map[string]any{
+		"documents": []int{documentID},
+		"method":    "modify_tags",
+		"parameters": map[string][]int{
+			"add_tags":    addTagIDs,
+			"remove_tags": removeTagIDs,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(ctx, "POST", "api/documents/bulk_edit/", bytes.NewBuffer(payload))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("modify_tags failed: %d, %s", resp.StatusCode, string(bodyBytes))
 	}
 	return nil
 }

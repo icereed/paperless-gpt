@@ -171,6 +171,7 @@ func markProcessingFailed(ctx context.Context, client ClientInterface, db *gorm.
 		ID:               document.ID,
 		OriginalDocument: document,
 		RemoveTags:       []string{removeTag},
+		TagsAsDelta:      true,
 	}
 	if failTag != "" {
 		recoveryFields.SuggestedTags = []string{failTag}
@@ -542,6 +543,7 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 						ID:               document.ID,
 						OriginalDocument: document,
 						RemoveTags:       []string{autoOcrTag},
+						TagsAsDelta:      true,
 					},
 				}, app.Database, false)
 
@@ -653,6 +655,9 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			OriginalDocument: document,
 			SuggestedContent: processedDoc.Text,
 			RemoveTags:       []string{autoOcrTag},
+			// The document was fetched at the start of the batch; tags
+			// changed in paperless-ngx since then must survive.
+			TagsAsDelta: true,
 			// Add OCR complete tag if tagging is enabled and PDF wasn't uploaded (upload handles tagging)
 			AddTags: func() []string {
 				if app.pdfOCRTagging && !options.UploadPDF {
