@@ -409,6 +409,33 @@ func TestAutoOCRWorkers_CancelWhileWaitingForAWorker(t *testing.T) {
 	}
 }
 
+// A document that could not get a PDF renderer because other documents kept
+// them all busy is retried on the next poll without using up its
+// OCR_MAX_RETRIES attempts.
+func TestAutoOCR_BusyRendererDoesNotCountAgainstTheDocument(t *testing.T) {
+	setAutoOCRGlobals(t, 2)
+	ocrMaxRetries = 1
+	client := &concurrentClient{documents: autoOCRDocs(1, 2)}
+	processor := newGatedProcessor(false)
+	processor.perDocErr = map[int]error{
+		1: fmt.Errorf("error downloading document images for document 1: getting a PDFium instance: %w", pdfrender.ErrBusy),
+		2: errors.New("broken PDF"),
+	}
+	app := &App{Client: client, docProcessor: processor, Database: newFileTestDB(t)}
+
+	count, err := app.processAutoOcrTagDocuments(context.Background())
+
+	assert.Equal(t, 0, count)
+	require.Error(t, err, "the busy renderer still reports an error so the loop backs off")
+	assert.Contains(t, err.Error(), "document 1 OCR error")
+	assert.Empty(t, client.updatesFor(1), "document 1 must keep its auto OCR tag")
+	assert.Equal(t, 1, app.ocrFailures.recordFailure(1), "no failure was recorded for document 1")
+	// A real document error still counts: document 2 reached the limit.
+	doc2 := client.updatesFor(2)
+	require.Len(t, doc2, 1)
+	assert.Equal(t, []string{failTag}, doc2[0].SuggestedTags)
+}
+
 func TestAutoOCRWorkers_CreatesMissingTagsOnceBeforeFanOut(t *testing.T) {
 	setAutoOCRGlobals(t, 3)
 	client := &concurrentClient{

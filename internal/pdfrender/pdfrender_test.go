@@ -185,3 +185,27 @@ func TestAnalyzePage(t *testing.T) {
 	_, err = digital.AnalyzePage(5)
 	assert.Error(t, err)
 }
+
+// TestOpenReportsBusyRenderers holds every PDFium instance and checks that a
+// further Open gives up with ErrBusy, which callers can tell apart from a
+// broken document, and that a cancelled caller gets its own error instead.
+func TestOpenReportsBusyRenderers(t *testing.T) {
+	previous := instanceTimeout
+	instanceTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { instanceTimeout = previous })
+
+	data, err := os.ReadFile("../../tests/pdf/sample.pdf")
+	require.NoError(t, err)
+	for i := 0; i < maxInstances; i++ {
+		openBytes(t, data) // closed when the test ends
+	}
+
+	_, err = Open(context.Background(), data)
+	assert.ErrorIs(t, err, ErrBusy)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = Open(ctx, data)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.NotErrorIs(t, err, ErrBusy)
+}

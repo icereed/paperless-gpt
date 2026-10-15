@@ -7,6 +7,7 @@ package pdfrender
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/draw"
@@ -26,8 +27,13 @@ import (
 const maxInstances = 4
 
 // instanceTimeout bounds how long Open waits for a free PDFium instance, even
-// when the caller's context has no deadline.
-const instanceTimeout = 2 * time.Minute
+// when the caller's context has no deadline. A variable so tests can shorten it.
+var instanceTimeout = 2 * time.Minute
+
+// ErrBusy reports that Open gave up waiting because every PDFium instance
+// stayed busy with other documents. It says nothing about the document
+// itself: opening it again later can succeed.
+var ErrBusy = errors.New("all PDF renderers are busy")
 
 var (
 	poolOnce sync.Once
@@ -79,6 +85,9 @@ func Open(ctx context.Context, data []byte) (*Document, error) {
 	defer cancel()
 	instance, err := p.GetInstanceWithContext(waitCtx)
 	if err != nil {
+		if ctx.Err() == nil && waitCtx.Err() != nil {
+			return nil, fmt.Errorf("getting a PDFium instance: %w (waited %s)", ErrBusy, instanceTimeout)
+		}
 		return nil, fmt.Errorf("getting a PDFium instance: %w", err)
 	}
 	opened, err := instance.OpenDocument(&requests.OpenDocument{File: &data})

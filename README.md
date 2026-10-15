@@ -552,7 +552,7 @@ environment:
 - **Rate limits:** every worker sends its own requests, so you reach your provider's rate limit up to N times sooner. Vision LLM OCR retries rate-limit and server errors with backoff (`VISION_LLM_MAX_RETRIES`, `VISION_LLM_BACKOFF_MAX_WAIT`); a document whose retries run out counts towards `OCR_MAX_RETRIES` as before. Start with 2–4 and lower the value if the logs show repeated rate-limit warnings. With a local Ollama on a single GPU, keep `1`.
 - **paperless-ngx load:** each document's update fetches the tag, correspondent and document type lists from paperless-ngx, so N workers also mean up to N times as many API calls there at the end of each document.
 - **Memory:** each worker holds its document's PDF while it is processed (in image mode also the rendered pages), so peak memory grows roughly with the number of workers times your largest documents.
-- **Image mode:** at most 4 documents are rendered to images at the same time; further workers wait for a free renderer. A wait longer than 2 minutes fails the document like any other OCR error (and counts towards `OCR_MAX_RETRIES`), which can happen with more than 4 workers and large documents rendered without a page limit. In image mode, stay at 4 or below. PDF and whole PDF mode only render briefly to count pages.
+- **Image mode:** at most 4 documents are rendered to images at the same time (shared with manual OCR and page previews); further workers wait for a free renderer. After 2 minutes of waiting the document is left for the next poll; this does not count towards `OCR_MAX_RETRIES`. With large documents and no page limit, stay at 4 workers or below in image mode. PDF and whole PDF mode only render briefly to count pages.
 
 ## Enhanced OCR Features
 

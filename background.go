@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"paperless-gpt/internal/pdfrender"
+
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
@@ -710,8 +712,10 @@ func (app *App) processAutoOcrDocument(ctx context.Context, document Document) (
 		// Deliberately checked on ctx rather than via errors.Is on err:
 		// providers wrap their calls in their own timeout contexts
 		// (e.g. Azure, ocr/azure_provider.go), and those per-document
-		// timeouts must count toward the limit.
-		if ocrMaxRetries > 0 && ctx.Err() == nil {
+		// timeouts must count toward the limit. Neither does waiting in vain
+		// for a PDF renderer that other documents keep busy (parallel
+		// workers, a manual job, previews): the document may be fine.
+		if ocrMaxRetries > 0 && ctx.Err() == nil && !errors.Is(err, pdfrender.ErrBusy) {
 			attempts := app.ocrFailures.recordFailure(document.ID)
 			if attempts >= ocrMaxRetries {
 				reason := fmt.Sprintf("OCR failed %d times", attempts)
