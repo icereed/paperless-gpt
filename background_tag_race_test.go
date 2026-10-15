@@ -481,13 +481,19 @@ func TestUpdateDocuments_TagsAsDelta(t *testing.T) {
 		defer env.teardown()
 		fake := newDeltaTestFake(env)
 		fake.parent = map[int]int{30: 26} // complete tag is a child of the trigger tag
+		db := newOCRRunTestDB(t)
 
-		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{deltaSuggestion("old text")}, env.db, false))
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{deltaSuggestion("old text")}, db, false))
 
 		assert.Equal(t, []string{"bulk_edit", "bulk_edit"}, fake.ops)
 		assert.Equal(t, map[string]any{"add_tags": []any{}, "remove_tags": []any{float64(26)}}, fake.bulk[1]["parameters"])
 		// Like a PATCH: the trigger is gone, and with it its nested marker.
 		assert.Equal(t, []string{"inbox"}, fake.docTagNames())
+
+		mods, err := GetAllModifications(db)
+		require.NoError(t, err)
+		require.Len(t, mods, 1)
+		assert.Equal(t, `["inbox"]`, mods[0].NewValue, "history shows the tags the document really ended up with")
 	})
 
 	t.Run("nothing to add or remove: no request at all", func(t *testing.T) {

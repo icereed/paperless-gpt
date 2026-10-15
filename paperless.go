@@ -1351,22 +1351,28 @@ func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, d
 	if err := client.modifyDocumentTags(ctx, documentID, addIDs, removeIDs); err != nil {
 		return fmt.Errorf("error updating tags of document %d: %w", documentID, err)
 	}
+	var resultTagIDs []int // the tags after the change, when they were read back
 	if len(addIDs) > 0 && len(removeIDs) > 0 {
-		if err := client.ensureTagsRemoved(ctx, documentID, removeIDs); err != nil {
+		var err error
+		if resultTagIDs, err = client.ensureTagsRemoved(ctx, documentID, removeIDs); err != nil {
 			return fmt.Errorf("error updating tags of document %d: %w", documentID, err)
 		}
 	}
 	log.Printf("Document %d: Updated tags: added %v, removed %v", documentID, addedNames, removedNames)
 
 	var newTagNames []string
-	for _, tagName := range previousTagNames {
-		if !containsFold(removedNames, tagName) {
-			newTagNames = append(newTagNames, tagName)
+	if resultTagIDs != nil {
+		newTagNames, _ = resolveTagNames(resultTagIDs, availableTags)
+	} else {
+		for _, tagName := range previousTagNames {
+			if !containsFold(removedNames, tagName) {
+				newTagNames = append(newTagNames, tagName)
+			}
 		}
-	}
-	for _, tagName := range addedNames {
-		if !containsFold(newTagNames, tagName) {
-			newTagNames = append(newTagNames, tagName)
+		for _, tagName := range addedNames {
+			if !containsFold(newTagNames, tagName) {
+				newTagNames = append(newTagNames, tagName)
+			}
 		}
 	}
 	mod := ModificationHistory{
@@ -1387,12 +1393,16 @@ func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, d
 // trigger tag being removed re-adds the trigger; the document would then be
 // picked up again on every poll. A PATCH lets the removal win, and so does
 // this second, remove-only call (which also drops the nested marker tag, as
-// the PATCH did). Failing to read the document is only logged.
-func (client *PaperlessClient) ensureTagsRemoved(ctx context.Context, documentID int, removeTagIDs []int) error {
+// the PATCH did). modify_tags changes the tags before it responds, so the
+// read-back sees its result.
+//
+// It returns the document's tag IDs after the change, or nil if they could
+// not be read; failing to read is only logged.
+func (client *PaperlessClient) ensureTagsRemoved(ctx context.Context, documentID int, removeTagIDs []int) ([]int, error) {
 	current, err := client.getDocumentRaw(ctx, documentID)
 	if err != nil {
 		log.Warnf("Document %d: could not check the tag change: %v", documentID, err)
-		return nil
+		return nil, nil
 	}
 	var back []int
 	for _, tagID := range removeTagIDs {
@@ -1401,10 +1411,16 @@ func (client *PaperlessClient) ensureTagsRemoved(ctx context.Context, documentID
 		}
 	}
 	if len(back) == 0 {
-		return nil
+		return current.Tags, nil
 	}
 	log.Warnf("Document %d: tag IDs %v came back after modify_tags, most likely because an added tag is nested under them in paperless-ngx; removing them again", documentID, back)
-	return client.modifyDocumentTags(ctx, documentID, nil, back)
+	if err := client.modifyDocumentTags(ctx, documentID, nil, back); err != nil {
+		return nil, err
+	}
+	if current, err = client.getDocumentRaw(ctx, documentID); err != nil {
+		return nil, nil
+	}
+	return current.Tags, nil
 }
 
 // modifyDocumentTags adds and removes tags on one document in a single
