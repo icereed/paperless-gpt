@@ -587,23 +587,33 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 // GetDocument it does not resolve tag, correspondent or document-type names,
 // so a failure in those auxiliary lookups cannot block a custom-fields merge.
 func (client *PaperlessClient) getCurrentCustomFields(ctx context.Context, documentID int) ([]CustomFieldResponse, error) {
+	documentResponse, err := client.getDocumentRaw(ctx, documentID)
+	if err != nil {
+		return nil, err
+	}
+	return documentResponse.CustomFields, nil
+}
+
+// getDocumentRaw fetches a document as paperless-ngx returns it, without
+// resolving tag, correspondent or document-type names.
+func (client *PaperlessClient) getDocumentRaw(ctx context.Context, documentID int) (GetDocumentApiResponse, error) {
 	path := fmt.Sprintf("api/documents/%d/", documentID)
 	resp, err := client.Do(ctx, "GET", path, nil)
 	if err != nil {
-		return nil, err
+		return GetDocumentApiResponse{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("error fetching document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+		return GetDocumentApiResponse{}, fmt.Errorf("error fetching document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
 	}
 
 	var documentResponse GetDocumentApiResponse
 	if err := json.NewDecoder(resp.Body).Decode(&documentResponse); err != nil {
-		return nil, err
+		return GetDocumentApiResponse{}, err
 	}
-	return documentResponse.CustomFields, nil
+	return documentResponse, nil
 }
 
 // marshalTagsForHistory encodes tag names as JSON for ModificationHistory storage.
@@ -1268,9 +1278,8 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 }
 
 // applyTagDelta applies a TagsAsDelta suggestion's tag change with
-// modify_tags. OriginalDocument is only used for the history entry: the change
-// itself is an add/remove on the server, so tags someone else set or removed
-// since the document was fetched stay as they are.
+// modify_tags: an add/remove on the server, so tags someone else set or
+// removed since OriginalDocument was fetched stay as they are.
 //
 // Precedence matches the full-list path in UpdateDocuments: RemoveTags beat
 // SuggestedTags, AddTags beat RemoveTags.
@@ -1328,15 +1337,24 @@ func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, d
 		return nil
 	}
 	slices.Sort(removeIDs)
+
+	// For the history row only: read the tags the document has right now, so
+	// that undoing this change does not also revert what others changed
+	// since the snapshot. The change itself never depends on this read.
+	previousTagNames := document.OriginalDocument.Tags
+	if current, err := client.getDocumentRaw(ctx, documentID); err != nil {
+		log.Warnf("Document %d: could not read current tags for the history, recording the change against the earlier snapshot: %v", documentID, err)
+	} else {
+		previousTagNames, _ = resolveTagNames(current.Tags, availableTags)
+	}
+
 	if err := client.modifyDocumentTags(ctx, documentID, addIDs, removeIDs); err != nil {
 		return fmt.Errorf("error updating tags of document %d: %w", documentID, err)
 	}
 	log.Printf("Document %d: Updated tags: added %v, removed %v", documentID, addedNames, removedNames)
 
-	// The history row describes the change against the snapshot the
-	// suggestion was built from; tags changed by others are not re-read.
 	var newTagNames []string
-	for _, tagName := range document.OriginalDocument.Tags {
+	for _, tagName := range previousTagNames {
 		if !containsFold(removedNames, tagName) {
 			newTagNames = append(newTagNames, tagName)
 		}
@@ -1349,7 +1367,7 @@ func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, d
 	mod := ModificationHistory{
 		DocumentID:    uint(documentID),
 		ModField:      "tags",
-		PreviousValue: marshalTagsForHistory(document.OriginalDocument.Tags),
+		PreviousValue: marshalTagsForHistory(previousTagNames),
 		NewValue:      marshalTagsForHistory(newTagNames),
 	}
 	if err := InsertModification(db, &mod); err != nil {

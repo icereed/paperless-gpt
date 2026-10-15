@@ -282,6 +282,23 @@ func TestProcessAutoOcrTagDocuments_KeepsTagChangesMadeDuringOCR(t *testing.T) {
 			assert.Equal(t, want, fake.docTagNames(),
 				"tag changes made while OCR ran must survive, the OCR tag must be gone")
 			assert.Equal(t, "OCR text", fake.content)
+
+			// The history row starts from the tags the document had when
+			// the change was applied, so undoing it does not revert the
+			// concurrent changes either.
+			mods, err := GetAllModifications(app.Database)
+			require.NoError(t, err)
+			var tagMod *ModificationHistory
+			for i := range mods {
+				if mods[i].ModField == "tags" {
+					tagMod = &mods[i]
+				}
+			}
+			require.NotNil(t, tagMod)
+			assert.Contains(t, tagMod.PreviousValue, `"finance"`)
+			assert.NotContains(t, tagMod.PreviousValue, `"tax"`)
+			assert.Contains(t, tagMod.NewValue, `"finance"`)
+			assert.NotContains(t, tagMod.NewValue, autoOcrTag)
 		})
 	}
 }
