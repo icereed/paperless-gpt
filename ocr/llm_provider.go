@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"paperless-gpt/internal/openrouterzdr"
@@ -25,6 +26,7 @@ import (
 	"github.com/tmc/langchaingo/llms/mistral"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
+	"google.golang.org/genai"
 	"paperless-gpt/sanitize"
 )
 
@@ -202,9 +204,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		if genErr == nil {
 			break
 		}
-		msg := genErr.Error()
-		transient := strings.Contains(msg, "status code: 429") || strings.Contains(msg, "status code: 5")
-		if !transient || attempt >= maxRetries {
+		if !isTransientVisionError(genErr) || attempt >= maxRetries {
 			logger.WithError(genErr).Error("Failed to get response from vision model")
 			return nil, fmt.Errorf("error getting response from LLM: %w", genErr)
 		}
@@ -214,6 +214,10 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 			// which would otherwise skip the backoff entirely.
 			backoff = backoffMax
 		}
+		// Spread the waits by +/- 20% so parallel auto-OCR workers that hit a
+		// rate limit together don't all retry at the same instant. Retry-After
+		// is a server-provided lower bound, so it is applied after the jitter.
+		backoff = time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
 		backoff = retryAfterDelay(genErr, backoff)
 		if backoff > maxProviderRetryDelay {
 			return nil, fmt.Errorf("provider retry delay %s exceeds limit", backoff)
@@ -374,6 +378,28 @@ func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
 		return time.Duration(whole) * time.Millisecond, true
 	}
 	return 0, true
+}
+
+// isTransientVisionError reports whether a vision model error is worth
+// retrying: a rate limit (429) or a server-side failure (5xx). The langchaingo
+// clients only carry the status in the message ("status code: 429"); the
+// Google AI client returns a typed genai.APIError whose message reads
+// "Error 429, ...", which the string match never recognized.
+func isTransientVisionError(err error) bool {
+	var apiErr genai.APIError
+	if errors.As(err, &apiErr) {
+		return isTransientStatus(apiErr.Code)
+	}
+	var apiErrPtr *genai.APIError
+	if errors.As(err, &apiErrPtr) && apiErrPtr != nil {
+		return isTransientStatus(apiErrPtr.Code)
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "status code: 429") || strings.Contains(msg, "status code: 5")
+}
+
+func isTransientStatus(code int) bool {
+	return code == http.StatusTooManyRequests || (code >= 500 && code < 600)
 }
 
 func retryAfterDelay(err error, backoff time.Duration) time.Duration {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tmc/langchaingo/llms"
+	"google.golang.org/genai"
 )
 
 // fakeVisionLLM returns the queued errors in order, then succeeds.
@@ -70,6 +72,39 @@ func TestProcessImage_NonTransientErrorFailsFast(t *testing.T) {
 
 	llm := &fakeVisionLLM{errs: []error{
 		errors.New("API returned unexpected status code: 400"),
+	}}
+	_, err := retryTestProvider(llm).ProcessImage(context.Background(), testJPEG(t), 1)
+
+	assert.Error(t, err)
+	assert.Equal(t, 1, llm.calls)
+}
+
+// The Google AI client returns genai.APIError (message "Error 429, ..."),
+// wrapped the way googleAIClient.GenerateContent wraps it.
+func TestProcessImage_RetriesGoogleAIRateLimitAndServerErrors(t *testing.T) {
+	t.Setenv("VISION_LLM_MAX_RETRIES", "8")
+	t.Setenv("VISION_LLM_BACKOFF_MAX_WAIT", "1ms")
+
+	// The SDK returns the error as a value; a pointer is matched as well.
+	var pointerErr error = &genai.APIError{Code: 429, Status: "RESOURCE_EXHAUSTED"}
+	llm := &fakeVisionLLM{errs: []error{
+		fmt.Errorf("googleai GenerateContent API error: %w", genai.APIError{Code: 429, Status: "RESOURCE_EXHAUSTED"}),
+		fmt.Errorf("googleai GenerateContent API error: %w", genai.APIError{Code: 503, Status: "UNAVAILABLE"}),
+		fmt.Errorf("googleai GenerateContent API error: %w", pointerErr),
+	}}
+	result, err := retryTestProvider(llm).ProcessImage(context.Background(), testJPEG(t), 1)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "ocr text", result.Text)
+	assert.Equal(t, 4, llm.calls)
+}
+
+func TestProcessImage_GoogleAIClientErrorFailsFast(t *testing.T) {
+	t.Setenv("VISION_LLM_MAX_RETRIES", "8")
+	t.Setenv("VISION_LLM_BACKOFF_MAX_WAIT", "1ms")
+
+	llm := &fakeVisionLLM{errs: []error{
+		fmt.Errorf("googleai GenerateContent API error: %w", genai.APIError{Code: 400, Status: "INVALID_ARGUMENT"}),
 	}}
 	_, err := retryTestProvider(llm).ProcessImage(context.Background(), testJPEG(t), 1)
 
