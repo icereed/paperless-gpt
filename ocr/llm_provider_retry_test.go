@@ -157,28 +157,33 @@ func TestProcessImage_ZeroRetriesRestoresFailFast(t *testing.T) {
 	assert.Equal(t, 1, llm.calls)
 }
 
-// A wait already at VISION_LLM_BACKOFF_MAX_WAIT must not be pushed above it by
-// the jitter; with a 15m maximum that would exceed maxProviderRetryDelay and
-// fail the document instead of waiting.
-func TestProcessImage_JitterStaysWithinBackoffMax(t *testing.T) {
-	t.Setenv("VISION_LLM_MAX_RETRIES", "1")
-	t.Setenv("VISION_LLM_BACKOFF_MAX_WAIT", "15m")
+func TestVisionRetryWait(t *testing.T) {
 	previous := retryJitter
-	retryJitter = func() float64 { return 1.2 }
 	t.Cleanup(func() { retryJitter = previous })
+	rateLimited := errors.New("API returned unexpected status code: 429")
 
-	llm := &fakeVisionLLM{errs: []error{
-		errors.New("API returned unexpected status code: 429"),
-	}}
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		cancel()
-	}()
-	_, err := retryTestProvider(llm).ProcessImage(ctx, testJPEG(t), 1)
+	// At the maximum, the largest jitter factor must not push the wait above
+	// VISION_LLM_BACKOFF_MAX_WAIT; with a 15m maximum that would exceed
+	// maxProviderRetryDelay and fail the document instead of waiting.
+	retryJitter = func() float64 { return 1.0 }
+	assert.Equal(t, 15*time.Minute, visionRetryWait(20, 15*time.Minute, rateLimited))
+	assert.Equal(t, 15*time.Minute, visionRetryWait(200, 15*time.Minute, rateLimited), "shift overflow falls back to the maximum")
+	assert.Equal(t, 4*time.Second, visionRetryWait(2, time.Minute, rateLimited))
 
-	// Waiting (and then being cancelled) proves the wait was accepted; an
-	// over-cap wait would fail at once with "exceeds limit".
-	assert.ErrorIs(t, err, context.Canceled)
-	assert.Equal(t, 1, llm.calls)
+	// The smallest factor still spreads waits that sit at the maximum.
+	retryJitter = func() float64 { return 0.8 }
+	assert.Equal(t, 12*time.Minute, visionRetryWait(20, 15*time.Minute, rateLimited))
+
+	// A server-provided Retry-After is a lower bound and is not shortened.
+	withRetryAfter := errors.New(`{"error":{"message":"upstream rate limit; retry-after-ms:30000"}}`)
+	assert.Equal(t, 30*time.Second, visionRetryWait(0, time.Minute, withRetryAfter))
+}
+
+func TestRetryJitterRange(t *testing.T) {
+	for i := 0; i < 1000; i++ {
+		f := retryJitter()
+		if f < 0.8 || f > 1.0 {
+			t.Fatalf("retryJitter() = %v, want a factor between 0.8 and 1.0", f)
+		}
+	}
 }

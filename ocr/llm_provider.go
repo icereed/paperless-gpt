@@ -32,9 +32,27 @@ import (
 
 const maxProviderRetryDelay = 15 * time.Minute
 
-// retryJitter returns the factor (0.8-1.2) a vision retry wait is scaled by.
+// retryJitter returns the factor (0.8-1.0) a vision retry wait is scaled by.
 // A variable so tests can make it deterministic.
-var retryJitter = func() float64 { return 0.8 + 0.4*rand.Float64() }
+var retryJitter = func() float64 { return 0.8 + 0.2*rand.Float64() }
+
+// visionRetryWait returns how long to wait before retrying after a transient
+// error on the given (0-based) attempt: exponential backoff up to backoffMax,
+// shortened by up to 20% at random so parallel auto-OCR workers that hit a
+// rate limit together don't all retry at the same instant. Shortening rather
+// than spreading in both directions keeps the wait within backoffMax and keeps
+// the spread once the backoff has reached it. Retry-After is a lower bound set
+// by the server, so it is applied after the jitter.
+func visionRetryWait(attempt int, backoffMax time.Duration, err error) time.Duration {
+	backoff := time.Duration(1<<uint(attempt)) * time.Second
+	if backoff <= 0 || backoff > backoffMax {
+		// <= 0 guards int64 overflow of the shift at high attempt counts,
+		// which would otherwise skip the backoff entirely.
+		backoff = backoffMax
+	}
+	backoff = time.Duration(float64(backoff) * retryJitter())
+	return retryAfterDelay(err, backoff)
+}
 
 // LLMProvider implements OCR using LLM vision models
 type LLMProvider struct {
@@ -212,21 +230,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 			logger.WithError(genErr).Error("Failed to get response from vision model")
 			return nil, fmt.Errorf("error getting response from LLM: %w", genErr)
 		}
-		backoff := time.Duration(1<<uint(attempt)) * time.Second
-		if backoff <= 0 || backoff > backoffMax {
-			// <= 0 guards int64 overflow of the shift at high attempt counts,
-			// which would otherwise skip the backoff entirely.
-			backoff = backoffMax
-		}
-		// Spread the waits by +/- 20% so parallel auto-OCR workers that hit a
-		// rate limit together don't all retry at the same instant. Retry-After
-		// is a server-provided lower bound, so it is applied after the jitter.
-		backoff = time.Duration(float64(backoff) * retryJitter())
-		if backoff > backoffMax {
-			// The jittered wait stays within VISION_LLM_BACKOFF_MAX_WAIT.
-			backoff = backoffMax
-		}
-		backoff = retryAfterDelay(genErr, backoff)
+		backoff := visionRetryWait(attempt, backoffMax, genErr)
 		if backoff > maxProviderRetryDelay {
 			return nil, fmt.Errorf("provider retry delay %s exceeds limit", backoff)
 		}
