@@ -66,6 +66,18 @@ for your chosen model, that provider becoming rate-limited produces a
 429/5xx with no fallback. Prefer models with multiple ZDR-capable providers
 when using this flag.
 
+### Cheaper Inference
+
+```yaml
+LLM_PROVIDER: "openai"
+OPENAI_BASE_URL: "https://api.cheaperinference.com/v1"
+OPENAI_API_KEY: "ci_live_..."
+LLM_MODEL: "gpt-5.4-mini"
+```
+
+Model names have no vendor prefix, for example `claude-sonnet-5` or
+`gemini-3.1-pro`.
+
 ### LM Studio
 
 Enable the local server in LM Studio, then:
