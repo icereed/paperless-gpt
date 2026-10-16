@@ -754,6 +754,7 @@ For best results with the enhanced OCR features:
 | `IMAGE_MAX_FILE_BYTES`              | Maximum JPEG file size in bytes for rendered page images. Images exceeding this are compressed or resized.                                                                                     | No       | 10485760                   |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
 | `CORRESPONDENT_PROMPT_LIMIT`        | Maximum number of existing correspondents embedded into the correspondent suggestion prompt; names occurring in the document are preferred. `0` (default) sends the full list. Useful for large installations and local LLMs with small context windows. | No       | 0                          |
+| `DOCUMENT_LINK_LLM_CHECK`           | For [Document Link custom fields](docs/document_linking.md): let the LLM check which of the documents that contain a reference the document actually refers to (`document_link_prompt.tmpl`, one extra LLM call per reference). Set to `false` to link references that appear in at most 3 other documents without asking the LLM. | No       | true                       |
 
 > [!NOTE]
 > `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. `PDF_UPLOAD_MODE` is set by the environment only. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs. The **Active Configuration** panel on the Settings page shows each value's effective source (env / saved / default).
@@ -849,6 +850,13 @@ Each template has access to specific variables:
 - `{{.Title}}` - Document title
 - `{{.CreatedDate}}` - Document's created date
 - `{{.Content}}` - Document content text
+
+**document_link_prompt.tmpl** (asked once per reference a [Document Link field](docs/document_linking.md) found; answer is a JSON array of candidate ids):
+
+- `{{.Reference}}` - The identifier the document cites
+- `{{.Source}}` - The document being processed
+- `{{.Candidates}}` - The other documents containing the identifier (up to 10)
+- Each of `.Source` and the candidates has `.ID`, `.Title`, `.CreatedDate`, `.Correspondent`, `.DocumentType`, `.Opening` (the beginning of the text; empty when `.Excerpt` already starts there) and `.Excerpt` (the text around the identifier)
 
 The templates use Go's text/template syntax. paperless-gpt automatically reloads template changes after UI saves and on startup.
 

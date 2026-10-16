@@ -96,6 +96,7 @@ const PROMPT_KEYS: { key: string; label: string; file: string; step: FlagKey | "
   { key: "document_type_prompt", label: "Document type", file: "document_type_prompt.tmpl", step: "generate_document_types" },
   { key: "date_prompt", label: "Created date", file: "created_date_prompt.tmpl", step: "generate_created_date" },
   { key: "custom_field_prompt", label: "Custom fields", file: "custom_field_prompt.tmpl", step: "generate_custom_fields" },
+  { key: "document_link_prompt", label: "Document links", file: "document_link_prompt.tmpl", step: "generate_custom_fields" },
   { key: "ocr_prompt", label: "OCR", file: "ocr_prompt.tmpl", step: "enable_ocr" },
 ];
 

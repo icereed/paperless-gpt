@@ -1,0 +1,42 @@
+You decide which documents in a document archive another document refers to.
+
+The document below cites the identifier "{{ .Reference }}". The archive was searched for this identifier, and the candidates further down contain it too. Pick the candidates the document refers to with this identifier.
+
+Pick a candidate if:
+- the identifier is the candidate's own number: the invoice with this invoice number, the contract with this contract number, the order, policy or official decision with this number; or
+- the candidate belongs to the same matter the identifier names: earlier letters in the same case, claim or file, or the policy a claim letter is about.
+
+Do not pick a candidate if the identifier only appears in another role there:
+- a number a person or company keeps across unrelated matters, such as a customer, account, personnel, tax, social security, child benefit or company register number, unless both documents are about the same matter;
+- a form or template number printed on many documents;
+- the identifier filled in as one data field of a form that is about something else.
+
+If you are not sure, do not pick it. Picking no candidate is a valid answer. Dates come from the archive and can be wrong, so don't decide on them alone.
+
+<document>
+Title: {{ .Source.Title }}
+Date: {{ .Source.CreatedDate }}
+Correspondent: {{ .Source.Correspondent }}
+Document type: {{ .Source.DocumentType }}
+{{- if .Source.Opening }}
+Beginning: {{ .Source.Opening }}
+{{- end }}
+Around the identifier: {{ .Source.Excerpt }}
+</document>
+
+<candidates>
+{{- range .Candidates }}
+<candidate id="{{ .ID }}">
+Title: {{ .Title }}
+Date: {{ .CreatedDate }}
+Correspondent: {{ .Correspondent }}
+Document type: {{ .DocumentType }}
+{{- if .Opening }}
+Beginning: {{ .Opening }}
+{{- end }}
+Around the identifier: {{ .Excerpt }}
+</candidate>
+{{- end }}
+</candidates>
+
+Answer with a JSON array of the ids of the candidates you pick, for example [12, 34], or [] for none. No other text.

@@ -449,7 +449,8 @@ const (
 
 	// maxDocumentLinkMatches is how many other documents a single reference may
 	// match before it is considered too generic to link, e.g. a customer
-	// number printed on every letter from the same company.
+	// number printed on every letter from the same company. Only used with
+	// DOCUMENT_LINK_LLM_CHECK=false; see maxDocumentLinkCandidates.
 	maxDocumentLinkMatches = 3
 
 	// minDocumentLinkReferenceLength keeps short fragments like "12" from
@@ -462,8 +463,9 @@ const (
 )
 
 // getSuggestedCustomFields generates suggested custom fields for a document using the LLM.
-// tmplOverride, when non-nil, replaces the global customFieldTemplate for this call.
-func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry, tmplOverride *template.Template) ([]CustomFieldSuggestion, error) {
+// tmplOverride, when non-nil, replaces the global customFieldTemplate for this
+// call, and linkTmplOverride the global documentLinkTemplate.
+func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, selectedFieldIDs []int, logger *logrus.Entry, tmplOverride, linkTmplOverride *template.Template) ([]CustomFieldSuggestion, error) {
 	// Fetch all available custom fields
 	allCustomFields, err := app.Client.GetCustomFields(ctx)
 	if err != nil {
@@ -592,7 +594,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 		}
 		value := llmField.Value
 		if field.DataType == documentLinkFieldType {
-			linkedIDs := app.resolveDocumentLinks(ctx, doc.ID, value, logger)
+			linkedIDs := app.resolveDocumentLinks(ctx, doc, value, linkTmplOverride, logger)
 			if len(linkedIDs) == 0 {
 				logger.Infof("None of the references %v for custom field '%s' matched another document, skipping the field.", value, field.Name)
 				continue
@@ -610,11 +612,19 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 }
 
 // resolveDocumentLinks turns the references the LLM extracted for a
-// documentlink field into the ids of the documents they identify. A reference
-// is only linked if it matches between one and maxDocumentLinkMatches other
-// documents; references that match nothing or are too generic are dropped, as
-// are lookup errors, so a bad reference never fails the whole document.
-func (app *App) resolveDocumentLinks(ctx context.Context, documentID int, value interface{}, logger *logrus.Entry) []int {
+// documentlink field into the ids of the documents they identify. Each
+// reference is looked up in paperless-ngx; when it matches up to
+// maxDocumentLinkCandidates other documents, the LLM checks which of them the
+// document refers to (checkDocumentLinks, with linkTmpl). With
+// DOCUMENT_LINK_LLM_CHECK=false, a reference is linked to all its matches if
+// there are at most maxDocumentLinkMatches. References that match nothing or
+// are too generic are dropped, as are lookup errors, so a bad reference never
+// fails the whole document.
+func (app *App) resolveDocumentLinks(ctx context.Context, doc Document, value interface{}, linkTmpl *template.Template, logger *logrus.Entry) []int {
+	maxMatches := maxDocumentLinkMatches
+	if documentLinkLLMCheck {
+		maxMatches = maxDocumentLinkCandidates
+	}
 	var linkedIDs []int
 	for _, reference := range documentLinkReferences(value) {
 		if len([]rune(reference)) < minDocumentLinkReferenceLength {
@@ -627,7 +637,7 @@ func (app *App) resolveDocumentLinks(ctx context.Context, documentID int, value 
 			continue
 		}
 
-		ids, tooMany, err := app.Client.FindDocumentIDsByReference(ctx, reference, documentID, maxDocumentLinkMatches)
+		ids, tooMany, err := app.Client.FindDocumentIDsByReference(ctx, reference, doc.ID, maxMatches)
 		if err != nil {
 			logger.Warnf("Looking up document link reference %q failed, skipping it: %v", reference, err)
 			continue
@@ -635,10 +645,13 @@ func (app *App) resolveDocumentLinks(ctx context.Context, documentID int, value 
 
 		switch {
 		case tooMany:
-			logger.Debugf("Document link reference %q matched more than %d other documents, too generic to link.", reference, maxDocumentLinkMatches)
+			logger.Debugf("Document link reference %q matched more than %d other documents, too generic to link.", reference, maxMatches)
 		case len(ids) == 0:
 			logger.Debugf("Document link reference %q matched no other document.", reference)
 		default:
+			if documentLinkLLMCheck {
+				ids = app.checkDocumentLinks(ctx, doc, reference, ids, linkTmpl, logger)
+			}
 			for _, id := range ids {
 				if !slices.Contains(linkedIDs, id) {
 					linkedIDs = append(linkedIDs, id)
@@ -843,7 +856,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		if len(selectedIDs) == 0 {
 			log.Warnf("Custom field generation is enabled, but no custom fields are selected (in Settings, or in the AI workflow). Please select at least one custom field for this feature to work.")
 		} else {
-			suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger, wfTemplate("custom_field_prompt", customFieldTemplate))
+			suggestedCustomFields, err = app.getSuggestedCustomFields(ctx, doc, selectedIDs, docLogger, wfTemplate("custom_field_prompt", customFieldTemplate), wfTemplate("document_link_prompt", documentLinkTemplate))
 			if err != nil {
 				log.Errorf("Error generating custom fields for document %d: %v", documentID, err)
 				return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)

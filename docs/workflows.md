@@ -75,6 +75,7 @@ prompts/
       workflow.json              name, tags, steps, OCR settings
       title_prompt.tmpl          only the prompts this workflow changes
       custom_field_prompt.tmpl
+      document_link_prompt.tmpl  which documents a Document Link field may link
 ```
 
 - They are kept by the `./prompts` volume you already mount for your prompts.

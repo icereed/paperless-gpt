@@ -42,6 +42,7 @@ var workflowPromptFiles = map[string]string{
 	"document_type_prompt": "document_type_prompt.tmpl",
 	"date_prompt":          "created_date_prompt.tmpl",
 	"custom_field_prompt":  "custom_field_prompt.tmpl",
+	"document_link_prompt": "document_link_prompt.tmpl",
 	"ocr_prompt":           "ocr_prompt.tmpl",
 }
 

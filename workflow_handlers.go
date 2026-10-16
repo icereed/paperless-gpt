@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -254,8 +255,16 @@ func validatePromptTemplates(wf WorkflowConfig) error {
 		if key == "ocr_prompt" {
 			continue // checked by validateWorkflowOCRConfig, which renders it
 		}
-		if _, err := template.New(key).Funcs(sprig.FuncMap()).Parse(prompt); err != nil {
+		tmpl, err := template.New(key).Funcs(sprig.FuncMap()).Parse(prompt)
+		if err != nil {
 			return fmt.Errorf("%s does not parse: %w", key, err)
+		}
+		if key == "document_link_prompt" {
+			// Rendered with a struct, so a misspelled field only fails at
+			// execution; catch it here instead of silently linking nothing.
+			if err := tmpl.Execute(io.Discard, sampleDocumentLinkPromptData); err != nil {
+				return fmt.Errorf("%s does not render: %w", key, err)
+			}
 		}
 	}
 	return nil
