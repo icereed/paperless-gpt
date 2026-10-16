@@ -35,6 +35,7 @@ type fakePaperless struct {
 	patchBody   string // the body of that answer (default: an unparseable error)
 	tagsStatus  int    // when non-zero, a PATCH with a tag list answers with this status
 	bulkStatus  int    // when non-zero, bulk_edit answers with this status
+	bulkOKCalls int    // with bulkStatus: this many bulk_edit calls succeed first
 
 	parent map[int]int // tag hierarchy: child ID -> parent ID
 }
@@ -181,7 +182,7 @@ func (f *fakePaperless) register(env *testEnv) {
 		}
 		f.bulk = append(f.bulk, rawMap)
 		f.ops = append(f.ops, "bulk_edit")
-		if f.bulkStatus != 0 {
+		if f.bulkStatus != 0 && len(f.bulk) > f.bulkOKCalls {
 			http.Error(w, "bulk edit failed", f.bulkStatus)
 			return
 		}
@@ -506,6 +507,18 @@ func TestUpdateDocuments_TagsAsDelta(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, mods, 1)
 		assert.Equal(t, `["inbox"]`, mods[0].NewValue, "history shows the tags the document really ended up with")
+	})
+
+	t.Run("removing the returned trigger again falls back to the tag list too", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+		fake.parent = map[int]int{30: 26}
+		fake.bulkStatus, fake.bulkOKCalls = http.StatusInternalServerError, 1
+
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{deltaSuggestion("old text")}, newOCRRunTestDB(t), false))
+		assert.Equal(t, []string{"bulk_edit", "bulk_edit", "PATCH"}, fake.ops)
+		assert.NotContains(t, fake.docTagNames(), "paperless-gpt-ocr-auto")
 	})
 
 	t.Run("nothing to add or remove: no request at all", func(t *testing.T) {

@@ -1421,8 +1421,9 @@ func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, d
 		// Degrade to the tag list rather than losing the change: a
 		// document whose trigger tag stays is processed again on every poll.
 		log.Warnf("Document %d: paperless-ngx rejected modify_tags (%v); writing the tag list instead", documentID, err)
-		if resultTagIDs, err = client.writeTagChangeAsList(ctx, documentID, addIDs, removeIDs); err != nil {
-			return false, fmt.Errorf("error updating tags of document %d: %w", documentID, err)
+		var listErr error
+		if resultTagIDs, listErr = client.writeTagChangeAsList(ctx, documentID, addIDs, removeIDs); listErr != nil {
+			return false, fmt.Errorf("error updating tags of document %d: %w (after %w)", documentID, listErr, err)
 		}
 	} else if len(addIDs) > 0 && len(removeIDs) > 0 {
 		if resultTagIDs, err = client.ensureTagsRemoved(ctx, documentID, removeIDs); err != nil {
@@ -1486,7 +1487,11 @@ func (client *PaperlessClient) ensureTagsRemoved(ctx context.Context, documentID
 	}
 	log.Warnf("Document %d: tag IDs %v came back after modify_tags, most likely because an added tag is nested under them in paperless-ngx; removing them again", documentID, back)
 	if err := client.modifyDocumentTags(ctx, documentID, nil, back); err != nil {
-		return nil, err
+		if !errors.Is(err, errModifyTagsRejected) {
+			return nil, err
+		}
+		log.Warnf("Document %d: paperless-ngx rejected modify_tags (%v); writing the tag list instead", documentID, err)
+		return client.writeTagChangeAsList(ctx, documentID, nil, back)
 	}
 	if current, err = client.getDocumentRaw(ctx, documentID); err != nil {
 		return nil, nil
