@@ -128,6 +128,9 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   const skippedCount = items.filter(
     (item) => decisions[item.id] === "skipped"
   ).length;
+  const discardedCount = items.filter(
+    (item) => decisions[item.id] === "discarded"
+  ).length;
 
   // Fire onFinished exactly once, from an effect (not inside a state updater,
   // which React may replay). It triggers when every item has been decided.
@@ -218,6 +221,26 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
     }
   };
 
+  // A workflow's held suggestions can be dropped: the document leaves the
+  // queue without anything written and without the completion tag.
+  const handleDiscardOne = async (docId: number) => {
+    setError(null);
+    setApplyingIds((prev) => new Set(prev).add(docId));
+    try {
+      await axios.post(`./api/reviews/${docId}/discard`);
+      setDecisions((prev) => ({ ...prev, [docId]: "discarded" }));
+    } catch (err) {
+      console.error("Error discarding suggestions:", err);
+      setError("Discarding failed — the document is still waiting. Try again.");
+    } finally {
+      setApplyingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(docId);
+        return next;
+      });
+    }
+  };
+
   const handleDiscard = () => {
     // Only confirm when there is something undecided to discard. `edited` stays
     // true after edits are applied, so gating on it would show a misleading
@@ -292,6 +315,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
             handlers={handlers}
             onApply={handleApplyOne}
             onSkip={handleSkip}
+            onDiscard={handleDiscardOne}
             onOpenFocus={() => setFocusIndex(index)}
             applying={applyingIds.has(item.id)}
           />
@@ -303,6 +327,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           <p className="text-sm tabular-nums text-muted" role="status">
             {decidedCount} of {items.length} decided
             {skippedCount > 0 && ` · ${skippedCount} skipped`}
+            {discardedCount > 0 && ` · ${discardedCount} discarded`}
           </p>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={handleDiscard}>

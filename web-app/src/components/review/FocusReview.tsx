@@ -147,9 +147,9 @@ const FocusReview: React.FC<FocusReviewProps> = ({
                 Applied
               </span>
             )}
-            {decision === "skipped" && (
+            {(decision === "skipped" || decision === "discarded") && (
               <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-muted">
-                Skipped
+                {decision === "skipped" ? "Skipped" : "Discarded"}
               </span>
             )}
           </div>

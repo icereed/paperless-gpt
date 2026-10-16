@@ -137,12 +137,15 @@ type WorkflowConfig struct {
 	GenerateCreatedDate    *bool `json:"generate_created_date,omitempty"`
 	GenerateDocumentTypes  *bool `json:"generate_document_types,omitempty"`
 	GenerateCustomFields   *bool `json:"generate_custom_fields,omitempty"`
-	// EnableOCR, when true, runs OCR on the document before metadata generation.
-	// nil or false means OCR is skipped for this workflow.
 	// CustomFieldIDs are the custom fields this workflow fills. Empty means the
 	// global selection from Settings.
 	CustomFieldIDs []int `json:"custom_field_ids,omitempty"`
-	EnableOCR      *bool `json:"enable_ocr,omitempty"`
+	// RequireApproval holds the workflow's suggestions until the user
+	// approves them in the review queue instead of writing them right away.
+	RequireApproval bool `json:"require_approval,omitempty"`
+	// EnableOCR, when true, runs OCR on the document before metadata generation.
+	// nil or false means OCR is skipped for this workflow.
+	EnableOCR *bool `json:"enable_ocr,omitempty"`
 	// OCRLimitPages overrides the effective OCR page limit for this workflow.
 	// nil = use effective defaults (settings over env); 0 = no limit.
 	OCRLimitPages *int `json:"ocr_limit_pages,omitempty"`
@@ -259,7 +262,7 @@ type ClientInterface interface {
 	GetDocument(ctx context.Context, documentID int) (Document, error)
 	GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error)
 	SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error)
-	FindDocumentIDsByReference(ctx context.Context, reference string, limit int) ([]int, error)
+	FindDocumentIDsByReference(ctx context.Context, reference string, excludeID, maxMatches int) (ids []int, tooMany bool, err error)
 	GetDocumentPageImage(ctx context.Context, documentID int, pageIndex int) ([]byte, error)
 	GetAllTags(ctx context.Context) (map[string]int, error)
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)

@@ -355,6 +355,18 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 			// the update below does.
 			app.suggestionFailures.reset(document.ID)
 
+			if workflow != nil && workflow.RequireApproval && len(suggestions) == 1 {
+				if err := app.holdForApproval(ctx, document, suggestions[0], *workflow, triggerTag, docLogger); err != nil {
+					docLogger.Error(err.Error())
+					errs = append(errs, err)
+					app.Database.Delete(&PendingReview{}, document.ID)
+					recoverFromFailedUpdate(ctx, app.Client, app.Database, document, triggerTag)
+					return nil
+				}
+				processedCount++
+				return nil
+			}
+
 			err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 			if err != nil {
 				var partial *PartialUpdateError

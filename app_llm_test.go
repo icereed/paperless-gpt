@@ -500,16 +500,21 @@ func (m *mockPaperlessClient) GetDocumentThumbnail(ctx context.Context, document
 func (m *mockPaperlessClient) SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error) {
 	return nil, nil
 }
-func (m *mockPaperlessClient) FindDocumentIDsByReference(ctx context.Context, reference string, limit int) ([]int, error) {
+func (m *mockPaperlessClient) FindDocumentIDsByReference(ctx context.Context, reference string, excludeID, maxMatches int) ([]int, bool, error) {
 	m.ReferenceLookups = append(m.ReferenceLookups, reference)
 	if m.ReferenceError != nil {
-		return nil, m.ReferenceError
+		return nil, false, m.ReferenceError
 	}
-	ids := m.ReferenceMatches[reference]
-	if len(ids) > limit {
-		ids = ids[:limit]
+	var ids []int
+	for _, id := range m.ReferenceMatches[reference] {
+		if id != excludeID {
+			ids = append(ids, id)
+		}
 	}
-	return ids, nil
+	if len(ids) > maxMatches {
+		return nil, true, nil
+	}
+	return ids, false, nil
 }
 func (m *mockPaperlessClient) GetDocumentPageImage(ctx context.Context, documentID int, pageIndex int) ([]byte, error) {
 	return nil, nil
@@ -683,6 +688,22 @@ func TestGetSuggestedCustomFields_DocumentLink(t *testing.T) {
 			name:             "reference matching too many documents is too generic",
 			llmValue:         `["0002058"]`,
 			referenceMatches: map[string][]int{"0002058": {1, 2, 3, 4, 5, 6}},
+		},
+		{
+			name:             "reference without a digit is not a document identifier",
+			llmValue:         `["Zahlungsdiensteaufsichtsgesetz"]`,
+			referenceMatches: map[string][]int{"Zahlungsdiensteaufsichtsgesetz": {412}},
+		},
+		{
+			name:             "short number made of digits alone is not linked",
+			llmValue:         `["1772"]`,
+			referenceMatches: map[string][]int{"1772": {412}},
+		},
+		{
+			name:             "five-digit number is linked",
+			llmValue:         `["47110"]`,
+			referenceMatches: map[string][]int{"47110": {412}},
+			wantLinks:        []int{412},
 		},
 		{
 			name:             "too short reference is not looked up",
