@@ -73,9 +73,9 @@ func (store *SuggestionJobStore) addJob(job *SuggestionJob) {
 	store.evictOldestTerminalLocked()
 	suggestionLogger.Infof("Suggestion job added: %s", job.ID)
 	counts := countSuggestionJobStatusesLocked()
+	refreshJobGauges(suggestionJobs, counts)
 	store.Unlock()
 	suggestionJobsCreatedTotal.Inc()
-	refreshJobGauges(suggestionJobs, counts)
 }
 
 // evictOldestTerminalLocked drops the oldest finished jobs while the store is
@@ -196,8 +196,8 @@ func (store *SuggestionJobStore) startPending(jobID string) bool {
 	job.Error = ""
 	job.UpdatedAt = time.Now()
 	counts := countSuggestionJobStatusesLocked()
-	store.Unlock()
 	refreshJobGauges(suggestionJobs, counts)
+	store.Unlock()
 	return true
 }
 
@@ -218,8 +218,8 @@ func (store *SuggestionJobStore) updateStatus(jobID, status, message string) {
 		}
 	}
 	counts := countSuggestionJobStatusesLocked()
-	store.Unlock()
 	refreshJobGauges(suggestionJobs, counts)
+	store.Unlock()
 	if becameTerminal {
 		observeSuggestionJobCompleted(status, createdAt)
 	}
@@ -235,11 +235,11 @@ func (store *SuggestionJobStore) cancelPending(jobID string) bool {
 		job.UpdatedAt = time.Now()
 		createdAt = job.CreatedAt
 		cancelled = true
+		counts := countSuggestionJobStatusesLocked()
+		refreshJobGauges(suggestionJobs, counts)
 	}
-	counts := countSuggestionJobStatusesLocked()
 	store.Unlock()
 	if cancelled {
-		refreshJobGauges(suggestionJobs, counts)
 		observeSuggestionJobCompleted("cancelled", createdAt)
 	}
 	return cancelled
@@ -274,8 +274,8 @@ func (store *SuggestionJobStore) complete(jobID string, result []DocumentSuggest
 		}
 	}
 	counts := countSuggestionJobStatusesLocked()
-	store.Unlock()
 	refreshJobGauges(suggestionJobs, counts)
+	store.Unlock()
 	if becameTerminal {
 		observeSuggestionJobCompleted("completed", createdAt)
 	}
@@ -297,8 +297,8 @@ func (store *SuggestionJobStore) failWithFailures(jobID, message string, failure
 		}
 	}
 	counts := countSuggestionJobStatusesLocked()
-	store.Unlock()
 	refreshJobGauges(suggestionJobs, counts)
+	store.Unlock()
 	if becameTerminal {
 		observeSuggestionJobCompleted("failed", createdAt)
 	}

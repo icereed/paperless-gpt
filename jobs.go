@@ -74,9 +74,9 @@ func (store *JobStore) addJob(job *Job) {
 	store.evictOldestTerminalLocked()
 	logger.Infof("Job added: %v", job)
 	counts := countOCRJobStatusesLocked()
+	refreshJobGauges(ocrJobs, counts)
 	store.Unlock()
 	ocrJobsCreatedTotal.Inc()
-	refreshJobGauges(ocrJobs, counts)
 }
 
 // evictOldestTerminalLocked drops the oldest finished jobs while over capacity.
@@ -148,8 +148,8 @@ func (store *JobStore) updateJobStatus(jobID, status, result string) {
 		}
 	}
 	counts := countOCRJobStatusesLocked()
-	store.Unlock()
 	refreshJobGauges(ocrJobs, counts)
+	store.Unlock()
 	if becameTerminal {
 		observeOCRJobCompleted(status, createdAt)
 	}
