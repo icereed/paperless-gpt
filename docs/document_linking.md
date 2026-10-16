@@ -41,24 +41,41 @@ A few setups where this changes how the archive is used:
 2. **In paperless-gpt**, open **Settings**, enable custom field generation and select that field. Choose the **Append** or **Update** write mode (see the note on **Replace** below).
 3. Process documents as usual, through manual review or with the `paperless-gpt-auto` tag. You can combine the link field with any other custom fields you already extract.
 
-There is no extra environment variable to set. The settings from step 2 are stored in `/app/config/settings.json`, so mount `./config:/app/config` as a volume; otherwise they are reset whenever the container is recreated, for example on every update.
+There is no extra environment variable to set; `DOCUMENT_LINK_LLM_CHECK` (see below) is optional. The settings from step 2 are stored in `/app/config/settings.json`, so mount `./config:/app/config` as a volume; otherwise they are reset whenever the container is recreated, for example on every update.
 
 ## How it decides what to link
 
-The model is never asked to guess paperless-ngx document IDs. The work is split in two:
+The model is never asked to guess paperless-ngx document IDs. The work is split in three:
 
 1. **The LLM reads the document** and lists the identifiers it refers to: invoice, order, contract or case numbers.
 2. **paperless-gpt looks each identifier up itself**, searching document text in paperless-ngx for an exact whole-word match. `R123` does not match `R1234`.
+3. **The LLM checks the matches.** It sees the document and each match: title, date, correspondent, document type, the beginning of the text and the text around the identifier. Only the matches it confirms are linked.
 
-The lookup is deliberately conservative, because a wrong link is worse than a missing one:
+The check is what tells a contract number apart from a number that is merely printed on many documents: your customer number on every letter from a company, a personnel or child benefit number filled into every salary form, a company register number in every letterhead. Counting matches can't make that distinction. In a small archive such a number may appear only twice; in a large one, the letters of a single file with an Aktenzeichen can be a dozen.
+
+The lookup and the check are deliberately conservative, because a wrong link is worse than a missing one:
 
 - References shorter than 4 characters are ignored.
 - A reference has to look like an identifier: it needs a digit, and a number made of digits alone needs at least 5 of them. Names of laws or products, a year, or a 4-digit form number printed on every letter from a bank are not looked up.
-- A reference that appears in **more than 3** other documents is treated as too generic and skipped. This catches identifiers such as your own customer number, which shows up on every letter from the same company. The whole archive counts, not just the first search results. A reference that appears in more than 200 documents, even only as part of a longer number, is skipped without looking further.
+- A reference that appears in **more than 10** other documents is treated as too generic and is not checked. The whole archive counts, not just the first search results. A reference that appears in more than 200 documents, even only as part of a longer number, is skipped without looking further.
+- When the LLM is unsure, it is told to link nothing. If its answer can't be read, or the call fails, nothing is linked for that reference. It can only pick among the matches, never another document.
 - A document is never linked to itself.
-- If a reference matches nothing, it is dropped. If no reference resolves, the field is left out of the update entirely rather than being written with a guess.
+- If no reference resolves, the field is left out of the update entirely rather than being written with a guess.
+
+The check costs one extra LLM call per reference that has matches. To skip it, set `DOCUMENT_LINK_LLM_CHECK=false`: then a reference is linked to all its matches if it appears in at most 3 other documents, and skipped otherwise.
 
 The lookup uses paperless-ngx's database filter, not the full-text index, so it works the same on paperless-ngx 2.x and 3.x and does not depend on the search index being up to date.
+
+## Adjusting the check
+
+The check uses its own prompt, `document_link_prompt.tmpl`, which you can edit in the prompt editor like the others. What counts as "refers to" depends on the documents. The default links a document to the one the identifier belongs to, and to documents in the same matter. It does not link documents that only share a standing number, such as a customer or tax number.
+
+Different kinds of documents may need different rules, so [AI workflows](workflows.md) can bring their own version of this prompt. In the workflow editor it is listed as **Document links** under the prompts, next to **Custom fields**. Examples:
+
+- An **invoices** workflow that links a reminder only to the invoice with this invoice number, not to earlier reminders.
+- An **authority letters** workflow that links every letter citing the same Aktenzeichen, including the decision and every reply.
+
+The prompt is a Go template. It gets `{{.Reference}}`, `{{.Source}}` and `{{.Candidates}}`; see [the template variables](../README.md#template-variables) for their fields. The answer has to be a JSON array of the chosen ids, for example `[412]`, or `[]`.
 
 ## Good to know
 

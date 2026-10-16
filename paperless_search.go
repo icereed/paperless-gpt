@@ -114,7 +114,7 @@ func (client *PaperlessClient) FindDocumentIDsByReference(ctx context.Context, r
 	if reference == "" {
 		return nil, false, nil
 	}
-	wholeWord := regexp.MustCompile(`(?i)(^|[^\p{L}\p{N}])` + regexp.QuoteMeta(reference) + `($|[^\p{L}\p{N}])`)
+	wholeWord := referencePattern(reference)
 
 	// A fixed order keeps pages from overlapping; seen guards against a
 	// document showing up twice anyway when the archive changes mid-scan.
@@ -161,6 +161,14 @@ func (client *PaperlessClient) FindDocumentIDsByReference(ctx context.Context, r
 			return nil, true, nil
 		}
 	}
+}
+
+// referencePattern matches reference as a whole word, case-insensitively:
+// "R123" does not match inside "R1234". It is what counts as a document
+// containing a reference, for the lookup and for the excerpts the link check
+// shows.
+func referencePattern(reference string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(^|[^\p{L}\p{N}])` + regexp.QuoteMeta(reference) + `($|[^\p{L}\p{N}])`)
 }
 
 // GetDocumentPageImage renders one page of a document as a JPEG for the

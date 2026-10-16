@@ -44,6 +44,7 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 		"document_type_prompt.tmpl",
 		"created_date_prompt.tmpl",
 		"custom_field_prompt.tmpl",
+		"document_link_prompt.tmpl",
 		"ocr_prompt.tmpl",
 		"adhoc-analysis_prompt.tmpl",
 	}

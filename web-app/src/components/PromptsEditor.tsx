@@ -10,6 +10,7 @@ const WORKFLOW_PROMPT_KEYS: Record<string, string> = {
   'document_type_prompt.tmpl': 'document_type_prompt',
   'created_date_prompt.tmpl': 'date_prompt',
   'custom_field_prompt.tmpl': 'custom_field_prompt',
+  'document_link_prompt.tmpl': 'document_link_prompt',
   'ocr_prompt.tmpl': 'ocr_prompt',
 };
 

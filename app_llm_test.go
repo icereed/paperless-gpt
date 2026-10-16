@@ -472,6 +472,8 @@ type mockPaperlessClient struct {
 	ReferenceMatches map[string][]int
 	ReferenceError   error
 	ReferenceLookups []string
+	// Documents is what GetDocument returns, by id.
+	Documents map[int]Document
 }
 
 func (m *mockPaperlessClient) GetCustomFields(ctx context.Context) ([]CustomField, error) {
@@ -492,6 +494,9 @@ func (m *mockPaperlessClient) UpdateDocuments(ctx context.Context, documents []D
 	return nil
 }
 func (m *mockPaperlessClient) GetDocument(ctx context.Context, documentID int) (Document, error) {
+	if doc, ok := m.Documents[documentID]; ok {
+		return doc, nil
+	}
 	return Document{}, nil
 }
 func (m *mockPaperlessClient) GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error) {
@@ -606,7 +611,7 @@ func TestGetSuggestedCustomFields(t *testing.T) {
 
 	// 3. Execute
 	testLogger := logrus.WithField("test", "TestGetSuggestedCustomFields")
-	suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, selectedFieldIDs, testLogger, nil)
+	suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, selectedFieldIDs, testLogger, nil, nil)
 
 	// 4. Assert
 	require.NoError(t, err)
@@ -634,6 +639,8 @@ func TestGetSuggestedCustomFields_DocumentLink(t *testing.T) {
 	// Other tests leave a small global tokenLimit behind; run without one.
 	t.Setenv("TOKEN_LIMIT", "")
 	resetTokenLimit()
+	// The lookup on its own; the LLM check is covered in document_link_check_test.go.
+	useDocumentLinkLLMCheck(t, false)
 
 	const currentDocID = 533
 
@@ -737,7 +744,7 @@ func TestGetSuggestedCustomFields_DocumentLink(t *testing.T) {
 			require.NoError(t, loadTemplates())
 
 			doc := Document{ID: currentDocID, Content: "Mahnung zu Rechnung R10927801"}
-			suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, []int{1, 2}, logrus.WithField("test", t.Name()), nil)
+			suggestions, err := app.getSuggestedCustomFields(context.Background(), doc, []int{1, 2}, logrus.WithField("test", t.Name()), nil, nil)
 			require.NoError(t, err)
 
 			assert.Contains(t, llm.lastPrompt, `<field name="Reference" type="documentlink">`)
@@ -782,7 +789,7 @@ func TestGetSuggestedCustomFields_OnlySelectedFields(t *testing.T) {
 	usePromptsSandbox(t, map[string]string{"custom_field_prompt.tmpl": "{{ .CustomFieldsXML }}"})
 	require.NoError(t, loadTemplates())
 
-	suggestions, err := app.getSuggestedCustomFields(context.Background(), Document{Content: "x"}, []int{1}, logrus.WithField("test", t.Name()), nil)
+	suggestions, err := app.getSuggestedCustomFields(context.Background(), Document{Content: "x"}, []int{1}, logrus.WithField("test", t.Name()), nil, nil)
 	require.NoError(t, err)
 
 	assert.NotContains(t, llm.lastPrompt, `name="Amount"`, "unselected fields must not be sent to the LLM")
@@ -894,7 +901,7 @@ func TestGetSuggestedCustomFields_AcceptsObjectAndMap(t *testing.T) {
 			usePromptsSandbox(t, map[string]string{"custom_field_prompt.tmpl": "{{ .CustomFieldsXML }}"})
 			require.NoError(t, loadTemplates())
 
-			suggestions, err := app.getSuggestedCustomFields(context.Background(), Document{Content: "x"}, []int{1}, logrus.WithField("test", t.Name()), nil)
+			suggestions, err := app.getSuggestedCustomFields(context.Background(), Document{Content: "x"}, []int{1}, logrus.WithField("test", t.Name()), nil, nil)
 			require.NoError(t, err)
 			require.Len(t, suggestions, 1)
 			assert.Equal(t, 1, suggestions[0].ID)
