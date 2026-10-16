@@ -123,6 +123,15 @@ func TestPendingSuggestionUsesCurrentDocument(t *testing.T) {
 	assert.Equal(t, "edited by hand", got.OriginalDocument.Title, "the review compares against current values")
 	assert.Contains(t, got.SuggestedTags, "urgent", "a tag added while waiting is kept")
 	assert.Contains(t, got.SuggestedTags, "paperless-gpt")
+	assert.Contains(t, got.SuggestedTags, "finance", "a suggested tag stays")
+
+	// A tag removed while the suggestions were generated or while they waited
+	// does not come back; case does not matter.
+	current.Tags = []string{"paperless-gpt", "URGENT"}
+	got, err = pendingSuggestion(PendingReview{DocumentID: 7, Suggestion: string(data)}, current)
+	require.NoError(t, err)
+	assert.NotContains(t, got.SuggestedTags, "mine")
+	assert.Equal(t, []string{"finance", "paperless-gpt", "URGENT"}, got.SuggestedTags)
 }
 
 func TestPendingReviewHandlers(t *testing.T) {

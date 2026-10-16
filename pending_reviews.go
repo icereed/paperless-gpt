@@ -65,6 +65,9 @@ func (app *App) holdForApproval(ctx context.Context, document Document, suggesti
 		OriginalDocument: document,
 		RemoveTags:       []string{triggerTag},
 		AddTags:          []string{manualTag},
+		// document was fetched before the LLM ran; keep tag changes made
+		// in paperless-ngx since.
+		TagsAsDelta: true,
 	}
 	if err := app.Client.UpdateDocuments(ctx, []DocumentSuggestion{park}, app.Database, false); err != nil {
 		return fmt.Errorf("moving document %d to the review queue: %w", document.ID, err)
@@ -86,12 +89,20 @@ func pendingSuggestion(record PendingReview, current Document) (DocumentSuggesti
 	suggestion.OriginalDocument = current
 	if len(suggestion.SuggestedTags) > 0 && !suggestion.KeepOriginalTags {
 		// The suggested tags include the tags the document had at generation
-		// time; carry over what was added since.
-		for _, tag := range current.Tags {
-			if !slices.Contains(snapshot.Tags, tag) && !slices.Contains(suggestion.SuggestedTags, tag) {
-				suggestion.SuggestedTags = append(suggestion.SuggestedTags, tag)
+		// time; carry over what was added since, and drop what was removed
+		// since (also while the suggestions were generated).
+		var tags []string
+		for _, tag := range suggestion.SuggestedTags {
+			if !hasTag(snapshot.Tags, tag) || hasTag(current.Tags, tag) {
+				tags = append(tags, tag)
 			}
 		}
+		for _, tag := range current.Tags {
+			if !hasTag(snapshot.Tags, tag) && !hasTag(tags, tag) {
+				tags = append(tags, tag)
+			}
+		}
+		suggestion.SuggestedTags = tags
 	}
 	return suggestion, nil
 }

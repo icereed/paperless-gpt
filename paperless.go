@@ -1001,7 +1001,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		}
 
 		if len(updatedFields) == 0 && document.TagsAsDelta {
-			if err := client.applyTagDelta(ctx, db, document, availableTags); err != nil {
+			if _, err := client.applyTagDelta(ctx, db, document, availableTags); err != nil {
 				return err
 			}
 			if len(partialDroppedFields) > 0 && firstPartial == nil {
@@ -1087,11 +1087,13 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		const maxRetries = 3
 		patchPath := fmt.Sprintf("api/documents/%d/", documentID)
 		patchSucceeded := false
+		everyFieldRejected := false
 
 		for attempt := 0; attempt <= maxRetries; attempt++ {
 			if len(updatedFields) == 0 {
 				// All fields stripped — nothing left to send.
-				return fmt.Errorf("error updating document %d: paperless-ngx rejected every field that was suggested (dropped on previous attempts: %v)", documentID, partialDroppedFields)
+				everyFieldRejected = true
+				break
 			}
 
 			jsonData, err := json.Marshal(updatedFields)
@@ -1132,6 +1134,26 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 			log.Warnf("Document %d: paperless-ngx rejected fields %v on attempt %d/%d; retrying without them. Raw response: %s", documentID, newlyDropped, attempt+1, maxRetries+1, string(bodyBytes))
 		}
 
+		if everyFieldRejected {
+			// A tag list used to be part of the PATCH and landed on its
+			// own after the other fields were stripped. Do the same for a
+			// tag delta: apply it and report the dropped fields, so the
+			// caller flags the document instead of treating the tag change
+			// as lost.
+			if document.TagsAsDelta {
+				changed, err := client.applyTagDelta(ctx, db, document, availableTags)
+				if err != nil {
+					return err
+				}
+				if changed {
+					if firstPartial == nil {
+						firstPartial = &PartialUpdateError{DocumentID: documentID, DroppedFields: partialDroppedFields}
+					}
+					continue
+				}
+			}
+			return fmt.Errorf("error updating document %d: paperless-ngx rejected every field that was suggested (dropped on previous attempts: %v)", documentID, partialDroppedFields)
+		}
 		if !patchSucceeded {
 			return fmt.Errorf("error updating document %d: paperless-ngx still rejected the update after %d retries (fields dropped so far: %v)", documentID, maxRetries, partialDroppedFields)
 		}
@@ -1265,7 +1287,7 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// Tags go last, once the other fields and their history are written:
 		// removing the trigger tag is what marks the document done.
 		if document.TagsAsDelta {
-			if err := client.applyTagDelta(ctx, db, document, availableTags); err != nil {
+			if _, err := client.applyTagDelta(ctx, db, document, availableTags); err != nil {
 				return err
 			}
 		}
@@ -1277,13 +1299,56 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 	return nil
 }
 
+// tagChangeAsDelta turns the tag list a suggestion would write into the
+// change it makes to OriginalDocument, as a TagsAsDelta suggestion: the tags
+// it adds and the tags it drops. When nobody touched the document's tags
+// meanwhile the result is the same as writing the list, but tags added or
+// removed in paperless-ngx since OriginalDocument was fetched (while OCR or
+// the LLM ran) stay as they are. A tag that was on the snapshot is never sent
+// as an add, so removing it meanwhile sticks.
+//
+// It mirrors the list UpdateDocuments builds outside an undo.
+func tagChangeAsDelta(document DocumentSuggestion) DocumentSuggestion {
+	if document.TagsAsDelta {
+		return document
+	}
+	containsFold := func(names []string, name string) bool {
+		return slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, name) })
+	}
+	snapshot := document.OriginalDocument.Tags
+
+	var added []string
+	for _, tagName := range document.SuggestedTags {
+		if !containsFold(snapshot, tagName) && !containsFold(added, tagName) {
+			added = append(added, tagName)
+		}
+	}
+	removed := slices.Clone(document.RemoveTags)
+	if len(document.SuggestedTags) > 0 && !document.KeepOriginalTags {
+		// The suggestion replaces the tags, keeping paperless-gpt's marker
+		// tags already on the document, as in UpdateDocuments.
+		kept := append(slices.Clone(document.SuggestedTags), keptSystemTags(snapshot)...)
+		for _, tagName := range snapshot {
+			if !containsFold(kept, tagName) && !containsFold(removed, tagName) {
+				removed = append(removed, tagName)
+			}
+		}
+	}
+
+	document.SuggestedTags = added
+	document.RemoveTags = removed
+	document.TagsAsDelta = true
+	return document
+}
+
 // applyTagDelta applies a TagsAsDelta suggestion's tag change with
 // modify_tags: an add/remove on the server, so tags someone else set or
 // removed since OriginalDocument was fetched stay as they are.
 //
 // Precedence matches the full-list path in UpdateDocuments: RemoveTags beat
-// SuggestedTags, AddTags beat RemoveTags.
-func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, document DocumentSuggestion, availableTags map[string]int) error {
+// SuggestedTags, AddTags beat RemoveTags. It reports whether there was a tag
+// change to send.
+func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, document DocumentSuggestion, availableTags map[string]int) (bool, error) {
 	documentID := document.ID
 	containsFold := func(names []string, name string) bool {
 		return slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, name) })
@@ -1334,7 +1399,7 @@ func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, d
 	}
 
 	if len(addIDs) == 0 && len(removeIDs) == 0 {
-		return nil
+		return false, nil
 	}
 	slices.Sort(removeIDs)
 
@@ -1349,13 +1414,13 @@ func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, d
 	}
 
 	if err := client.modifyDocumentTags(ctx, documentID, addIDs, removeIDs); err != nil {
-		return fmt.Errorf("error updating tags of document %d: %w", documentID, err)
+		return false, fmt.Errorf("error updating tags of document %d: %w", documentID, err)
 	}
 	var resultTagIDs []int // the tags after the change, when they were read back
 	if len(addIDs) > 0 && len(removeIDs) > 0 {
 		var err error
 		if resultTagIDs, err = client.ensureTagsRemoved(ctx, documentID, removeIDs); err != nil {
-			return fmt.Errorf("error updating tags of document %d: %w", documentID, err)
+			return false, fmt.Errorf("error updating tags of document %d: %w", documentID, err)
 		}
 	}
 	log.Printf("Document %d: Updated tags: added %v, removed %v", documentID, addedNames, removedNames)
@@ -1382,9 +1447,9 @@ func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, d
 		NewValue:      marshalTagsForHistory(newTagNames),
 	}
 	if err := InsertModification(db, &mod); err != nil {
-		return fmt.Errorf("error inserting modification record for document %d: %w", documentID, err)
+		return true, fmt.Errorf("error inserting modification record for document %d: %w", documentID, err)
 	}
-	return nil
+	return true, nil
 }
 
 // ensureTagsRemoved removes removeTagIDs again if a modify_tags call that
