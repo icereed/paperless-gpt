@@ -523,6 +523,30 @@ func TestPruneOCRRunsConcurrently(t *testing.T) {
 	assert.Equal(t, int64(1), activePages)
 }
 
+// A run that is still in progress keeps its page results even when its
+// document has more newer runs than the per-document page retention.
+func TestPruneOCRRunsKeepsPagesOfRunsInProgress(t *testing.T) {
+	db := newFileTestDB(t)
+	base := time.Now().Add(-time.Hour)
+	require.NoError(t, db.Create(&OCRRun{JobID: "active", DocumentID: 7, Trigger: "manual", Status: "in_progress", StartedAt: base}).Error)
+	require.NoError(t, db.Create(&OCRPageResult{DocumentID: 7, JobID: "active", PageIndex: 0, Text: "page"}).Error)
+	require.NoError(t, db.Create(&OCRRun{JobID: "old", DocumentID: 7, Trigger: "auto", Status: "completed", StartedAt: base.Add(-time.Minute)}).Error)
+	require.NoError(t, db.Create(&OCRPageResult{DocumentID: 7, JobID: "old", PageIndex: 0, Text: "page"}).Error)
+	for i := 1; i <= ocrRunsWithPagesPerDocument; i++ {
+		jobID := fmt.Sprintf("newer-%d", i)
+		require.NoError(t, db.Create(&OCRRun{JobID: jobID, DocumentID: 7, Trigger: "auto", Status: "completed", StartedAt: base.Add(time.Duration(i) * time.Minute)}).Error)
+		require.NoError(t, db.Create(&OCRPageResult{DocumentID: 7, JobID: jobID, PageIndex: 0, Text: "page"}).Error)
+	}
+
+	require.NoError(t, PruneOCRRuns(db, 7))
+
+	var active, old int64
+	require.NoError(t, db.Model(&OCRPageResult{}).Where("job_id = ?", "active").Count(&active).Error)
+	require.NoError(t, db.Model(&OCRPageResult{}).Where("job_id = ?", "old").Count(&old).Error)
+	assert.Equal(t, int64(1), active, "pages of a run in progress must be kept")
+	assert.Equal(t, int64(0), old, "pages of an older completed run are still pruned")
+}
+
 // TestPdfcpuConfigConcurrentFirstUse runs in a fresh process, so pdfcpu's
 // default configuration is really loaded for the first time by several
 // goroutines at once. Run with -race to detect the unsynchronized load.

@@ -133,6 +133,17 @@ func PruneOCRRuns(db *gorm.DB, documentID int) error {
 		Pluck("job_id", &keepJobIDs).Error; err != nil {
 		return err
 	}
+	// Runs still in progress keep their page texts even when newer runs
+	// exist: their worker is writing them right now.
+	var activeJobIDs []string
+	if err := db.Model(&OCRRun{}).
+		Where("document_id = ? AND job_id <> '' AND status = ?", documentID, "in_progress").
+		Pluck("job_id", &activeJobIDs).Error; err != nil {
+		return err
+	}
+	if len(keepJobIDs) > 0 {
+		keepJobIDs = append(keepJobIDs, activeJobIDs...)
+	}
 	// Delete page results of this document that belong to older runs.
 	// Legacy rows (job_id = '') are also dropped once newer runs exist.
 	if len(keepJobIDs) > 0 {
