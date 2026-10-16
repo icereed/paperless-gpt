@@ -33,6 +33,7 @@ type fakePaperless struct {
 
 	patchStatus int    // when non-zero, PATCH answers with this status
 	patchBody   string // the body of that answer (default: an unparseable error)
+	tagsStatus  int    // when non-zero, a PATCH with a tag list answers with this status
 	bulkStatus  int    // when non-zero, bulk_edit answers with this status
 
 	parent map[int]int // tag hierarchy: child ID -> parent ID
@@ -134,6 +135,10 @@ func (f *fakePaperless) register(env *testEnv) {
 			}
 			f.patches = append(f.patches, body)
 			f.ops = append(f.ops, "PATCH")
+			if _, hasTags := body["tags"]; hasTags && f.tagsStatus != 0 {
+				http.Error(w, `{"detail":"rejected"}`, f.tagsStatus)
+				return
+			}
 			if f.patchStatus != 0 {
 				body := f.patchBody
 				if body == "" {
@@ -515,16 +520,34 @@ func TestUpdateDocuments_TagsAsDelta(t *testing.T) {
 		assert.Empty(t, fake.ops)
 	})
 
-	t.Run("modify_tags failure is returned after the fields were written", func(t *testing.T) {
+	t.Run("rejected modify_tags falls back to the tag list", func(t *testing.T) {
 		env := newTestEnv(t)
 		defer env.teardown()
 		fake := newDeltaTestFake(env)
 		fake.bulkStatus = http.StatusInternalServerError
+		fake.docTags = append(fake.docTags, 77) // invisible tag
+		db := newOCRRunTestDB(t)
+
+		require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{deltaSuggestion("new text")}, db, false))
+		assert.Equal(t, []string{"PATCH", "bulk_edit", "PATCH"}, fake.ops)
+		assert.Equal(t, "new text", fake.content)
+		assert.Equal(t, []string{"", "inbox", "paperless-gpt-ocr-complete"}, fake.docTagNames())
+		mods, err := GetAllModifications(db)
+		require.NoError(t, err)
+		require.Len(t, mods, 2)
+	})
+
+	t.Run("tag change failure is returned after the fields were written", func(t *testing.T) {
+		env := newTestEnv(t)
+		defer env.teardown()
+		fake := newDeltaTestFake(env)
+		fake.bulkStatus = http.StatusInternalServerError
+		fake.tagsStatus = http.StatusInternalServerError
 		db := newOCRRunTestDB(t)
 
 		err := env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{deltaSuggestion("new text")}, db, false)
 		require.Error(t, err)
-		assert.Equal(t, []string{"PATCH", "bulk_edit"}, fake.ops)
+		assert.Equal(t, []string{"PATCH", "bulk_edit", "PATCH"}, fake.ops)
 		assert.Equal(t, "new text", fake.content)
 		assert.Equal(t, []string{"inbox", "paperless-gpt-ocr-auto"}, fake.docTagNames(), "the trigger tag stays when the tag change failed")
 
@@ -754,6 +777,38 @@ func TestProcessTagDocuments_KeepsTagChangesMadeDuringGeneration(t *testing.T) {
 		assert.Equal(t, []string{"", "finance", "inbox", "invoice", done}, fake.docTagNames(),
 			"approving must not bring back a tag removed while the suggestions were generated")
 	})
+
+	// If paperless-ngx rejects modify_tags, the tag change degrades to a
+	// tag list written from a fresh read instead of being lost.
+	t.Run("modify_tags rejected", func(t *testing.T) {
+		for _, approval := range []bool{false, true} {
+			t.Run("approval="+strconv.FormatBool(approval), func(t *testing.T) {
+				isolateWorkflowSettings(t)
+				wf := workflow
+				wf.RequireApproval = approval
+				useWorkflows(t, wf)
+				env := newTestEnv(t)
+				defer env.teardown()
+				require.NoError(t, env.db.AutoMigrate(&PendingReview{}))
+				fake := newFake(env, trigger)
+				fake.bulkStatus = http.StatusMethodNotAllowed
+				app := &App{Client: env.client, Database: env.db}
+				app.LLM = &hookLLM{mockLLM: mockLLM{Response: "invoice"}, during: changeTags(fake)}
+
+				count, err := app.processAutoTagDocuments(context.Background())
+				require.NoError(t, err)
+				assert.Equal(t, 1, count)
+				want := []string{"", "finance", "inbox", "invoice", done}
+				if approval {
+					want = []string{"", "finance", "inbox", manualTag}
+					var n int64
+					env.db.Model(&PendingReview{}).Count(&n)
+					assert.EqualValues(t, 1, n, "the held suggestions are kept")
+				}
+				assert.Equal(t, want, fake.docTagNames())
+			})
+		}
+	})
 }
 
 func TestTagChangeAsDelta(t *testing.T) {
@@ -919,4 +974,23 @@ func TestUpdateDocuments_TagsAsDeltaWhenEveryFieldIsRejected(t *testing.T) {
 		require.Error(t, err)
 		assert.NotErrorAs(t, err, new(*PartialUpdateError))
 	})
+}
+
+// Taking a document out of the queue must not depend on modify_tags alone,
+// or a rejected bulk_edit would leave it to be processed on every poll.
+func TestMarkProcessingFailed_FallsBackToTagListWhenModifyTagsFails(t *testing.T) {
+	prevFailTag := failTag
+	t.Cleanup(func() { failTag = prevFailTag })
+	failTag = "finance" // any existing tag
+
+	env := newTestEnv(t)
+	defer env.teardown()
+	fake := newDeltaTestFake(env)
+	fake.bulkStatus = http.StatusInternalServerError
+	doc, err := env.client.GetDocument(context.Background(), 7)
+	require.NoError(t, err)
+
+	require.NoError(t, markProcessingFailed(context.Background(), env.client, newOCRRunTestDB(t), doc, "paperless-gpt-ocr-auto", "update failed"))
+	assert.Equal(t, []string{"bulk_edit", "PATCH"}, fake.ops)
+	assert.Equal(t, []string{"finance", "inbox"}, fake.docTagNames())
 }

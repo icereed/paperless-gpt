@@ -1413,12 +1413,18 @@ func (client *PaperlessClient) applyTagDelta(ctx context.Context, db *gorm.DB, d
 		previousTagNames, _ = resolveTagNames(current.Tags, availableTags)
 	}
 
+	var resultTagIDs []int // the tags after the change, when they are known
 	if err := client.modifyDocumentTags(ctx, documentID, addIDs, removeIDs); err != nil {
-		return false, fmt.Errorf("error updating tags of document %d: %w", documentID, err)
-	}
-	var resultTagIDs []int // the tags after the change, when they were read back
-	if len(addIDs) > 0 && len(removeIDs) > 0 {
-		var err error
+		if !errors.Is(err, errModifyTagsRejected) {
+			return false, fmt.Errorf("error updating tags of document %d: %w", documentID, err)
+		}
+		// Degrade to the tag list rather than losing the change: a
+		// document whose trigger tag stays is processed again on every poll.
+		log.Warnf("Document %d: paperless-ngx rejected modify_tags (%v); writing the tag list instead", documentID, err)
+		if resultTagIDs, err = client.writeTagChangeAsList(ctx, documentID, addIDs, removeIDs); err != nil {
+			return false, fmt.Errorf("error updating tags of document %d: %w", documentID, err)
+		}
+	} else if len(addIDs) > 0 && len(removeIDs) > 0 {
 		if resultTagIDs, err = client.ensureTagsRemoved(ctx, documentID, removeIDs); err != nil {
 			return false, fmt.Errorf("error updating tags of document %d: %w", documentID, err)
 		}
@@ -1518,9 +1524,47 @@ func (client *PaperlessClient) modifyDocumentTags(ctx context.Context, documentI
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("modify_tags failed: %d, %s", resp.StatusCode, string(bodyBytes))
+		return fmt.Errorf("%w: %d, %s", errModifyTagsRejected, resp.StatusCode, string(bodyBytes))
 	}
 	return nil
+}
+
+// errModifyTagsRejected is returned when paperless-ngx answers a modify_tags
+// call with an error status.
+var errModifyTagsRejected = errors.New("modify_tags failed")
+
+// writeTagChangeAsList is the fallback for a rejected modify_tags call: it
+// applies the change to the tags the document has right now and PATCHes the
+// resulting list, which keeps the window for concurrent changes to one
+// request. It returns the tag IDs it wrote.
+func (client *PaperlessClient) writeTagChangeAsList(ctx context.Context, documentID int, addTagIDs, removeTagIDs []int) ([]int, error) {
+	current, err := client.getDocumentRaw(ctx, documentID)
+	if err != nil {
+		return nil, err
+	}
+	tagIDs := slices.DeleteFunc(slices.Clone(current.Tags), func(id int) bool { return slices.Contains(removeTagIDs, id) })
+	for _, id := range addTagIDs {
+		if !slices.Contains(tagIDs, id) {
+			tagIDs = append(tagIDs, id)
+		}
+	}
+	if tagIDs == nil {
+		tagIDs = []int{}
+	}
+	payload, err := json.Marshal(map[string][]int{"tags": tagIDs})
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(ctx, "PATCH", fmt.Sprintf("api/documents/%d/", documentID), bytes.NewBuffer(payload))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("writing the tag list failed: %d, %s", resp.StatusCode, string(bodyBytes))
+	}
+	return tagIDs, nil
 }
 
 // parsePaperlessValidationErrors interprets paperless-ngx's 400 response body
