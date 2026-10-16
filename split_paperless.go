@@ -76,7 +76,7 @@ func (client *PaperlessClient) ListSplitDocumentIDs(ctx context.Context, tag str
 				ID int `json:"id"`
 			} `json:"results"`
 		}
-		path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=100&page=%d&ordering=id", url.QueryEscape(tag), page)
+		path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=100&page=%d&ordering=id&fields=id", url.QueryEscape(tag), page)
 		if err := client.splitRequest(ctx, http.MethodGet, path, nil, &result); err != nil {
 			return nil, err
 		}

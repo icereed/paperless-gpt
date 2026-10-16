@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"paperless-gpt/internal/textsanitize"
 )
 
 // SplitSuggestion records an entire batch decision, including uncertain submissions.
@@ -133,7 +134,7 @@ func (app *App) generateSplitSuggestion(ctx context.Context, id int, regenerate 
 		if suggestion.Status != "review" && suggestion.Status != "failed" && suggestion.Status != "skipped" {
 			return nil, fmt.Errorf("cannot regenerate a %s split", suggestion.Status)
 		}
-		suggestion.Status, suggestion.Error = "generating", ""
+		suggestion.Status, suggestion.Error, suggestion.AppliedBoundaries = "generating", "", nil
 		if err := app.Database.WithContext(ctx).Save(&suggestion).Error; err != nil {
 			return nil, err
 		}
@@ -150,7 +151,11 @@ func (app *App) generateSplitSuggestion(ctx context.Context, id int, regenerate 
 		defer cancel()
 		suggestion.Status, suggestion.Error = "failed", cause.Error()
 		saveErr := app.Database.WithContext(cleanupCtx).Save(&suggestion).Error
-		tagErr := app.tagSplitFailure(cleanupCtx, client, id)
+		var tagErr error
+		// A cancelled request or shutdown is not a document failure; leave FAIL_TAG off.
+		if ctx.Err() == nil {
+			tagErr = app.tagSplitFailure(cleanupCtx, client, id)
+		}
 		return &suggestion, errors.Join(cause, saveErr, tagErr)
 	}
 	source, err := client.GetSplitSource(ctx, id)
@@ -196,7 +201,7 @@ func (app *App) generateSplitSuggestion(ctx context.Context, id int, regenerate 
 			if callErr != nil {
 				return fail(callErr)
 			}
-			boundaries, err = parseSplitBoundaries(response, window.First, window.Last)
+			boundaries, err = parseSplitBoundaries(textsanitize.StripCodeFences(response), window.First, window.Last)
 			if err == nil {
 				break
 			}
@@ -343,12 +348,14 @@ func (app *App) applySplitSuggestion(ctx context.Context, id uint, boundaries []
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 	// Even delete_originals queues deletion later; remove temporary tags while the original exists.
-	cleanupErr := app.restoreSplitTags(cleanupCtx, client, &s, swapErr != nil)
+	// A definite 4xx rejection means nothing was submitted, so the document returns to the queue.
+	rejected := isSplitRejection(submitErr)
+	cleanupErr := app.restoreSplitTags(cleanupCtx, client, &s, swapErr != nil || rejected)
 	s.Status = "submitted"
-	if swapErr != nil {
+	if swapErr != nil || rejected {
 		s.Status = "review"
 	}
-	if submitErr != nil || cleanupErr != nil {
+	if (submitErr != nil && !rejected) || cleanupErr != nil {
 		s.Status = "uncertain"
 	}
 	combined := errors.Join(swapErr, submitErr, cleanupErr)
@@ -357,6 +364,13 @@ func (app *App) applySplitSuggestion(ctx context.Context, id uint, boundaries []
 	}
 	saveErr := app.Database.WithContext(cleanupCtx).Save(&s).Error
 	return &s, errors.Join(combined, saveErr)
+}
+
+// isSplitRejection reports whether err is a 4xx answer other than timeout or rate limiting.
+func isSplitRejection(err error) bool {
+	var status *splitHTTPError
+	return errors.As(err, &status) && status.Status >= 400 && status.Status < 500 &&
+		status.Status != http.StatusRequestTimeout && status.Status != http.StatusTooManyRequests
 }
 
 // splitJSON returns v encoded as JSON, or an empty string if encoding fails.

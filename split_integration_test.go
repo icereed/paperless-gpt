@@ -282,7 +282,7 @@ func TestAutoOCRPreservesSplitKeepTagsFromQueuedDocuments(t *testing.T) {
 
 // TestSplitApplyFailureRecovery checks that tag-swap failures restore review state while submission or cleanup failures block retries.
 func TestSplitApplyFailureRecovery(t *testing.T) {
-	for _, stage := range []string{"swap", "submit", "cleanup"} {
+	for _, stage := range []string{"swap", "submit", "rejected", "cleanup"} {
 		t.Run(stage, func(t *testing.T) {
 			app, client, s := splitApplyFixture(t)
 			switch stage {
@@ -290,6 +290,8 @@ func TestSplitApplyFailureRecovery(t *testing.T) {
 				client.swapErr = errors.New("swap failed")
 			case "submit":
 				client.splitErr = errors.New("connection lost")
+			case "rejected":
+				client.splitErr = &splitHTTPError{Status: http.StatusBadRequest}
 			case "cleanup":
 				client.cleanupErr = errors.New("cleanup failed")
 			}
@@ -301,6 +303,11 @@ func TestSplitApplyFailureRecovery(t *testing.T) {
 				for _, event := range client.events {
 					assert.NotContains(t, event, "split:")
 				}
+			} else if stage == "rejected" {
+				// A definite 4xx means nothing was submitted: the document returns to the queue.
+				assert.Equal(t, "review", result.Status)
+				assert.Contains(t, client.source.Tags, 1)
+				assert.NotContains(t, client.source.Tags, 2)
 			} else {
 				assert.Equal(t, "uncertain", result.Status)
 				_, err = app.applySplitSuggestion(context.Background(), s.ID, []int{3})
@@ -308,6 +315,67 @@ func TestSplitApplyFailureRecovery(t *testing.T) {
 			}
 		})
 	}
+}
+
+// splitGenerateFixture prepares an app that can generate suggestions for a six-page document with the given model.
+func splitGenerateFixture(t *testing.T, model *splitTestLLM) (*App, *splitTestClient) {
+	t.Helper()
+	app, client, old := splitApplyFixture(t)
+	require.NoError(t, app.Database.Delete(old).Error)
+	client.data = syntheticSplitPDF(6)
+	client.source.PageCount = 6
+	app.LLM = model
+	app.splitConfig.DryRun = true
+	previousTag := failTag
+	failTag = "failed"
+	t.Cleanup(func() { failTag = previousTag })
+	previousTemplate := splitTemplate
+	t.Cleanup(func() { splitTemplate = previousTemplate })
+	prompt, err := os.ReadFile("default_prompts/split_prompt.tmpl")
+	require.NoError(t, err)
+	splitTemplate, err = template.New("split").Parse(string(prompt))
+	require.NoError(t, err)
+	return app, client
+}
+
+// TestSplitRegenerateAcceptsFencedJSONAndClearsApplied checks that a markdown-fenced model answer parses and a regenerated suggestion drops the earlier applied selection.
+func TestSplitRegenerateAcceptsFencedJSONAndClearsApplied(t *testing.T) {
+	model := &splitTestLLM{responses: []string{"```json\n[{\"after_page\":2,\"confidence\":0.99,\"reason\":\"New sender\"}]\n```"}}
+	app, _ := splitGenerateFixture(t, model)
+	require.NoError(t, app.Database.Create(&SplitSuggestion{DocumentID: 17, Status: "review", AppliedBoundaries: []int{4}}).Error)
+	suggestion, err := app.generateSplitSuggestion(context.Background(), 17, true)
+	require.NoError(t, err)
+	assert.Equal(t, 1, model.calls)
+	assert.Equal(t, "review", suggestion.Status)
+	assert.Empty(t, suggestion.AppliedBoundaries)
+	var stored SplitSuggestion
+	require.NoError(t, app.Database.Where("document_id = ?", 17).First(&stored).Error)
+	assert.Empty(t, stored.AppliedBoundaries)
+}
+
+// splitCancelLLM cancels the request context during the model call, as a dropped client connection does.
+type splitCancelLLM struct {
+	llms.Model
+	cancel context.CancelFunc
+}
+
+// Call cancels the request context and reports the cancellation.
+func (m *splitCancelLLM) Call(ctx context.Context, _ string, _ ...llms.CallOption) (string, error) {
+	m.cancel()
+	return "", ctx.Err()
+}
+
+// TestSplitCancelledGenerationDoesNotTagFailure checks that a cancelled request is not recorded as a document failure tag.
+func TestSplitCancelledGenerationDoesNotTagFailure(t *testing.T) {
+	app, client := splitGenerateFixture(t, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	app.LLM = &splitCancelLLM{cancel: cancel}
+	suggestion, err := app.generateSplitSuggestion(ctx, 17, false)
+	require.Error(t, err)
+	require.NotNil(t, suggestion)
+	assert.Equal(t, "failed", suggestion.Status)
+	assert.NotContains(t, client.source.Tags, 3)
 }
 
 // TestSplitInterruptedState checks that interrupted generation becomes failed and interrupted application becomes uncertain.
@@ -355,6 +423,7 @@ func TestSplitAPIPaginationAndTagVerification(t *testing.T) {
 			return
 		}
 		assert.Equal(t, "split", r.URL.Query().Get("tags__name__iexact"))
+		assert.Equal(t, "id", r.URL.Query().Get("fields"))
 		if r.URL.Query().Get("page") == "1" {
 			fmt.Fprint(w, `{"next":"https://untrusted.example/next","results":[{"id":1}]}`)
 		} else {
