@@ -12,6 +12,7 @@ import (
 	"sync"
 	"text/template"
 	"time"
+	"unicode"
 
 	_ "image/jpeg"
 
@@ -454,6 +455,10 @@ const (
 	// minDocumentLinkReferenceLength keeps short fragments like "12" from
 	// matching all over the archive.
 	minDocumentLinkReferenceLength = 4
+
+	// minDocumentLinkDigits is how many digits a reference made of digits
+	// alone needs; see plausibleDocumentReference.
+	minDocumentLinkDigits = 5
 )
 
 // getSuggestedCustomFields generates suggested custom fields for a document using the LLM.
@@ -617,20 +622,22 @@ func (app *App) resolveDocumentLinks(ctx context.Context, documentID int, value 
 			continue
 		}
 
-		// One extra result for the document itself and one more to tell
-		// whether the reference matches too many documents.
-		ids, err := app.Client.FindDocumentIDsByReference(ctx, reference, maxDocumentLinkMatches+2)
+		if !plausibleDocumentReference(reference) {
+			logger.Debugf("Document link reference %q doesn't look like a document identifier, skipping.", reference)
+			continue
+		}
+
+		ids, tooMany, err := app.Client.FindDocumentIDsByReference(ctx, reference, documentID, maxDocumentLinkMatches)
 		if err != nil {
 			logger.Warnf("Looking up document link reference %q failed, skipping it: %v", reference, err)
 			continue
 		}
-		ids = slices.DeleteFunc(ids, func(id int) bool { return id == documentID })
 
 		switch {
+		case tooMany:
+			logger.Debugf("Document link reference %q matched more than %d other documents, too generic to link.", reference, maxDocumentLinkMatches)
 		case len(ids) == 0:
 			logger.Debugf("Document link reference %q matched no other document.", reference)
-		case len(ids) > maxDocumentLinkMatches:
-			logger.Debugf("Document link reference %q matched more than %d other documents, too generic to link.", reference, maxDocumentLinkMatches)
 		default:
 			for _, id := range ids {
 				if !slices.Contains(linkedIDs, id) {
@@ -640,6 +647,28 @@ func (app *App) resolveDocumentLinks(ctx context.Context, documentID int, value 
 		}
 	}
 	return linkedIDs
+}
+
+// plausibleDocumentReference rejects references that can't identify one
+// document even when they are rare in the archive: identifiers contain a
+// digit (a law title like "Zahlungsdiensteaufsichtsgesetz" doesn't), and a
+// number made of digits alone needs minDocumentLinkDigits of them (form
+// numbers like "1772" or a year like "2026" are printed on many documents
+// without naming any of them).
+func plausibleDocumentReference(reference string) bool {
+	digits, others := 0, 0
+	for _, r := range reference {
+		switch {
+		case unicode.IsDigit(r):
+			digits++
+		case unicode.IsLetter(r):
+			others++
+		}
+	}
+	if digits == 0 {
+		return false
+	}
+	return others > 0 || digits >= minDocumentLinkDigits
 }
 
 // documentLinkReferences normalizes the LLM's value for a documentlink field

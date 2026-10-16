@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -2045,29 +2046,115 @@ func TestFindDocumentIDsByReference(t *testing.T) {
 		assert.Equal(t, "GET", r.Method)
 		assert.Equal(t, "R123", r.URL.Query().Get("content__icontains"))
 		assert.Equal(t, "id,content", r.URL.Query().Get("fields"))
-		assert.Equal(t, "5", r.URL.Query().Get("page_size"))
+		assert.Equal(t, "1", r.URL.Query().Get("page"))
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"count": 4, "results": [
+		w.Write([]byte(`{"count": 5, "results": [
 			{"id": 1, "content": "Rechnung R123 vom 01.09.2026"},
 			{"id": 2, "content": "Rechnung R1234 vom 02.09.2026"},
 			{"id": 3, "content": "Mahnung zu Rechnung r123."},
-			{"id": 4, "content": "Auftrag AR123"}
+			{"id": 4, "content": "Auftrag AR123"},
+			{"id": 9, "content": "R123 is this document's own number"}
 		]}`))
 	})
 
-	ids, err := env.client.FindDocumentIDsByReference(context.Background(), " R123 ", 5)
+	ids, tooMany, err := env.client.FindDocumentIDsByReference(context.Background(), " R123 ", 9, 3)
 	require.NoError(t, err)
-	assert.Equal(t, []int{1, 3}, ids)
+	assert.False(t, tooMany)
+	assert.Equal(t, []int{1, 3}, ids, "whole words only, without the excluded document")
 }
 
 func TestFindDocumentIDsByReference_EmptyReference(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()
 
-	ids, err := env.client.FindDocumentIDsByReference(context.Background(), "  ", 5)
+	ids, tooMany, err := env.client.FindDocumentIDsByReference(context.Background(), "  ", 0, 3)
 	require.NoError(t, err)
 	assert.Empty(t, ids)
+	assert.False(t, tooMany)
 	assert.Equal(t, 0, env.requestCount, "an empty reference must not query paperless-ngx")
+}
+
+// referencePages serves numbered pages of content__icontains results.
+func referencePages(t *testing.T, env *testEnv, count int, pages map[string][]string) {
+	t.Helper()
+	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("page")
+		var results []map[string]any
+		for i, content := range pages[page] {
+			id, _ := strconv.Atoi(page)
+			results = append(results, map[string]any{"id": id*100 + i, "content": content})
+		}
+		body, _ := json.Marshal(map[string]any{"count": count, "results": results})
+		w.WriteHeader(http.StatusOK)
+		w.Write(body)
+	})
+}
+
+// #1202: the first page of substring hits held only two whole-word matches
+// ("11772", "1772-3" are substring hits too), so a reference cited in many
+// documents was linked. The decision has to look at the following pages.
+func TestFindDocumentIDsByReference_DecidesAcrossPages(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	first := []string{"Form 1772", "Ref 11772", "Form 1772 again", "x 117722"}
+	for len(first) < referenceScanPageSize {
+		first = append(first, "Order 21772")
+	}
+	referencePages(t, env, referenceScanPageSize+5, map[string][]string{
+		"1": first,
+		"2": {"Form 1772", "Form 1772", "Form 1772", "Ref 11772", "Ref 11772"},
+	})
+
+	ids, tooMany, err := env.client.FindDocumentIDsByReference(context.Background(), "1772", 0, 3)
+	require.NoError(t, err)
+	assert.True(t, tooMany, "five whole-word matches across two pages are too many")
+	assert.Nil(t, ids)
+	assert.Equal(t, 2, env.requestCount)
+}
+
+func TestFindDocumentIDsByReference_StopsOnceDecided(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	page := []string{"R5 a", "R5 b", "R5 c", "R5 d"}
+	for len(page) < referenceScanPageSize {
+		page = append(page, "R5 more")
+	}
+	referencePages(t, env, 150, map[string][]string{"1": page})
+
+	_, tooMany, err := env.client.FindDocumentIDsByReference(context.Background(), "R5", 0, 3)
+	require.NoError(t, err)
+	assert.True(t, tooMany)
+	assert.Equal(t, 1, env.requestCount, "no further pages once more than maxMatches matched")
+}
+
+func TestFindDocumentIDsByReference_TooManySubstringHits(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	referencePages(t, env, referenceScanLimit+1, map[string][]string{"1": {"Ref 4711"}})
+
+	_, tooMany, err := env.client.FindDocumentIDsByReference(context.Background(), "4711", 0, 3)
+	require.NoError(t, err)
+	assert.True(t, tooMany, "more substring hits than can be scanned is treated as too generic")
+}
+
+func TestFindDocumentIDsByReference_CompleteResult(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	page := []string{"Rechnung R-77 vom", "R-770", "Mahnung zu R-77"}
+	for len(page) < referenceScanPageSize {
+		page = append(page, "R-7700")
+	}
+	referencePages(t, env, referenceScanPageSize+1, map[string][]string{"1": page, "2": {"R-77001"}})
+
+	ids, tooMany, err := env.client.FindDocumentIDsByReference(context.Background(), "R-77", 0, 3)
+	require.NoError(t, err)
+	assert.False(t, tooMany)
+	assert.Equal(t, []int{100, 102}, ids)
+	assert.Equal(t, 2, env.requestCount, "all substring hits were read")
 }
 
 // paperless-ngx treats correspondent and document type names as unique
