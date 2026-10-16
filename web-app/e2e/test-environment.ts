@@ -6,6 +6,7 @@ import { GenericContainer, Network, StartedTestContainer, Wait } from 'testconta
 export interface TestEnvironment {
   paperlessNgx: StartedTestContainer;
   paperlessGpt: StartedTestContainer;
+  llmMock?: StartedTestContainer;
   cleanup: () => Promise<void>;
 }
 
@@ -23,6 +24,8 @@ export const PREDEFINED_TAGS = [
 export interface TestEnvironmentConfig {
   ocrProvider?: string;
   processMode?: string;
+  splitDryRun?: boolean;
+  splitAuto?: boolean;
 }
 
 // Stoppable is anything started so far that setupTestEnvironment needs to
@@ -49,11 +52,16 @@ export function isMockLlmMode(): boolean {
   return process.env.E2E_LLM_MODE === 'mock';
 }
 
+/**
+ * Starts Paperless and GPT containers with the requested OCR and split settings.
+ * Returns container handles and cleanup; failed setup stops resources already started.
+ */
 export async function setupTestEnvironment(config?: TestEnvironmentConfig): Promise<TestEnvironment> {
   console.log('Setting up test environment...');
   const paperlessPort = PORTS.paperlessNgx;
   const gptPort = PORTS.paperlessGpt;
   const started: Stoppable[] = [];
+  let llmMock: StartedTestContainer | undefined;
 
   try {
     // Create a network for the containers
@@ -73,6 +81,7 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
         .withWaitStrategy(Wait.forHttp('/__admin/mappings', 8080))
         .start();
       started.push(wiremock);
+      llmMock = wiremock;
       console.log('WireMock LLM mock container started');
     }
 
@@ -151,6 +160,13 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
       });
     }
 
+    if (config?.splitDryRun !== undefined) {
+      Object.assign(baseEnvironment, { SPLIT_DRY_RUN: String(config.splitDryRun) });
+    }
+    if (config?.splitAuto !== undefined) {
+      Object.assign(baseEnvironment, { SPLIT_AUTO: String(config.splitAuto) });
+    }
+
     // Configure OCR provider and processing mode based on config
     if (config?.ocrProvider === 'mistral_ocr') {
       Object.assign(baseEnvironment, {
@@ -205,6 +221,7 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
     return {
       paperlessNgx,
       paperlessGpt,
+      llmMock,
       cleanup,
     };
   } catch (error) {

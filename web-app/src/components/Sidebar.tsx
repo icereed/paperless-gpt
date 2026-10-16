@@ -6,6 +6,7 @@ import {
   HomeIcon,
   Bars3Icon,
   QueueListIcon,
+  ScissorsIcon,
 } from "@heroicons/react/24/outline";
 import classNames from "classnames";
 import React, { useEffect, useState } from "react";
@@ -22,6 +23,7 @@ interface MenuItem {
   title: string;
 }
 
+/** Renders page links with active-route state and a persisted, responsive collapse setting. */
 const Sidebar: React.FC = () => {
   const [collapsed, setCollapsed] = useState(
     () =>
@@ -63,6 +65,7 @@ const Sidebar: React.FC = () => {
       icon: DocumentChartBarIcon,
       title: "Ad-hoc Analysis",
     },
+    { name: "splitting", path: "./splitting", icon: ScissorsIcon, title: "Split Suggestions" },
     { name: "history", path: "./history", icon: ClockIcon, title: "History" },
     {
       name: "workflows",

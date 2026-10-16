@@ -7,7 +7,9 @@ import History from './History';
 import Settings from './components/Settings';
 import AdhocAnalysis from './AdhocAnalysis';
 import Workflows from './Workflows';
+import Splitting from './Splitting';
 
+/** Renders navigation and page routes beneath the URL's reverse-proxy base path. */
 const App: React.FC = () => {
   // Keep the base path (path prefix from reverse-proxy) and remove the app path,
   // convert "/" to "" so Router basename is empty at root.
@@ -29,6 +31,7 @@ const App: React.FC = () => {
             <Route path="/history" element={<History />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/workflows" element={<Workflows />} />
+            <Route path="/splitting" element={<Splitting />} />
           </Routes>
         </main>
       </div>

@@ -106,6 +106,8 @@ var (
 	customFieldTemplate   *template.Template
 	ocrTemplate           *template.Template
 	adhocAnalysisTemplate *template.Template
+	splitTemplate         *template.Template
+	splitTag              = "paperless-gpt-split"
 	templateMutex         sync.RWMutex
 
 	// Server-side settings
@@ -136,6 +138,8 @@ func refreshCustomFieldsCache(ctx context.Context, client ClientInterface) {
 
 // App struct to hold dependencies
 type App struct {
+	splitConfig        *SplitConfig
+	splitMu            sync.Mutex
 	Client             ClientInterface
 	Database           *gorm.DB
 	LLM                llms.Model
@@ -161,6 +165,7 @@ type App struct {
 	WorkflowRouter     WorkflowRouter         // Maps documents to workflows; nil uses one trigger tag per workflow
 }
 
+// main loads configuration and processing state, starts background workers, and serves the HTTP API and UI.
 func main() {
 	// Context for proper control of background-thread
 	ctx, cancel := context.WithCancel(context.Background())
@@ -168,6 +173,11 @@ func main() {
 
 	// Validate Environment Variables
 	validateOrDefaultEnvVars()
+	splitSettings, err := readSplitConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	splitTag = splitSettings.Tag
 
 	// Initialize logrus logger
 	initLogger()
@@ -243,6 +253,11 @@ func main() {
 		}
 	}
 
+	for _, tag := range append([]string{splitSettings.Tag}, splitSettings.OutputTags...) {
+		if err := client.EnsureTagExists(startupCtx(), tag); err != nil {
+			log.Warnf("Cannot ensure split tag %q: %v", tag, err)
+		}
+	}
 	ensureWorkflowTagsExist(startupCtx(), client.EnsureTagExists)
 	// Workflows added or changed by editing their files get their tags too.
 	workflows.OnChange(func([]WorkflowConfig) {
@@ -270,6 +285,9 @@ func main() {
 
 	// Initialize Database
 	database := InitializeDB()
+	if err := markInterruptedSplits(database); err != nil {
+		log.Fatalf("Cannot recover split state: %v", err)
+	}
 	if err := MarkInterruptedOCRRuns(database); err != nil {
 		log.Warnf("Failed to mark interrupted OCR runs: %v", err)
 	}
@@ -442,6 +460,7 @@ func main() {
 
 	// Initialize App with dependencies
 	app := &App{
+		splitConfig:        splitSettings,
 		Client:             client,
 		Database:           database,
 		LLM:                llm,
@@ -539,6 +558,10 @@ func main() {
 		// Get all tags
 		api.GET("/tags", app.getAllTagsHandler)
 		api.GET("/custom_fields", app.getCustomFieldsHandler)
+		api.GET("/split-suggestions", app.listSplitSuggestionsHandler)
+		api.POST("/documents/:id/split-suggestions", app.generateSplitSuggestionHandler)
+		api.POST("/split-suggestions/:id/apply", app.applySplitSuggestionHandler)
+		api.POST("/split-suggestions/:id/skip", app.skipSplitSuggestionHandler)
 		api.GET("/prompts", getPromptsHandler)
 		api.POST("/prompts", updatePromptsHandler)
 		api.GET("/settings", app.getSettingsHandler)
@@ -621,6 +644,9 @@ func main() {
 		router.GET("/workflows", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
+		router.GET("/splitting", func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		})
 		router.GET("/favicon.ico", func(c *gin.Context) {
 			c.File("web-app/dist/favicon.ico")
 		})
@@ -661,6 +687,9 @@ func main() {
 		})
 		// workflows route
 		router.GET("/workflows", func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		})
+		router.GET("/splitting", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
 	}
@@ -1070,6 +1099,7 @@ func removeTagFromList(tags []string, tagToRemove string) []string {
 // useful and only obscures intent.
 func systemTags() []string {
 	configured := []string{
+		splitTag,
 		manualTag,
 		autoTag,
 		autoOcrTag,
@@ -1218,6 +1248,10 @@ func loadTemplates() error {
 		return err
 	}
 	ocrTemplate, err = loadTemplate("ocr_prompt.tmpl")
+	if err != nil {
+		return err
+	}
+	splitTemplate, err = loadTemplate("split_prompt.tmpl")
 	if err != nil {
 		return err
 	}

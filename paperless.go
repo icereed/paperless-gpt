@@ -368,8 +368,34 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 	if documentCount == 0 {
 		return []Document{}, nil
 	}
+	allTags, err := client.GetAllTags(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return client.getDocumentsByTag(ctx, tag, pageSize, "", 1, allTags)
+}
 
+// GetDocumentsByTagExcluding returns tagged documents without excludedTag on a
+// one-based page ordered by ID, using the caller's tag catalog for filtering and
+// tag names. An empty excludedTag instead selects the first tagged page without
+// exclusion or explicit ordering. A nonempty excludedTag missing from the catalog
+// returns an error before requesting documents.
+func (client *PaperlessClient) GetDocumentsByTagExcluding(ctx context.Context, tag string, pageSize int, excludedTag string, page int, allTags map[string]int) ([]Document, error) {
+	return client.getDocumentsByTag(ctx, tag, pageSize, excludedTag, page, allTags)
+}
+
+// getDocumentsByTag resolves document metadata using the supplied tag catalog and
+// optionally excludes a second tag. A missing page after the first ends an
+// exclusion query.
+func (client *PaperlessClient) getDocumentsByTag(ctx context.Context, tag string, pageSize int, excludedTag string, page int, allTags map[string]int) ([]Document, error) {
 	path := fmt.Sprintf("api/documents/?tags__name__iexact=%s&page_size=%d", url.QueryEscape(tag), pageSize)
+	if excludedTag != "" {
+		_, id, found := lookupTagID(allTags, excludedTag)
+		if !found {
+			return nil, fmt.Errorf("excluded tag %q not found in tag catalog", excludedTag)
+		}
+		path += fmt.Sprintf("&page=%d&ordering=id&tags__id__none=%d", page, id)
+	}
 
 	resp, err := client.Do(ctx, "GET", path, nil)
 	if err != nil {
@@ -383,6 +409,9 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
+	if excludedTag != "" && page > 1 && resp.StatusCode == http.StatusNotFound {
+		return []Document{}, nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		log.WithFields(logrus.Fields{
 			"status_code": resp.StatusCode,
@@ -401,11 +430,6 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 			"error":         err,
 		}).Error("Failed to parse JSON response in GetDocumentsByTag")
 		return nil, fmt.Errorf("failed to parse JSON response: %w", err)
-	}
-
-	allTags, err := client.GetAllTags(ctx)
-	if err != nil {
-		return nil, err
 	}
 
 	allCorrespondents, err := client.GetAllCorrespondents(ctx)

@@ -606,6 +606,130 @@ func (r *recordingClient) GetAllTags(ctx context.Context) (map[string]int, error
 	return map[string]int{}, nil
 }
 
+type splitLockClient struct {
+	*recordingClient
+	checkLock         func(bool)
+	getDocumentErrors map[int]error
+}
+
+// GetDocumentsByTag checks that queue fetching leaves the split lock available.
+func (c *splitLockClient) GetDocumentsByTag(ctx context.Context, tag string, size int) ([]Document, error) {
+	c.checkLock(false)
+	return c.recordingClient.GetDocumentsByTag(ctx, tag, size)
+}
+
+// GetDocument checks that the split lock is held and injects configured fetch errors.
+func (c *splitLockClient) GetDocument(ctx context.Context, id int) (Document, error) {
+	c.checkLock(true)
+	if err := c.getDocumentErrors[id]; err != nil {
+		return Document{}, err
+	}
+	return c.recordingClient.GetDocument(ctx, id)
+}
+
+// GetAllTags checks that tag lookup holds the split lock.
+func (c *splitLockClient) GetAllTags(ctx context.Context) (map[string]int, error) {
+	c.checkLock(true)
+	return c.recordingClient.GetAllTags(ctx)
+}
+
+// UpdateDocuments checks that document updates hold the split lock.
+func (c *splitLockClient) UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error {
+	c.checkLock(true)
+	return c.recordingClient.UpdateDocuments(ctx, documents, db, isUndo)
+}
+
+// TestBackgroundSplitLockScope checks that metadata and OCR processing hold the split lock per document and release it on errors.
+func TestBackgroundSplitLockScope(t *testing.T) {
+	for _, kind := range []string{"metadata", "ocr", "ocr-update-error"} {
+		t.Run(kind, func(t *testing.T) {
+			app := &App{pdfOCRTagging: true, pdfOCRCompleteTag: "complete"}
+			checks := 0
+			client := &splitLockClient{
+				recordingClient: &recordingClient{
+					taggedDocuments: map[string][]Document{autoOcrTag: {
+						{ID: 1, Tags: []string{"complete"}},
+						{ID: 2, Tags: []string{"complete"}},
+					}},
+					getAllTagsErr: errors.New("suggestions unavailable"),
+				},
+				checkLock: func(wantLocked bool) {
+					checks++
+					locked := !app.splitMu.TryLock()
+					if !locked {
+						app.splitMu.Unlock()
+					}
+					assert.Equal(t, wantLocked, locked)
+				},
+			}
+			app.Client = client
+			if kind == "metadata" {
+				count, err := app.processTagDocuments(context.Background(), autoOcrTag)
+				assert.Zero(t, count)
+				assert.ErrorContains(t, err, "suggestions unavailable")
+				assert.Equal(t, 5, checks)
+			} else {
+				if kind == "ocr-update-error" {
+					client.updateErr = errors.New("update unavailable")
+					client.failAfterNCalls = 2
+				}
+				count, err := app.processAutoOcrTagDocuments(context.Background())
+				if kind == "ocr-update-error" {
+					assert.Zero(t, count)
+					assert.ErrorContains(t, err, "update unavailable")
+				} else {
+					assert.Equal(t, 2, count)
+					assert.NoError(t, err)
+				}
+				assert.Equal(t, 5, checks)
+			}
+			client.checkLock(false)
+		})
+	}
+}
+
+// TestBackgroundDocumentFetchErrorsContinueQueue checks that fetch failures accumulate without stopping later queue items or retaining the split lock.
+func TestBackgroundDocumentFetchErrorsContinueQueue(t *testing.T) {
+	for _, kind := range []string{"metadata", "ocr"} {
+		t.Run(kind, func(t *testing.T) {
+			firstErr, secondErr := errors.New("first fetch failed"), errors.New("second fetch failed")
+			client := &splitLockClient{
+				recordingClient: &recordingClient{
+					taggedDocuments: map[string][]Document{autoOcrTag: {
+						{ID: 1, Tags: []string{"complete"}},
+						{ID: 2, Tags: []string{"complete"}},
+						{ID: 3, Tags: []string{autoOcrTag, "complete"}},
+					}},
+				},
+				getDocumentErrors: map[int]error{1: firstErr, 2: secondErr},
+			}
+			app := &App{Client: client, pdfOCRTagging: true, pdfOCRCompleteTag: "complete"}
+			client.checkLock = func(wantLocked bool) {
+				locked := !app.splitMu.TryLock()
+				if !locked {
+					app.splitMu.Unlock()
+				}
+				assert.Equal(t, wantLocked, locked)
+			}
+			var count int
+			var err error
+			if kind == "metadata" {
+				count, err = app.processTagDocuments(context.Background(), autoOcrTag)
+				assert.Zero(t, count)
+				assert.Empty(t, client.calls)
+			} else {
+				count, err = app.processAutoOcrTagDocuments(context.Background())
+				assert.Equal(t, 1, count)
+				require.Len(t, client.calls, 1)
+				assert.Equal(t, 3, client.calls[0].ID)
+			}
+			assert.ErrorIs(t, err, firstErr)
+			assert.ErrorIs(t, err, secondErr)
+			client.checkLock(false)
+		})
+	}
+}
+
 // callsFor filters the recorded UpdateDocuments suggestions by document ID.
 func (r *recordingClient) callsFor(documentID int) []DocumentSuggestion {
 	var out []DocumentSuggestion
