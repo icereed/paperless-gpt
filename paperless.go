@@ -39,6 +39,23 @@ type PaperlessClient struct {
 	APIToken    string
 	HTTPClient  *http.Client
 	CacheFolder string
+
+	// Tags are read for nearly every document operation. Keep a short-lived
+	// snapshot, but refresh it when a document exposes an ID the snapshot
+	// cannot resolve.
+	tagsMu       sync.Mutex
+	tagsCache    map[string]int
+	tagsCachedAt time.Time
+}
+
+const catalogCacheTTL = 30 * time.Second
+
+func copyCatalogMap(in map[string]int) map[string]int {
+	out := make(map[string]int, len(in))
+	for name, id := range in {
+		out[name] = id
+	}
+	return out
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -265,6 +282,12 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 
 // GetAllTags retrieves all tags from the Paperless-NGX API
 func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, error) {
+	client.tagsMu.Lock()
+	defer client.tagsMu.Unlock()
+	if client.tagsCache != nil && time.Since(client.tagsCachedAt) < catalogCacheTTL {
+		return copyCatalogMap(client.tagsCache), nil
+	}
+
 	tagIDMapping := make(map[string]int)
 	// Paperless defaults to 25 results per page. This helper is used during
 	// startup for marker-tag checks, so asking for a larger page size avoids
@@ -322,7 +345,9 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 		}
 	}
 
-	return tagIDMapping, nil
+	client.tagsCache = tagIDMapping
+	client.tagsCachedAt = time.Now()
+	return copyCatalogMap(tagIDMapping), nil
 }
 
 // GetDocumentCountByTag checks if there is a document for the specified tag (it is much faster than api/documents/)
@@ -414,8 +439,18 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 	}
 
 	documents := make([]Document, 0, len(documentsResponse.Results))
+	refreshedTagCatalog := false
 	for _, result := range documentsResponse.Results {
 		tagNames, invisibleTagIDs := resolveTagNames(result.Tags, allTags)
+		if len(invisibleTagIDs) > 0 && !refreshedTagCatalog {
+			client.invalidateTagCatalog()
+			allTags, err = client.GetAllTags(ctx)
+			if err != nil {
+				return nil, err
+			}
+			refreshedTagCatalog = true
+			tagNames, invisibleTagIDs = resolveTagNames(result.Tags, allTags)
+		}
 		if len(invisibleTagIDs) > 0 {
 			log.Warnf("Document %d has tag IDs %v that are not visible to the API user; they will be preserved but cannot be managed.", result.ID, invisibleTagIDs)
 		}
@@ -520,6 +555,13 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	if err != nil {
 		return Document{}, err
 	}
+	if hasUnresolvedTagIDs(documentResponse.Tags, allTags) {
+		client.invalidateTagCatalog()
+		allTags, err = client.GetAllTags(ctx)
+		if err != nil {
+			return Document{}, err
+		}
+	}
 
 	allCorrespondents, err := client.GetAllCorrespondents(ctx)
 	if err != nil {
@@ -581,6 +623,26 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 		CustomFields:     documentResponse.CustomFields,
 		DocumentTypeName: documentTypeName,
 	}, nil
+}
+
+func hasUnresolvedTagIDs(tagIDs []int, tags map[string]int) bool {
+	known := make(map[int]struct{}, len(tags))
+	for _, id := range tags {
+		known[id] = struct{}{}
+	}
+	for _, id := range tagIDs {
+		if _, ok := known[id]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (client *PaperlessClient) invalidateTagCatalog() {
+	client.tagsMu.Lock()
+	client.tagsCache = nil
+	client.tagsCachedAt = time.Time{}
+	client.tagsMu.Unlock()
 }
 
 // getCurrentCustomFields fetches only the document's custom fields. Unlike
@@ -2086,6 +2148,7 @@ func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (i
 		return 0, fmt.Errorf("error parsing created tag response: %w", err)
 	}
 
+	client.invalidateTagCatalog()
 	return createdTag.ID, nil
 }
 
