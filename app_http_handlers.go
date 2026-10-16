@@ -344,6 +344,7 @@ type submitOCRJobRequest struct {
 	ReplaceOriginal *bool   `json:"replace_original"`
 	CopyMetadata    *bool   `json:"copy_metadata"`
 	PromptOverride  string  `json:"prompt_override"`
+	PDFPassword     string  `json:"pdf_password"`
 }
 
 // ocrSupportsHOCR reports whether the configured provider can produce hOCR
@@ -420,6 +421,7 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 		}
 		options.PromptOverride = req.PromptOverride
 	}
+	options.PDFPassword = req.PDFPassword
 
 	// Fetch title and existing content: the title makes the persisted run
 	// self-describing, the content feeds the OCR prompt's cross-reference.
@@ -698,6 +700,9 @@ func (app *App) getJobStatusHandler(c *gin.Context) {
 		response["result"] = job.Result
 	} else if job.Status == "failed" {
 		response["error"] = job.Result
+		if strings.HasPrefix(job.Result, "pdf_password_required:") {
+			response["error_code"] = "pdf_password_required"
+		}
 	}
 
 	c.JSON(http.StatusOK, response)

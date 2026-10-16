@@ -81,10 +81,19 @@ func Open(ctx context.Context, data []byte) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting a PDFium instance: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		instance.Close()
+		return nil, err
+	}
 	opened, err := instance.OpenDocument(&requests.OpenDocument{File: &data})
 	if err != nil {
 		instance.Close()
 		return nil, fmt.Errorf("opening PDF: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		instance.FPDF_CloseDocument(&requests.FPDF_CloseDocument{Document: opened.Document})
+		instance.Close()
+		return nil, err
 	}
 	count, err := instance.FPDF_GetPageCount(&requests.FPDF_GetPageCount{Document: opened.Document})
 	if err != nil {
