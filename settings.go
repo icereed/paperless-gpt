@@ -154,6 +154,7 @@ func loadSettings() {
 			CustomFieldsEnable:      false,
 			CustomFieldsSelectedIDs: []int{},
 			CustomFieldsWriteMode:   "append",
+			TagsWriteMode:           "append",
 		}
 	}
 
@@ -179,6 +180,36 @@ func loadSettings() {
 		loadDefaultSettings()
 		return
 	}
+	normalizeSettings(&settings)
 
 	log.Info("Successfully loaded settings from settings.json")
+}
+
+// normalizeSettings fills write modes that are missing or not one of the
+// values the UI offers. An empty tags mode is append, which is what every
+// existing installation already does.
+func normalizeSettings(s *Settings) {
+	switch s.CustomFieldsWriteMode {
+	case "append", "update", "replace":
+	default:
+		s.CustomFieldsWriteMode = "append"
+	}
+	if s.TagsWriteMode != "replace" {
+		s.TagsWriteMode = "append"
+	}
+	if s.CustomFieldsSelectedIDs == nil {
+		s.CustomFieldsSelectedIDs = []int{}
+	}
+}
+
+// tagsWriteMode reports the persisted tag write mode. The zero value and any
+// unknown value are append, so a settings file from before the field existed
+// keeps its old behavior.
+func tagsWriteMode() string {
+	settingsMutex.RLock()
+	defer settingsMutex.RUnlock()
+	if settings.TagsWriteMode == "replace" {
+		return "replace"
+	}
+	return "append"
 }
