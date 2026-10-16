@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"paperless-gpt/extension"
 	"paperless-gpt/internal/textsanitize"
 	"slices"
 	"strconv"
@@ -218,6 +219,23 @@ func (app *App) getSuggestedDocumentType(
 	availableDocumentTypes []string,
 	logger *logrus.Entry,
 	tmplOverride *template.Template) (string, error) {
+	docType, _, err := app.suggestDocumentType(ctx, content, suggestedTitle, availableDocumentTypes, nil, logger, tmplOverride)
+	return docType, err
+}
+
+// suggestDocumentType asks the LLM for one of the available document types.
+// hints (type name -> description) come from an extension and help the LLM
+// tell similar types apart. tmplOverride, when non-nil, replaces the global
+// documentTypeTemplate. It returns the matched type ("" if none) and the raw
+// answer.
+func (app *App) suggestDocumentType(
+	ctx context.Context,
+	content string,
+	suggestedTitle string,
+	availableDocumentTypes []string,
+	hints map[string]string,
+	logger *logrus.Entry,
+	tmplOverride *template.Template) (string, string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
@@ -231,20 +249,34 @@ func (app *App) getSuggestedDocumentType(
 	templateData := map[string]interface{}{
 		"Language":               likelyLanguage,
 		"AvailableDocumentTypes": availableDocumentTypes,
+		"DocumentTypeHints":      hints,
 		"Title":                  suggestedTitle,
+	}
+	// Templates saved before hints existed do not mention them; append the
+	// hints instead of dropping them silently.
+	hintSuffix := ""
+	if len(hints) > 0 && !templateUses(activeTmpl, "DocumentTypeHints") {
+		hintSuffix = documentTypeHintsBlock(hints)
 	}
 
 	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
 	if err != nil {
 		logger.Errorf("Error calculating available tokens: %v", err)
-		return "", fmt.Errorf("error calculating available tokens: %v", err)
+		return "", "", fmt.Errorf("error calculating available tokens: %v", err)
+	}
+	if availableTokens >= 0 && hintSuffix != "" {
+		hintTokens, _ := getTokenCount(hintSuffix)
+		availableTokens -= hintTokens
+		if availableTokens <= 0 {
+			return "", "", fmt.Errorf("error calculating available tokens: document type hints exceed the token limit")
+		}
 	}
 
 	// Truncate content if needed
 	truncatedContent, err := truncateContentByTokens(content, availableTokens)
 	if err != nil {
 		logger.Errorf("Error truncating content: %v", err)
-		return "", fmt.Errorf("error truncating content: %v", err)
+		return "", "", fmt.Errorf("error truncating content: %v", err)
 	}
 
 	// Execute template with truncated content
@@ -253,10 +285,10 @@ func (app *App) getSuggestedDocumentType(
 	err = activeTmpl.Execute(&promptBuffer, templateData)
 	if err != nil {
 		logger.Errorf("Error executing document type template: %v", err)
-		return "", fmt.Errorf("error executing document type template: %v", err)
+		return "", "", fmt.Errorf("error executing document type template: %v", err)
 	}
 
-	prompt := promptBuffer.String()
+	prompt := promptBuffer.String() + hintSuffix
 	logger.Debugf("Document type suggestion prompt: %s", prompt)
 
 	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
@@ -271,7 +303,7 @@ func (app *App) getSuggestedDocumentType(
 	})
 	if err != nil {
 		logger.Errorf("Error getting response from LLM: %v", err)
-		return "", fmt.Errorf("error getting response from LLM: %v", err)
+		return "", "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
 	response := strings.TrimSpace(textsanitize.StripReasoning(completion.Choices[0].Content))
@@ -279,7 +311,7 @@ func (app *App) getSuggestedDocumentType(
 	// Validate that the response is in the available document types list
 	for _, docType := range availableDocumentTypes {
 		if strings.EqualFold(response, docType) {
-			return docType, nil // Return the exact name from available types
+			return docType, response, nil // Return the exact name from available types
 		}
 	}
 
@@ -287,7 +319,7 @@ func (app *App) getSuggestedDocumentType(
 	if response != "" {
 		logger.Warnf("LLM suggested document type '%s' not found in available types, ignoring", response)
 	}
-	return "", nil
+	return "", response, nil
 }
 
 // getSuggestedTitle generates a suggested title for a document using the LLM.
@@ -790,6 +822,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	var suggestedDocumentType string
 	var suggestedCreatedDate string
 	var suggestedCustomFields []CustomFieldSuggestion
+	var rejectedFields []string
 	var err error
 
 	if suggestionRequest.GenerateTitles {
@@ -809,11 +842,40 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	}
 
 	if suggestionRequest.GenerateCorrespondents {
-		promptCorrespondents := filterCorrespondentsForPrompt(generationContext.availableCorrespondentNames, content, suggestedTitle, correspondentPromptLimit)
+		var candidates []string
+		candidates, _, err = vocabularyCandidates(ctx, extension.CandidatesRequest{
+			Field:      extension.FieldCorrespondent,
+			DocumentID: documentID,
+			Title:      suggestedTitle,
+			Content:    content,
+		}, generationContext.availableCorrespondentNames)
+		if err != nil {
+			docLogger.Errorf("Error preparing correspondents for document %d: %v", documentID, err)
+			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+		}
+		promptCorrespondents := filterCorrespondentsForPrompt(candidates, content, suggestedTitle, correspondentPromptLimit)
 		suggestedCorrespondent, err = app.getSuggestedCorrespondent(ctx, content, suggestedTitle, promptCorrespondents, correspondentBlackList, wfTemplate("correspondent_prompt", correspondentTemplate))
 		if err != nil {
 			log.Errorf("Error generating correspondents for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+		}
+		var resolution extension.Resolution
+		resolution, err = resolveVocabularyValue(ctx, extension.ResolveRequest{
+			Field:      extension.FieldCorrespondent,
+			DocumentID: documentID,
+			Proposed:   suggestedCorrespondent,
+			Stage:      extension.StageGenerate,
+		})
+		if err != nil {
+			docLogger.Errorf("Error checking correspondent for document %d: %v", documentID, err)
+			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+		}
+		if resolution.Accepted {
+			suggestedCorrespondent = resolution.Value
+		} else {
+			docLogger.Warnf("Rejected suggested correspondent %q for document %d: %s", suggestedCorrespondent, documentID, resolution.Reason)
+			suggestedCorrespondent = ""
+			rejectedFields = append(rejectedFields, string(extension.FieldCorrespondent))
 		}
 	}
 
@@ -821,10 +883,39 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		if len(generationContext.availableDocumentTypeNames) == 0 {
 			docLogger.Debug("Document type generation is enabled, but no document types are available in paperless-ngx.")
 		} else {
-			suggestedDocumentType, err = app.getSuggestedDocumentType(ctx, content, suggestedTitle, generationContext.availableDocumentTypeNames, docLogger, wfTemplate("document_type_prompt", documentTypeTemplate))
+			types, hints, err := vocabularyCandidates(ctx, extension.CandidatesRequest{
+				Field:      extension.FieldDocumentType,
+				DocumentID: documentID,
+				Title:      suggestedTitle,
+				Content:    content,
+			}, generationContext.availableDocumentTypeNames)
+			if err != nil {
+				docLogger.Errorf("Error preparing document types for document %d: %v", documentID, err)
+				return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+			}
+			var raw string
+			suggestedDocumentType, raw, err = app.suggestDocumentType(ctx, content, suggestedTitle, types, hints, docLogger, wfTemplate("document_type_prompt", documentTypeTemplate))
 			if err != nil {
 				log.Errorf("Error generating document type for document %d: %v", documentID, err)
 				return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+			}
+			// Let a vocabulary see the raw answer (e.g. to record "no match"
+			// or an invented type); paperless-gpt keeps only existing types.
+			resolution, err := resolveVocabularyValue(ctx, extension.ResolveRequest{
+				Field:      extension.FieldDocumentType,
+				DocumentID: documentID,
+				Proposed:   raw,
+				Known:      types,
+				Stage:      extension.StageGenerate,
+			})
+			if err != nil {
+				docLogger.Errorf("Error checking document type for document %d: %v", documentID, err)
+				return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)
+			}
+			if !resolution.Accepted && suggestedDocumentType != "" {
+				docLogger.Warnf("Rejected suggested document type %q for document %d: %s", suggestedDocumentType, documentID, resolution.Reason)
+				suggestedDocumentType = ""
+				rejectedFields = append(rejectedFields, string(extension.FieldDocumentType))
 			}
 		}
 	}
@@ -854,6 +945,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	suggestion := DocumentSuggestion{
 		ID:               documentID,
 		OriginalDocument: doc,
+		RejectedFields:   rejectedFields,
 	}
 	settingsMutex.RLock()
 	suggestion.CustomFieldsWriteMode = settings.CustomFieldsWriteMode

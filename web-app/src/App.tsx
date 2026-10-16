@@ -6,6 +6,7 @@ import OCR from './OCR';
 import History from './History';
 import Settings from './components/Settings';
 import AdhocAnalysis from './AdhocAnalysis';
+import extension from './extension';
 import Workflows from './Workflows';
 
 const App: React.FC = () => {
@@ -13,7 +14,7 @@ const App: React.FC = () => {
   // convert "/" to "" so Router basename is empty at root.
   const rawBasename = window.location.pathname.replace(/(\/[^/]+)$/, "/");
   const basename = rawBasename === "/" ? "" : rawBasename;
-  return (
+  const app = (
     <Router basename={basename}>
       <div className="flex h-full">
         <Sidebar />
@@ -29,11 +30,17 @@ const App: React.FC = () => {
             <Route path="/history" element={<History />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/workflows" element={<Workflows />} />
+            {extension.routes?.map((route) => (
+              <Route key={route.path} path={`/${route.path}`} element={route.element} />
+            ))}
           </Routes>
         </main>
       </div>
     </Router>
   );
+  // A linked-in UI extension may wrap the app (shared state, theme, title).
+  const Provider = extension.Provider;
+  return Provider ? <Provider>{app}</Provider> : app;
 };
 
 export default App;

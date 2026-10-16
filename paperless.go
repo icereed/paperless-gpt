@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"paperless-gpt/extension"
 	"paperless-gpt/internal/pdfrender"
 
 	"github.com/disintegration/imaging"
@@ -824,28 +825,51 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 		// not have a correspondent yet.
 		if document.SuggestedCorrespondent != "" && !strings.EqualFold(strings.TrimSpace(document.SuggestedCorrespondent), originalDoc.Correspondent) &&
 			!(preserveExistingMetadata && originalDoc.Correspondent != "") {
-			if isNoMatchCorrespondent(document.SuggestedCorrespondent) {
+			correspondentName := strings.TrimSpace(document.SuggestedCorrespondent)
+			if isNoMatchCorrespondent(correspondentName) {
 				// The correspondent prompt answers "Unknown" when nothing fits.
 				// That is a valid answer meaning "no correspondent", not a
 				// failure: leave the correspondent alone and do not flag the
 				// document, and never create a correspondent named "Unknown".
-				log.Infof("Document %d: no correspondent found (%q), leaving it unchanged", documentID, strings.TrimSpace(document.SuggestedCorrespondent))
-			} else if _, corrID, exists := lookupNamedID("Correspondent", availableCorrespondents, document.SuggestedCorrespondent); exists {
-				originalFields["correspondent"] = originalDoc.Correspondent
-				updatedFields["correspondent"] = corrID
-			} else {
-				newCorr := instantiateCorrespondent(strings.TrimSpace(document.SuggestedCorrespondent))
-				newCorrID, err := client.CreateOrGetCorrespondent(ctx, newCorr)
+				log.Infof("Document %d: no correspondent found (%q), leaving it unchanged", documentID, correspondentName)
+				correspondentName = ""
+			} else if !isUndo {
+				// A registered vocabulary gets the final say, also over values a
+				// user typed during Review. Undo restores a previous state and is
+				// never blocked.
+				resolution, err := resolveVocabularyValue(ctx, extension.ResolveRequest{
+					Field:      extension.FieldCorrespondent,
+					DocumentID: documentID,
+					Proposed:   correspondentName,
+					Stage:      extension.StageApply,
+				})
 				if err != nil {
-					// Losing the correspondent must not cost the title, tags
-					// and everything else: apply the rest and flag the document
-					// like any other field paperless-ngx rejected. A typical
-					// cause is a correspondent the API user cannot see.
-					log.Warnf("Document %d: could not use correspondent %q, applying the other changes without it: %v", documentID, document.SuggestedCorrespondent, err)
-					partialDroppedFields = append(partialDroppedFields, "correspondent")
-				} else {
+					return fmt.Errorf("error checking correspondent for document %d: %w", documentID, err)
+				}
+				if !resolution.Accepted {
+					log.Warnf("Document %d: not applying correspondent %q: %s", documentID, correspondentName, resolution.Reason)
+					partialDroppedFields = append(partialDroppedFields, string(extension.FieldCorrespondent))
+				}
+				correspondentName = resolution.Value
+			}
+			if correspondentName != "" && !strings.EqualFold(correspondentName, originalDoc.Correspondent) {
+				if _, corrID, exists := lookupNamedID("Correspondent", availableCorrespondents, correspondentName); exists {
 					originalFields["correspondent"] = originalDoc.Correspondent
-					updatedFields["correspondent"] = newCorrID
+					updatedFields["correspondent"] = corrID
+				} else {
+					newCorr := instantiateCorrespondent(correspondentName)
+					newCorrID, err := client.CreateOrGetCorrespondent(ctx, newCorr)
+					if err != nil {
+						// Losing the correspondent must not cost the title, tags
+						// and everything else: apply the rest and flag the document
+						// like any other field paperless-ngx rejected. A typical
+						// cause is a correspondent the API user cannot see.
+						log.Warnf("Document %d: could not use correspondent %q, applying the other changes without it: %v", documentID, correspondentName, err)
+						partialDroppedFields = append(partialDroppedFields, "correspondent")
+					} else {
+						originalFields["correspondent"] = originalDoc.Correspondent
+						updatedFields["correspondent"] = newCorrID
+					}
 				}
 			}
 		}

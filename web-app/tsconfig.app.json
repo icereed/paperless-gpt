@@ -18,7 +18,13 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* UI extension entry point; vite.config.ts resolves the real one */
+    "paths": {
+      "@pgpt/ui-extension": ["./src/extensions/none.ts"],
+      "@paperless-gpt/app": ["./src/extension-api.ts"]
+    }
   },
   "include": ["src"]
 }

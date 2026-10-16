@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import ConfigurationSection from './ConfigurationSection';
 import PromptsEditor from './PromptsEditor';
 import CustomFieldsEditor from './CustomFieldsEditor';
+import extension from '../extension';
 import PersistenceWarning from './PersistenceWarning';
 
 interface VersionInfo {
@@ -12,7 +13,7 @@ interface VersionInfo {
   buildDate: string;
 }
 
-const SupportSection: React.FC = () => {
+const SupportSection: React.FC<{ communitySupport: boolean }> = ({ communitySupport }) => {
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
 
   useEffect(() => {
@@ -26,6 +27,23 @@ const SupportSection: React.FC = () => {
     };
     fetchVersion();
   }, []);
+
+  const version = versionInfo && (
+    <p className={communitySupport ? "mt-4 text-xs text-faint" : "text-xs text-faint"}>
+      paperless-gpt {versionInfo.version}
+      {versionInfo.commit &&
+        versionInfo.commit !== 'devCommit' &&
+        versionInfo.commit.length >= 7 && (
+          <span> ({versionInfo.commit.slice(0, 7)})</span>
+        )}
+    </p>
+  );
+
+  // A UI extension can hide the donation appeal; the version stays visible
+  // because support needs it.
+  if (!communitySupport) {
+    return <section aria-label="Version">{version}</section>;
+  }
 
   return (
     <section
@@ -48,16 +66,7 @@ const SupportSection: React.FC = () => {
       >
         Buy the maintainer a coffee
       </a>
-      {versionInfo && (
-        <p className="mt-4 text-xs text-faint">
-          paperless-gpt {versionInfo.version}
-          {versionInfo.commit &&
-            versionInfo.commit !== 'devCommit' &&
-            versionInfo.commit.length >= 7 && (
-              <span> ({versionInfo.commit.slice(0, 7)})</span>
-            )}
-        </p>
-      )}
+      {version}
     </section>
   );
 };
@@ -80,7 +89,9 @@ const Settings: React.FC = () => {
         <CustomFieldsEditor />
       </section>
 
-      <SupportSection />
+      {extension.settingsSections?.map((Section, i) => <Section key={i} />)}
+
+      <SupportSection communitySupport={!extension.hideCommunitySupport} />
     </div>
   );
 };

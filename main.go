@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"paperless-gpt/extension"
 	"paperless-gpt/internal/pdfrender"
 	"paperless-gpt/ocr"
 	"paperless-gpt/sanitize"
@@ -193,8 +194,17 @@ func main() {
 	// Print version
 	printVersion()
 
+	// Start linked-in extensions (none by default) before any
+	// document is processed, so a misconfigured one stops startup instead of
+	// letting documents through unchecked.
+	if err := extension.Start(ctx); err != nil {
+		log.Fatalf("Failed to start extension: %v", err)
+	}
+
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
+	// Linked-in extensions read paperless-ngx through this client.
+	extension.SetHost(extensionHost{client: client})
 
 	// Bound startup metadata calls so the HTTP server can still come up when
 	// Paperless-ngx is temporarily unavailable. Background workers retry later.
@@ -595,6 +605,9 @@ func main() {
 		api.GET("/workflows/:id/documents", app.workflowDocumentsHandler)
 	}
 
+	// Endpoints and pages of linked-in extensions
+	registerExtensionRoutes(router)
+
 	// Serve frontend files
 	// Check if the web-app/dist directory exists for local development
 	if _, err := os.Stat("web-app/dist"); err == nil {
@@ -621,6 +634,10 @@ func main() {
 		router.GET("/workflows", func(c *gin.Context) {
 			c.File("web-app/dist/index.html")
 		})
+		// Client-side routes without a server route, e.g. extension pages
+		router.NoRoute(spaFallback(func(c *gin.Context) {
+			c.File("web-app/dist/index.html")
+		}))
 		router.GET("/favicon.ico", func(c *gin.Context) {
 			c.File("web-app/dist/favicon.ico")
 		})
@@ -663,6 +680,10 @@ func main() {
 		router.GET("/workflows", func(c *gin.Context) {
 			serveEmbeddedFile(c, "", "index.html")
 		})
+		// Client-side routes without a server route, e.g. extension pages
+		router.NoRoute(spaFallback(func(c *gin.Context) {
+			serveEmbeddedFile(c, "", "index.html")
+		}))
 	}
 
 	// Start OCR worker pool

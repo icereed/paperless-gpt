@@ -9,7 +9,12 @@ The data will be provided using an XML-like format for clarity:
 <available_document_types>
 {{.AvailableDocumentTypes | join ", "}}
 </available_document_types>
-
+{{if .DocumentTypeHints}}
+Use these descriptions to tell the document types apart:
+<document_type_descriptions>
+{{range $name, $hint := .DocumentTypeHints}}- {{$name}}: {{$hint}}
+{{end}}</document_type_descriptions>
+{{end}}
 <title>
 {{.Title}}
 </title>
