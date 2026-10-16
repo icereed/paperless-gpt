@@ -28,6 +28,7 @@ import (
 	"github.com/disintegration/imaging"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
@@ -1754,12 +1755,12 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 		// original_1.pdf, original_2.pdf, ... in docDir below.
 		splitSourcePath = filepath.Join(trimDir, "original.pdf")
 		selection := []string{fmt.Sprintf("1-%d", pagesToProcess)}
-		if err := api.TrimFile(originalPDFPath, splitSourcePath, selection, nil); err != nil {
+		if err := api.TrimFile(originalPDFPath, splitSourcePath, selection, pdfcpuConfig()); err != nil {
 			return nil, nil, 0, fmt.Errorf("error trimming PDF to page limit: %w", err)
 		}
 	}
 
-	err = api.SplitFile(splitSourcePath, docDir, 1, nil)
+	err = api.SplitFile(splitSourcePath, docDir, 1, pdfcpuConfig())
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("error splitting PDF: %w", err)
 	}
@@ -1812,10 +1813,24 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 	return pdfPaths, pdfData, totalPages, nil
 }
 
-// GetCacheFolder returns the cache folder for the PaperlessClient
+var pdfcpuConfigOnce sync.Once
+
+// pdfcpuConfig returns pdfcpu's default configuration, the one its API uses
+// when passed nil. pdfcpu loads that default into an unsynchronized package
+// variable on first use, so two documents split at the same time by parallel
+// auto-OCR workers would race on it; loading it once here avoids that, and
+// each caller still gets its own copy.
+func pdfcpuConfig() *model.Configuration {
+	pdfcpuConfigOnce.Do(func() { model.NewDefaultConfiguration() })
+	return model.NewDefaultConfiguration()
+}
+
+// GetCacheFolder returns the cache folder for the PaperlessClient. It only
+// reads the client: parallel auto-OCR workers call it at the same time, so
+// filling in the default here would be a data race.
 func (client *PaperlessClient) GetCacheFolder() string {
 	if client.CacheFolder == "" {
-		client.CacheFolder = filepath.Join(os.TempDir(), "paperless-gpt")
+		return filepath.Join(os.TempDir(), "paperless-gpt")
 	}
 	return client.CacheFolder
 }

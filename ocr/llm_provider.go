@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"paperless-gpt/internal/openrouterzdr"
@@ -25,10 +26,33 @@ import (
 	"github.com/tmc/langchaingo/llms/mistral"
 	"github.com/tmc/langchaingo/llms/ollama"
 	"github.com/tmc/langchaingo/llms/openai"
+	"google.golang.org/genai"
 	"paperless-gpt/sanitize"
 )
 
 const maxProviderRetryDelay = 15 * time.Minute
+
+// retryJitter returns the factor (0.8-1.0) a vision retry wait is scaled by.
+// A variable so tests can make it deterministic.
+var retryJitter = func() float64 { return 0.8 + 0.2*rand.Float64() }
+
+// visionRetryWait returns how long to wait before retrying after a transient
+// error on the given (0-based) attempt: exponential backoff up to backoffMax,
+// shortened by up to 20% at random so parallel auto-OCR workers that hit a
+// rate limit together don't all retry at the same instant. Shortening rather
+// than spreading in both directions keeps the wait within backoffMax and keeps
+// the spread once the backoff has reached it. Retry-After is a lower bound set
+// by the server, so it is applied after the jitter.
+func visionRetryWait(attempt int, backoffMax time.Duration, err error) time.Duration {
+	backoff := time.Duration(1<<uint(attempt)) * time.Second
+	if backoff <= 0 || backoff > backoffMax {
+		// <= 0 guards int64 overflow of the shift at high attempt counts,
+		// which would otherwise skip the backoff entirely.
+		backoff = backoffMax
+	}
+	backoff = time.Duration(float64(backoff) * retryJitter())
+	return retryAfterDelay(err, backoff)
+}
 
 // LLMProvider implements OCR using LLM vision models
 type LLMProvider struct {
@@ -202,19 +226,11 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		if genErr == nil {
 			break
 		}
-		msg := genErr.Error()
-		transient := strings.Contains(msg, "status code: 429") || strings.Contains(msg, "status code: 5")
-		if !transient || attempt >= maxRetries {
+		if !isTransientVisionError(genErr) || attempt >= maxRetries {
 			logger.WithError(genErr).Error("Failed to get response from vision model")
 			return nil, fmt.Errorf("error getting response from LLM: %w", genErr)
 		}
-		backoff := time.Duration(1<<uint(attempt)) * time.Second
-		if backoff <= 0 || backoff > backoffMax {
-			// <= 0 guards int64 overflow of the shift at high attempt counts,
-			// which would otherwise skip the backoff entirely.
-			backoff = backoffMax
-		}
-		backoff = retryAfterDelay(genErr, backoff)
+		backoff := visionRetryWait(attempt, backoffMax, genErr)
 		if backoff > maxProviderRetryDelay {
 			return nil, fmt.Errorf("provider retry delay %s exceeds limit", backoff)
 		}
@@ -374,6 +390,28 @@ func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
 		return time.Duration(whole) * time.Millisecond, true
 	}
 	return 0, true
+}
+
+// isTransientVisionError reports whether a vision model error is worth
+// retrying: a rate limit (429) or a server-side failure (5xx). The langchaingo
+// clients only carry the status in the message ("status code: 429"); the
+// Google AI client returns a typed genai.APIError whose message reads
+// "Error 429, ...", which the string match never recognized.
+func isTransientVisionError(err error) bool {
+	var apiErr genai.APIError
+	if errors.As(err, &apiErr) {
+		return isTransientStatus(apiErr.Code)
+	}
+	var apiErrPtr *genai.APIError
+	if errors.As(err, &apiErrPtr) && apiErrPtr != nil {
+		return isTransientStatus(apiErrPtr.Code)
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "status code: 429") || strings.Contains(msg, "status code: 5")
+}
+
+func isTransientStatus(code int) bool {
+	return code == http.StatusTooManyRequests || (code >= 500 && code < 600)
 }
 
 func retryAfterDelay(err error, backoff time.Duration) time.Duration {

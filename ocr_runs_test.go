@@ -76,6 +76,7 @@ func TestPruneOCRRunsKeepsPageTextsForRecentRuns(t *testing.T) {
 		jobID := fmt.Sprintf("job-%d", i)
 		require.NoError(t, CreateOCRRun(db, &OCRRun{JobID: jobID, DocumentID: 7, Trigger: "manual"}))
 		require.NoError(t, SaveSingleOcrPageResult(db, 7, jobID, 0, fmt.Sprintf("text %d", i), false, ""))
+		require.NoError(t, FinishOCRRun(db, jobID, "completed", "", 1, 1, "", ""))
 	}
 
 	require.NoError(t, PruneOCRRuns(db, 7))
@@ -106,6 +107,7 @@ func TestPruneOCRRunsDoesNotOrphanPageResults(t *testing.T) {
 		jobID := fmt.Sprintf("cap-job-%d", i)
 		require.NoError(t, CreateOCRRun(db, &OCRRun{JobID: jobID, DocumentID: i, Trigger: "manual"}))
 		require.NoError(t, SaveSingleOcrPageResult(db, i, jobID, 0, "text", false, ""))
+		require.NoError(t, FinishOCRRun(db, jobID, "completed", "", 1, 1, "", ""))
 	}
 
 	require.NoError(t, PruneOCRRuns(db, total-1))

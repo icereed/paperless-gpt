@@ -870,7 +870,7 @@ func (app *App) reOCRPageHandler(c *gin.Context) {
 		reOcrCancellersMu.Unlock()
 	}()
 
-	result, err := app.ocrProvider.ProcessImage(reOcrCtx, imageContent, pageIdx+1)
+	result, err := ocrProviderForDocument(app.ocrProvider).ProcessImage(reOcrCtx, imageContent, pageIdx+1)
 
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

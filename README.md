@@ -111,6 +111,8 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Whole PDF Mode](#whole-pdf-mode)
     - [Provider Compatibility](#provider-compatibility)
     - [Existing OCR Detection](#existing-ocr-detection)
+    - [Skip OCR for pages that already have text](#skip-ocr-for-pages-that-already-have-text)
+    - [Processing several documents at once](#processing-several-documents-at-once)
   - [Enhanced OCR Features](#enhanced-ocr-features)
     - [PDF Text Layer Generation](#pdf-text-layer-generation)
     - [Local File Saving](#local-file-saving)
@@ -307,6 +309,7 @@ services:
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
       OCR_MAX_RETRIES: "3" # Optional, default: 3. Failed OCR attempts per document before it is fail-tagged and removed from the queue. Set to 0 to retry forever.
+      AUTO_OCR_WORKERS: "1" # Optional, default: 1. How many auto-OCR documents are processed at the same time. See "Processing several documents at once".
       LOG_LEVEL: "info" # Optional: debug, warn, error
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
@@ -536,6 +539,21 @@ environment:
 
 The idea comes from [doc-router](https://github.com/misbahsy/doc-router): don't pay to OCR a page that already has text on it.
 
+### Processing several documents at once
+
+By default the auto-OCR poll processes the documents tagged with `AUTO_OCR_TAG` one after another. With a cloud OCR provider almost all of that time is spent waiting for the provider's answer, so a large backlog takes much longer than the server needs. `AUTO_OCR_WORKERS` lets the poll work on several documents at the same time:
+
+```yaml
+environment:
+  AUTO_OCR_WORKERS: "4"
+```
+
+- **What it covers:** only the background auto-OCR poll. Manual OCR from the web UI, workflow OCR and the auto-tagging poll keep working one document at a time. The poll fetches up to 25 documents per batch and waits until the whole batch is done before it fetches the next one, so a document is never picked up twice by the poll. One slow document can keep the other workers idle until the batch ends.
+- **Rate limits:** every worker sends its own requests, so you reach your provider's rate limit up to N times sooner. Vision LLM OCR retries rate-limit and server errors with backoff (`VISION_LLM_MAX_RETRIES`, `VISION_LLM_BACKOFF_MAX_WAIT`); a document whose retries run out counts towards `OCR_MAX_RETRIES` as before. Start with 2–4 and lower the value if the logs show repeated rate-limit warnings. With a local Ollama on a single GPU, keep `1`.
+- **paperless-ngx load:** each document's update fetches the tag, correspondent and document type lists from paperless-ngx, so N workers also mean up to N times as many API calls there at the end of each document.
+- **Memory:** each worker holds its document's PDF while it is processed (in image mode also the rendered pages), so peak memory grows roughly with the number of workers times your largest documents.
+- **Image mode:** at most 4 documents are rendered to images at the same time (shared with manual OCR and page previews); further workers wait for a free renderer. After 2 minutes of waiting the document is left for the next poll; this does not count towards `OCR_MAX_RETRIES`. With large documents and no page limit, stay at 4 workers or below in image mode. PDF and whole PDF mode only render briefly to count pages.
+
 ## Enhanced OCR Features
 
 paperless-gpt includes powerful OCR enhancements that go beyond basic text extraction:
@@ -737,6 +755,7 @@ For best results with the enhanced OCR features:
 | `AUTO_OCR_TAG`                      | Tag for automatically processing docs with OCR.                                                                                                                                               | No       | paperless-gpt-ocr-auto     |
 | `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit. Not applied in `whole_pdf` mode (see [Whole PDF Mode](#whole-pdf-mode)), which always processes the entire document.              | No       | 5                          |
 | `OCR_MAX_RETRIES`                   | How many times OCR processing may fail for a document before paperless-gpt gives up on it: the auto OCR tag is removed and `FAIL_TAG` applied, so the document stops being retried (and re-billed) every poll cycle. Counted in memory — a restart resets the count. Set to `0` to keep the old retry-forever behavior.                                | No       | 3                          |
+| `AUTO_OCR_WORKERS`                  | How many documents the auto-OCR poll processes at the same time. `1` keeps the one-after-another behavior. Higher values speed up a backlog with cloud OCR providers but reach the provider's rate limit sooner. See [Processing several documents at once](#processing-several-documents-at-once). | No       | 1                          |
 | `LOG_LEVEL`                         | Application log level (`info`, `debug`, `warn`, `error`).                                                                                                                                     | No       | info                       |
 | `LISTEN_INTERFACE`                  | Network interface to listen on.                                                                                                                                                               | No       | 8080                       |
 | `AUTO_GENERATE_TITLE`               | Generate titles automatically if `paperless-gpt-auto` is used.                                                                                                                                | No       | true                       |

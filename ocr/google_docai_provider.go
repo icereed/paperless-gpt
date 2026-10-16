@@ -54,6 +54,22 @@ func newGoogleDocAIProvider(config Config) (*GoogleDocAIProvider, error) {
 	return provider, nil
 }
 
+// ForDocument returns a provider for OCRing one document. It shares the
+// Document AI client (safe for concurrent use) but collects hOCR pages in its
+// own buffer, so documents processed at the same time cannot mix their pages
+// into each other's hOCR. The returned provider must not be closed; the
+// client belongs to p.
+func (p *GoogleDocAIProvider) ForDocument() *GoogleDocAIProvider {
+	return &GoogleDocAIProvider{
+		projectID:   p.projectID,
+		location:    p.location,
+		processorID: p.processorID,
+		client:      p.client,
+		enableHOCR:  p.enableHOCR,
+		hocrPages:   make([]hocr.Page, 0),
+	}
+}
+
 func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error) {
 	logger := log.WithFields(logrus.Fields{
 		"project_id":   p.projectID,

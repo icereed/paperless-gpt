@@ -73,6 +73,7 @@ var (
 	preserveExistingMetadata      = os.Getenv("PRESERVE_EXISTING_METADATA") == "true"
 	limitOcrPages                 int // Will be read from OCR_LIMIT_PAGES
 	ocrMaxRetries                 int // Will be read from OCR_MAX_RETRIES
+	autoOCRWorkers                = 1 // Will be read from AUTO_OCR_WORKERS
 	autoTagMaxRetries             int // Will be read from AUTO_TAG_MAX_RETRIES
 	tokenLimit                    = 0 // Will be read from TOKEN_LIMIT
 	imageMaxPixelDimension        int // Will be read from IMAGE_MAX_PIXEL_DIMENSION
@@ -496,6 +497,14 @@ func main() {
 			if err != nil || ocrMaxRetries < 0 {
 				log.Fatalf("Invalid OCR_MAX_RETRIES value: %q (must be a non-negative integer, 0 disables the limit)", rawOcrMaxRetries)
 			}
+		}
+		workers, err := parseAutoOCRWorkers(os.Getenv("AUTO_OCR_WORKERS"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		autoOCRWorkers = workers
+		if autoOCRWorkers > 1 {
+			log.Infof("Auto-OCR processes up to %d documents at the same time (AUTO_OCR_WORKERS)", autoOCRWorkers)
 		}
 
 		// Compile the PDF renderer in the background so the first OCR run or
@@ -1046,6 +1055,18 @@ func validateOrDefaultEnvVars() {
 }
 
 // documentLogger creates a logger with document context
+// parseAutoOCRWorkers parses AUTO_OCR_WORKERS; unset means 1 (sequential).
+func parseAutoOCRWorkers(raw string) (int, error) {
+	if raw == "" {
+		return 1, nil
+	}
+	workers, err := strconv.Atoi(raw)
+	if err != nil || workers < 1 {
+		return 0, fmt.Errorf("invalid AUTO_OCR_WORKERS value: %q (must be a positive integer)", raw)
+	}
+	return workers, nil
+}
+
 func documentLogger(documentID int) *logrus.Entry {
 	return log.WithField("document_id", documentID)
 }

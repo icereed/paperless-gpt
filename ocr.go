@@ -62,6 +62,17 @@ type HOCRCapable interface {
 	ResetHOCR()
 }
 
+// ocrProviderForDocument returns the provider to use for OCRing one document.
+// Providers that collect per-document state (Google Document AI's hOCR pages)
+// get a fresh copy, so documents OCRed at the same time — parallel auto-OCR
+// workers, a manual job next to the auto loop — cannot see each other's pages.
+func ocrProviderForDocument(provider ocr.Provider) ocr.Provider {
+	if docAI, ok := provider.(*ocr.GoogleDocAIProvider); ok {
+		return docAI.ForDocument()
+	}
+	return provider
+}
+
 // ProcessDocumentOCR processes a document through OCR and returns the combined text, hOCR and PDF
 func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options OCROptions, jobID string) (*ProcessedDocument, error) {
 	// Validate options for safety
@@ -102,6 +113,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			provider = llmProv.WithPrompt(ocrPrompt)
 		}
 	}
+	provider = ocrProviderForDocument(provider)
 
 	// Determine the actual process mode to use
 	processMode := options.ProcessMode
