@@ -192,6 +192,50 @@ func TestGetAllTags(t *testing.T) {
 	assert.Equal(t, 2, env.requestCount)
 }
 
+func TestCreateOrGetTagSerializesConcurrentCreation(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+	var mu sync.Mutex
+	created := false
+	posts := 0
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == http.MethodPost {
+			posts++
+			if created {
+				http.Error(w, "duplicate", http.StatusConflict)
+				return
+			}
+			created = true
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":42}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		if created {
+			_, _ = w.Write([]byte(`{"results":[{"id":42,"name":"handoff"}],"next":null}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"results":[],"next":null}`))
+	})
+
+	results := make(chan int, 2)
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			id, err := env.client.CreateOrGetTag(context.Background(), "handoff")
+			results <- id
+			errs <- err
+		}()
+	}
+	for range 2 {
+		assert.NoError(t, <-errs)
+		assert.Equal(t, 42, <-results)
+	}
+	assert.Equal(t, 1, posts)
+}
+
 // TestGetDocumentCountByTag tests the GetDocumentCountByTag method
 func TestGetDocumentCountByTag(t *testing.T) {
 	env := newTestEnv(t)
