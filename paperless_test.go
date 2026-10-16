@@ -2047,6 +2047,7 @@ func TestFindDocumentIDsByReference(t *testing.T) {
 		assert.Equal(t, "R123", r.URL.Query().Get("content__icontains"))
 		assert.Equal(t, "id,content", r.URL.Query().Get("fields"))
 		assert.Equal(t, "1", r.URL.Query().Get("page"))
+		assert.Equal(t, "id", r.URL.Query().Get("ordering"), "paging needs a fixed order")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"count": 5, "results": [
 			{"id": 1, "content": "Rechnung R123 vom 01.09.2026"},

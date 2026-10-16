@@ -116,9 +116,12 @@ func (client *PaperlessClient) FindDocumentIDsByReference(ctx context.Context, r
 	}
 	wholeWord := regexp.MustCompile(`(?i)(^|[^\p{L}\p{N}])` + regexp.QuoteMeta(reference) + `($|[^\p{L}\p{N}])`)
 
+	// A fixed order keeps pages from overlapping; seen guards against a
+	// document showing up twice anyway when the archive changes mid-scan.
+	seen := map[int]bool{}
 	scanned := 0
 	for page := 1; ; page++ {
-		path := fmt.Sprintf("api/documents/?content__icontains=%s&fields=id,content&page_size=%d&page=%d",
+		path := fmt.Sprintf("api/documents/?content__icontains=%s&fields=id,content&ordering=id&page_size=%d&page=%d",
 			url.QueryEscape(reference), referenceScanPageSize, page)
 		resp, err := client.Do(ctx, "GET", path, nil)
 		if err != nil {
@@ -141,7 +144,8 @@ func (client *PaperlessClient) FindDocumentIDsByReference(ctx context.Context, r
 		}
 
 		for _, result := range documentsResponse.Results {
-			if result.ID != excludeID && wholeWord.MatchString(result.Content) {
+			if result.ID != excludeID && !seen[result.ID] && wholeWord.MatchString(result.Content) {
+				seen[result.ID] = true
 				ids = append(ids, result.ID)
 				if len(ids) > maxMatches {
 					return nil, true, nil
