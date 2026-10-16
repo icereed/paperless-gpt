@@ -120,8 +120,8 @@ func StartBackgroundTasks(ctx context.Context, app BackgroundProcessor) {
 // The document's tags in paperless-ngx have already been updated by the
 // successful retry to whatever the LLM suggested (the auto tag is no longer
 // present). To avoid clobbering those LLM-suggested tags, this function
-// re-fetches the document's current state, then PATCHes only the tags field
-// to append the fail tag.
+// re-fetches the document's current state, then adds the fail tag with
+// modify_tags, leaving every other tag as it is.
 //
 // This is best-effort: if the re-fetch or the PATCH fails, the dropped-field
 // information is logged but the document is left with no fail tag. The loop
@@ -147,6 +147,7 @@ func applyFailTagAfterPartialSuccess(ctx context.Context, client ClientInterface
 		OriginalDocument: currentDoc,
 		SuggestedTags:    []string{failTag},
 		KeepOriginalTags: true,
+		TagsAsDelta:      true,
 	}
 	if err := client.UpdateDocuments(ctx, []DocumentSuggestion{suggestion}, db, false); err != nil {
 		docLogger.Errorf("Document %d update succeeded after dropping fields %v, but applying fail tag %q failed: %v", documentID, droppedFields, failTag, err)
@@ -171,6 +172,7 @@ func markProcessingFailed(ctx context.Context, client ClientInterface, db *gorm.
 		ID:               document.ID,
 		OriginalDocument: document,
 		RemoveTags:       []string{removeTag},
+		TagsAsDelta:      true,
 	}
 	if failTag != "" {
 		recoveryFields.SuggestedTags = []string{failTag}
@@ -348,6 +350,12 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 			continue
 		}
 
+		// The suggestions build on the document as it was fetched before OCR
+		// and the LLM ran; write their tag change, not their tag list, so
+		// tags changed in paperless-ngx meanwhile survive.
+		for i := range suggestions {
+			suggestions[i] = tagChangeAsDelta(suggestions[i])
+		}
 		err = app.Client.UpdateDocuments(ctx, suggestions, app.Database, false)
 		if err != nil {
 			var partial *PartialUpdateError
@@ -475,6 +483,8 @@ func (app *App) runWorkflowDocumentOCR(ctx context.Context, document Document, w
 			}
 			return nil
 		}(),
+		// Tags changed in paperless-ngx while OCR ran must survive.
+		TagsAsDelta: true,
 	}
 	if app.pdfOCRTagging && app.pdfOCRCompleteTag != "" {
 		suggestion.SuggestedTags = []string{app.pdfOCRCompleteTag}
@@ -542,6 +552,7 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 						ID:               document.ID,
 						OriginalDocument: document,
 						RemoveTags:       []string{autoOcrTag},
+						TagsAsDelta:      true,
 					},
 				}, app.Database, false)
 
@@ -653,6 +664,9 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			OriginalDocument: document,
 			SuggestedContent: processedDoc.Text,
 			RemoveTags:       []string{autoOcrTag},
+			// The document was fetched at the start of the batch; tags
+			// changed in paperless-ngx since then must survive.
+			TagsAsDelta: true,
 			// Add OCR complete tag if tagging is enabled and PDF wasn't uploaded (upload handles tagging)
 			AddTags: func() []string {
 				if app.pdfOCRTagging && !options.UploadPDF {
