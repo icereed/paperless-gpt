@@ -191,6 +191,13 @@ type DocumentSuggestion struct {
 	AddTags                []string                `json:"add_tags,omitempty"`
 	CustomFieldsWriteMode  string                  `json:"custom_fields_write_mode,omitempty"`
 	CustomFieldsEnable     bool                    `json:"custom_fields_enable"`
+	// TagsAsDelta applies the tag change as an add/remove on the server
+	// (paperless-ngx bulk_edit modify_tags) instead of writing back a full tag
+	// list computed from OriginalDocument. Use it when OriginalDocument may be
+	// stale: tags changed in paperless-ngx since it was fetched are left alone.
+	// SuggestedTags are added (as with KeepOriginalTags), AddTags are added,
+	// RemoveTags are removed.
+	TagsAsDelta bool `json:"-"`
 }
 
 type Correspondent struct {
