@@ -9,6 +9,7 @@ import (
 	"text/template"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -65,6 +66,7 @@ func TestApprovalWorkflowHoldsSuggestionsInsteadOfWriting(t *testing.T) {
 	count, err := app.processAutoTagDocuments(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
+	assert.Equal(t, 1.0, testutil.ToFloat64(backgroundDocumentsProcessedTotal.WithLabelValues(bgKindWorkflowTag, resultSuccess)))
 
 	require.Len(t, client.calls, 1, "only the tag swap is written")
 	park := client.calls[0]
@@ -99,8 +101,10 @@ func TestApprovalWorkflowFailedSwapLeavesNoRecord(t *testing.T) {
 	db := newPendingReviewTestDB(t)
 	app := &App{Client: client, Database: db, LLM: &mockLLM{Response: "Title"}}
 
+	beforeError := testutil.ToFloat64(backgroundDocumentsProcessedTotal.WithLabelValues(bgKindWorkflowTag, resultError))
 	_, err := app.processAutoTagDocuments(context.Background())
 	require.Error(t, err)
+	assert.Equal(t, beforeError+1, testutil.ToFloat64(backgroundDocumentsProcessedTotal.WithLabelValues(bgKindWorkflowTag, resultError)))
 	var n int64
 	db.Model(&PendingReview{}).Count(&n)
 	assert.Zero(t, n, "a document that never reached the queue must not leave a suggestion behind")

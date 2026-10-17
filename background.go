@@ -407,9 +407,11 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 				errs = append(errs, err)
 				app.Database.Delete(&PendingReview{}, document.ID)
 				recoverFromFailedUpdate(ctx, app.Client, app.Database, document, triggerTag)
+				observeBackgroundDocument(kind, resultFromContext(ctx, err), docStart)
 				continue
 			}
 			processedCount++
+			observeBackgroundDocument(kind, resultSuccess, docStart)
 			continue
 		}
 
