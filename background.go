@@ -45,6 +45,8 @@ func (t *documentFailureTracker) reset(documentID int) {
 	delete(t.failures, documentID)
 }
 
+var errWorkflowOCRExhausted = errors.New("workflow OCR retries exhausted")
+
 // This is our interface, allowing us to enable proper testing
 type BackgroundProcessor interface {
 	processAutoOcrTagDocuments(ctx context.Context) (int, error)
@@ -340,12 +342,17 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 				}
 				updatedDoc, ocrErr := app.runWorkflowDocumentOCR(ctx, document, wf, triggerTag, docLogger)
 				if ocrErr != nil {
+					if errors.Is(ocrErr, errWorkflowOCRExhausted) {
+						// Handled terminal error: document left the queue after retries exhausted.
+						observeBackgroundDocument(kind, resultError, docStart)
+						continue
+					}
 					errs = append(errs, ocrErr)
 					observeBackgroundDocument(kind, resultFromContext(ctx, ocrErr), docStart)
 					continue
 				}
 				if updatedDoc == nil {
-					// OCR skipped or document left the queue (e.g. max retries).
+					// OCR skipped for this cycle.
 					observeBackgroundDocument(kind, resultSuccess, docStart)
 					continue
 				}
@@ -451,8 +458,9 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 
 // runWorkflowDocumentOCR runs OCR for a workflow-tagged document, writes the
 // extracted text back, and leaves the workflow trigger tag in place so the
-// caller can continue with metadata generation. Returns nil,nil when the
-// document should be skipped for this cycle (already complete / max retries).
+// caller can continue with metadata generation. Returns nil, nil when the
+// document OCR was skipped for this cycle, or nil, errWorkflowOCRExhausted
+// when retries are exhausted and the document was marked as failed.
 func (app *App) runWorkflowDocumentOCR(ctx context.Context, document Document, wf WorkflowConfig, triggerTag string, docLogger *logrus.Entry) (*Document, error) {
 	if app.pdfOCRTagging {
 		for _, tag := range document.Tags {
@@ -516,7 +524,7 @@ func (app *App) runWorkflowDocumentOCR(ctx context.Context, document Document, w
 					return nil, fmt.Errorf("document %d workflow OCR error: %w", document.ID, err)
 				}
 				app.ocrFailures.reset(document.ID)
-				return nil, nil
+				return nil, errWorkflowOCRExhausted
 			}
 		}
 		return nil, fmt.Errorf("document %d workflow OCR error: %w", document.ID, err)
