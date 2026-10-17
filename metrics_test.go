@@ -117,6 +117,7 @@ func TestRecordPDFResultTable(t *testing.T) {
 		{"local only", pdfActionLocal, 1},
 		{"local plus attached primary", pdfActionAttached, 1},
 		{"replaced", pdfActionReplaced, 1},
+		{"versioned", pdfActionVersioned, 1},
 		{"upload failed", pdfActionFailed, 0},
 	}
 	for _, tt := range tests {

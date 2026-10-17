@@ -582,6 +582,7 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 								switch {
 								case err == nil && options.UploadMode == PDFUploadModeVersion:
 									processedDoc.PDFAction = "versioned"
+									recordPDFResult(pdfActionVersioned, pdfCreateStart)
 								case errors.As(err, &unconfirmedErr):
 									processedDoc.PDFAction = "versioned"
 									processedDoc.PDFDetail = fmt.Sprintf("Uploaded, but paperless-ngx had not confirmed the new version when paperless-gpt stopped waiting; check task %s in paperless-ngx.", unconfirmedErr.taskID)

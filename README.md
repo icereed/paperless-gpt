@@ -1076,7 +1076,7 @@ Namespace: `paperless_gpt_`. Process identity (paperless host, LLM/OCR/vision ba
 | LLM | `paperless_gpt_llm_requests_total` + `paperless_gpt_llm_request_duration_seconds` `{purpose,result}`; `paperless_gpt_llm_retries_total{purpose}`; `paperless_gpt_llm_prompt_tokens_total{purpose}`, `paperless_gpt_llm_completion_tokens_total{purpose}` |
 | OCR | `paperless_gpt_ocr_pages_total` + `paperless_gpt_ocr_page_duration_seconds` `{result}`; `paperless_gpt_ocr_documents_total` + `paperless_gpt_ocr_document_duration_seconds` `{result}` |
 | Field edits | `paperless_gpt_document_field_edits_total{field}` (success-only; failures show on paperless `update_document`) |
-| PDF | `paperless_gpt_ocr_pdf_outcomes_total{action}`; `paperless_gpt_ocr_pdf_created_total` + `paperless_gpt_ocr_pdf_created_duration_seconds` `{action}` (created ⊂ attached/replaced/local) |
+| PDF | `paperless_gpt_ocr_pdf_outcomes_total{action}`; `paperless_gpt_ocr_pdf_created_total` + `paperless_gpt_ocr_pdf_created_duration_seconds` `{action}` (created ⊂ attached/replaced/versioned/local) |
 | Jobs | gauges `paperless_gpt_ocr_jobs` / `paperless_gpt_suggestion_jobs` by `status`; created counters `paperless_gpt_ocr_jobs_created_total` / `paperless_gpt_suggestion_jobs_created_total`; completion `paperless_gpt_*_jobs_completed_total` + `paperless_gpt_*_jobs_completed_duration_seconds` `{result}` |
 | Background | `paperless_gpt_background_documents_processed_total` + `paperless_gpt_background_documents_processed_duration_seconds` `{kind,result}`; `paperless_gpt_background_cycle_errors_total{kind}`; `paperless_gpt_paperless_tag_backlog{kind}` |
 
@@ -1106,7 +1106,7 @@ Timed layers (except HTTP) expose a matching `*_total` counter with the same lab
 | `purpose` (LLM) | `metadata`, `vision` |
 | `operation` (Paperless) | `get_document`, `update_document`, `download`, `upload_document`, `list_tags`, `search_documents`, `get_task`, `delete_document`, `create_tag`, `create_correspondent`, `list_correspondents`, `list_document_types`, `list_custom_fields`, `other` |
 | `field` (edits) | `title`, `tags`, `correspondent`, `document_type`, `created_date`, `content`, `custom_fields` |
-| `action` (PDF) | `none`, `attached`, `replaced`, `skipped`, `failed`, `local` |
+| `action` (PDF) | `none`, `attached`, `replaced`, `versioned`, `skipped`, `failed`, `local` |
 | `kind` (background) | `auto_tag`, `auto_ocr`, `workflow_tag` |
 | `path` (HTTP) | Gin route template or `unmatched` |
 

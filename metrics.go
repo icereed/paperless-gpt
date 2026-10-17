@@ -50,12 +50,13 @@ const (
 	fieldContent       = "content"
 	fieldCustomFields  = "custom_fields"
 
-	pdfActionNone     = "none"
-	pdfActionAttached = "attached"
-	pdfActionReplaced = "replaced"
-	pdfActionSkipped  = "skipped"
-	pdfActionFailed   = "failed"
-	pdfActionLocal    = "local"
+	pdfActionNone      = "none"
+	pdfActionAttached  = "attached"
+	pdfActionReplaced  = "replaced"
+	pdfActionVersioned = "versioned"
+	pdfActionSkipped   = "skipped"
+	pdfActionFailed    = "failed"
+	pdfActionLocal     = "local"
 
 	bgKindAutoTag     = "auto_tag"
 	bgKindAutoOCR     = "auto_ocr"
@@ -483,10 +484,10 @@ func observePDFCreated(action string, start time.Time) {
 	observeTimed(ocrPDFCreatedDuration, ocrPDFCreatedTotal, start, action)
 }
 
-// recordPDFResult observes created-duration for attached/replaced/local only.
+// recordPDFResult observes created-duration for attached/replaced/versioned/local only.
 func recordPDFResult(action string, start time.Time) {
 	switch action {
-	case pdfActionAttached, pdfActionReplaced, pdfActionLocal:
+	case pdfActionAttached, pdfActionReplaced, pdfActionVersioned, pdfActionLocal:
 		observePDFCreated(action, start)
 	}
 }
