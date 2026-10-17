@@ -13,6 +13,7 @@ import (
 	"paperless-gpt/ocr"
 
 	"github.com/Masterminds/sprig/v3"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -140,6 +141,12 @@ func (a *appStubBG) processAutoTagDocuments(ctx context.Context) (int, error) {
 		return 1, nil
 	}
 	return a.App.processAutoTagDocuments(ctx)
+}
+
+func (a *appStubBG) refreshPaperlessBacklogMetrics(ctx context.Context) {
+	if a.App != nil {
+		a.App.refreshPaperlessBacklogMetrics(ctx)
+	}
 }
 
 // Setup a Test
@@ -1029,4 +1036,43 @@ func TestProcessAutoTagDocuments_SkipsWorkflowThatDuplicatesAutoTag(t *testing.T
 		}
 	}
 	assert.Equal(t, 1, autoFetches, "a workflow whose trigger is AUTO_TAG must not poll that tag a second time")
+}
+
+func TestProcessTagDocuments_WorkflowOCRExhaustedRetriesRecordsResultError(t *testing.T) {
+	prevFailTag, prevAutoTag, prevMaxRetries := failTag, autoTag, ocrMaxRetries
+	t.Cleanup(func() {
+		failTag, autoTag, ocrMaxRetries = prevFailTag, prevAutoTag, prevMaxRetries
+	})
+	failTag = "paperless-gpt-failed"
+	autoTag = "paperless-gpt-auto"
+	ocrMaxRetries = 1
+	isolateWorkflowSettings(t)
+
+	const trigger = "paperless-gpt-wf-ocr"
+	on := true
+	useWorkflows(t, WorkflowConfig{ID: "wf-ocr", TriggerTag: trigger, EnableOCR: &on})
+
+	client := &recordingClient{
+		taggedDocuments: map[string][]Document{
+			trigger: {{ID: 88, Title: "Doc", Tags: []string{trigger}}},
+		},
+	}
+	app := &App{
+		Client:       client,
+		Database:     newOCRRunTestDB(t),
+		ocrProvider:  &mockOCRProvider{},
+		docProcessor: &mockDocumentProcessor{mockErr: errors.New("ocr failed")},
+	}
+
+	beforeError := testutil.ToFloat64(backgroundDocumentsProcessedTotal.WithLabelValues(bgKindWorkflowTag, resultError))
+	beforeSuccess := testutil.ToFloat64(backgroundDocumentsProcessedTotal.WithLabelValues(bgKindWorkflowTag, resultSuccess))
+
+	count, err := app.processAutoTagDocuments(context.Background())
+	assert.NoError(t, err, "exhausted retry removes tag and does not return error to avoid loop backoff")
+	assert.Equal(t, 0, count)
+	assert.Equal(t, beforeError+1, testutil.ToFloat64(backgroundDocumentsProcessedTotal.WithLabelValues(bgKindWorkflowTag, resultError)))
+	assert.Equal(t, beforeSuccess, testutil.ToFloat64(backgroundDocumentsProcessedTotal.WithLabelValues(bgKindWorkflowTag, resultSuccess)))
+	require.Len(t, client.calls, 1, "trigger tag removed and fail tag added")
+	assert.Equal(t, []string{trigger}, client.calls[0].RemoveTags)
+	assert.Equal(t, []string{failTag}, client.calls[0].SuggestedTags)
 }

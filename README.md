@@ -123,6 +123,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Using a Different AI Provider](#using-a-different-ai-provider)
     - [Custom Prompt Templates](#custom-prompt-templates)
       - [Template Variables](#template-variables)
+  - [Exported metrics](#exported-metrics)
   - [LLM-Based OCR: Compare for Yourself](#llm-based-ocr-compare-for-yourself)
     - [Example 1](#example-1)
     - [Example 2](#example-2)
@@ -1057,6 +1058,57 @@ P.O. Box 94515
 - **LLM-Powered OCR** uses your chosen AI backend—OpenAI or Ollama—to interpret the image's text in a more context-aware manner. This leads to fewer errors and more coherent text.
 - **Google Document AI and Azure Document Intelligence** provide high-accuracy OCR with advanced layout analysis.
 - **Enhanced PDF Generation** combines OCR results with the original document to create searchable PDFs with properly positioned text layers.
+
+---
+
+## Exported metrics
+
+Prometheus metrics can be exposed at `GET /metrics` on the same interface as the web UI and API by setting `ENABLE_METRICS: "true"` (or `METRICS_ENABLED: "true"`). Metrics exposure is opt-in (disabled by default) and is not authenticated.
+
+Namespace: `paperless_gpt_`. Process identity (paperless host, LLM/OCR/vision backends and models) lives only on `paperless_gpt_build_info` (gauge=1).
+
+### Metric layers
+
+| Layer | Key metrics |
+|-------|-------------|
+| HTTP | `paperless_gpt_http_requests_total{method,path,code}`, `paperless_gpt_http_request_duration_seconds{method,path}` (`code` on counter only) |
+| Paperless | `paperless_gpt_paperless_requests_total` + `paperless_gpt_paperless_request_duration_seconds` `{method,operation,result}` |
+| LLM | `paperless_gpt_llm_requests_total` + `paperless_gpt_llm_request_duration_seconds` `{purpose,result}`; `paperless_gpt_llm_retries_total{purpose}`; `paperless_gpt_llm_prompt_tokens_total{purpose}`, `paperless_gpt_llm_completion_tokens_total{purpose}` |
+| OCR | `paperless_gpt_ocr_pages_total` + `paperless_gpt_ocr_page_duration_seconds` `{result}`; `paperless_gpt_ocr_documents_total` + `paperless_gpt_ocr_document_duration_seconds` `{result}` |
+| Field edits | `paperless_gpt_document_field_edits_total{field}` (success-only; failures show on paperless `update_document`) |
+| PDF | `paperless_gpt_ocr_pdf_outcomes_total{action}`; `paperless_gpt_ocr_pdf_created_total` + `paperless_gpt_ocr_pdf_created_duration_seconds` `{action}` (created ⊂ attached/replaced/versioned/local) |
+| Jobs | gauges `paperless_gpt_ocr_jobs` / `paperless_gpt_suggestion_jobs` by `status`; created counters `paperless_gpt_ocr_jobs_created_total` / `paperless_gpt_suggestion_jobs_created_total`; completion `paperless_gpt_*_jobs_completed_total` + `paperless_gpt_*_jobs_completed_duration_seconds` `{result}` |
+| Background | `paperless_gpt_background_documents_processed_total` + `paperless_gpt_background_documents_processed_duration_seconds` `{kind,result}`; `paperless_gpt_background_cycle_errors_total{kind}`; `paperless_gpt_paperless_tag_backlog{kind}` |
+
+Timed layers (except HTTP) expose a matching `*_total` counter with the same labels as the duration histogram; both are updated together via a shared observe helper.
+
+**Paperless tag backlog**
+
+- `paperless_gpt_paperless_tag_backlog{kind}` — documents on paperless-ngx still carrying configured processing tags (`auto_ocr` = `AUTO_OCR_TAG`, `auto_tag` = `AUTO_TAG`, `workflow_tag` = sum of configured workflow trigger tags). Uses the Paperless tag `document_count` API (not the page-size-25 list). Refreshed at the start of each background poller cycle (about every 10s when idle; sooner while work remains; delayed by exponential backoff after cycle errors). Requires Paperless reachability: on count API errors the previous gauge value is kept (not reset to 0). In-app OCR/suggestion job queues remain on `paperless_gpt_ocr_jobs` / `paperless_gpt_suggestion_jobs`.
+
+**LLM token usage**
+
+- `paperless_gpt_llm_prompt_tokens_total` / `paperless_gpt_llm_completion_tokens_total` increment only when the LLM backend returns usage in `GenerationInfo` (OpenAI-style `PromptTokens`/`CompletionTokens` or Anthropic-style `InputTokens`/`OutputTokens`) with a positive count. If usage is missing, these counters stay unchanged (skipped). Local tiktoken estimates are not used.
+
+**Jobs — created vs gauge vs completion**
+
+- `paperless_gpt_ocr_jobs_created_total` / `paperless_gpt_suggestion_jobs_created_total` — how many jobs were enqueued (monotone counters).
+- `paperless_gpt_ocr_jobs` / `paperless_gpt_suggestion_jobs{status=…}` — current depth by queue state. Average pending depth: `avg_over_time(paperless_gpt_ocr_jobs{status="pending"}[5m])`.
+- `paperless_gpt_*_jobs_completed_total` + `paperless_gpt_*_jobs_completed_duration_seconds` — terminal completions and lifetime; counter and histogram `_count` move together.
+
+### Label values
+
+| Label | Allowed values |
+|-------|----------------|
+| `result` | `success`, `error`, `canceled` |
+| `code` | HTTP status as string (`200`, `404`, `500`, …) |
+| `status` (job gauges only) | `pending`, `in_progress`, `completed`, `failed`, `canceled` |
+| `purpose` (LLM) | `metadata`, `vision` |
+| `operation` (Paperless) | `get_document`, `update_document`, `download`, `upload_document`, `list_tags`, `search_documents`, `get_task`, `delete_document`, `create_tag`, `create_correspondent`, `list_correspondents`, `list_document_types`, `list_custom_fields`, `other` |
+| `field` (edits) | `title`, `tags`, `correspondent`, `document_type`, `created_date`, `content`, `custom_fields` |
+| `action` (PDF) | `none`, `attached`, `replaced`, `versioned`, `skipped`, `failed`, `local` |
+| `kind` (background) | `auto_tag`, `auto_ocr`, `workflow_tag` |
+| `path` (HTTP) | Gin route template or `unmatched` |
 
 ---
 

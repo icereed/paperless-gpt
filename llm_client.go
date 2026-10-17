@@ -15,6 +15,14 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// llmPurpose is the metrics label for which LLM role a RateLimitedLLM serves.
+type llmPurpose string
+
+const (
+	llmPurposeMetadata llmPurpose = "metadata"
+	llmPurposeVision   llmPurpose = "vision"
+)
+
 // RateLimitedLLM wraps an LLM client with rate limiting and retry capabilities
 type RateLimitedLLM struct {
 	llm          llms.Model
@@ -23,6 +31,7 @@ type RateLimitedLLM struct {
 	backoffMin   time.Duration
 	backoffMax   time.Duration
 	backoffScale float64
+	purpose      llmPurpose
 }
 
 const maxProviderRetryDelay = 15 * time.Minute
@@ -64,8 +73,12 @@ func retryDelay(err error, backoff time.Duration) time.Duration {
 
 // Call implements the llms.Model interface
 func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llms.CallOption) (string, error) {
+	start := time.Now()
+	purpose := r.metricsPurpose()
+
 	if r.rateLimiter != nil {
 		if err := r.rateLimiter.Wait(ctx); err != nil {
+			observeLLMRequest(purpose, resultFromContext(ctx, err), start)
 			return "", fmt.Errorf("rate limiter wait failed: %w", err)
 		}
 	}
@@ -76,15 +89,18 @@ func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llm
 	for {
 		response, err := r.llm.Call(ctx, prompt, options...)
 		if err == nil {
+			observeLLMRequest(purpose, resultSuccess, start)
 			return response, nil
 		}
 
 		// Check if we should retry
 		if attempt >= r.maxRetries {
+			finalErr := err
 			if lastErr != nil {
-				return "", fmt.Errorf("all retry attempts failed, last error: %w", lastErr)
+				finalErr = fmt.Errorf("all retry attempts failed, last error: %w", lastErr)
 			}
-			return "", err
+			observeLLMRequest(purpose, resultFromContext(ctx, finalErr), start)
+			return "", finalErr
 		}
 
 		// Calculate exponential backoff with jitter
@@ -98,14 +114,17 @@ func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llm
 		// the randomized delay can never wake before the provider's cooldown.
 		jitter = retryDelay(err, jitter)
 		if jitter > maxProviderRetryDelay {
+			observeLLMRequest(purpose, resultError, start)
 			return "", fmt.Errorf("provider retry delay %s exceeds limit", jitter)
 		}
 
 		select {
 		case <-ctx.Done():
+			observeLLMRequest(purpose, resultFromContext(ctx, ctx.Err()), start)
 			return "", ctx.Err()
 		case <-time.After(jitter):
 			// Continue with retry
+			incLLMRetry(purpose)
 			attempt++
 			lastErr = err
 		}
@@ -131,6 +150,10 @@ type RateLimitConfig struct {
 	// BackoffMaxWait is the maximum wait time between retries
 	// Defaults to 30 seconds if not specified
 	BackoffMaxWait time.Duration
+
+	// Purpose is which LLM role this wrapper serves for metrics labeling.
+	// Defaults to llmPurposeMetadata when empty.
+	Purpose llmPurpose
 }
 
 // NewRateLimitedLLM creates a new rate-limited LLM client
@@ -155,6 +178,11 @@ func NewRateLimitedLLM(llm llms.Model, config RateLimitConfig) *RateLimitedLLM {
 		backoffMax = 30 * time.Second // Default to 30 seconds
 	}
 
+	purpose := config.Purpose
+	if purpose == "" {
+		purpose = llmPurposeMetadata
+	}
+
 	return &RateLimitedLLM{
 		llm:          llm,
 		rateLimiter:  limiter,
@@ -162,14 +190,26 @@ func NewRateLimitedLLM(llm llms.Model, config RateLimitConfig) *RateLimitedLLM {
 		backoffMin:   backoffMin,
 		backoffMax:   backoffMax,
 		backoffScale: 2.0, // Exponential backoff multiplier
+		purpose:      purpose,
 	}
+}
+
+func (r *RateLimitedLLM) metricsPurpose() llmPurpose {
+	if r.purpose == "" {
+		return llmPurposeMetadata
+	}
+	return r.purpose
 }
 
 // GenerateContent implements the LLM interface with rate limiting and retries
 func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.MessageContent, options ...llms.CallOption) (*llms.ContentResponse, error) {
+	start := time.Now()
+	purpose := r.metricsPurpose()
+
 	if r.rateLimiter != nil {
 		// Wait for rate limiter
 		if err := r.rateLimiter.Wait(ctx); err != nil {
+			observeLLMRequest(purpose, resultFromContext(ctx, err), start)
 			return nil, fmt.Errorf("rate limiter wait failed: %w", err)
 		}
 	}
@@ -180,6 +220,10 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 	for {
 		resp, err := r.llm.GenerateContent(ctx, messages, options...)
 		if err == nil {
+			observeLLMRequest(purpose, resultSuccess, start)
+			if resp != nil && len(resp.Choices) > 0 && resp.Choices[0] != nil {
+				observeLLMTokens(purpose, resp.Choices[0].GenerationInfo)
+			}
 			// Return the pointer response directly
 			return resp, nil
 		}
@@ -192,15 +236,18 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 			// when an OpenAI-compatible model returns empty content, so the
 			// field is skipped like any other empty suggestion.
 			log.Warn("LLM returned an empty response; treating it as an empty suggestion")
+			observeLLMRequest(purpose, resultSuccess, start)
 			return &llms.ContentResponse{Choices: []*llms.ContentChoice{{}}}, nil
 		}
 
 		// Check if we should retry
 		if attempt >= r.maxRetries {
+			finalErr := err
 			if lastErr != nil {
-				return nil, fmt.Errorf("all retry attempts failed, last error: %w", lastErr)
+				finalErr = fmt.Errorf("all retry attempts failed, last error: %w", lastErr)
 			}
-			return nil, err
+			observeLLMRequest(purpose, resultFromContext(ctx, finalErr), start)
+			return nil, finalErr
 		}
 
 		// Calculate exponential backoff with jitter
@@ -212,14 +259,17 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 		jitter := time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
 		jitter = retryDelay(err, jitter)
 		if jitter > maxProviderRetryDelay {
+			observeLLMRequest(purpose, resultError, start)
 			return nil, fmt.Errorf("provider retry delay %s exceeds limit", jitter)
 		}
 
 		select {
 		case <-ctx.Done():
+			observeLLMRequest(purpose, resultFromContext(ctx, ctx.Err()), start)
 			return nil, ctx.Err()
 		case <-time.After(jitter):
 			// Continue with retry
+			incLLMRetry(purpose)
 			attempt++
 			lastErr = err
 		}

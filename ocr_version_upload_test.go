@@ -17,6 +17,7 @@ import (
 
 	"github.com/gardar/ocrchestra/pkg/hocr"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -279,12 +280,50 @@ func testVersionModeUploadsSearchablePDF(t *testing.T, processMode string) {
 	// A prompt override avoids needing the OCR prompt template, as in ocr_test.go.
 	options := OCROptions{UploadPDF: true, UploadMode: PDFUploadModeVersion, ProcessMode: processMode, PromptOverride: "OCR"}
 
+	beforeCreated := testutil.ToFloat64(ocrPDFCreatedTotal.WithLabelValues("versioned"))
 	doc, err := app.ProcessDocumentOCR(context.Background(), documentID, options, "")
 	require.NoError(t, err)
 	assert.Equal(t, "versioned", doc.PDFAction, doc.PDFDetail)
+	assert.Equal(t, beforeCreated+1, testutil.ToFloat64(ocrPDFCreatedTotal.WithLabelValues("versioned")), "confirmed version upload is counted as created PDF")
 	require.NotEmpty(t, uploaded, "the searchable PDF is sent as a new version")
 	assert.True(t, bytes.HasPrefix(uploaded, []byte("%PDF")))
 	assert.NotEqual(t, original, uploaded, "the uploaded version carries the added text layer")
+}
+
+func TestProcessDocumentOCRVersionModeUnconfirmedLeavesCreatedUncounted(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+	require.NoError(t, env.db.AutoMigrate(&OCRPageResult{}))
+	shortenTaskPolling(t)
+
+	original, err := os.ReadFile("tests/pdf/sample.pdf")
+	require.NoError(t, err)
+
+	const documentID = 2045
+	env.setMockResponse(fmt.Sprintf("/api/documents/%d/download/", documentID), func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write(original)
+	})
+	env.client.CacheFolder = t.TempDir()
+
+	env.setMockResponse(fmt.Sprintf("/api/documents/%d/update_version/", documentID), func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`"task-slow-ocr"`))
+	})
+	env.setMockResponse("/api/tasks/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"count":1,"results":[{"task_id":"task-slow-ocr","status":"started"}]}`))
+	})
+
+	app := &App{Client: env.client, Database: env.db, ocrProvider: &hocrStubProvider{}, ocrProcessMode: "pdf"}
+	options := OCROptions{UploadPDF: true, UploadMode: PDFUploadModeVersion, ProcessMode: "pdf", PromptOverride: "OCR"}
+
+	beforeCreated := testutil.ToFloat64(ocrPDFCreatedTotal.WithLabelValues("versioned"))
+	doc, err := app.ProcessDocumentOCR(context.Background(), documentID, options, "")
+	require.NoError(t, err)
+	assert.Equal(t, "versioned", doc.PDFAction)
+	assert.Contains(t, doc.PDFDetail, "had not confirmed the new version")
+	assert.Equal(t, beforeCreated, testutil.ToFloat64(ocrPDFCreatedTotal.WithLabelValues("versioned")), "unconfirmed version upload must remain uncounted as created PDF")
 }
 
 func shortenTaskPolling(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tmc/langchaingo/llms"
@@ -144,15 +145,32 @@ func newSuccessfulRateLimitMock() *rateLimitMockLLM {
 
 func TestRateLimitedLLMRejectsOversizedProviderDelay(t *testing.T) {
 	config := RateLimitConfig{MaxRetries: 1, BackoffMaxWait: 5 * time.Millisecond}
+	beforeError := testutil.ToFloat64(llmRequestsTotal.WithLabelValues("metadata", "error"))
+
 	callMock := &rateLimitMockLLM{callResponses: []string{""}, callErrors: []error{retryAfterMockError{delay: maxProviderRetryDelay + time.Second}}}
 	callClient := NewRateLimitedLLM(callMock, config)
 	_, err := callClient.Call(context.Background(), "prompt")
 	assert.ErrorContains(t, err, "provider retry delay")
+	assert.Equal(t, beforeError+1, testutil.ToFloat64(llmRequestsTotal.WithLabelValues("metadata", "error")))
 
 	generateMock := &rateLimitMockLLM{generateResponses: []*llms.ContentResponse{nil}, generateErrors: []error{retryAfterMockError{delay: maxProviderRetryDelay + time.Second}}}
 	generateClient := NewRateLimitedLLM(generateMock, config)
 	_, err = generateClient.GenerateContent(context.Background(), nil)
 	assert.ErrorContains(t, err, "provider retry delay")
+	assert.Equal(t, beforeError+2, testutil.ToFloat64(llmRequestsTotal.WithLabelValues("metadata", "error")))
+}
+
+func TestRateLimitedLLM_GenerateContent_EmptyResponse(t *testing.T) {
+	config := RateLimitConfig{MaxRetries: 1, BackoffMaxWait: 5 * time.Millisecond}
+	beforeSuccess := testutil.ToFloat64(llmRequestsTotal.WithLabelValues("metadata", "success"))
+
+	generateMock := &rateLimitMockLLM{generateResponses: []*llms.ContentResponse{nil}, generateErrors: []error{openai.ErrEmptyResponse}}
+	generateClient := NewRateLimitedLLM(generateMock, config)
+	resp, err := generateClient.GenerateContent(context.Background(), nil)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Len(t, resp.Choices, 1)
+	assert.Equal(t, beforeSuccess+1, testutil.ToFloat64(llmRequestsTotal.WithLabelValues("metadata", "success")))
 }
 
 // newFailingRateLimitMock creates a mock LLM that always returns errors
