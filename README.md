@@ -1063,7 +1063,7 @@ P.O. Box 94515
 
 ## Exported metrics
 
-paperless-gpt exposes metrics at `GET /metrics` on the same interface as the web UI and API. Metrics are always enabled and are not authenticated.
+Prometheus metrics can be exposed at `GET /metrics` on the same interface as the web UI and API by setting `ENABLE_METRICS: "true"` (or `METRICS_ENABLED: "true"`). Metrics exposure is opt-in (disabled by default) and is not authenticated.
 
 Namespace: `paperless_gpt_`. Process identity (paperless host, LLM/OCR/vision backends and models) lives only on `paperless_gpt_build_info` (gauge=1).
 

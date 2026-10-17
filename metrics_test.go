@@ -606,3 +606,22 @@ func TestResultFromError(t *testing.T) {
 	assert.Equal(t, resultCanceled, resultFromError(context.Canceled))
 	assert.Equal(t, resultError, resultFromError(assert.AnError))
 }
+
+func TestMetricsEndpointOptIn(t *testing.T) {
+	// Without registerMetricsEndpoint, GET /metrics returns 404
+	routerDisabled := gin.New()
+	routerDisabled.Use(metricsMiddleware())
+	req404 := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w404 := httptest.NewRecorder()
+	routerDisabled.ServeHTTP(w404, req404)
+	assert.Equal(t, http.StatusNotFound, w404.Code)
+
+	// With registerMetricsEndpoint, GET /metrics returns 200
+	routerEnabled := gin.New()
+	routerEnabled.Use(metricsMiddleware())
+	registerMetricsEndpoint(routerEnabled)
+	req200 := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w200 := httptest.NewRecorder()
+	routerEnabled.ServeHTTP(w200, req200)
+	assert.Equal(t, http.StatusOK, w200.Code)
+}
