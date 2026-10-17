@@ -114,6 +114,7 @@ func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llm
 		// the randomized delay can never wake before the provider's cooldown.
 		jitter = retryDelay(err, jitter)
 		if jitter > maxProviderRetryDelay {
+			observeLLMRequest(purpose, resultError, start)
 			return "", fmt.Errorf("provider retry delay %s exceeds limit", jitter)
 		}
 
@@ -235,6 +236,7 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 			// when an OpenAI-compatible model returns empty content, so the
 			// field is skipped like any other empty suggestion.
 			log.Warn("LLM returned an empty response; treating it as an empty suggestion")
+			observeLLMRequest(purpose, resultSuccess, start)
 			return &llms.ContentResponse{Choices: []*llms.ContentChoice{{}}}, nil
 		}
 
@@ -257,6 +259,7 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 		jitter := time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
 		jitter = retryDelay(err, jitter)
 		if jitter > maxProviderRetryDelay {
+			observeLLMRequest(purpose, resultError, start)
 			return nil, fmt.Errorf("provider retry delay %s exceeds limit", jitter)
 		}
 
