@@ -250,7 +250,20 @@ const SuggestionFields: React.FC<SuggestionFieldsProps> = ({
                   />
                   <span className="min-w-0 break-words">
                     <span className="font-medium">{field.name}:</span>{" "}
-                    {String(field.value)}
+                    {field.selectOption ? (
+                      field.selectOption.unknownOption ? (
+                        <span
+                          className="text-warn"
+                          title="This id matches none of the field's options in paperless-ngx."
+                        >
+                          {field.selectOption.label} (unknown option)
+                        </span>
+                      ) : (
+                        field.selectOption.label
+                      )
+                    ) : (
+                      String(field.value)
+                    )}
                   </span>
                 </label>
               ))}

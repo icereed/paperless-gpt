@@ -1,0 +1,29 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/v1/chat/completions",
+    "bodyPatterns": [
+      { "contains": "E2E-SELECT-MARKER" },
+      { "contains": "e2eOptBob" }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "id": "chatcmpl-mock-workflow-select-fields",
+      "object": "chat.completion",
+      "created": 1700000000,
+      "model": "gpt-4o-mini",
+      "choices": [
+        {
+          "index": 0,
+          "message": { "role": "assistant", "content": "[{\"field\": \"Who\", \"value\": \"e2eOptBob\"}, {\"field\": \"Pet\", \"value\": \"e2eNoSuchOption\"}]" },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": { "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15 }
+    }
+  }
+}

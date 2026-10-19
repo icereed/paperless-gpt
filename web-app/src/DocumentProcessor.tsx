@@ -17,6 +17,11 @@ import {
   queueIdsForRestore,
   reviewDecisionsKey,
 } from "./components/review/reviewSession";
+import {
+  CustomFieldDefinition,
+  SelectOptionDisplay,
+  selectOptionDisplay,
+} from "./customFieldDisplay";
 
 export interface Document {
   id: number;
@@ -45,6 +50,9 @@ export interface CustomFieldSuggestion {
   value: unknown;
   name: string;
   isSelected: boolean;
+  // Display only: the label for a select field's option id. The id in
+  // `value` is still what gets written back to paperless-ngx.
+  selectOption?: SelectOptionDisplay | null;
 }
 
 export interface DocumentSuggestion {
@@ -84,12 +92,6 @@ export interface SuggestionJobStatus {
   failed_documents?: SuggestionJobFailedDocument[];
 }
 
-interface CustomField {
-  id: number;
-  name: string;
-  data_type: string;
-}
-
 const ACTIVE_JOB_KEY = "pgpt-active-suggestion-job";
 
 const APPROVALS_POLL_MS = 10000;
@@ -120,7 +122,9 @@ const DocumentProcessor: React.FC = () => {
     null
   );
   const [availableTags, setAvailableTags] = useState<TagOption[]>([]);
-  const [allCustomFields, setAllCustomFields] = useState<CustomField[]>([]);
+  const [allCustomFields, setAllCustomFields] = useState<
+    CustomFieldDefinition[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [filterTag, setFilterTag] = useState<string | null>(null);
   const [flags, setFlags] = useState<GenerationFlags>({
@@ -161,7 +165,7 @@ const DocumentProcessor: React.FC = () => {
           axios.get<{ tag: string }>("./api/filter-tag"),
           axios.get<Document[]>("./api/documents"),
           axios.get<Record<string, number>>("./api/tags"),
-          axios.get<CustomField[]>("./api/custom_fields"),
+          axios.get<CustomFieldDefinition[]>("./api/custom_fields"),
           fetchApprovals(),
         ]);
 
@@ -191,18 +195,23 @@ const DocumentProcessor: React.FC = () => {
     fetchInitialData();
   }, [fetchInitialData]);
 
-  // Attach custom-field names to suggestions for the review.
+  // Attach custom-field names and select-option labels to suggestions for
+  // the review.
   const withFieldNames = useCallback(
     (list: DocumentSuggestion[]) => {
       const customFieldMap = new Map(
-        (allCustomFields || []).map((cf) => [cf.id, cf.name])
+        (allCustomFields || []).map((cf) => [cf.id, cf])
       );
       return list.map((suggestion) => ({
         ...suggestion,
         suggested_custom_fields: suggestion.suggested_custom_fields?.map(
           (cf) => ({
             ...cf,
-            name: customFieldMap.get(cf.id) || "Unknown Field",
+            name: customFieldMap.get(cf.id)?.name || "Unknown Field",
+            selectOption: selectOptionDisplay(
+              customFieldMap.get(cf.id),
+              cf.value
+            ),
             isSelected: true,
           })
         ),
