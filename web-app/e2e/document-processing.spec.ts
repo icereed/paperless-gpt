@@ -81,6 +81,42 @@ test('should process document and show changes in history', async () => {
   await page.waitForSelector('.suggestions-review', { timeout: 60000 });
   await page.screenshot({ path: 'test-results/suggestions-loaded.png' });
 
+  // The focus view shows the document itself, readable, next to the suggestions.
+  // The first load fails as if paperless-ngx were briefly unreachable, which
+  // must not keep the document hidden once it is reachable again.
+  const previewRoute = '**/api/documents/*/preview';
+  await page.route(previewRoute, (route) =>
+    route.fulfill({ status: 502, contentType: 'application/json', body: '{"error":"Failed to fetch document preview"}' })
+  );
+  await page.getByRole('button', { name: 'Open “Original Title” in focus view' }).click();
+  const focus = page.getByRole('dialog');
+  await expect(focus.getByRole('tab', { name: 'Document' })).toHaveAttribute('aria-selected', 'true');
+  await expect(focus.getByText('Failed to fetch document preview')).toBeVisible();
+  await page.unroute(previewRoute);
+  await focus.getByRole('button', { name: 'Try again' }).click();
+  const documentFrame = focus.locator('iframe');
+  await expect(documentFrame).toHaveAttribute('src', `./api/documents/${documentId}/preview`);
+  await expect(focus.frameLocator('iframe').locator('body')).toContainText('Invoice #12345');
+  await expect(focus.getByRole('link', { name: 'Open in new tab' })).toHaveAttribute('href', `./api/documents/${documentId}/preview`);
+  await expect(focus.getByRole('link', { name: 'Open in paperless-ngx' })).toHaveAttribute(
+    'href',
+    new RegExp(`/documents/${documentId}/details$`)
+  );
+  await page.screenshot({ path: 'test-results/focus-view-document.png' });
+
+  // Arrow keys on a focused tab switch tabs rather than documents.
+  await focus.getByRole('tab', { name: 'Document' }).focus();
+  await page.keyboard.press('ArrowRight');
+  const textTab = focus.getByRole('tab', { name: 'Extracted text' });
+  await expect(textTab).toHaveAttribute('aria-selected', 'true');
+  await expect(textTab).toBeFocused();
+  await expect(documentFrame).toBeHidden();
+  await page.keyboard.press('Tab');
+  await expect(focus.getByRole('tabpanel', { name: 'Extracted text' })).toBeFocused();
+  await expect(focus.getByRole('tabpanel', { name: 'Extracted text' })).toContainText('Invoice #12345');
+  await focus.getByRole('button', { name: 'Close focus view' }).click();
+  await expect(focus).toBeHidden();
+
   // Apply all remaining suggestions via the summary dialog
   await page.click('button:has-text("Apply remaining")');
   await page.getByRole('button', { name: /^Apply to \d+ documents?$/ }).click();

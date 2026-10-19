@@ -488,6 +488,31 @@ func (client *PaperlessClient) GetDocumentThumbnail(ctx context.Context, documen
 	return data, contentType, nil
 }
 
+// GetDocumentPreview opens the file paperless-ngx shows for a document in its
+// own viewer: the archived PDF when there is one, otherwise the original. The
+// body is streamed rather than buffered because documents can be large; the
+// caller must close it.
+func (client *PaperlessClient) GetDocumentPreview(ctx context.Context, documentID int) (*DocumentPreview, error) {
+	path := fmt.Sprintf("api/documents/%d/preview/", documentID)
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("error fetching preview for document %d: %d, %s", documentID, resp.StatusCode, string(bodyBytes))
+	}
+
+	return &DocumentPreview{
+		Body:               resp.Body,
+		ContentType:        resp.Header.Get("Content-Type"),
+		ContentLength:      resp.ContentLength,
+		ContentDisposition: resp.Header.Get("Content-Disposition"),
+	}, nil
+}
+
 // ErrDocumentNotFound is returned by GetDocument when paperless-ngx answers
 // 404: the document was deleted, or the API user can't see it.
 var ErrDocumentNotFound = errors.New("document not found")

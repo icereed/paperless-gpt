@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"gorm.io/gorm"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -478,4 +480,98 @@ func TestUpdateDocumentsHandlerReportsPartialUpdates(t *testing.T) {
 
 	require.Len(t, client.calls, 2, "the fail tag is applied in a second update")
 	assert.Equal(t, []string{"paperless-gpt-failed"}, client.calls[1][0].SuggestedTags)
+}
+
+type previewClient struct {
+	mockPaperlessClient
+	preview *DocumentPreview
+	err     error
+	closed  bool
+}
+
+func (c *previewClient) GetDocumentPreview(_ context.Context, _ int) (*DocumentPreview, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	c.preview.Body = &closeRecorder{Reader: c.preview.Body, closed: &c.closed}
+	return c.preview, nil
+}
+
+type closeRecorder struct {
+	io.Reader
+	closed *bool
+}
+
+func (r *closeRecorder) Close() error {
+	*r.closed = true
+	return nil
+}
+
+func TestGetDocumentPreviewHandler(t *testing.T) {
+	serve := func(client *previewClient, id string) *httptest.ResponseRecorder {
+		router := setupTestRouter(t)
+		app := &App{Client: client}
+		router.GET("/api/documents/:id/preview", app.getDocumentPreviewHandler)
+		req, err := http.NewRequest(http.MethodGet, "/api/documents/"+id+"/preview", nil)
+		require.NoError(t, err)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	t.Run("streams a PDF inline", func(t *testing.T) {
+		client := &previewClient{preview: &DocumentPreview{
+			Body:               io.NopCloser(strings.NewReader("%PDF-1.7 test")),
+			ContentType:        "application/pdf",
+			ContentLength:      13,
+			ContentDisposition: `inline; filename="bill.pdf"`,
+		}}
+		w := serve(client, "7")
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "%PDF-1.7 test", w.Body.String())
+		assert.Equal(t, "application/pdf", w.Header().Get("Content-Type"))
+		assert.Equal(t, `inline; filename="bill.pdf"`, w.Header().Get("Content-Disposition"))
+		assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
+		assert.True(t, client.closed)
+	})
+
+	t.Run("accepts a media type with parameters", func(t *testing.T) {
+		client := &previewClient{preview: &DocumentPreview{
+			Body:          io.NopCloser(strings.NewReader("plain text")),
+			ContentType:   "text/plain; charset=utf-8",
+			ContentLength: -1,
+		}}
+		w := serve(client, "7")
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "plain text", w.Body.String())
+		assert.Equal(t, "inline", w.Header().Get("Content-Disposition"))
+	})
+
+	// An HTML original served from paperless-gpt's origin could call its API.
+	t.Run("refuses types the browser could run scripts in", func(t *testing.T) {
+		for _, contentType := range []string{"text/html; charset=utf-8", "image/svg+xml", ""} {
+			client := &previewClient{preview: &DocumentPreview{
+				Body:          io.NopCloser(strings.NewReader("<script>alert(1)</script>")),
+				ContentType:   contentType,
+				ContentLength: -1,
+			}}
+			w := serve(client, "7")
+
+			assert.Equal(t, http.StatusUnsupportedMediaType, w.Code, contentType)
+			assert.NotContains(t, w.Body.String(), "<script>", contentType)
+			assert.True(t, client.closed, contentType)
+		}
+	})
+
+	t.Run("reports a paperless-ngx failure", func(t *testing.T) {
+		w := serve(&previewClient{err: errors.New("boom")}, "7")
+		assert.Equal(t, http.StatusBadGateway, w.Code)
+	})
+
+	t.Run("rejects an invalid id", func(t *testing.T) {
+		w := serve(&previewClient{}, "abc")
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
 }

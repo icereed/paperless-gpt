@@ -497,6 +497,9 @@ func (m *mockPaperlessClient) GetDocument(ctx context.Context, documentID int) (
 func (m *mockPaperlessClient) GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error) {
 	return nil, "", nil
 }
+func (m *mockPaperlessClient) GetDocumentPreview(ctx context.Context, documentID int) (*DocumentPreview, error) {
+	return nil, fmt.Errorf("not implemented")
+}
 func (m *mockPaperlessClient) SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error) {
 	return nil, nil
 }

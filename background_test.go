@@ -93,6 +93,10 @@ func (m *mockClient) GetDocumentThumbnail(ctx context.Context, documentID int) (
 	return nil, "", fmt.Errorf("not implemented")
 }
 
+func (m *mockClient) GetDocumentPreview(ctx context.Context, documentID int) (*DocumentPreview, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (m *mockClient) AddDocument(doc Document, tags []string) {
 	m.documents[doc.ID] = doc
 
