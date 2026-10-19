@@ -130,9 +130,12 @@ export function buildUpdatePayload(
     suggested_created_date: excluded.has("created_date")
       ? ""
       : suggestion.suggested_created_date,
-    suggested_custom_fields: suggestion.suggested_custom_fields?.filter(
-      (cf) => cf.isSelected
-    ),
+    // selectOption is only the label shown in the review, so it is left out
+    // of the request; the option id in `value` is what gets written.
+    suggested_custom_fields: suggestion.suggested_custom_fields
+      ?.filter((cf) => cf.isSelected)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      .map(({ selectOption, ...cf }) => cf),
   };
 }
 

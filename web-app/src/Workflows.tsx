@@ -18,6 +18,7 @@ import { Link } from "react-router-dom";
 import Button from "./components/ui/Button";
 import PersistenceWarning from "./components/PersistenceWarning";
 import Toast, { ToastData } from "./components/ui/Toast";
+import { CustomFieldDefinition, selectOptionDisplay } from "./customFieldDisplay";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,7 +60,7 @@ interface WorkflowDefaults {
   ocr_prompt_override_supported: boolean;
   generate: Record<FlagKey, boolean>;
   prompts: Record<string, string>;
-  custom_fields: { id: number; name: string; data_type: string }[];
+  custom_fields: CustomFieldDefinition[];
   custom_field_ids: number[];
 }
 
@@ -314,7 +315,12 @@ const ResultRow: React.FC<{ label: string; before?: string; after: string }> = (
   </div>
 );
 
-const TryIt: React.FC<{ workflow: WorkflowConfig; savedId?: string; blocked?: string }> = ({ workflow, savedId, blocked }) => {
+const TryIt: React.FC<{
+  workflow: WorkflowConfig;
+  savedId?: string;
+  blocked?: string;
+  customFields?: CustomFieldDefinition[];
+}> = ({ workflow, savedId, blocked, customFields }) => {
   const [waiting, setWaiting] = useState<WaitingDocument[] | null>(null);
   const [documentId, setDocumentId] = useState("");
   const [running, setRunning] = useState(false);
@@ -351,6 +357,16 @@ const TryIt: React.FC<{ workflow: WorkflowConfig; savedId?: string; blocked?: st
 
   const s = result?.suggestion;
   const before = s?.original_document;
+
+  // A select field's value is an option id; show its label instead.
+  const formatCustomFieldValue = (f: CustomFieldSuggestion): string => {
+    const option = selectOptionDisplay(
+      customFields?.find((field) => field.id === f.id),
+      f.value
+    );
+    if (!option) return formatValue(f.value);
+    return option.unknownOption ? `${option.label} (unknown option)` : option.label;
+  };
 
   return (
     <div className="space-y-3 rounded-lg border border-line bg-surface-2 p-4">
@@ -437,7 +453,7 @@ const TryIt: React.FC<{ workflow: WorkflowConfig; savedId?: string; blocked?: st
           )}
           {result.steps.generate_custom_fields &&
             (s.suggested_custom_fields ?? []).map((f) => (
-              <ResultRow key={f.id} label={f.name} after={formatValue(f.value)} />
+              <ResultRow key={f.id} label={f.name} after={formatCustomFieldValue(f)} />
             ))}
           {Object.values(result.steps).every((on) => !on) && (
             <p className="text-sm text-muted">All steps are off for this workflow.</p>
@@ -829,7 +845,7 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
 
       <Section title="Try it" hint="See what this workflow does to a real document before you save it.">
         {showTryIt ? (
-          <TryIt workflow={wf} savedId={isNew ? undefined : initial.id} blocked={fieldsIncomplete ? "Choose at least one custom field first." : undefined} />
+          <TryIt workflow={wf} savedId={isNew ? undefined : initial.id} blocked={fieldsIncomplete ? "Choose at least one custom field first." : undefined} customFields={defaults?.custom_fields} />
         ) : (
           <Button variant="secondary" onClick={() => setShowTryIt(true)}>
             <BeakerIcon className="h-4 w-4" aria-hidden="true" /> Test on a document

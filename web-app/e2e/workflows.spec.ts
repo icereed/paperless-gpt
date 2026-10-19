@@ -399,6 +399,70 @@ test('a skipped approval stays waiting, a discarded one is released untouched, a
   expect((await getDocument(later)).title).toBe('Approval Later');
 });
 
+test('select custom fields show the option label, not its id, in a test run and in the review (#1154)', async ({ page }) => {
+  // paperless-ngx keeps the option ids given here; the mock only answers a
+  // prompt that lists "e2eOptBob", so it returns an id that is really an option.
+  const createSelectField = async (name: string, options: { id: string; label: string }[]) => {
+    const res = await fetch(`${paperlessUrl}/api/custom_fields/`, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, data_type: 'select', extra_data: { select_options: options } }),
+    });
+    expect(res.ok).toBeTruthy();
+    return ((await res.json()) as { id: number }).id;
+  };
+  const who = await createSelectField('Who', [
+    { id: 'e2eOptAlice', label: 'Alice' },
+    { id: 'e2eOptBob', label: 'Bob' },
+  ]);
+  // The mock answers "e2eNoSuchOption" for Pet, which none of its options has.
+  const pet = await createSelectField('Pet', [{ id: 'e2eOptRex', label: 'Rex' }]);
+  await gptApi('GET', '/api/custom_fields?force_pull=true');
+  await expect
+    .poll(async () => ((await (await gptApi('GET', '/api/workflows/defaults')).json()).custom_fields as { name: string }[]).map((f) => f.name), { timeout: 30_000 })
+    .toContain('Pet');
+
+  const create = await gptApi('POST', '/api/workflows', {
+    name: 'E2E Select Fields',
+    trigger_tag: 'e2e-select',
+    generate_titles: false,
+    generate_tags: false,
+    generate_correspondents: false,
+    generate_document_types: false,
+    generate_created_date: false,
+    generate_custom_fields: true,
+    custom_field_ids: [who, pet],
+    require_approval: true,
+    prompts: { custom_field_prompt: 'E2E-SELECT-MARKER: extract these fields.\n{{ .CustomFieldsXML }}\n{{ .Content }}' },
+  });
+  expect(create.status).toBe(201);
+  const { id: documentId } = await uploadDocument(paperlessUrl, fixture, 'Select Labels', credentials);
+
+  // The workflow test run.
+  await page.goto(`${gptUrl()}/workflows`);
+  await page.getByRole('button', { name: 'Edit E2E Select Fields' }).click();
+  await page.getByRole('button', { name: 'Test on a document' }).click();
+  await page.getByPlaceholder(/Document ID/).fill(String(documentId));
+  await page.getByRole('button', { name: 'Run test' }).click();
+  await expect(page.getByText('Bob', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText('e2eNoSuchOption (unknown option)', { exact: true })).toBeVisible();
+  await expect(page.getByText('e2eOptBob')).toHaveCount(0);
+
+  // The review of the held suggestions.
+  await setTags(documentId, [await tagId('e2e-select')]);
+  await waitForApproval(documentId);
+  await page.goto(`${gptUrl()}/`);
+  await page.getByRole('region', { name: 'Waiting for your approval' }).getByRole('button', { name: /^Review/ }).click();
+  const card = page.getByRole('article', { name: 'Suggestions for “Select Labels”' });
+  await expect(card.getByText('Who: Bob', { exact: true })).toBeVisible();
+  await expect(card.getByText('e2eNoSuchOption (unknown option)', { exact: true })).toBeVisible();
+  await expect(card.getByText('e2eOptBob')).toHaveCount(0);
+
+  // Nothing is written; the unknown option would be rejected by paperless-ngx.
+  await card.getByRole('button', { name: 'Discard' }).click();
+  await expect(card.getByText('Discarded — nothing was written')).toBeVisible();
+});
+
 test('workflows that would loop are refused, in the UI and by the API', async ({ page }) => {
   await openNewWorkflow(page);
   await page.getByLabel(/Trigger tag/).fill('Paperless-GPT-Auto');
