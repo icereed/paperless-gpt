@@ -1,11 +1,13 @@
 import {
+  ArrowTopRightOnSquareIcon,
   CheckCircleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   DocumentIcon,
   XMarkIcon,
 } from "@heroicons/react/24/outline";
-import React, { useRef, useState } from "react";
+import classNames from "classnames";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { DocumentSuggestion, TagOption } from "../../DocumentProcessor";
 import Button from "../ui/Button";
 import Modal from "../ui/Modal";
@@ -41,9 +43,31 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
+type SourceView = "document" | "text";
+
+const sourceViews: readonly (readonly [SourceView, string])[] = [
+  ["document", "Document"],
+  ["text", "Extracted text"],
+];
+
 /**
- * One document at a time: the scan and its OCR text on the left ("show the
- * work"), the field diffs on the right, and a keyboard-first flow (j/k/a/s).
+ * Reads the error out of a preview frame that loaded the proxy's JSON error
+ * instead of the document. A frame has no load-failure event for HTTP errors,
+ * but the preview is same-origin, so its content can be inspected.
+ */
+function previewFrameError(frame: HTMLIFrameElement): string | null {
+  const doc = frame.contentDocument;
+  if (!doc || doc.contentType !== "application/json") return null;
+  try {
+    return JSON.parse(doc.body.innerText).error || "The document couldn't be loaded.";
+  } catch {
+    return "The document couldn't be loaded.";
+  }
+}
+
+/**
+ * One document at a time: the document and its OCR text on the left ("show
+ * the work"), the field diffs on the right, and a keyboard-first flow (j/k/a/s).
  */
 const FocusReview: React.FC<FocusReviewProps> = ({
   items,
@@ -60,15 +84,49 @@ const FocusReview: React.FC<FocusReviewProps> = ({
   applyingIds,
 }) => {
   const item = items[index];
-  // Track thumbnail failures per document so navigating resets the fallback.
-  const [thumbFailedFor, setThumbFailedFor] = useState<Set<number>>(
-    () => new Set()
+  // The view is kept while navigating, so reviewing a batch against the
+  // documents doesn't need a click per document.
+  const [sourceView, setSourceView] = useState<SourceView>("document");
+  // A preview failure is forgotten as soon as another document is shown, so
+  // coming back to the document tries again; a failure can be transient
+  // (paperless-ngx briefly unreachable) and shouldn't hide the document for the
+  // whole review. Resetting during render rather than in an effect avoids
+  // rendering the stale error first.
+  const [previewFailure, setPreviewFailure] = useState<{
+    documentId: number;
+    message: string;
+  } | null>(null);
+  const [shownDocumentId, setShownDocumentId] = useState(item?.id);
+  if (item && item.id !== shownDocumentId) {
+    setShownDocumentId(item.id);
+    setPreviewFailure(null);
+  }
+  // The document is only fetched once its tab has been shown, so reviewing a
+  // batch on the text tab doesn't download every document.
+  const [framedDocumentId, setFramedDocumentId] = useState<number | null>(
+    null
   );
+  if (item && sourceView === "document" && framedDocumentId !== item.id) {
+    setFramedDocumentId(item.id);
+  }
+  const [paperlessUrl, setPaperlessUrl] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
+  const tabIdPrefix = useId();
+  const tabId = (view: SourceView) => `${tabIdPrefix}-tab-${view}`;
+  const tabPanelId = (view: SourceView) => `${tabIdPrefix}-panel-${view}`;
+
+  useEffect(() => {
+    fetch("./api/paperless-url")
+      .then((response) => (response.ok ? response.json() : { url: "" }))
+      .then(({ url }) => setPaperlessUrl(url || ""))
+      .catch(() => setPaperlessUrl(""));
+  }, []);
 
   if (!item) return null;
 
-  const thumbFailed = thumbFailedFor.has(item.id);
+  const previewUrl = `./api/documents/${item.id}/preview`;
+  const previewError =
+    previewFailure?.documentId === item.id ? previewFailure.message : null;
 
   const decision = decisions[item.id] || "pending";
   const excluded = excludedMap[item.id] || new Set<FieldKey>();
@@ -77,6 +135,34 @@ const FocusReview: React.FC<FocusReviewProps> = ({
 
   const goPrev = () => onNavigate(index > 0 ? index - 1 : items.length - 1);
   const goNext = () => onNavigate(index < items.length - 1 ? index + 1 : 0);
+
+  // Arrow keys on a focused tab move between the tabs, as for any tab list,
+  // instead of reaching handleKeyDown and switching to another document.
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const current = sourceViews.findIndex(([view]) => view === sourceView);
+    let next: number;
+    switch (e.key) {
+      case "ArrowLeft":
+        next = (current - 1 + sourceViews.length) % sourceViews.length;
+        break;
+      case "ArrowRight":
+        next = (current + 1) % sourceViews.length;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = sourceViews.length - 1;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    const [view] = sourceViews[next];
+    setSourceView(view);
+    document.getElementById(tabId(view))?.focus();
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (isEditableTarget(e.target)) return;
@@ -154,6 +240,17 @@ const FocusReview: React.FC<FocusReviewProps> = ({
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {paperlessUrl && (
+              <a
+                href={`${paperlessUrl}/documents/${item.id}/details`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mr-2 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted hover:bg-surface-2 hover:text-ink"
+              >
+                Open in paperless-ngx
+                <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" aria-hidden="true" />
+              </a>
+            )}
             <span className="mr-2 text-xs tabular-nums text-faint">
               Document {index + 1} of {items.length}
             </span>
@@ -186,28 +283,107 @@ const FocusReview: React.FC<FocusReviewProps> = ({
 
         <div className="flex min-h-0 flex-1">
           <div className="hidden min-h-0 w-1/2 flex-col border-r border-line bg-surface-2 md:flex">
-            <div className="flex shrink-0 items-center justify-center border-b border-line p-4">
-              {thumbFailed ? (
-                <div className="flex h-40 w-32 items-center justify-center rounded border border-line bg-surface">
-                  <DocumentIcon
-                    className="h-10 w-10 text-faint"
-                    aria-hidden="true"
-                  />
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line px-4 py-2">
+              <div
+                className="flex gap-1.5"
+                role="tablist"
+                aria-label="Source"
+                onKeyDown={handleTabKeyDown}
+              >
+                {sourceViews.map(([view, label]) => (
+                  <button
+                    key={view}
+                    id={tabId(view)}
+                    type="button"
+                    role="tab"
+                    aria-selected={sourceView === view}
+                    aria-controls={tabPanelId(view)}
+                    tabIndex={sourceView === view ? 0 : -1}
+                    onClick={() => setSourceView(view)}
+                    className={classNames(
+                      "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                      sourceView === view
+                        ? "bg-primary-tint text-ink"
+                        : "text-muted hover:text-ink"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {sourceView === "document" && !previewError && (
+                <a
+                  href={previewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink"
+                >
+                  Open in new tab
+                  <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+              )}
+            </div>
+            {/* Hidden rather than unmounted, so switching back doesn't reload the document. */}
+            <div
+              id={tabPanelId("document")}
+              role="tabpanel"
+              aria-labelledby={tabId("document")}
+              className={classNames(
+                "min-h-0 flex-1",
+                sourceView !== "document" && "hidden"
+              )}
+            >
+              {previewError ? (
+                <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                  <DocumentIcon className="h-10 w-10 text-faint" aria-hidden="true" />
+                  <p className="text-sm text-muted">{previewError}</p>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setPreviewFailure(null)}
+                  >
+                    Try again
+                  </Button>
+                  {paperlessUrl && (
+                    <a
+                      href={`${paperlessUrl}/documents/${item.id}/details`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Open it in paperless-ngx
+                    </a>
+                  )}
                 </div>
-              ) : (
-                <img
-                  src={`./api/documents/${item.id}/thumb`}
-                  alt={`Scan preview of “${item.original_document.title}”`}
-                  className="max-h-56 rounded border border-line bg-surface object-contain shadow-card"
-                  onError={() =>
-                    setThumbFailedFor((prev) => new Set(prev).add(item.id))
-                  }
+              ) : framedDocumentId === item.id && (
+                <iframe
+                  key={item.id}
+                  src={previewUrl}
+                  title={`Document “${item.original_document.title}”`}
+                  className="h-full w-full bg-surface"
+                  onLoad={(e) => {
+                    const error = previewFrameError(e.currentTarget);
+                    if (error) {
+                      setPreviewFailure({ documentId: item.id, message: error });
+                    }
+                  }}
                 />
               )}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div
+              id={tabPanelId("text")}
+              role="tabpanel"
+              aria-labelledby={tabId("text")}
+              // Focusable so the text can be scrolled from the keyboard; the
+              // panel has nothing else to focus.
+              tabIndex={0}
+              className={classNames(
+                "min-h-0 flex-1 overflow-y-auto p-4",
+                sourceView !== "text" && "hidden"
+              )}
+            >
               <h4 className="text-xs font-medium text-muted">
-                Extracted text (what the AI read)
+                What the AI read
               </h4>
               <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink">
                 {item.original_document.content || "No text extracted."}

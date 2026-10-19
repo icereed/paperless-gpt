@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -758,6 +759,53 @@ func (app *App) getDocumentThumbnailHandler(c *gin.Context) {
 	}
 	c.Header("Cache-Control", "private, max-age=3600")
 	c.Data(http.StatusOK, contentType, data)
+}
+
+// previewMediaTypes are the file types getDocumentPreviewHandler passes
+// through. The preview is served from paperless-gpt's own origin, so a type the
+// browser could run scripts in (HTML, SVG, ...) must never get through: an
+// uploaded document would then run with access to the paperless-gpt API.
+var previewMediaTypes = map[string]bool{
+	"application/pdf": true,
+	"image/gif":       true,
+	"image/jpeg":      true,
+	"image/png":       true,
+	"image/webp":      true,
+	"text/plain":      true,
+}
+
+// getDocumentPreviewHandler proxies the file paperless-ngx shows for a
+// document, so the review can embed it at a readable size without the browser
+// needing access to paperless-ngx.
+func (app *App) getDocumentPreviewHandler(c *gin.Context) {
+	parsedID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid document ID"})
+		return
+	}
+	preview, err := app.Client.GetDocumentPreview(c.Request.Context(), parsedID)
+	if err != nil {
+		log.Errorf("Error fetching preview for document %d: %v", parsedID, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to fetch document preview"})
+		return
+	}
+	defer preview.Body.Close()
+
+	mediaType, _, err := mime.ParseMediaType(preview.ContentType)
+	if err != nil || !previewMediaTypes[mediaType] {
+		c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": fmt.Sprintf("Documents of type %q can't be previewed here", preview.ContentType)})
+		return
+	}
+
+	disposition := preview.ContentDisposition
+	if disposition == "" {
+		disposition = "inline"
+	}
+	c.DataFromReader(http.StatusOK, preview.ContentLength, preview.ContentType, preview.Body, map[string]string{
+		"Content-Disposition":    disposition,
+		"X-Content-Type-Options": "nosniff",
+		"Cache-Control":          "private, max-age=300",
+	})
 }
 
 // getDocumentHandler handles the retrieval of a document by its ID

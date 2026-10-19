@@ -525,6 +525,7 @@ func main() {
 		// http://localhost:8080/api/documents/544
 		api.GET("/documents/:id", app.getDocumentHandler())
 		api.GET("/documents/:id/thumb", app.getDocumentThumbnailHandler)
+		api.GET("/documents/:id/preview", app.getDocumentPreviewHandler)
 		api.POST("/generate-suggestions", app.generateSuggestionsHandler)
 		api.POST("/jobs/suggestions", app.submitSuggestionJobHandler)
 		api.GET("/jobs/suggestions/:job_id", app.getSuggestionJobStatusHandler)

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"gorm.io/gorm"
 )
@@ -254,6 +255,15 @@ func (e *PartialUpdateError) Error() string {
 	return fmt.Sprintf("document %d updated with %d field(s) dropped due to paperless-ngx validation errors: %v", e.DocumentID, len(e.DroppedFields), e.DroppedFields)
 }
 
+// DocumentPreview is a document's file as paperless-ngx serves it for viewing.
+// ContentLength is -1 when paperless-ngx did not report it.
+type DocumentPreview struct {
+	Body               io.ReadCloser
+	ContentType        string
+	ContentLength      int64
+	ContentDisposition string
+}
+
 // ClientInterface defines the interface for PaperlessClient operations
 type ClientInterface interface {
 	GetDocumentsByTag(ctx context.Context, tag string, pageSize int) ([]Document, error)
@@ -261,6 +271,7 @@ type ClientInterface interface {
 	UpdateDocuments(ctx context.Context, documents []DocumentSuggestion, db *gorm.DB, isUndo bool) error
 	GetDocument(ctx context.Context, documentID int) (Document, error)
 	GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error)
+	GetDocumentPreview(ctx context.Context, documentID int) (*DocumentPreview, error)
 	SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error)
 	FindDocumentIDsByReference(ctx context.Context, reference string, excludeID, maxMatches int) (ids []int, tooMany bool, err error)
 	GetDocumentPageImage(ctx context.Context, documentID int, pageIndex int) ([]byte, error)
