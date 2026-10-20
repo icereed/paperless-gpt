@@ -1634,6 +1634,26 @@ func (client *PaperlessClient) DownloadDocumentAsImages(ctx context.Context, doc
 // when split=false, for whole-document consumers that sniff the content)
 // If limitPages > 0, only the first N pages will be processed
 // Returns the PDF paths, original PDF data, and the total number of pages in the original document
+// pdfTrimFile and pdfSplitFile wrap the pdfcpu calls used by
+// DownloadDocumentAsPDF so tests can inject failures.
+var (
+	pdfTrimFile  = api.TrimFile
+	pdfSplitFile = api.SplitFile
+)
+
+// recoverPdfcpuPanic runs a pdfcpu operation and turns a panic into an error.
+// pdfcpu can panic on malformed PDFs (#1203). Without this the whole process
+// exits, and the auto-OCR loop picks the same document again after a restart
+// before OCR_MAX_RETRIES can ever apply.
+func recoverPdfcpuPanic(op string, fn func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("pdfcpu %s panicked: %v", op, r)
+		}
+	}()
+	return fn()
+}
+
 func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error) {
 	// Create a directory named after the document ID
 	docDir := filepath.Join(client.GetCacheFolder(), fmt.Sprintf("document-%d-pdf", documentID))
@@ -1754,12 +1774,16 @@ func (client *PaperlessClient) DownloadDocumentAsPDF(ctx context.Context, docume
 		// original_1.pdf, original_2.pdf, ... in docDir below.
 		splitSourcePath = filepath.Join(trimDir, "original.pdf")
 		selection := []string{fmt.Sprintf("1-%d", pagesToProcess)}
-		if err := api.TrimFile(originalPDFPath, splitSourcePath, selection, nil); err != nil {
+		if err := recoverPdfcpuPanic("trim", func() error {
+			return pdfTrimFile(originalPDFPath, splitSourcePath, selection, nil)
+		}); err != nil {
 			return nil, nil, 0, fmt.Errorf("error trimming PDF to page limit: %w", err)
 		}
 	}
 
-	err = api.SplitFile(splitSourcePath, docDir, 1, nil)
+	err = recoverPdfcpuPanic("split", func() error {
+		return pdfSplitFile(splitSourcePath, docDir, 1, nil)
+	})
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("error splitting PDF: %w", err)
 	}
