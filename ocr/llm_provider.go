@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"paperless-gpt/internal/llmresponse"
 	"paperless-gpt/internal/openrouterzdr"
 	"paperless-gpt/internal/textsanitize"
 	"strconv"
@@ -226,7 +227,8 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		}
 	}
 
-	text := textsanitize.StripReasoning(completion.Choices[0].Content)
+	answer := llmresponse.Answer(completion)
+	text := textsanitize.StripReasoning(answer.Content)
 	// Some vision models wrap their whole answer in a ```markdown … ``` fence;
 	// strip it so the recognized text isn't polluted with model scaffolding.
 	text = textsanitize.StripCodeFences(text)
@@ -234,14 +236,14 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		// Keep the page as blank rather than failing the whole document, but
 		// say why: stop_reason=length with no text usually means a thinking
 		// model spent the whole VISION_LLM_MAX_TOKENS budget on reasoning.
-		logger.WithField("stop_reason", completion.Choices[0].StopReason).
+		logger.WithField("stop_reason", answer.StopReason).
 			Warn("Vision model returned no text for this page; keeping it blank")
 	}
 	limitHit := false
 	tokenCount := -1
 
 	if p.maxTokens > 0 {
-		genInfo := completion.Choices[0].GenerationInfo
+		genInfo := answer.GenerationInfo
 		if genInfo != nil && genInfo["TotalTokens"] != nil {
 			if v, ok := genInfo["TotalTokens"].(int); ok {
 				tokenCount = v
@@ -263,10 +265,10 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 			"model":    p.model,
 		},
 		OcrLimitHit:    limitHit,
-		GenerationInfo: completion.Choices[0].GenerationInfo,
+		GenerationInfo: answer.GenerationInfo,
 	}
 
-	logger.WithField("content_length", len(result.Text)).WithFields(completion.Choices[0].GenerationInfo).Info("Successfully processed image")
+	logger.WithField("content_length", len(result.Text)).WithFields(llmresponse.TokenUsage(answer.GenerationInfo)).Info("Successfully processed image")
 	return result, nil
 }
 
