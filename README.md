@@ -244,7 +244,7 @@ services:
       # OLLAMA_CONTEXT_LENGTH: "8192" # Sets Ollama NumCtx (context window)
       # LLM_MAX_TOKENS: "256" # Sets Ollama num_predict (output-token budget)
       # OLLAMA_KEEP_ALIVE: "10m" # Keeps the model loaded between metadata requests
-      # OLLAMA_THINK: "false" # true/false, or low/medium/high for supported models
+      # OLLAMA_THINK: "false" # metadata and Ollama vision OCR; true/false, or low/medium/high
       # OLLAMA_HEADERS: "Authorization=Bearer mytoken" # Optional headers for reverse-proxy auth
       # TOKEN_LIMIT: 1000 # Recommended for smaller models
 
@@ -688,7 +688,7 @@ For best results with the enhanced OCR features:
 | `GOOGLEAI_THINKING_BUDGET`          | (Optional, googleai only) Integer. Controls Gemini "thinking" budget. If unset, model default is used (thinking enabled if supported). Set to `0` to disable thinking (if model supports it). | No       |                            |
 | `OLLAMA_HOST`                       | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                                                                                                 | No       |                            |
 | `OLLAMA_KEEP_ALIVE`                 | (Ollama metadata only) Ollama duration such as `10m` or `1h`, `0` to unload after a request, or `-1` to keep the model loaded indefinitely. Keeping models loaded consumes RAM/VRAM. | No | Model/base setting |
-| `OLLAMA_THINK`                      | (Ollama metadata only) `true` or `false`, or `low`, `medium`, or `high` for models that support thinking levels. The value is forwarded to the selected Ollama model, which may reject or ignore an unsupported setting or level. Thinking consumes output budget on models that generate a reasoning trace. | No | Model/base setting |
+| `OLLAMA_THINK`                      | (Ollama metadata and vision OCR) `true` or `false`, or `low`, `medium`, or `high` for models that support thinking levels. The value is sent at the top of the Ollama chat request. If unset, the model default applies. The model may reject or ignore an unsupported setting or level. Thinking consumes output budget on models that generate a reasoning trace. | No | Model/base setting |
 | `LLM_REQUESTS_PER_MINUTE`           | Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load.                                                                                                | No       | 120                        |
 | `LLM_MAX_RETRIES`                   | Maximum retry attempts for failed main LLM requests.                                                                                                                                          | No       | 3                          |
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
