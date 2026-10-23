@@ -22,7 +22,7 @@ type GetDocumentsApiResponse struct {
 type GetDocumentApiResponseResult struct {
 	ID            int `json:"id"`
 	Correspondent int `json:"correspondent"`
-	// DocumentType        interface{}   `json:"document_type"`
+	DocumentType  int `json:"document_type"`
 	// StoragePath         interface{}   `json:"storage_path"`
 	Title   string `json:"title"`
 	Content string `json:"content"`

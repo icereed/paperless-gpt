@@ -413,6 +413,15 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 		return nil, err
 	}
 
+	allDocumentTypes, err := client.GetAllDocumentTypes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	documentTypeNames := make(map[int]string, len(allDocumentTypes))
+	for _, docType := range allDocumentTypes {
+		documentTypeNames[docType.ID] = docType.Name
+	}
+
 	documents := make([]Document, 0, len(documentsResponse.Results))
 	for _, result := range documentsResponse.Results {
 		tagNames, invisibleTagIDs := resolveTagNames(result.Tags, allTags)
@@ -431,13 +440,14 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 		}
 
 		documents = append(documents, Document{
-			ID:            result.ID,
-			Title:         result.Title,
-			Content:       result.Content,
-			Correspondent: correspondentName,
-			Tags:          tagNames,
-			TagIDs:        result.Tags,
-			CreatedDate:   result.CreatedDate,
+			ID:               result.ID,
+			Title:            result.Title,
+			Content:          result.Content,
+			Correspondent:    correspondentName,
+			Tags:             tagNames,
+			TagIDs:           result.Tags,
+			CreatedDate:      result.CreatedDate,
+			DocumentTypeName: documentTypeNames[result.DocumentType],
 		})
 	}
 
