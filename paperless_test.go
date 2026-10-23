@@ -219,6 +219,32 @@ func TestGetAllDocumentTypes(t *testing.T) {
 	}, documentTypes)
 }
 
+// TestGetAllDocumentTypesUnderBasePath verifies that following "next" works
+// when paperless-ngx is served under a sub-path. The absolute next link
+// already contains the sub-path, which BaseURL adds again unless it is removed.
+func TestGetAllDocumentTypesUnderBasePath(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+	env.client.BaseURL = env.server.URL + "/paperless"
+
+	env.setMockResponse("/paperless/api/document_types/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if r.URL.Query().Get("page") == "2" {
+			w.Write([]byte(`{"results": [{"id": 2, "name": "Receipt"}], "next": null}`))
+			return
+		}
+		fmt.Fprintf(w, `{"results": [{"id": 1, "name": "Invoice"}], "next": "%s/paperless/api/document_types/?page=2"}`, env.server.URL)
+	})
+
+	documentTypes, err := env.client.GetAllDocumentTypes(context.Background())
+	require.NoError(t, err)
+
+	assert.Equal(t, []DocumentType{
+		{ID: 1, Name: "Invoice"},
+		{ID: 2, Name: "Receipt"},
+	}, documentTypes)
+}
+
 // TestGetDocumentCountByTag tests the GetDocumentCountByTag method
 func TestGetDocumentCountByTag(t *testing.T) {
 	env := newTestEnv(t)

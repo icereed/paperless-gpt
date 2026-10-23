@@ -301,7 +301,7 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 			tagIDMapping[tag.Name] = tag.ID
 		}
 
-		path, err = nextPagePath(tagsResponse.Next)
+		path, err = client.nextPagePath(tagsResponse.Next)
 		if err != nil {
 			return nil, err
 		}
@@ -311,19 +311,24 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 }
 
 // nextPagePath turns the "next" link of a paginated paperless-ngx response
-// into a path for client.Do. It returns "" on the last page.
-func nextPagePath(next string) (string, error) {
+// into a path for client.Do. It returns "" on the last page. When
+// paperless-ngx is served under a sub-path, the link already contains it;
+// that part is removed because Do prepends BaseURL, sub-path included.
+func (client *PaperlessClient) nextPagePath(next string) (string, error) {
 	if next == "" {
 		return "", nil
-	}
-	if !strings.HasPrefix(next, "http") {
-		return strings.TrimPrefix(next, "/"), nil
 	}
 	parsedURL, err := url.Parse(next)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse next URL: %v", err)
 	}
-	path := strings.TrimPrefix(parsedURL.Path, "/")
+	path := parsedURL.Path
+	if baseURL, err := url.Parse(client.BaseURL); err == nil {
+		if basePath := strings.TrimRight(baseURL.Path, "/"); basePath != "" && strings.HasPrefix(path, basePath+"/") {
+			path = strings.TrimPrefix(path, basePath)
+		}
+	}
+	path = strings.TrimPrefix(path, "/")
 	if parsedURL.RawQuery != "" {
 		path += "?" + parsedURL.RawQuery
 	}
@@ -1963,7 +1968,7 @@ func (client *PaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]Docum
 
 		allDocumentTypes = append(allDocumentTypes, response.Results...)
 
-		path, err = nextPagePath(response.Next)
+		path, err = client.nextPagePath(response.Next)
 		if err != nil {
 			return nil, err
 		}
