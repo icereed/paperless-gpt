@@ -193,6 +193,32 @@ func TestGetAllTags(t *testing.T) {
 	assert.Equal(t, 2, env.requestCount)
 }
 
+// TestGetAllDocumentTypes verifies that every page of document types is read,
+// since the server may cap page_size.
+func TestGetAllDocumentTypes(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	env.setMockResponse("/api/document_types/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if r.URL.Query().Get("page") == "2" {
+			w.Write([]byte(`{"results": [{"id": 3, "name": "Receipt"}], "next": null}`))
+			return
+		}
+		assert.Equal(t, "1000", r.URL.Query().Get("page_size"))
+		fmt.Fprintf(w, `{"results": [{"id": 1, "name": "Invoice"}, {"id": 2, "name": "Letter"}], "next": "%s/api/document_types/?page=2"}`, env.server.URL)
+	})
+
+	documentTypes, err := env.client.GetAllDocumentTypes(context.Background())
+	require.NoError(t, err)
+
+	assert.Equal(t, []DocumentType{
+		{ID: 1, Name: "Invoice"},
+		{ID: 2, Name: "Letter"},
+		{ID: 3, Name: "Receipt"},
+	}, documentTypes)
+}
+
 // TestGetDocumentCountByTag tests the GetDocumentCountByTag method
 func TestGetDocumentCountByTag(t *testing.T) {
 	env := newTestEnv(t)
