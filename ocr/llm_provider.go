@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -440,10 +441,99 @@ func createOllamaClient(config Config) (llms.Model, error) {
 	if config.OllamaContextLength > 0 {
 		opts = append(opts, ollama.WithRunnerNumCtx(config.OllamaContextLength))
 	}
-	if client := OllamaHTTPClient(); client != nil {
+	client := OllamaHTTPClient()
+	// langchaingo puts `think` under `options`, which Ollama ignores, and omits
+	// it entirely when the value is false. The same setting the metadata client
+	// sends at the top of /api/chat has to be written there for vision too, or
+	// a thinking model returns the transcription in `message.thinking` and the
+	// page is stored blank.
+	if think, ok := ollamaThinkFromEnv(); ok {
+		if client == nil {
+			client = &http.Client{}
+		}
+		base := client.Transport
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		client.Transport = &ollamaThinkTransport{base: base, think: think}
+	}
+	if client != nil {
 		opts = append(opts, ollama.WithHTTPClient(client))
 	}
 	return ollama.New(opts...)
+}
+
+// ollamaThinkFromEnv is the OLLAMA_THINK value to send, or ok=false when the
+// variable is unset or not true, false, low, medium, or high.
+func ollamaThinkFromEnv() (json.RawMessage, bool) {
+	value := os.Getenv("OLLAMA_THINK")
+	if value == "" {
+		return nil, false
+	}
+	if parsed, err := strconv.ParseBool(value); err == nil {
+		return json.RawMessage(strconv.FormatBool(parsed)), true
+	}
+	switch value {
+	case "low", "medium", "high":
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return nil, false
+		}
+		return encoded, true
+	default:
+		log.Warnf("Invalid OLLAMA_THINK value %q, ignoring (must be true, false, low, medium, or high)", value)
+		return nil, false
+	}
+}
+
+// ollamaThinkTransport writes `think` at the top of an Ollama chat request.
+type ollamaThinkTransport struct {
+	base  http.RoundTripper
+	think json.RawMessage
+}
+
+func (t *ollamaThinkTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Body == nil || req.Method != http.MethodPost || !strings.HasSuffix(req.URL.Path, "/api/chat") {
+		return t.base.RoundTrip(req)
+	}
+	raw, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	_ = req.Body.Close()
+	rewritten, err := withOllamaThink(raw, t.think)
+	if err != nil {
+		rewritten = raw
+	}
+	req = req.Clone(req.Context())
+	req.Body = io.NopCloser(bytes.NewReader(rewritten))
+	req.ContentLength = int64(len(rewritten))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(rewritten)), nil
+	}
+	return t.base.RoundTrip(req)
+}
+
+func withOllamaThink(body []byte, think json.RawMessage) ([]byte, error) {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	payload["think"] = append(json.RawMessage(nil), think...)
+	if options, ok := payload["options"]; ok {
+		var opts map[string]json.RawMessage
+		if err := json.Unmarshal(options, &opts); err == nil {
+			if _, exists := opts["think"]; exists {
+				delete(opts, "think")
+				encoded, err := json.Marshal(opts)
+				if err != nil {
+					return nil, err
+				}
+				payload["options"] = encoded
+			}
+		}
+	}
+	return json.Marshal(payload)
 }
 
 // createMistralClient creates a new Mistral vision model client
