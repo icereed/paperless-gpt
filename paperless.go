@@ -959,14 +959,20 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 				}
 			case "update":
-				existingFieldsMap := make(map[int]*CustomFieldResponse)
+				// Index into the slice, not a pointer into it. slices.Clone
+				// leaves cap == len, so the first new field reallocates and a
+				// pointer taken before that append would write the discarded
+				// array. An existing field suggested after a new one would
+				// keep its old value.
+				existingFieldIndex := make(map[int]int, len(finalCustomFields))
 				for i := range finalCustomFields {
-					existingFieldsMap[finalCustomFields[i].Field] = &finalCustomFields[i]
+					existingFieldIndex[finalCustomFields[i].Field] = i
 				}
 				for _, sf := range suggestedCustomFields {
-					if ef, ok := existingFieldsMap[sf.ID]; ok {
-						ef.Value = sf.Value
+					if i, ok := existingFieldIndex[sf.ID]; ok {
+						finalCustomFields[i].Value = sf.Value
 					} else {
+						existingFieldIndex[sf.ID] = len(finalCustomFields)
 						finalCustomFields = append(finalCustomFields, CustomFieldResponse{Field: sf.ID, Value: sf.Value})
 					}
 				}

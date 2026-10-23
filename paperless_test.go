@@ -1682,6 +1682,27 @@ func TestUpdateDocuments_CustomFieldsMergeUsesCurrentState(t *testing.T) {
 				8: "2024",
 			},
 		},
+		{
+			// A new field is suggested before an existing one. slices.Clone
+			// leaves cap == len, so that first append reallocates. The
+			// existing field must still be overwritten.
+			name:      "update overwrites an existing field after a new field is appended",
+			writeMode: "update",
+			serverFields: []map[string]interface{}{
+				{"field": 5, "value": nil},
+				{"field": 7, "value": nil},
+			},
+			suggested: []CustomFieldSuggestion{
+				{ID: 1, Name: "Haus", Value: "Muster"},
+				{ID: 5, Name: "Paid", Value: "yes"},
+			},
+			wantFieldIDs: []int{5, 7, 1},
+			wantFieldValue: map[int]interface{}{
+				5: "yes",
+				7: nil,
+				1: "Muster",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1702,6 +1723,7 @@ func TestUpdateDocuments_CustomFieldsMergeUsesCurrentState(t *testing.T) {
 				json.NewEncoder(w).Encode(map[string]interface{}{
 					"results": []map[string]interface{}{
 						{"id": 1, "name": "Haus", "data_type": "string"},
+						{"id": 5, "name": "Paid", "data_type": "string"},
 						{"id": 7, "name": "Betrag", "data_type": "string"},
 						{"id": 8, "name": "Jahr", "data_type": "string"},
 					},
