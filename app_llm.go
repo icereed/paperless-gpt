@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"paperless-gpt/internal/llmresponse"
 	"paperless-gpt/internal/textsanitize"
 	"slices"
 	"strconv"
@@ -78,7 +79,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := textsanitize.StripReasoning(strings.TrimSpace(completion.Choices[0].Content))
+	response := textsanitize.StripReasoning(strings.TrimSpace(llmresponse.Answer(completion).Content))
 	return response, nil
 }
 
@@ -153,7 +154,7 @@ func (app *App) getSuggestedTags(
 		return nil, fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := textsanitize.StripReasoning(completion.Choices[0].Content)
+	response := textsanitize.StripReasoning(llmresponse.Answer(completion).Content)
 
 	suggestedTags := strings.Split(response, ",")
 	for i, tag := range suggestedTags {
@@ -274,7 +275,7 @@ func (app *App) getSuggestedDocumentType(
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
 
-	response := strings.TrimSpace(textsanitize.StripReasoning(completion.Choices[0].Content))
+	response := strings.TrimSpace(textsanitize.StripReasoning(llmresponse.Answer(completion).Content))
 
 	// Validate that the response is in the available document types list
 	for _, docType := range availableDocumentTypes {
@@ -347,7 +348,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
-	result := textsanitize.StripReasoning(completion.Choices[0].Content)
+	result := textsanitize.StripReasoning(llmresponse.Answer(completion).Content)
 	return strings.TrimSpace(strings.Trim(result, "\"")), nil
 }
 
@@ -408,7 +409,7 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 	if err != nil {
 		return "", fmt.Errorf("error getting response from LLM: %v", err)
 	}
-	result := textsanitize.StripReasoning(completion.Choices[0].Content)
+	result := textsanitize.StripReasoning(llmresponse.Answer(completion).Content)
 	result = strings.TrimSpace(strings.Trim(result, "\""))
 	// paperless-ngx only accepts YYYY-MM-DD. Models often emit the same
 	// date with dots or slashes, which then fails validation and is dropped.
@@ -550,7 +551,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 		return nil, fmt.Errorf("error getting response from LLM for custom fields: %v", err)
 	}
 
-	response := textsanitize.StripReasoning(completion.Choices[0].Content)
+	response := textsanitize.StripReasoning(llmresponse.Answer(completion).Content)
 	logger.Debugf("LLM response for custom fields: %s", response)
 
 	knownNames := make([]string, 0, len(selectedCustomFields))
