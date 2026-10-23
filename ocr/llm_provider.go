@@ -268,7 +268,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		GenerationInfo: answer.GenerationInfo,
 	}
 
-	logger.WithField("content_length", len(result.Text)).WithFields(answer.GenerationInfo).Info("Successfully processed image")
+	logger.WithField("content_length", len(result.Text)).WithFields(llmresponse.TokenUsage(answer.GenerationInfo)).Info("Successfully processed image")
 	return result, nil
 }
 

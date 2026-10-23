@@ -58,3 +58,22 @@ func TestAnswer(t *testing.T) {
 		assert.Equal(t, "max_tokens", got.StopReason)
 	})
 }
+
+func TestTokenUsage(t *testing.T) {
+	info := map[string]any{
+		"InputTokens":          120,
+		"OutputTokens":         int64(45),
+		"CacheReadInputTokens": 0,
+		"TotalTokens":          float64(165),
+		"OutputContent":        "recognized page text",
+		"ThinkingContent":      "reasoning",
+		"StrangeTokens":        "not a number",
+	}
+	assert.Equal(t, map[string]any{
+		"InputTokens":          120,
+		"OutputTokens":         int64(45),
+		"CacheReadInputTokens": 0,
+		"TotalTokens":          float64(165),
+	}, TokenUsage(info))
+	assert.Empty(t, TokenUsage(nil))
+}

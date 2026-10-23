@@ -1,7 +1,11 @@
-// Package llmresponse picks the model's answer out of a langchaingo response.
+// Package llmresponse reads the model's answer and token usage out of a langchaingo response.
 package llmresponse
 
-import "github.com/tmc/langchaingo/llms"
+import (
+	"strings"
+
+	"github.com/tmc/langchaingo/llms"
+)
 
 // Answer returns the choice that carries the model's answer.
 //
@@ -46,4 +50,23 @@ func reasoningOnly(c *llms.ContentChoice) bool {
 		}
 	}
 	return true
+}
+
+// TokenUsage returns only the token counters from a choice's GenerationInfo
+// (InputTokens, OutputTokens, TotalTokens, CacheReadInputTokens, ...), for
+// logging. GenerationInfo can also carry the generated text itself (e.g.
+// langchaingo's Anthropic client puts it in "OutputContent"), which must not
+// end up in the logs.
+func TokenUsage(info map[string]any) map[string]any {
+	usage := make(map[string]any)
+	for key, value := range info {
+		if !strings.HasSuffix(key, "Tokens") {
+			continue
+		}
+		switch value.(type) {
+		case int, int32, int64, float32, float64:
+			usage[key] = value
+		}
+	}
+	return usage
 }
