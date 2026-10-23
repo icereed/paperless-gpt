@@ -41,6 +41,28 @@ func filterCorrespondentsForPrompt(names []string, content string, title string,
 	return filtered
 }
 
+// existingCorrespondentName returns the existing correspondent whose name
+// equals suggested apart from case, so a suggestion in different capitals
+// isn't shown as a change. Tags and document types are already matched this
+// way. With no match, or several case variants, suggested is returned
+// unchanged and lookupNamedID picks among the variants when it is applied.
+func existingCorrespondentName(suggested string, existing []string) string {
+	match := ""
+	for _, name := range existing {
+		if !strings.EqualFold(name, suggested) {
+			continue
+		}
+		if match != "" {
+			return suggested
+		}
+		match = name
+	}
+	if match == "" {
+		return suggested
+	}
+	return match
+}
+
 // correspondentMatchScore returns the fraction of significant words (3+ runes)
 // of the correspondent name found in the haystack. Names without a significant
 // word fall back to a whole-name substring match.
