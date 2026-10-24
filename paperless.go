@@ -301,28 +301,38 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 			tagIDMapping[tag.Name] = tag.ID
 		}
 
-		// Extract relative path from the Next URL
-		if tagsResponse.Next != "" {
-			nextURL := tagsResponse.Next
-			if strings.HasPrefix(nextURL, "http") {
-				// Extract just the path portion from the full URL
-				if parsedURL, err := url.Parse(nextURL); err == nil {
-					path = strings.TrimPrefix(parsedURL.Path, "/")
-					if parsedURL.RawQuery != "" {
-						path += "?" + parsedURL.RawQuery
-					}
-				} else {
-					return nil, fmt.Errorf("failed to parse next URL: %v", err)
-				}
-			} else {
-				path = strings.TrimPrefix(nextURL, "/")
-			}
-		} else {
-			path = ""
+		path, err = client.nextPagePath(tagsResponse.Next)
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	return tagIDMapping, nil
+}
+
+// nextPagePath turns the "next" link of a paginated paperless-ngx response
+// into a path for client.Do. It returns "" on the last page. When
+// paperless-ngx is served under a sub-path, the link already contains it;
+// that part is removed because Do prepends BaseURL, sub-path included.
+func (client *PaperlessClient) nextPagePath(next string) (string, error) {
+	if next == "" {
+		return "", nil
+	}
+	parsedURL, err := url.Parse(next)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse next URL: %v", err)
+	}
+	path := parsedURL.Path
+	if baseURL, err := url.Parse(client.BaseURL); err == nil {
+		if basePath := strings.TrimRight(baseURL.Path, "/"); basePath != "" && strings.HasPrefix(path, basePath+"/") {
+			path = strings.TrimPrefix(path, basePath)
+		}
+	}
+	path = strings.TrimPrefix(path, "/")
+	if parsedURL.RawQuery != "" {
+		path += "?" + parsedURL.RawQuery
+	}
+	return path, nil
 }
 
 // GetDocumentCountByTag checks if there is a document for the specified tag (it is much faster than api/documents/)
@@ -413,6 +423,17 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 		return nil, err
 	}
 
+	// The type name is only shown in the Review, so an API user that may not
+	// view document types still gets the documents, without type names.
+	allDocumentTypes, err := client.GetAllDocumentTypes(ctx)
+	if err != nil {
+		log.Warnf("Could not load document types, so the listed documents have no document type names: %v", err)
+	}
+	documentTypeNames := make(map[int]string, len(allDocumentTypes))
+	for _, docType := range allDocumentTypes {
+		documentTypeNames[docType.ID] = docType.Name
+	}
+
 	documents := make([]Document, 0, len(documentsResponse.Results))
 	for _, result := range documentsResponse.Results {
 		tagNames, invisibleTagIDs := resolveTagNames(result.Tags, allTags)
@@ -431,13 +452,14 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 		}
 
 		documents = append(documents, Document{
-			ID:            result.ID,
-			Title:         result.Title,
-			Content:       result.Content,
-			Correspondent: correspondentName,
-			Tags:          tagNames,
-			TagIDs:        result.Tags,
-			CreatedDate:   result.CreatedDate,
+			ID:               result.ID,
+			Title:            result.Title,
+			Content:          result.Content,
+			Correspondent:    correspondentName,
+			Tags:             tagNames,
+			TagIDs:           result.Tags,
+			CreatedDate:      result.CreatedDate,
+			DocumentTypeName: documentTypeNames[result.DocumentType],
 		})
 	}
 
@@ -1921,29 +1943,38 @@ func (client *PaperlessClient) GetAllCorrespondents(ctx context.Context) (map[st
 // GetAllDocumentTypes retrieves all document types from the Paperless-NGX API
 func (client *PaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
 	var allDocumentTypes []DocumentType
-	path := "api/document_types/?page_size=1000" // Assuming a reasonable limit
+	// Pagination is followed because the server may cap page_size.
+	path := "api/document_types/?page_size=1000"
 
-	resp, err := client.Do(ctx, "GET", path, nil)
-	if err != nil {
-		return nil, err
+	for path != "" {
+		resp, err := client.Do(ctx, "GET", path, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("error fetching document types: %d, %s", resp.StatusCode, string(bodyBytes))
+		}
+
+		var response struct {
+			Results []DocumentType `json:"results"`
+			Next    string         `json:"next"`
+		}
+
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		if err != nil {
+			return nil, err
+		}
+
+		allDocumentTypes = append(allDocumentTypes, response.Results...)
+
+		path, err = client.nextPagePath(response.Next)
+		if err != nil {
+			return nil, err
+		}
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("error fetching document types: %d, %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var response struct {
-		Results []DocumentType `json:"results"`
-	}
-
-	err = json.NewDecoder(resp.Body).Decode(&response)
-	if err != nil {
-		return nil, err
-	}
-
-	allDocumentTypes = append(allDocumentTypes, response.Results...)
 
 	return allDocumentTypes, nil
 }
