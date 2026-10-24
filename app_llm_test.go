@@ -377,7 +377,7 @@ func TestGetSuggestedCreatedDateNormalizesYearFirstDate(t *testing.T) {
 	t.Cleanup(func() { createdDateTemplate = previous })
 
 	app := &App{LLM: &mockLLM{Response: "2023.01.01"}}
-	got, err := app.getSuggestedCreatedDate(context.Background(), "invoice dated 2023.01.01", logrus.WithField("test", t.Name()), nil)
+	got, err := app.getSuggestedCreatedDate(context.Background(), "invoice dated 2023.01.01", "", logrus.WithField("test", t.Name()), nil)
 	require.NoError(t, err)
 	assert.Equal(t, "2023-01-01", got)
 }
@@ -406,7 +406,7 @@ func TestTokenLimitInCreatedDateGeneration(t *testing.T) {
 	// Call getSuggestedCreatedDate
 	ctx := context.Background()
 
-	_, err := app.getSuggestedCreatedDate(ctx, longContent, testLogger, nil)
+	_, err := app.getSuggestedCreatedDate(ctx, longContent, "", testLogger, nil)
 	require.NoError(t, err)
 
 	// Verify the final prompt size
@@ -416,6 +416,24 @@ func TestTokenLimitInCreatedDateGeneration(t *testing.T) {
 
 	// Final prompt should be within token limit
 	assert.LessOrEqual(t, len(tokens), 50, "Final prompt should be within token limit")
+}
+
+// Custom created_date prompts use {{.CreatedDate}} to show the LLM the date
+// paperless-ngx already has; a missing map key renders silently as empty.
+func TestCreatedDatePromptReceivesOriginalCreatedDate(t *testing.T) {
+	testLogger := logrus.WithField("test", "test")
+
+	originalTemplate := createdDateTemplate
+	defer func() { createdDateTemplate = originalTemplate }()
+	createdDateTemplate = template.Must(template.New("created_date").Parse("Original: {{.CreatedDate}}\n{{.Content}}"))
+
+	mockLLM := &mockLLM{}
+	app := &App{LLM: mockLLM}
+
+	_, err := app.getSuggestedCreatedDate(context.Background(), "Invoice dated 5 May 2024", "2024-05-01", testLogger, nil)
+	require.NoError(t, err)
+
+	assert.Contains(t, mockLLM.lastPrompt, "Original: 2024-05-01")
 }
 
 func TestPrepareSuggestionGenerationContextFetchesOnlyRequestedMetadata(t *testing.T) {
