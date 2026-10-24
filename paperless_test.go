@@ -413,6 +413,38 @@ func TestGetDocumentsByTagResolvesDocumentType(t *testing.T) {
 	assert.Empty(t, documents[1].DocumentTypeName)
 }
 
+// TestGetDocumentsByTagWithoutDocumentTypeAccess verifies that the documents
+// are still listed when the API user may not view document types. paperless-ngx
+// grants that permission separately, and the type name is only shown in the
+// Review, so it must not block the list.
+func TestGetDocumentsByTagWithoutDocumentTypeAccess(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	env.setMockResponse("/api/documents/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"results": [{"id": 1, "title": "Receipt", "tags": [1], "document_type": 2}]}`))
+	})
+	env.setMockResponse("/api/document_types/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"detail": "You do not have permission to perform this action."}`))
+	})
+	env.setMockResponse("/api/tags/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if r.URL.Query().Get("name__iexact") != "" {
+			w.Write([]byte(`{"results": [{"document_count": 1}], "count": 1}`))
+			return
+		}
+		w.Write([]byte(`{"results": [{"id": 1, "name": "paperless-gpt"}]}`))
+	})
+
+	documents, err := env.client.GetDocumentsByTag(context.Background(), "paperless-gpt", 25)
+	require.NoError(t, err)
+	require.Len(t, documents, 1)
+	assert.Equal(t, "Receipt", documents[0].Title)
+	assert.Empty(t, documents[0].DocumentTypeName)
+}
+
 // TestGetDocumentsByTagWithEmoji tests the GetDocumentsByTag method with emoji and special characters
 func TestGetDocumentsByTagWithEmoji(t *testing.T) {
 	env := newTestEnv(t)

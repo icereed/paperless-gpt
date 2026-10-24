@@ -423,9 +423,11 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 		return nil, err
 	}
 
+	// The type name is only shown in the Review, so an API user that may not
+	// view document types still gets the documents, without type names.
 	allDocumentTypes, err := client.GetAllDocumentTypes(ctx)
 	if err != nil {
-		return nil, err
+		log.Warnf("Could not load document types, so the listed documents have no document type names: %v", err)
 	}
 	documentTypeNames := make(map[int]string, len(allDocumentTypes))
 	for _, docType := range allDocumentTypes {
