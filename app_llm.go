@@ -353,7 +353,7 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 
 // getSuggestedCreatedDate generates a suggested createdDate for a document using the LLM.
 // tmplOverride, when non-nil, replaces the global createdDateTemplate for this call.
-func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, logger *logrus.Entry, tmplOverride *template.Template) (string, error) {
+func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, originalCreatedDate string, logger *logrus.Entry, tmplOverride *template.Template) (string, error) {
 	likelyLanguage := getLikelyLanguage()
 
 	templateMutex.RLock()
@@ -365,9 +365,10 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
-		"Language": likelyLanguage,
-		"Content":  content,
-		"Today":    getTodayDate(), // must be in YYYY-MM-DD format
+		"Language":    likelyLanguage,
+		"Content":     content,
+		"Today":       getTodayDate(), // must be in YYYY-MM-DD format
+		"CreatedDate": originalCreatedDate,
 	}
 
 	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
@@ -830,7 +831,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	}
 
 	if suggestionRequest.GenerateCreatedDate {
-		suggestedCreatedDate, err = app.getSuggestedCreatedDate(ctx, content, docLogger, wfTemplate("date_prompt", createdDateTemplate))
+		suggestedCreatedDate, err = app.getSuggestedCreatedDate(ctx, content, doc.CreatedDate, docLogger, wfTemplate("date_prompt", createdDateTemplate))
 		if err != nil {
 			log.Errorf("Error generating createdDate for document %d: %v", documentID, err)
 			return DocumentSuggestion{}, fmt.Errorf("Document %d: %v", documentID, err)

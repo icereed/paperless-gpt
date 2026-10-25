@@ -840,6 +840,7 @@ Each template has access to specific variables:
 **created_date_prompt.tmpl**:
 
 - `{{.Language}}` - Target language
+- `{{.CreatedDate}}` - Document's current created date in paperless-ngx (`YYYY-MM-DD`)
 - `{{.Content}}` - Document content text
 
 **custom_field_prompt.tmpl**:
