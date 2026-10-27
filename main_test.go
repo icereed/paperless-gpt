@@ -38,7 +38,7 @@ func TestCreateCustomHTTPClient(t *testing.T) {
 	defer server.Close()
 
 	// Get custom client
-	client := createCustomHTTPClient()
+	client := createCustomHTTPClient("gpt-4.1-mini")
 	require.NotNil(t, client, "HTTP client should not be nil")
 
 	// Make a request
@@ -63,7 +63,7 @@ func TestOpenAIHeadersStayOnTheOpenAIClient(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := createCustomHTTPClient()
+	client := createCustomHTTPClient("gpt-4.1-mini")
 	require.NotSame(t, http.DefaultClient, client)
 	resp, err := client.Get(server.URL)
 	require.NoError(t, err)

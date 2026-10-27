@@ -1308,7 +1308,7 @@ func createLLM() (llms.Model, error) {
 		options := []openai.Option{
 			openai.WithModel(llmModel),
 			openai.WithToken(openaiAPIKey),
-			openai.WithHTTPClient(createCustomHTTPClient()),
+			openai.WithHTTPClient(createCustomHTTPClient(llmModel)),
 		}
 
 		if strings.ToLower(os.Getenv("OPENAI_API_TYPE")) == "azure" {
@@ -1416,7 +1416,7 @@ func createVisionLLM() (llms.Model, error) {
 		options := []openai.Option{
 			openai.WithModel(visionLlmModel),
 			openai.WithToken(openaiAPIKey),
-			openai.WithHTTPClient(createCustomHTTPClient()),
+			openai.WithHTTPClient(createCustomHTTPClient(visionLlmModel)),
 		}
 
 		if strings.ToLower(os.Getenv("OPENAI_API_TYPE")) == "azure" {
@@ -1497,8 +1497,9 @@ func createVisionLLM() (llms.Model, error) {
 	}
 }
 
-func createCustomHTTPClient() *http.Client {
-	return ocr.OpenAIHTTPClient()
+// createCustomHTTPClient configures headers and compatibility for the selected model.
+func createCustomHTTPClient(model string) *http.Client {
+	return ocr.OpenAIHTTPClient(model)
 }
 
 // ollamaRequestTimeout returns the per-request timeout for Ollama HTTP calls.

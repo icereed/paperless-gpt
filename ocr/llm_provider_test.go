@@ -119,7 +119,7 @@ func TestOpenAIHTTPClientEnforcesOpenRouterZDR(t *testing.T) {
 	http.DefaultTransport = rec
 	t.Cleanup(func() { http.DefaultTransport = previous })
 
-	client := OpenAIHTTPClient()
+	client := OpenAIHTTPClient("gpt-4.1-mini")
 	resp, err := client.Post("https://openrouter.ai/api/v1/chat/completions", "application/json", strings.NewReader(`{"model":"m"}`))
 	require.NoError(t, err)
 	resp.Body.Close()
