@@ -322,7 +322,9 @@ func OpenAIHTTPClient() *http.Client {
 	// OPENROUTER_ENFORCE_ZDR: a passthrough unless enabled and the request goes
 	// to openrouter.ai; see internal/openrouterzdr. It sits below the header
 	// transport, so it covers the text LLM, the vision LLM and LLM OCR alike.
-	client.Transport.(*headerTransport).base = openrouterzdr.NewTransport(http.DefaultTransport)
+	client.Transport.(*headerTransport).base = &gpt6Transport{
+		base: openrouterzdr.NewTransport(http.DefaultTransport),
+	}
 	return client
 }
 
