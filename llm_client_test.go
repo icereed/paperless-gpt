@@ -307,7 +307,7 @@ func TestRateLimitedLLM_OpenAIHTTP429RetryAfterThenSuccess(t *testing.T) {
 		openai.WithToken("test-token"),
 		openai.WithBaseURL(server.URL),
 		openai.WithModel("test-model"),
-		openai.WithHTTPClient(ocr.OpenAIHTTPClient()),
+		openai.WithHTTPClient(ocr.OpenAIHTTPClient("gpt-4.1-mini")),
 	)
 	require.NoError(t, err)
 	wrapped := NewRateLimitedLLM(model, RateLimitConfig{MaxRetries: 1, BackoffMaxWait: 5 * time.Millisecond})

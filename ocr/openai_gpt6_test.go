@@ -25,6 +25,7 @@ func TestGPT6OpenAIClientTemperature(t *testing.T) {
 		{"gpt-6.1-terra", false},
 		{"gpt-6.1-terra-2026-10-01", false},
 		{"gpt-6-luna", false},
+		{"openai/gpt-6.1-terra", false},
 		{"gpt-5.6-luna", false},
 		{"gpt-4.1-mini", true},
 	} {
@@ -41,7 +42,7 @@ func TestGPT6OpenAIClientTemperature(t *testing.T) {
 			}))
 			defer server.Close()
 			model, err := openai.New(openai.WithModel(tc.model), openai.WithToken("test-key"),
-				openai.WithBaseURL(server.URL), openai.WithHTTPClient(OpenAIHTTPClient()))
+				openai.WithBaseURL(server.URL), openai.WithHTTPClient(OpenAIHTTPClient(tc.model)))
 			require.NoError(t, err)
 			result, err := model.GenerateContent(context.Background(), []llms.MessageContent{
 				llms.TextParts(llms.ChatMessageTypeHuman, "Transcribe the supplied document."),
@@ -52,16 +53,16 @@ func TestGPT6OpenAIClientTemperature(t *testing.T) {
 	}
 }
 
+// TestGPT6TransportPreservesPayloadAndReplay verifies rewriting and retry bodies.
 func TestGPT6TransportPreservesPayloadAndReplay(t *testing.T) {
 	for _, tc := range []struct {
 		name, method, path, body string
-		wantTemperature          bool
 	}{
-		{"reasoning", "POST", "/v1/chat/completions", `{"model":"gpt-6.1-terra","temperature":0,"messages":[{"role":"user","content":"private text"}],"max_completion_tokens":4096}`, false},
-		{"none", "POST", "/v1/chat/completions", `{"model":"gpt-6.1-terra","reasoning_effort":"none","temperature":0}`, true},
-		{"other model", "POST", "/v1/chat/completions", `{"model":"gpt-4.1-mini","temperature":0}`, true},
-		{"other endpoint", "POST", "/v1/responses", `{"model":"gpt-6.1-terra","temperature":0}`, true},
-		{"invalid JSON", "POST", "/v1/chat/completions", `{bad json`, false},
+		{"reasoning", "POST", "/v1/chat/completions", `{"model":"gpt-6.1-terra","temperature":0,"messages":[{"role":"user","content":"private text"}],"max_completion_tokens":4096}`},
+		{"none", "POST", "/v1/chat/completions", `{"model":"gpt-6.1-terra","reasoning_effort":"none","temperature":0}`},
+		{"other model", "POST", "/v1/chat/completions", `{"model":"gpt-4.1-mini","temperature":0}`},
+		{"other endpoint", "POST", "/v1/responses", `{"model":"gpt-6.1-terra","temperature":0}`},
+		{"invalid JSON", "POST", "/v1/chat/completions", `{bad json`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			transport := &gpt6Transport{base: gpt6RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
@@ -96,4 +97,28 @@ func TestGPT6TransportPreservesPayloadAndReplay(t *testing.T) {
 
 type gpt6RoundTripperFunc func(*http.Request) (*http.Response, error)
 
+// RoundTrip delegates test requests to the supplied assertion function.
 func (f gpt6RoundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestOpenAIHTTPClientSkipsUnrelatedBodies checks that other models keep streaming.
+func TestOpenAIHTTPClientSkipsUnrelatedBodies(t *testing.T) {
+	original := http.DefaultTransport
+	defer func() { http.DefaultTransport = original }()
+	for _, model := range []string{"gpt-4.1-mini", "openai/gpt-4.1-mini", "gpt-60", ""} {
+		t.Run(model, func(t *testing.T) {
+			payload := `{"model":"` + model + `","temperature":0}`
+			buffer := bytes.NewBufferString(payload)
+			body := &struct{ io.ReadCloser }{io.NopCloser(buffer)}
+			http.DefaultTransport = gpt6RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				require.Same(t, body, r.Body, "unrelated model body must reach the base transport untouched")
+				require.Equal(t, len(payload), buffer.Len(), "body must not be read before delegation")
+				return &http.Response{StatusCode: 200, Body: http.NoBody, Header: make(http.Header)}, nil
+			})
+			req, err := http.NewRequest("POST", "http://example.invalid/v1/chat/completions", body)
+			require.NoError(t, err)
+			resp, err := OpenAIHTTPClient(model).Do(req)
+			require.NoError(t, err)
+			resp.Body.Close()
+		})
+	}
+}

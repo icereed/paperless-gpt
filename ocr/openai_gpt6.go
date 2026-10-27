@@ -16,6 +16,7 @@ type gpt6Transport struct {
 	base http.RoundTripper
 }
 
+// RoundTrip removes temperature only for GPT-6 requests with reasoning enabled.
 func (t *gpt6Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Method != http.MethodPost || !strings.HasSuffix(req.URL.Path, "/chat/completions") || req.Body == nil {
 		return t.base.RoundTrip(req)
@@ -30,7 +31,7 @@ func (t *gpt6Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		var model, effort string
 		_ = json.Unmarshal(payload["model"], &model)
 		_ = json.Unmarshal(payload["reasoning_effort"], &effort)
-		isGPT6 := model == "gpt-6" || strings.HasPrefix(model, "gpt-6-") || strings.HasPrefix(model, "gpt-6.")
+		isGPT6 := isGPT6Model(model)
 		if _, present := payload["temperature"]; present && isGPT6 && effort != "none" {
 			delete(payload, "temperature")
 			body, err = json.Marshal(payload)
@@ -49,4 +50,10 @@ func (t *gpt6Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return io.NopCloser(bytes.NewReader(body)), nil
 	}
 	return t.base.RoundTrip(clone)
+}
+
+// isGPT6Model recognizes bare and provider-qualified GPT-6 model IDs.
+func isGPT6Model(model string) bool {
+	model = model[strings.LastIndex(model, "/")+1:]
+	return model == "gpt-6" || strings.HasPrefix(model, "gpt-6-") || strings.HasPrefix(model, "gpt-6.")
 }

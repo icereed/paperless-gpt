@@ -279,7 +279,7 @@ func createOpenAIClient(config Config) (llms.Model, error) {
 	return openai.New(
 		openai.WithModel(config.VisionLLMModel),
 		openai.WithToken(apiKey),
-		openai.WithHTTPClient(OpenAIHTTPClient()),
+		openai.WithHTTPClient(OpenAIHTTPClient(config.VisionLLMModel)),
 	)
 }
 
@@ -311,9 +311,10 @@ func OllamaHTTPClient() *http.Client {
 
 // OpenAIHTTPClient returns the client for every OpenAI-compatible request:
 // text LLM, vision LLM and LLM OCR. It sends X-Title and the OPENAI_HEADERS.
+// Only GPT-6 clients buffer chat bodies to omit unsupported temperature.
 // It is a client of its own on purpose: those headers can carry gateway
 // credentials and must never reach other hosts through http.DefaultClient.
-func OpenAIHTTPClient() *http.Client {
+func OpenAIHTTPClient(model string) *http.Client {
 	headers := map[string]string{http.CanonicalHeaderKey("X-Title"): "paperless-gpt"}
 	for key, value := range ParseHeaderList(os.Getenv("OPENAI_HEADERS")) {
 		headers[key] = value
@@ -322,9 +323,11 @@ func OpenAIHTTPClient() *http.Client {
 	// OPENROUTER_ENFORCE_ZDR: a passthrough unless enabled and the request goes
 	// to openrouter.ai; see internal/openrouterzdr. It sits below the header
 	// transport, so it covers the text LLM, the vision LLM and LLM OCR alike.
-	client.Transport.(*headerTransport).base = &gpt6Transport{
-		base: openrouterzdr.NewTransport(http.DefaultTransport),
+	var transport http.RoundTripper = openrouterzdr.NewTransport(http.DefaultTransport)
+	if isGPT6Model(model) {
+		transport = &gpt6Transport{base: transport}
 	}
+	client.Transport.(*headerTransport).base = transport
 	return client
 }
 
