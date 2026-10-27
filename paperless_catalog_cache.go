@@ -21,16 +21,21 @@ type catalogCache[T any] struct {
 
 // get returns the cached catalog while it is younger than ttl and otherwise
 // fetches and stores it. hit reports whether the value came from the cache.
-// The lock is held across the fetch so concurrent misses share one request
-// and an invalidate cannot be overwritten by a fetch that started before it.
+// With caching enabled the lock is held across the fetch so concurrent misses
+// share one request and an invalidate cannot be overwritten by a fetch that
+// started before it. With caching disabled fetches run in parallel.
 func (c *catalogCache[T]) get(ttl time.Duration, fetch func() (T, error)) (val T, hit bool, err error) {
+	if ttl <= 0 {
+		val, err = fetch()
+		return val, false, err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.valid && time.Since(c.cachedAt) < ttl {
 		return c.val, true, nil
 	}
 	val, err = fetch()
-	if err == nil && ttl > 0 {
+	if err == nil {
 		c.val, c.cachedAt, c.valid = val, time.Now(), true
 	}
 	return val, false, err
@@ -79,22 +84,49 @@ func (client *PaperlessClient) GetAllTags(ctx context.Context) (map[string]int, 
 // cached catalog that does not know one of them is treated as a miss and
 // refetched once: the ID most likely belongs to a tag created after the cache
 // was filled, and reporting it as invisible would keep it on the document.
+// An ID the refetch still cannot resolve (e.g. a tag the API user cannot see)
+// does not trigger another refetch until the TTL has passed.
 func (client *PaperlessClient) tagsResolving(ctx context.Context, ids []int) (map[string]int, error) {
 	tags, hit, err := client.tags(ctx)
-	if err != nil || !hit {
+	if err != nil || !hit || !client.hasUnresolvedTag(tags, ids, false) {
 		return tags, err
 	}
+	client.tagCache.invalidate()
+	tags, err = client.GetAllTags(ctx)
+	if err == nil {
+		client.hasUnresolvedTag(tags, ids, true)
+	}
+	return tags, err
+}
+
+// hasUnresolvedTag reports whether one of ids is missing from tags and was not
+// already found missing by a refetch within the TTL. With remember set, the
+// missing IDs are recorded as found missing now.
+func (client *PaperlessClient) hasUnresolvedTag(tags map[string]int, ids []int, remember bool) bool {
 	known := make(map[int]bool, len(tags))
 	for _, id := range tags {
 		known[id] = true
 	}
-	for _, id := range ids {
-		if !known[id] {
-			client.tagCache.invalidate()
-			return client.GetAllTags(ctx)
-		}
+	client.unresolvedTagsMu.Lock()
+	defer client.unresolvedTagsMu.Unlock()
+	if client.unresolvedTags == nil {
+		client.unresolvedTags = map[int]time.Time{}
 	}
-	return tags, nil
+	unresolved := false
+	for _, id := range ids {
+		if known[id] {
+			continue
+		}
+		if remember {
+			client.unresolvedTags[id] = time.Now()
+			continue
+		}
+		if seen, ok := client.unresolvedTags[id]; ok && time.Since(seen) < client.CatalogCacheTTL {
+			continue
+		}
+		unresolved = true
+	}
+	return unresolved
 }
 
 // GetAllCorrespondents returns the correspondent catalog (name -> ID).

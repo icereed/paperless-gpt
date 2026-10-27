@@ -141,3 +141,48 @@ func TestCatalogCacheInvalidation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, calls["/api/document_types/"], "refetched after the rejected PATCH")
 }
+
+func TestCatalogCacheUnresolvableTagRefetchedOnce(t *testing.T) {
+	tags := `{"results":[{"id":1,"name":"a"}],"next":null}`
+	env, calls := catalogEnv(t, time.Minute, &tags)
+	defer env.teardown()
+	ctx := context.Background()
+
+	// Tag 5 exists but is not visible to the API user, so no refetch resolves it.
+	env.setMockResponse("/api/documents/7/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":7,"title":"t","tags":[1,5]}`))
+	})
+	_, err := env.client.GetAllTags(ctx)
+	require.NoError(t, err)
+	for range 3 {
+		doc, err := env.client.GetDocument(ctx, 7)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"a"}, doc.Tags)
+	}
+	assert.Equal(t, 2, calls["/api/tags/"], "one refetch for the unknown ID, then served from the cache")
+}
+
+func TestCatalogCacheDisabledDoesNotSerializeFetches(t *testing.T) {
+	var c catalogCache[int]
+	started := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_, _, _ = c.get(0, func() (int, error) {
+			close(started)
+			<-release
+			return 1, nil
+		})
+	}()
+	<-started
+	done := make(chan struct{})
+	go func() {
+		_, _, _ = c.get(0, func() (int, error) { return 2, nil })
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("a disabled cache serialized concurrent fetches")
+	}
+	close(release)
+}

@@ -46,6 +46,9 @@ type PaperlessClient struct {
 	tagCache           catalogCache[map[string]int]
 	correspondentCache catalogCache[map[string]int]
 	documentTypeCache  catalogCache[[]DocumentType]
+	// unresolvedTags records tag IDs a forced tag refetch could not resolve.
+	unresolvedTagsMu sync.Mutex
+	unresolvedTags   map[int]time.Time
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
