@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"paperless-gpt/ocr"
 
 	"github.com/tmc/langchaingo/llms"
 	"google.golang.org/genai"
@@ -17,16 +18,9 @@ type GoogleAIProvider struct {
 
 // NewGoogleAIProvider creates a new GoogleAIProvider instance
 func NewGoogleAIProvider(ctx context.Context, model string, apiKey string, thinkingBudget *int32) (*GoogleAIProvider, error) {
-	if apiKey == "" {
-		return nil, fmt.Errorf("GOOGLEAI_API_KEY environment variable is not set")
-	}
-
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  apiKey,
-		Backend: genai.BackendGeminiAPI,
-	})
+	client, err := ocr.NewGenAIClient(ctx, apiKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create googleai client: %w", err)
+		return nil, err
 	}
 
 	return &GoogleAIProvider{

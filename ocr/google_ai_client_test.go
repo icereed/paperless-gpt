@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tmc/langchaingo/llms"
+	"google.golang.org/genai"
 )
 
 func int32Ptr(v int32) *int32 { return &v }
@@ -229,4 +230,39 @@ func TestGoogleAIProvider_GenerateContent_InvalidBase64(t *testing.T) {
 func TestGoogleAIProvider_Close(t *testing.T) {
 	provider := &GoogleAIProvider{}
 	assert.NoError(t, provider.Close())
+}
+
+func TestGenAIClientConfig(t *testing.T) {
+	t.Run("gemini by default", func(t *testing.T) {
+		cfg, err := genAIClientConfig("key", "", "proj", "")
+		assert.NoError(t, err)
+		assert.Equal(t, genai.BackendGeminiAPI, cfg.Backend)
+		assert.Equal(t, "key", cfg.APIKey)
+		assert.Empty(t, cfg.Project, "project and API key are mutually exclusive in genai")
+	})
+	t.Run("gemini needs a key", func(t *testing.T) {
+		_, err := genAIClientConfig("", "gemini", "", "")
+		assert.ErrorContains(t, err, "GOOGLEAI_API_KEY")
+	})
+	t.Run("vertex ignores the key and defaults to global", func(t *testing.T) {
+		cfg, err := genAIClientConfig("key", "Vertex", "proj", "")
+		assert.NoError(t, err)
+		assert.Equal(t, genai.BackendVertexAI, cfg.Backend)
+		assert.Empty(t, cfg.APIKey)
+		assert.Equal(t, "proj", cfg.Project)
+		assert.Equal(t, "global", cfg.Location)
+	})
+	t.Run("vertex keeps an explicit location", func(t *testing.T) {
+		cfg, err := genAIClientConfig("", "vertex", "proj", "us-central1")
+		assert.NoError(t, err)
+		assert.Equal(t, "us-central1", cfg.Location)
+	})
+	t.Run("vertex needs a project", func(t *testing.T) {
+		_, err := genAIClientConfig("", "vertex", "", "")
+		assert.ErrorContains(t, err, "GOOGLEAI_VERTEX_PROJECT")
+	})
+	t.Run("unknown backend", func(t *testing.T) {
+		_, err := genAIClientConfig("key", "openai", "", "")
+		assert.ErrorContains(t, err, "unsupported GOOGLEAI_BACKEND")
+	})
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/tmc/langchaingo/llms"
@@ -17,18 +18,66 @@ type GoogleAIProvider struct {
 	model          string
 }
 
-// NewGoogleAIProvider creates a new GoogleAIProvider instance
-func NewGoogleAIProvider(ctx context.Context, model string, apiKey string, thinkingBudget *int32) (*GoogleAIProvider, error) {
-	if apiKey == "" {
-		return nil, fmt.Errorf("GOOGLEAI_API_KEY environment variable is not set")
-	}
+// defaultVertexLocation is used when GOOGLEAI_VERTEX_LOCATION is unset. The
+// "global" endpoint serves every current Gemini model; GOOGLE_LOCATION is not a
+// fallback because it holds the Document AI multi-region (`us`, `eu`), which
+// Vertex does not accept.
+const defaultVertexLocation = "global"
 
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
-		APIKey:  apiKey,
-		Backend: genai.BackendGeminiAPI,
-	})
+// genAIClientConfig builds the genai client config for the selected backend.
+// "gemini" (or empty) uses the Gemini API with an API key; "vertex" uses Vertex
+// AI with Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS),
+// which bills to the project's Cloud Billing account instead of AI Studio.
+func genAIClientConfig(apiKey, backend, project, location string) (*genai.ClientConfig, error) {
+	switch strings.ToLower(strings.TrimSpace(backend)) {
+	case "", "gemini":
+		if apiKey == "" {
+			return nil, fmt.Errorf("GOOGLEAI_API_KEY environment variable is not set")
+		}
+		return &genai.ClientConfig{
+			APIKey:  apiKey,
+			Backend: genai.BackendGeminiAPI,
+		}, nil
+	case "vertex":
+		if project == "" {
+			return nil, fmt.Errorf("GOOGLEAI_BACKEND=vertex needs GOOGLEAI_VERTEX_PROJECT (or GOOGLE_PROJECT_ID)")
+		}
+		if location == "" {
+			location = defaultVertexLocation
+		}
+		return &genai.ClientConfig{
+			Project:  project,
+			Location: location,
+			Backend:  genai.BackendVertexAI,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported GOOGLEAI_BACKEND %q (use `gemini` or `vertex`)", backend)
+	}
+}
+
+// NewGenAIClient creates the genai client shared by the googleai LLM and vision
+// providers, selecting the backend from GOOGLEAI_BACKEND.
+func NewGenAIClient(ctx context.Context, apiKey string) (*genai.Client, error) {
+	project := os.Getenv("GOOGLEAI_VERTEX_PROJECT")
+	if project == "" {
+		project = os.Getenv("GOOGLE_PROJECT_ID")
+	}
+	cfg, err := genAIClientConfig(apiKey, os.Getenv("GOOGLEAI_BACKEND"), project, os.Getenv("GOOGLEAI_VERTEX_LOCATION"))
+	if err != nil {
+		return nil, err
+	}
+	client, err := genai.NewClient(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create googleai client: %w", err)
+	}
+	return client, nil
+}
+
+// NewGoogleAIProvider creates a new GoogleAIProvider instance
+func NewGoogleAIProvider(ctx context.Context, model string, apiKey string, thinkingBudget *int32) (*GoogleAIProvider, error) {
+	client, err := NewGenAIClient(ctx, apiKey)
+	if err != nil {
+		return nil, err
 	}
 
 	return &GoogleAIProvider{
