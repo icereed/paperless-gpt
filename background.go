@@ -311,8 +311,10 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 			//
 			// A canceled poll-loop context is a shutdown, not a document
 			// problem, so it must never count against the document. Same
-			// reasoning as the auto-OCR poll below.
-			if autoTagMaxRetries > 0 && ctx.Err() == nil {
+			// reasoning as the auto-OCR poll below. Neither is a provider or
+			// paperless-ngx that can't be reached (isUnreachable): the
+			// document waits until it can.
+			if autoTagMaxRetries > 0 && ctx.Err() == nil && !isUnreachable(err) {
 				attempts := app.suggestionFailures.recordFailure(document.ID)
 				if attempts >= autoTagMaxRetries {
 					reason := fmt.Sprintf("suggestion generation failed %d times", attempts)
@@ -436,8 +438,16 @@ func (app *App) runWorkflowDocumentOCR(ctx context.Context, document Document, w
 		docLogger.Errorf("Workflow OCR processing failed: %v", err)
 		jobStore.updateJobStatus(jobID, "failed", err.Error())
 		finishOCRRunLogged(app, jobID, "failed", err.Error(), pagesDone, totalPages, "", "")
+		// Attempts against an unreachable provider don't count toward
+		// OCR_MAX_RETRIES, so a long outage records a failed run every poll
+		// cycle; prune them as the success path does.
+		if pruneErr := PruneOCRRuns(app.Database, document.ID); pruneErr != nil {
+			docLogger.Warnf("Failed to prune OCR runs: %v", pruneErr)
+		}
 
-		if ocrMaxRetries > 0 && ctx.Err() == nil {
+		// Same rules as the auto-OCR poll: a shutdown or an unreachable
+		// provider doesn't count against the document.
+		if ocrMaxRetries > 0 && ctx.Err() == nil && !isUnreachable(err) {
 			attempts := app.ocrFailures.recordFailure(document.ID)
 			if attempts >= ocrMaxRetries {
 				reason := fmt.Sprintf("OCR failed %d times", attempts)
@@ -605,14 +615,20 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			docLogger.Errorf("OCR processing failed: %v", err)
 			jobStore.updateJobStatus(jobID, "failed", err.Error())
 			finishOCRRunLogged(app, jobID, "failed", err.Error(), pagesDone, totalPages, "", "")
+			// Failed runs are pruned too (see the workflow OCR path).
+			if pruneErr := PruneOCRRuns(app.Database, document.ID); pruneErr != nil {
+				docLogger.Warnf("Failed to prune OCR runs: %v", pruneErr)
+			}
 
 			// A canceled/expired poll-loop context is a shutdown, not a
 			// document problem — never count it against the document.
 			// Deliberately checked on ctx rather than via errors.Is on err:
 			// providers wrap their calls in their own timeout contexts
 			// (e.g. Azure, ocr/azure_provider.go), and those per-document
-			// timeouts must count toward the limit.
-			if ocrMaxRetries > 0 && ctx.Err() == nil {
+			// timeouts must count toward the limit. A provider that can't be
+			// reached at all (isUnreachable) is not the document's fault
+			// either, and doesn't count.
+			if ocrMaxRetries > 0 && ctx.Err() == nil && !isUnreachable(err) {
 				attempts := app.ocrFailures.recordFailure(document.ID)
 				if attempts >= ocrMaxRetries {
 					reason := fmt.Sprintf("OCR failed %d times", attempts)
