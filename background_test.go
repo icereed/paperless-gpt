@@ -802,6 +802,32 @@ func TestProcessAutoOcrTagDocuments_FailTagAfterMaxRetries(t *testing.T) {
 		assert.Empty(t, client.calls, "shutdown-caused failures must not fail-tag documents")
 	})
 
+	t.Run("an unreachable provider is never counted", func(t *testing.T) {
+		ocrMaxRetries = 3
+		client := &recordingClient{taggedDocuments: map[string][]Document{autoOcrTag: {newDoc(15)}}}
+		processor := &mockDocumentProcessor{
+			mockText: "ocr text",
+			mockErr:  fmt.Errorf("error performing OCR for document 15, page 1: %w", dialRefused()),
+		}
+		app := newApp(client, processor)
+
+		// Ollama is off for hours: every attempt fails to connect, the error
+		// still surfaces so the loop backs off, and the document stays queued.
+		for round := 1; round <= 5; round++ {
+			_, err := app.processAutoOcrTagDocuments(context.Background())
+			assert.Error(t, err, "round %d should surface the connection error", round)
+		}
+		assert.Empty(t, client.calls, "an unreachable provider must not fail-tag the document")
+
+		// Once the provider answers, the document is processed normally.
+		processor.mockErr = nil
+		count, err := app.processAutoOcrTagDocuments(context.Background())
+		assert.NoError(t, err)
+		assert.Equal(t, 1, count)
+		require.Len(t, client.calls, 1)
+		assert.Empty(t, client.calls[0].SuggestedTags, "no fail tag on the success path")
+	})
+
 	t.Run("provider-side timeouts do count", func(t *testing.T) {
 		ocrMaxRetries = 3
 		client := &recordingClient{taggedDocuments: map[string][]Document{autoOcrTag: {newDoc(14)}}}
@@ -935,6 +961,19 @@ func TestProcessAutoTagDocuments_FailTagAfterMaxRetries(t *testing.T) {
 		assert.Error(t, err)
 		assert.Empty(t, client.calls,
 			"shutdown is not a document problem — it must not burn an attempt or fail-tag the document")
+	})
+
+	t.Run("an unreachable service does not count against the document", func(t *testing.T) {
+		autoTagMaxRetries = 1
+		client := newClient(14)
+		client.getAllTagsErr = dialRefused()
+		app := &App{Client: client}
+
+		for round := 1; round <= 3; round++ {
+			_, err := app.processAutoTagDocuments(context.Background())
+			assert.Error(t, err, "round %d should surface the connection error", round)
+		}
+		assert.Empty(t, client.calls, "a service that can't be reached must not fail-tag the document")
 	})
 }
 
