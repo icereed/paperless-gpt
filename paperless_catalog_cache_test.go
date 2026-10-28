@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -185,4 +186,59 @@ func TestCatalogCacheDisabledDoesNotSerializeFetches(t *testing.T) {
 		t.Fatal("a disabled cache serialized concurrent fetches")
 	}
 	close(release)
+}
+
+func TestCatalogCachePreservesNewMetadata(t *testing.T) {
+	preserveExistingMetadata = true
+	defer func() { preserveExistingMetadata = false }()
+	for _, ttl := range []time.Duration{0, time.Minute} {
+		t.Run(ttl.String(), func(t *testing.T) {
+			tags := `{"results":[],"next":null}`
+			env, _ := catalogEnv(t, ttl, &tags)
+			defer env.teardown()
+			ctx := context.Background()
+			_, err := env.client.GetAllCorrespondents(ctx)
+			require.NoError(t, err)
+			_, err = env.client.GetAllDocumentTypes(ctx)
+			require.NoError(t, err)
+
+			// These IDs were assigned in Paperless after the catalogs were cached.
+			correspondentCalls, documentTypeCalls := 0, 0
+			env.setMockResponse("/api/correspondents/", func(w http.ResponseWriter, r *http.Request) {
+				correspondentCalls++
+				_, _ = w.Write([]byte(`{"results":[{"id":1,"name":"Alpha"},{"id":2,"name":"Existing Corp"}]}`))
+			})
+			env.setMockResponse("/api/document_types/", func(w http.ResponseWriter, r *http.Request) {
+				documentTypeCalls++
+				_, _ = w.Write([]byte(`{"results":[{"id":1,"name":"Invoice"},{"id":2,"name":"Existing Type"}]}`))
+			})
+			var patched map[string]interface{}
+			env.setMockResponse("/api/documents/7/", func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPatch {
+					assert.NoError(t, json.NewDecoder(r.Body).Decode(&patched))
+				}
+				_, _ = w.Write([]byte(`{"id":7,"title":"t","correspondent":2,"document_type":2}`))
+			})
+			doc, err := env.client.GetDocument(ctx, 7)
+			require.NoError(t, err)
+			require.Equal(t, "Existing Corp", doc.Correspondent)
+			require.Equal(t, "Existing Type", doc.DocumentTypeName)
+			require.Equal(t, 1, correspondentCalls)
+			require.Equal(t, 1, documentTypeCalls)
+			_, err = env.client.GetDocument(ctx, 7)
+			require.NoError(t, err)
+			if ttl > 0 {
+				assert.Equal(t, 1, correspondentCalls, "resolved IDs continue to use the cache")
+				assert.Equal(t, 1, documentTypeCalls)
+			}
+			require.NoError(t, env.client.UpdateDocuments(ctx, []DocumentSuggestion{{
+				ID: 7, OriginalDocument: doc, SuggestedTitle: "updated",
+				SuggestedCorrespondent: "Alpha", SuggestedDocumentType: "Invoice",
+			}}, env.db, false))
+			require.NotNil(t, patched)
+			assert.Equal(t, "updated", patched["title"])
+			assert.NotContains(t, patched, "correspondent")
+			assert.NotContains(t, patched, "document_type")
+		})
+	}
 }
