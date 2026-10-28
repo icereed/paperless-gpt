@@ -467,7 +467,7 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	// Fetch all available custom fields
 	allCustomFields, err := app.Client.GetCustomFields(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching all custom fields: %v", err)
+		return nil, fmt.Errorf("error fetching all custom fields: %w", err)
 	}
 
 	// Filter to get only the selected custom fields
@@ -740,7 +740,7 @@ func (app *App) prepareSuggestionGenerationContext(ctx context.Context, suggesti
 	if suggestionRequest.GenerateDocumentTypes {
 		availableDocumentTypes, err := app.Client.GetAllDocumentTypes(ctx)
 		if err != nil {
-			return suggestionGenerationContext{}, fmt.Errorf("failed to fetch available document types: %v", err)
+			return suggestionGenerationContext{}, fmt.Errorf("failed to fetch available document types: %w", err)
 		}
 		generationContext.availableDocumentTypeNames = make([]string, 0, len(availableDocumentTypes))
 		for _, docType := range availableDocumentTypes {

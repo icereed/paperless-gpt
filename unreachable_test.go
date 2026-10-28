@@ -9,8 +9,10 @@ import (
 	"os"
 	"syscall"
 	"testing"
+	"text/template"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // dialRefused is what an HTTP request to a stopped Ollama returns.
@@ -53,4 +55,48 @@ func TestIsUnreachable(t *testing.T) {
 			assert.Equal(t, tc.want, isUnreachable(tc.err))
 		})
 	}
+}
+
+// The suggestion path wraps the LLM error several times on its way to the
+// retry counter; each layer has to keep the chain (%w) for isUnreachable to
+// see the network error.
+func TestProcessTagDocuments_UnreachableLLMDoesNotCount(t *testing.T) {
+	const trigger = "unreachable-in"
+	prevAutoTag, prevFail, prevTitle, prevMax, prevLimit := autoTag, failTag, titleTemplate, autoTagMaxRetries, tokenLimit
+	t.Cleanup(func() {
+		autoTag, failTag, titleTemplate, autoTagMaxRetries, tokenLimit = prevAutoTag, prevFail, prevTitle, prevMax, prevLimit
+	})
+	autoTag, failTag = "paperless-gpt-auto", "paperless-gpt-failed"
+	titleTemplate = template.Must(template.New("title").Parse("{{.Content}}"))
+	autoTagMaxRetries = 1
+	tokenLimit = 0
+	isolateWorkflowSettings(t)
+	on, off := true, false
+	useWorkflows(t, WorkflowConfig{
+		ID: "unreachable-llm", Name: "Unreachable LLM", TriggerTag: trigger,
+		GenerateTitles: &on, GenerateTags: &off, GenerateCorrespondents: &off,
+		GenerateCreatedDate: &off, GenerateDocumentTypes: &off, GenerateCustomFields: &off,
+	})
+
+	client := &approvalClient{recordingClient{taggedDocuments: map[string][]Document{
+		trigger: {{ID: 51, Title: "scan_0051.pdf", Content: "ACME invoice", Tags: []string{trigger}}},
+	}}}
+	llm := &mockLLM{Error: fmt.Errorf("all retry attempts failed, last error: %w",
+		fmt.Errorf("Ollama chat request: %w", dialRefused()))}
+	app := &App{Client: client, LLM: llm}
+
+	for round := 1; round <= 3; round++ {
+		_, err := app.processAutoTagDocuments(context.Background())
+		require.Error(t, err, "round %d should surface the connection error", round)
+		assert.True(t, isUnreachable(err), "round %d: the network error must survive the wrapping", round)
+	}
+	assert.Empty(t, client.calls, "an unreachable LLM must not fail-tag the document")
+
+	// The same document with an LLM error that isn't a connection failure is
+	// fail-tagged on the first attempt (AUTO_TAG_MAX_RETRIES=1).
+	llm.Error = errors.New("model not found")
+	_, err := app.processAutoTagDocuments(context.Background())
+	assert.NoError(t, err)
+	require.Len(t, client.calls, 1)
+	assert.Equal(t, []string{failTag}, client.calls[0].SuggestedTags)
 }
