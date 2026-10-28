@@ -131,16 +131,32 @@ func (client *PaperlessClient) hasUnresolvedTag(tags map[string]int, ids []int, 
 
 // GetAllCorrespondents returns the correspondent catalog (name -> ID).
 func (client *PaperlessClient) GetAllCorrespondents(ctx context.Context) (map[string]int, error) {
-	correspondents, _, err := client.correspondentCache.get(client.CatalogCacheTTL, func() (map[string]int, error) {
+	return client.correspondentsResolving(ctx, 0)
+}
+
+func (client *PaperlessClient) correspondentsResolving(ctx context.Context, id int) (map[string]int, error) {
+	correspondents, hit, err := client.correspondentCache.get(client.CatalogCacheTTL, func() (map[string]int, error) {
 		return client.fetchAllCorrespondents(ctx)
 	})
+	if err == nil && hit && id != 0 && !slices.Contains(slices.Collect(maps.Values(correspondents)), id) {
+		client.correspondentCache.invalidate()
+		return client.GetAllCorrespondents(ctx)
+	}
 	return maps.Clone(correspondents), err
 }
 
 // GetAllDocumentTypes returns the document-type catalog.
 func (client *PaperlessClient) GetAllDocumentTypes(ctx context.Context) ([]DocumentType, error) {
-	documentTypes, _, err := client.documentTypeCache.get(client.CatalogCacheTTL, func() ([]DocumentType, error) {
+	return client.documentTypesResolving(ctx, 0)
+}
+
+func (client *PaperlessClient) documentTypesResolving(ctx context.Context, id int) ([]DocumentType, error) {
+	documentTypes, hit, err := client.documentTypeCache.get(client.CatalogCacheTTL, func() ([]DocumentType, error) {
 		return client.fetchAllDocumentTypes(ctx)
 	})
+	if err == nil && hit && id != 0 && !slices.ContainsFunc(documentTypes, func(dt DocumentType) bool { return dt.ID == id }) {
+		client.documentTypeCache.invalidate()
+		return client.GetAllDocumentTypes(ctx)
+	}
 	return slices.Clone(documentTypes), err
 }

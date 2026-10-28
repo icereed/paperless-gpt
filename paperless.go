@@ -535,7 +535,7 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 		return Document{}, err
 	}
 
-	allCorrespondents, err := client.GetAllCorrespondents(ctx)
+	allCorrespondents, err := client.correspondentsResolving(ctx, documentResponse.Correspondent)
 	if err != nil {
 		return Document{}, err
 	}
@@ -571,7 +571,7 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 	}
 
 	// Get all document types to find the name
-	allDocumentTypes, err := client.GetAllDocumentTypes(ctx)
+	allDocumentTypes, err := client.documentTypesResolving(ctx, documentResponse.DocumentType)
 	if err != nil {
 		return Document{}, err
 	}
