@@ -912,7 +912,7 @@ func validateOrDefaultEnvVars() {
 		minerUTimeout = 600
 		if v := os.Getenv("MINERU_TIMEOUT"); v != "" {
 			n, err := strconv.Atoi(strings.TrimSpace(v))
-			if err != nil || n <= 0 {
+			if err != nil || n <= 0 || int64(n) > 9223372036 {
 				log.Fatalf("Invalid MINERU_TIMEOUT %q: must be a positive number of seconds", v)
 			}
 			minerUTimeout = n
