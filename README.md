@@ -44,6 +44,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
    - **Google Document AI**: Leverage Google's powerful Document AI for OCR tasks.
    - **Azure Document Intelligence**: Use Microsoft's enterprise OCR solution.
    - **Docling Server**: Self-hosted OCR and document conversion service
+   - **MinerU**: Self-hosted document parser (layout detection + VLM)
 
 4. **Automatic Title, Tag & Created Date Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
@@ -105,6 +106,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [2. Azure Document Intelligence](#2-azure-document-intelligence)
     - [3. Google Document AI](#3-google-document-ai)
     - [4. Docling Server](#4-docling-server)
+    - [5. MinerU](#5-mineru)
   - [OCR Processing Modes](#ocr-processing-modes)
     - [Image Mode (Default)](#image-mode-default)
     - [PDF Mode](#pdf-mode)
@@ -303,6 +305,13 @@ services:
       # DOCLING_OCR_ENGINE: "easyocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE is set to 'standard')
       # DOCLING_OUTPUT_FORMAT: "md" # Optional, defaults to "md", other option: "text"
 
+      # Option 5: MinerU
+      # OCR_PROVIDER: 'mineru'               # Use a self-hosted MinerU server
+      # MINERU_URL: 'http://your-mineru-server:8000' # Base URL of the MinerU API (no /v1 suffix)
+      # MINERU_API_KEY: "your_api_key" # Optional, bearer token if the server runs with --api-key
+      # MINERU_TIER: "standard" # Optional: flash, basic, standard (default) or advanced
+      # MINERU_TIMEOUT: "600" # Optional, seconds per MinerU call (per page in pdf/image mode), defaults to 600
+      # OCR_PROCESS_MODE: "whole_pdf" # Recommended with MinerU so it sees the whole document
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
@@ -372,7 +381,7 @@ For detailed provider-specific documentation:
 
 - [Mistral AI Integration](docs/mistral_llm.md)
 
-paperless-gpt supports four different OCR providers, each with unique strengths and capabilities:
+paperless-gpt supports several OCR providers, each with unique strengths and capabilities:
 
 ### 1. LLM-based OCR (Default)
 
@@ -463,6 +472,30 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   DOCLING_OUTPUT_FORMAT: "md" # Optional, defaults to "md", other option: "text"
   ```
 
+### 5. MinerU
+
+- **Key Features**:
+  - Self-hosted document parser combining layout detection with a vision-language model ([MinerU](https://github.com/opendatalab/MinerU))
+  - Handles tables, titles, captions, headers and footers; the text of all of them is kept for search
+  - Talks to the MinerU 4.x V1 parsing API (upload, parse job, polling, download)
+  - Embedded images are never added to the stored text
+- **Best For**:
+  - Users who want a self-hosted solution with strong layout and table handling
+  - Multi-page documents with complex layouts
+- **Setup**: start the MinerU API server, for example
+  `mineru-kit api-server --host 0.0.0.0 --port 8000 --api-key your_api_key`
+- **Recommended**: `OCR_PROCESS_MODE: "whole_pdf"` so MinerU sees the whole document in one job. `pdf` and `image` modes also work, with one job per page.
+- **Configuration**:
+  ```yaml
+  OCR_PROVIDER: "mineru"
+  OCR_PROCESS_MODE: "whole_pdf"
+  MINERU_URL: "http://your-mineru-server:8000" # No /v1 suffix
+  MINERU_API_KEY: "your_api_key" # Optional, only if the server requires a key
+  MINERU_TIER: "standard" # Optional: flash, basic, standard (default) or advanced
+  MINERU_TIMEOUT: "600" # Optional, seconds per MinerU call (upload, job, polling, download); per page in pdf/image mode
+  ```
+- **Note**: hOCR output is not supported by this provider.
+
 ## OCR Processing Modes
 
 paperless-gpt offers different methods for processing documents, giving you flexibility based on your needs and OCR provider capabilities:
@@ -498,6 +531,7 @@ Different OCR providers support different processing modes:
 | **Google Document AI** | ✅ | ✅ | ✅ |
 | **Mistral OCR** | ✅ | ✅ | ✅ |
 | **Docling Server** | ✅ | ✅ | ✅ |
+| **MinerU** | ✅ | ✅ | ✅ |
 
 > **Important**: paperless-gpt will validate your configuration at startup and prevent unsupported mode/provider combinations. If you specify an unsupported mode for your provider, the application will fail to start with a clear error message.
 
@@ -694,7 +728,7 @@ For best results with the enhanced OCR features:
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
 | `SUGGESTION_WORKERS`                | Number of async manual suggestion workers. Keep this at `1` for slow or local LLM backends to avoid concurrent generation overload.                                                           | No       | 1                          |
 | `SUGGESTION_JOB_TIMEOUT_SECONDS`    | Optional timeout for async manual suggestion jobs. Leave unset to disable; set a bounded value for slow local inference when jobs must not run forever.                                      | No       |                            |
-| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, `google_docai`, `docling`, or `mistral_ocr`).                                                                                                             | No       | llm                        |
+| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, `google_docai`, `docling`, `mineru`, or `mistral_ocr`).                                                                                                         | No       | llm                        |
 | `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
 | `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                                                    | Cond.    |                            |
 | `VISION_LLM_MODEL`                  | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                                                                                                 | Cond.    |                            |
@@ -721,6 +755,10 @@ For best results with the enhanced OCR features:
 | `DOCLING_OCR_PIPELINE`              | Sets the pipeline type. Optional; defaults to `vlm` if unset.                                                                                                                                 | No       | vlm                        |
 | `DOCLING_OCR_ENGINE`                | Sets the ocr engine, if `DOCLING_OCR_PIPELINE` is set to `standard`. Optional; defaults to `easyocr`                                                                                          | No       | easyocr                    |
 | `DOCLING_OUTPUT_FORMAT`             | Output format requested from Docling (`to_formats`): `md` (Markdown, keeps tables and headings) or `text` (plain text). Optional; defaults to `md`.                                           | No       | md                         |
+| `MINERU_URL`                        | Base URL of the MinerU API server, e.g. `http://mineru-host:8000`. Required if OCR_PROVIDER is `mineru`.                                                                                      | Cond.    |                            |
+| `MINERU_API_KEY`                    | Optional bearer token for the MinerU API (the server's `--api-key`).                                                                                                                          | No       |                            |
+| `MINERU_TIER`                       | MinerU parsing tier: `flash`, `basic`, `standard` or `advanced`.                                                                                                                              | No       | standard                   |
+| `MINERU_TIMEOUT`                    | Time budget in seconds for one MinerU call (upload, parsing job, polling and download): per page in `image` and `pdf` OCR_PROCESS_MODE, for the whole document in `whole_pdf`.                | No       | 600                        |
 | `CREATE_LOCAL_HOCR`                 | Whether to save hOCR files locally.                                                                                                                                                           | No       | false                      |
 | `LOCAL_HOCR_PATH`                   | Path where hOCR files will be saved when hOCR generation is enabled.                                                                                                                          | No       | /app/hocr                  |
 | `CREATE_LOCAL_PDF`                  | Whether to save enhanced PDFs locally.                                                                                                                                                        | No       | false                      |
