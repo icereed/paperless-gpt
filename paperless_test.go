@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -505,9 +506,17 @@ func TestUpdateDocuments(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	titleBefore := testutil.ToFloat64(documentFieldEditsTotal.WithLabelValues(fieldTitle))
+	tagsBefore := testutil.ToFloat64(documentFieldEditsTotal.WithLabelValues(fieldTags))
+	createdBefore := testutil.ToFloat64(documentFieldEditsTotal.WithLabelValues(fieldCreatedDate))
+
 	ctx := context.Background()
 	err := env.client.UpdateDocuments(ctx, documents, env.db, false)
 	require.NoError(t, err)
+
+	assert.Equal(t, titleBefore+1, testutil.ToFloat64(documentFieldEditsTotal.WithLabelValues(fieldTitle)))
+	assert.Equal(t, tagsBefore+1, testutil.ToFloat64(documentFieldEditsTotal.WithLabelValues(fieldTags)))
+	assert.Equal(t, createdBefore+1, testutil.ToFloat64(documentFieldEditsTotal.WithLabelValues(fieldCreatedDate)))
 }
 
 // TestUpdateDocuments_RemovingLastTag tests the behavior when removing the last remaining tag
@@ -1363,6 +1372,8 @@ func TestUpdateDocuments_CleanupPatchPreservesInvisibleTags(t *testing.T) {
 		SuggestedTitle:   "New Title", // keeps the main PATCH non-empty so tags defer to the cleanup PATCH
 		RemoveTags:       []string{"paperless-gpt-auto"},
 	}
+	tagsBefore := testutil.ToFloat64(documentFieldEditsTotal.WithLabelValues(fieldTags))
+	titleBefore := testutil.ToFloat64(documentFieldEditsTotal.WithLabelValues(fieldTitle))
 	require.NoError(t, env.client.UpdateDocuments(context.Background(), []DocumentSuggestion{doc}, env.db, false))
 
 	var tagPatch map[string]interface{}
@@ -1374,6 +1385,9 @@ func TestUpdateDocuments_CleanupPatchPreservesInvisibleTags(t *testing.T) {
 	require.NotNil(t, tagPatch, "the cleanup tag PATCH must be sent")
 	assert.ElementsMatch(t, []interface{}{float64(99)}, tagPatch["tags"],
 		"cleanup PATCH must keep the invisible tag and drop only the workflow tag")
+	assert.Equal(t, titleBefore+1, testutil.ToFloat64(documentFieldEditsTotal.WithLabelValues(fieldTitle)))
+	assert.Equal(t, tagsBefore+1, testutil.ToFloat64(documentFieldEditsTotal.WithLabelValues(fieldTags)),
+		"tags-cleanup InsertModification must increment document_field_edits_total{field=\"tags\"}")
 }
 
 // TestUpdateDocuments_CleanupPatchRemovesWorkflowTrigger covers the same

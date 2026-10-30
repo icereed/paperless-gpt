@@ -69,11 +69,14 @@ const maxOCRJobs = 200
 
 func (store *JobStore) addJob(job *Job) {
 	store.Lock()
-	defer store.Unlock()
-	job.PagesDone = 0 // Initialize PagesDone to 0
+	job.PagesDone = 0
 	store.jobs[job.ID] = job
 	store.evictOldestTerminalLocked()
 	logger.Infof("Job added: %v", job)
+	counts := countOCRJobStatusesLocked()
+	refreshJobGauges(ocrJobs, counts)
+	store.Unlock()
+	ocrJobsCreatedTotal.Inc()
 }
 
 // evictOldestTerminalLocked drops the oldest finished jobs while over capacity.
@@ -129,14 +132,26 @@ func (store *JobStore) GetAllJobs() []*Job {
 
 func (store *JobStore) updateJobStatus(jobID, status, result string) {
 	store.Lock()
-	defer store.Unlock()
+	var createdAt time.Time
+	becameTerminal := false
 	if job, exists := store.jobs[jobID]; exists {
+		prev := job.Status
 		job.Status = status
 		if result != "" {
 			job.Result = result
 		}
 		job.UpdatedAt = time.Now()
 		logger.Infof("Job status updated: %v", job)
+		if isTerminalJobStatus(status) && !isTerminalJobStatus(prev) {
+			becameTerminal = true
+			createdAt = job.CreatedAt
+		}
+	}
+	counts := countOCRJobStatusesLocked()
+	refreshJobGauges(ocrJobs, counts)
+	store.Unlock()
+	if becameTerminal {
+		observeOCRJobCompleted(status, createdAt)
 	}
 }
 

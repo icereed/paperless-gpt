@@ -30,19 +30,12 @@ FROM docker.io/golang:1.27.2-alpine3.24 AS builder
 # Set the working directory inside the container
 WORKDIR /app
 
-# Package versions for Renovate
-# renovate: datasource=repology depName=alpine_3_24/gcc versioning=loose
-ENV GCC_VERSION="15.2.0-r5"
-# renovate: datasource=repology depName=alpine_3_24/musl-dev versioning=loose
-ENV MUSL_DEV_VERSION="1.2.6-r2"
-# renovate: datasource=repology depName=alpine_3_24/sed versioning=loose
-ENV SED_VERSION="4.9-r2"
-
-# Install necessary packages with pinned versions
-RUN apk add --no-cache \
-    "gcc=${GCC_VERSION}" \
-    "musl-dev=${MUSL_DEV_VERSION}" \
-    "sed=${SED_VERSION}"
+# Install necessary packages (upgrade musl so musl-dev matches the Alpine repo revision)
+RUN apk upgrade --no-cache musl && \
+    apk add --no-cache \
+    gcc \
+    musl-dev \
+    sed
 
 # Copy go.mod and go.sum files
 COPY go.mod go.sum ./

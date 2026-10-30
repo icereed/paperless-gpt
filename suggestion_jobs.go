@@ -67,12 +67,15 @@ const maxSuggestionJobs = 200
 
 func (store *SuggestionJobStore) addJob(job *SuggestionJob) {
 	store.Lock()
-	defer store.Unlock()
 	job.DocumentsDone = 0
 	job.TotalDocuments = len(job.Request.Documents)
 	store.jobs[job.ID] = job
 	store.evictOldestTerminalLocked()
 	suggestionLogger.Infof("Suggestion job added: %s", job.ID)
+	counts := countSuggestionJobStatusesLocked()
+	refreshJobGauges(suggestionJobs, counts)
+	store.Unlock()
+	suggestionJobsCreatedTotal.Inc()
 }
 
 // evictOldestTerminalLocked drops the oldest finished jobs while the store is
@@ -184,41 +187,62 @@ func (store *SuggestionJobStore) getAllJobs() []SuggestionJob {
 
 func (store *SuggestionJobStore) startPending(jobID string) bool {
 	store.Lock()
-	defer store.Unlock()
-
 	job, exists := store.jobs[jobID]
 	if !exists || job.Status != "pending" {
+		store.Unlock()
 		return false
 	}
-
 	job.Status = "in_progress"
 	job.Error = ""
 	job.UpdatedAt = time.Now()
+	counts := countSuggestionJobStatusesLocked()
+	refreshJobGauges(suggestionJobs, counts)
+	store.Unlock()
 	return true
 }
 
 func (store *SuggestionJobStore) updateStatus(jobID, status, message string) {
 	store.Lock()
-	defer store.Unlock()
+	var createdAt time.Time
+	becameTerminal := false
 	if job, exists := store.jobs[jobID]; exists {
+		prev := job.Status
 		job.Status = status
 		if message != "" {
 			job.Error = message
 		}
 		job.UpdatedAt = time.Now()
+		if isTerminalJobStatus(status) && !isTerminalJobStatus(prev) {
+			becameTerminal = true
+			createdAt = job.CreatedAt
+		}
+	}
+	counts := countSuggestionJobStatusesLocked()
+	refreshJobGauges(suggestionJobs, counts)
+	store.Unlock()
+	if becameTerminal {
+		observeSuggestionJobCompleted(status, createdAt)
 	}
 }
 
 func (store *SuggestionJobStore) cancelPending(jobID string) bool {
 	store.Lock()
-	defer store.Unlock()
+	var createdAt time.Time
+	cancelled := false
 	if job, exists := store.jobs[jobID]; exists && job.Status == "pending" {
 		job.Status = "cancelled"
 		job.Error = "Job cancelled by user"
 		job.UpdatedAt = time.Now()
-		return true
+		createdAt = job.CreatedAt
+		cancelled = true
+		counts := countSuggestionJobStatusesLocked()
+		refreshJobGauges(suggestionJobs, counts)
 	}
-	return false
+	store.Unlock()
+	if cancelled {
+		observeSuggestionJobCompleted("cancelled", createdAt)
+	}
+	return cancelled
 }
 
 func (store *SuggestionJobStore) updateProgress(jobID string, documentsDone int, currentDocumentID int) {
@@ -233,8 +257,10 @@ func (store *SuggestionJobStore) updateProgress(jobID string, documentsDone int,
 
 func (store *SuggestionJobStore) complete(jobID string, result []DocumentSuggestion, failures []SuggestionJobDocumentFailure) {
 	store.Lock()
-	defer store.Unlock()
+	var createdAt time.Time
+	becameTerminal := false
 	if job, exists := store.jobs[jobID]; exists {
+		prev := job.Status
 		job.Status = "completed"
 		job.Result = result
 		job.FailedDocuments = failures
@@ -242,17 +268,39 @@ func (store *SuggestionJobStore) complete(jobID string, result []DocumentSuggest
 		job.DocumentsDone = job.TotalDocuments
 		job.CurrentDocumentID = 0
 		job.UpdatedAt = time.Now()
+		if isTerminalJobStatus("completed") && !isTerminalJobStatus(prev) {
+			becameTerminal = true
+			createdAt = job.CreatedAt
+		}
+	}
+	counts := countSuggestionJobStatusesLocked()
+	refreshJobGauges(suggestionJobs, counts)
+	store.Unlock()
+	if becameTerminal {
+		observeSuggestionJobCompleted("completed", createdAt)
 	}
 }
 
 func (store *SuggestionJobStore) failWithFailures(jobID, message string, failures []SuggestionJobDocumentFailure) {
 	store.Lock()
-	defer store.Unlock()
+	var createdAt time.Time
+	becameTerminal := false
 	if job, exists := store.jobs[jobID]; exists {
+		prev := job.Status
 		job.Status = "failed"
 		job.Error = message
 		job.FailedDocuments = failures
 		job.UpdatedAt = time.Now()
+		if isTerminalJobStatus("failed") && !isTerminalJobStatus(prev) {
+			becameTerminal = true
+			createdAt = job.CreatedAt
+		}
+	}
+	counts := countSuggestionJobStatusesLocked()
+	refreshJobGauges(suggestionJobs, counts)
+	store.Unlock()
+	if becameTerminal {
+		observeSuggestionJobCompleted("failed", createdAt)
 	}
 }
 
