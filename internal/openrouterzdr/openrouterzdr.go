@@ -22,6 +22,28 @@
 // ZDR at the HTTP transport level makes the guarantee hold even if an
 // operator later switches models or misconfigures something.
 //
+// # Pinning upstream providers (OPENROUTER_PROVIDER_ONLY)
+//
+// OPENROUTER_PROVIDER_ONLY accepts a comma-separated list of OpenRouter
+// provider slugs (for example "azure/eu") and merges it into the same
+// request body as
+//
+//	{"provider": {"only": ["azure/eu"]}}
+//
+// It works with or without OPENROUTER_ENFORCE_ZDR. The two settings can be
+// combined, in which case a single "provider" object carries both.
+//
+// This is needed for regional endpoints. Providers that charge a premium for
+// serving a model from a specific region (such as Azure's EU deployment,
+// "azure/eu") are skipped by OpenRouter's default routing whenever the model
+// also has a standard-priced endpoint, and a bare provider slug like "azure"
+// does not select them. They are only used when the request names the
+// regional slug in provider.only or provider.order. Without this setting an
+// operator who needs EU or Azure data residency has no way to reach such an
+// endpoint through paperless-gpt. See
+// https://openrouter.ai/docs/guides/features/in-region-routing and
+// https://openrouter.ai/docs/features/provider-routing
+//
 // # Trade-off (why this is opt-in, not the default)
 //
 // Restricting routing to ZDR-capable providers can shrink the pool of
@@ -71,18 +93,34 @@ func Enforced() bool {
 	return strings.ToLower(os.Getenv("OPENROUTER_ENFORCE_ZDR")) == "true"
 }
 
-// transport wraps an http.RoundTripper and, when enabled, injects
-// OpenRouter's Zero Data Retention provider preference into every request
-// body sent to openrouter.ai. Requests to any other host, or all requests
-// when disabled, pass through unmodified.
+// ProviderOnly returns the provider slugs listed in OPENROUTER_PROVIDER_ONLY.
+// Whitespace around entries is trimmed and empty entries are dropped, so an
+// unset or blank variable (or one containing only commas) yields nil, which
+// means "do not pin a provider".
+func ProviderOnly() []string {
+	var only []string
+	for _, slug := range strings.Split(os.Getenv("OPENROUTER_PROVIDER_ONLY"), ",") {
+		if slug = strings.TrimSpace(slug); slug != "" {
+			only = append(only, slug)
+		}
+	}
+	return only
+}
+
+// transport wraps an http.RoundTripper and, when OPENROUTER_ENFORCE_ZDR or
+// OPENROUTER_PROVIDER_ONLY is set, injects the corresponding OpenRouter
+// provider preferences into every request body sent to openrouter.ai.
+// Requests to any other host, or all requests when neither setting is
+// active, pass through unmodified.
 type transport struct {
 	next http.RoundTripper
 }
 
 // NewTransport wraps next so that, when OPENROUTER_ENFORCE_ZDR=true, requests
 // to openrouter.ai get {"provider": {"data_collection": "deny", "zdr": true}}
-// merged into their JSON body. Pass http.DefaultTransport (or any other
-// RoundTripper) as next.
+// merged into their JSON body, and when OPENROUTER_PROVIDER_ONLY is set they
+// additionally get {"provider": {"only": [...]}}. Pass http.DefaultTransport
+// (or any other RoundTripper) as next.
 func NewTransport(next http.RoundTripper) http.RoundTripper {
 	if next == nil {
 		next = http.DefaultTransport
@@ -91,7 +129,8 @@ func NewTransport(next http.RoundTripper) http.RoundTripper {
 }
 
 func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if !Enforced() || req.Body == nil || req.URL == nil || !isOpenRouterHost(req.URL.Hostname()) {
+	zdr, only := Enforced(), ProviderOnly()
+	if (!zdr && len(only) == 0) || req.Body == nil || req.URL == nil || !isOpenRouterHost(req.URL.Hostname()) {
 		return t.next.RoundTrip(req)
 	}
 
@@ -100,13 +139,13 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		// Body already partially consumed and unreadable: fail closed by
 		// returning the error rather than silently dropping the ZDR
-		// guarantee. Callers see a clear transport error instead of a
+		// guarantee or the provider pin. Callers see a clear transport error instead of a
 		// request that quietly lost its data-retention preference.
 		req.Body = io.NopCloser(bytes.NewReader(nil))
 		return nil, err
 	}
 
-	newBody, injectErr := injectZDRPreference(bodyBytes)
+	newBody, injectErr := injectProviderPreferences(bodyBytes, zdr, only)
 	if injectErr != nil {
 		// Malformed/non-JSON body: send the original bytes unchanged rather
 		// than corrupting the request. This can only happen for a non-JSON
@@ -123,7 +162,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// a failed connection reuse by calling GetBody to obtain a fresh Body
 	// reader, rather than reusing req.Body directly. Without updating
 	// GetBody here, such a retry would read the pre-injection bytes and
-	// silently skip the ZDR provider preference on that attempt. See
+	// silently skip the provider preferences on that attempt. See
 	// https://github.com/golang/go/blob/go1.25.5/src/net/http/transport.go
 	// for the retry path that consults GetBody.
 	if req.GetBody != nil {
@@ -146,19 +185,31 @@ func isOpenRouterHost(host string) bool {
 	return host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai")
 }
 
-// injectZDRPreference parses body as a JSON object and merges in
-// "provider": {"data_collection": "deny", "zdr": true}, preserving any
-// existing "provider" object's other fields (e.g. an operator-configured
-// "order" or "allow_fallbacks").
+// injectZDRPreference merges the Zero Data Retention preference into body.
+// It is injectProviderPreferences with ZDR on and no provider pin.
+func injectZDRPreference(body []byte) ([]byte, error) {
+	return injectProviderPreferences(body, true, nil)
+}
+
+// injectProviderPreferences parses body as a JSON object and merges provider
+// preferences into its "provider" object, preserving any existing "provider"
+// object's other fields (e.g. an operator-configured "order" or
+// "allow_fallbacks"):
 //
-// Both fields are set because they control related but distinct things:
+//   - zdr: "data_collection": "deny" and "zdr": true
+//   - only (non-empty): "only": only, replacing any existing "only" list
+//
+// Callers skip the call when there is nothing to inject (zdr false and only
+// empty).
+//
+// For ZDR both fields are set because they control related but distinct things:
 // data_collection excludes providers that store/train on data non-transiently,
 // while zdr additionally restricts routing to providers with a documented
 // Zero Data Retention policy. Setting only data_collection would still allow
 // routing to a provider that doesn't collect data long-term but also doesn't
 // carry a formal ZDR guarantee. See
 // https://openrouter.ai/docs/guides/features/zdr
-func injectZDRPreference(body []byte) ([]byte, error) {
+func injectProviderPreferences(body []byte, zdr bool, only []string) ([]byte, error) {
 	var payload map[string]interface{}
 	// A plain json.Unmarshal into map[string]interface{} decodes all JSON
 	// numbers as float64, which loses precision for integers outside
@@ -196,8 +247,13 @@ func injectZDRPreference(body []byte) ([]byte, error) {
 	if provider == nil {
 		provider = map[string]interface{}{}
 	}
-	provider["data_collection"] = "deny"
-	provider["zdr"] = true
+	if zdr {
+		provider["data_collection"] = "deny"
+		provider["zdr"] = true
+	}
+	if len(only) > 0 {
+		provider["only"] = only
+	}
 	payload["provider"] = provider
 
 	return json.Marshal(payload)

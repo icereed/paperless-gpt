@@ -301,3 +301,176 @@ func TestInjectZDRPreferenceRejectsNull(t *testing.T) {
 		t.Fatal("expected an error for a null body")
 	}
 }
+
+func TestProviderOnly(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want []string
+	}{
+		{"unset", "", nil},
+		{"single slug", "azure/eu", []string{"azure/eu"}},
+		{"multiple slugs", "azure/eu,openai", []string{"azure/eu", "openai"}},
+		{"whitespace is trimmed", "  azure/eu , openai  ", []string{"azure/eu", "openai"}},
+		{"empty entries are dropped", ",azure/eu,, ,openai,", []string{"azure/eu", "openai"}},
+		{"only whitespace and commas", " , ,", nil},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("OPENROUTER_PROVIDER_ONLY", c.env)
+			assert.Equal(t, c.want, ProviderOnly())
+		})
+	}
+}
+
+func TestInjectProviderPreferences(t *testing.T) {
+	decodeProvider := func(t *testing.T, out []byte) map[string]interface{} {
+		t.Helper()
+		var got map[string]interface{}
+		require.NoError(t, json.Unmarshal(out, &got))
+		provider, ok := got["provider"].(map[string]interface{})
+		require.True(t, ok, "expected provider object")
+		return provider
+	}
+
+	t.Run("only: adds provider.only without ZDR fields", func(t *testing.T) {
+		out, err := injectProviderPreferences([]byte(`{"model":"m"}`), false, []string{"azure/eu"})
+		require.NoError(t, err)
+
+		provider := decodeProvider(t, out)
+		assert.Equal(t, []interface{}{"azure/eu"}, provider["only"])
+		assert.NotContains(t, provider, "zdr")
+		assert.NotContains(t, provider, "data_collection")
+	})
+
+	t.Run("only and ZDR: both land in one provider object", func(t *testing.T) {
+		out, err := injectProviderPreferences([]byte(`{"model":"m"}`), true, []string{"azure/eu", "openai"})
+		require.NoError(t, err)
+
+		provider := decodeProvider(t, out)
+		assert.Equal(t, []interface{}{"azure/eu", "openai"}, provider["only"])
+		assert.Equal(t, "deny", provider["data_collection"])
+		assert.Equal(t, true, provider["zdr"])
+	})
+
+	t.Run("only: preserves existing provider fields and untouched body fields", func(t *testing.T) {
+		body := []byte(`{"model":"m","seed":9007199254740993,"provider":{"allow_fallbacks":false,"order":["openai"]}}`)
+		out, err := injectProviderPreferences(body, false, []string{"azure/eu"})
+		require.NoError(t, err)
+
+		provider := decodeProvider(t, out)
+		assert.Equal(t, []interface{}{"azure/eu"}, provider["only"])
+		assert.Equal(t, false, provider["allow_fallbacks"])
+		assert.Equal(t, []interface{}{"openai"}, provider["order"])
+		assert.Contains(t, string(out), `"seed":9007199254740993`)
+	})
+
+	t.Run("only: replaces an existing only list", func(t *testing.T) {
+		out, err := injectProviderPreferences([]byte(`{"provider":{"only":["openai"]}}`), false, []string{"azure/eu"})
+		require.NoError(t, err)
+		assert.Equal(t, []interface{}{"azure/eu"}, decodeProvider(t, out)["only"])
+	})
+
+	t.Run("ZDR only: injectZDRPreference behaves as before", func(t *testing.T) {
+		out, err := injectZDRPreference([]byte(`{"model":"m"}`))
+		require.NoError(t, err)
+
+		provider := decodeProvider(t, out)
+		assert.Equal(t, "deny", provider["data_collection"])
+		assert.Equal(t, true, provider["zdr"])
+		assert.NotContains(t, provider, "only")
+	})
+
+	t.Run("errors on malformed JSON", func(t *testing.T) {
+		_, err := injectProviderPreferences([]byte(`not json`), false, []string{"azure/eu"})
+		assert.Error(t, err)
+	})
+}
+
+func TestTransportProviderOnly(t *testing.T) {
+	// do sends body through the transport to url and returns the JSON the
+	// upstream RoundTripper received.
+	do := func(t *testing.T, url, body string) map[string]interface{} {
+		t.Helper()
+		var captured map[string]interface{}
+		next := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			b, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			require.NoError(t, json.Unmarshal(b, &captured))
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}, nil
+		})
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewBufferString(body))
+		require.NoError(t, err)
+		resp, err := NewTransport(next).RoundTrip(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		return captured
+	}
+
+	const orURL = "https://openrouter.ai/api/v1/chat/completions"
+
+	t.Run("injects provider.only without ZDR enforcement", func(t *testing.T) {
+		t.Setenv("OPENROUTER_PROVIDER_ONLY", "azure/eu")
+
+		provider, ok := do(t, orURL, `{"model":"m"}`)["provider"].(map[string]interface{})
+		require.True(t, ok, "expected provider object in request sent upstream")
+		assert.Equal(t, []interface{}{"azure/eu"}, provider["only"])
+		assert.NotContains(t, provider, "zdr")
+	})
+
+	t.Run("combines with ZDR enforcement", func(t *testing.T) {
+		t.Setenv("OPENROUTER_ENFORCE_ZDR", "true")
+		t.Setenv("OPENROUTER_PROVIDER_ONLY", " azure/eu , ")
+
+		provider, ok := do(t, orURL, `{"model":"m"}`)["provider"].(map[string]interface{})
+		require.True(t, ok, "expected provider object in request sent upstream")
+		assert.Equal(t, []interface{}{"azure/eu"}, provider["only"])
+		assert.Equal(t, "deny", provider["data_collection"])
+		assert.Equal(t, true, provider["zdr"])
+	})
+
+	t.Run("blank value is ignored: body passes through unmodified", func(t *testing.T) {
+		t.Setenv("OPENROUTER_PROVIDER_ONLY", " , ")
+
+		got := do(t, orURL, `{"model":"m"}`)
+		assert.NotContains(t, got, "provider")
+	})
+
+	t.Run("regional subdomain host still matches", func(t *testing.T) {
+		t.Setenv("OPENROUTER_PROVIDER_ONLY", "azure/eu")
+
+		provider, ok := do(t, "https://eu.openrouter.ai/api/v1/chat/completions", `{"model":"m"}`)["provider"].(map[string]interface{})
+		require.True(t, ok, "expected provider object in request sent upstream")
+		assert.Equal(t, []interface{}{"azure/eu"}, provider["only"])
+	})
+
+	t.Run("non-OpenRouter host: passes through unmodified", func(t *testing.T) {
+		t.Setenv("OPENROUTER_PROVIDER_ONLY", "azure/eu")
+
+		got := do(t, "https://openrouter.ai.attacker.example/api/v1/chat/completions", `{"model":"m"}`)
+		assert.NotContains(t, got, "provider")
+	})
+
+	t.Run("GetBody is updated so retries also carry provider.only", func(t *testing.T) {
+		t.Setenv("OPENROUTER_PROVIDER_ONLY", "azure/eu")
+
+		req, err := http.NewRequest(http.MethodPost, orURL, bytes.NewBufferString(`{"model":"m"}`))
+		require.NoError(t, err)
+		require.NotNil(t, req.GetBody)
+
+		next := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			_, _ = io.ReadAll(req.Body)
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(nil)), Header: make(http.Header)}, nil
+		})
+		resp, err := NewTransport(next).RoundTrip(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		retryBody, err := req.GetBody()
+		require.NoError(t, err)
+		retryBytes, err := io.ReadAll(retryBody)
+		require.NoError(t, err)
+		assert.Contains(t, string(retryBytes), `"only":["azure/eu"]`)
+	})
+}
