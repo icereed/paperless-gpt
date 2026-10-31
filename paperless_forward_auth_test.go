@@ -205,6 +205,22 @@ func TestForwardAuthUnauthenticatedAnswers(t *testing.T) {
 	})
 }
 
+// Standalone on its own host without PAPERLESS_PUBLIC_URL, the host-relative
+// login link points back at paperless-gpt; it must not redirect in a loop.
+func TestForwardAuthLoginLinkToItselfDoesNotLoop(t *testing.T) {
+	auth := newForwardAuth(forwardAuthSuperuser, "http://127.0.0.1:1", "", http.DefaultTransport)
+	router := gin.New()
+	router.Use(auth.middleware())
+
+	rec := serve(router, http.MethodGet, "/history", nil)
+	require.Equal(t, http.StatusFound, rec.Code)
+	assert.Equal(t, "/accounts/login/?next=%2Fhistory", rec.Header().Get("Location"))
+
+	rec = serve(router, http.MethodGet, rec.Header().Get("Location"), nil)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Contains(t, rec.Body.String(), "PAPERLESS_PUBLIC_URL")
+}
+
 // A 403 alone must not count as "signed in": if paperless ever answered
 // anonymous requests with 403, user level would otherwise let everyone in.
 func TestForwardAuthForbiddenEverywhereIsNotSignedIn(t *testing.T) {

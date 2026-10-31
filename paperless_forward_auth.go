@@ -281,6 +281,13 @@ func (a *forwardAuth) deny(c *gin.Context, status int, message string, user *pap
 	}
 	switch status {
 	case http.StatusUnauthorized:
+		// A host-relative login link that lands here means paperless-gpt runs on
+		// its own host or port; redirecting again would loop forever.
+		if strings.HasPrefix(c.Request.URL.Path, "/accounts/login") {
+			log.Warn("The paperless-ngx login link points to paperless-gpt itself; set PAPERLESS_PUBLIC_URL")
+			c.Data(status, "text/plain; charset=utf-8", []byte("paperless-gpt cannot find the paperless-ngx login: set PAPERLESS_PUBLIC_URL to the address of paperless-ngx.\n"))
+			break
+		}
 		c.Redirect(http.StatusFound, a.loginURL+"?next="+url.QueryEscape(returnPath(c.Request)))
 	case http.StatusForbidden:
 		c.Data(status, "text/html; charset=utf-8", []byte(a.forbiddenPage(user)))
