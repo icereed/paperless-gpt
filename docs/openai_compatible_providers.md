@@ -66,6 +66,31 @@ for your chosen model, that provider becoming rate-limited produces a
 429/5xx with no fallback. Prefer models with multiple ZDR-capable providers
 when using this flag.
 
+To pin the upstream provider, set `OPENROUTER_PROVIDER_ONLY` to a
+comma-separated list of OpenRouter provider slugs:
+
+```yaml
+OPENROUTER_PROVIDER_ONLY: "azure/eu"
+```
+
+paperless-gpt then adds `"provider": {"only": ["azure/eu"]}` to every request
+to `openrouter.ai`. It can be combined with `OPENROUTER_ENFORCE_ZDR`; both end
+up in the same `provider` object.
+
+This matters for regional endpoints. Providers that charge a premium for
+serving a model from a specific region (for example Azure's EU deployment,
+`azure/eu`) are skipped by OpenRouter's default routing when the model also has
+a standard-priced endpoint, and a bare slug like `azure` does not select them.
+They are only used when the request names the regional slug in `provider.only`.
+The model page on OpenRouter lists them under "Not used in Standard routing";
+copy the exact slug from there. See OpenRouter's
+[in-region routing](https://openrouter.ai/docs/guides/features/in-region-routing)
+and [provider routing](https://openrouter.ai/docs/features/provider-routing)
+docs.
+
+**Trade-off:** with a single listed provider there is no fallback; if it is
+rate-limited or unavailable the request fails.
+
 ### LM Studio
 
 Enable the local server in LM Studio, then:
