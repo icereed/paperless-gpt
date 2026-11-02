@@ -433,6 +433,9 @@ func createOllamaClient(config Config) (llms.Model, error) {
 	if host == "" {
 		host = "http://127.0.0.1:11434"
 	}
+	if isGLMOCRModel(config.VisionLLMModel) {
+		return newOllamaVisionModel(host, config.VisionLLMModel, config.OllamaContextLength, OllamaHTTPClient())
+	}
 	opts := []ollama.Option{
 		ollama.WithModel(config.VisionLLMModel),
 		ollama.WithServerURL(host),
