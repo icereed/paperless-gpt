@@ -373,6 +373,24 @@ func main() {
 		}
 	}
 
+	var miniCPMTimeout int
+	if timeoutStr := os.Getenv("MINICPM_OCR_TIMEOUT_SECONDS"); timeoutStr != "" {
+		if parsed, err := strconv.Atoi(timeoutStr); err == nil && parsed > 0 {
+			miniCPMTimeout = parsed
+		} else {
+			log.Warnf("Invalid MINICPM_OCR_TIMEOUT_SECONDS value: %q, using default", timeoutStr)
+		}
+	}
+
+	var miniCPMMaxTokens int
+	if maxTokStr := os.Getenv("MINICPM_OCR_MAX_TOKENS"); maxTokStr != "" {
+		if parsed, err := strconv.Atoi(maxTokStr); err == nil && parsed > 0 {
+			miniCPMMaxTokens = parsed
+		} else {
+			log.Warnf("Invalid MINICPM_OCR_MAX_TOKENS value: %q, using default", maxTokStr)
+		}
+	}
+
 	if val, ok := os.LookupEnv("GOOGLEAI_THINKING_BUDGET"); ok {
 		if v, err := strconv.ParseInt(val, 10, 32); err == nil {
 			if v >= math.MinInt32 && v <= math.MaxInt32 {
@@ -400,6 +418,11 @@ func main() {
 		MistralModel:             os.Getenv("MISTRAL_MODEL"),
 		MistralImageLimit:        mistralImageLimit,
 		MistralImageMinSize:      mistralImageMinSize,
+		MiniCPMBaseURL:           os.Getenv("MINICPM_OCR_BASE_URL"),
+		MiniCPMAPIKey:            os.Getenv("MINICPM_OCR_API_KEY"),
+		MiniCPMModel:             os.Getenv("MINICPM_OCR_MODEL"),
+		MiniCPMTimeout:           miniCPMTimeout,
+		MiniCPMMaxTokens:         miniCPMMaxTokens,
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
 		DoclingOCRPipeline:       doclingOCRPipeline,
@@ -753,6 +776,12 @@ func ocrProviderLabel() string {
 			model = "mistral-ocr-latest"
 		}
 		return fmt.Sprintf("mistral_ocr (%s)", model)
+	case "minicpm_ocr":
+		model := os.Getenv("MINICPM_OCR_MODEL")
+		if model == "" {
+			model = "minicpm-ocr"
+		}
+		return fmt.Sprintf("minicpm_ocr (%s)", model)
 	default:
 		return provider
 	}
@@ -767,6 +796,7 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
 		"docling":      {"image", "pdf", "whole_pdf"}, // Docling supports image and PDF modes
+		"minicpm_ocr":  {"image"},                     // Page images via chat completions
 	}
 
 	// Google Gemini API natively handles PDF documents
@@ -871,6 +901,12 @@ func validateOrDefaultEnvVars() {
 		}
 		if azureDocAIKey == "" {
 			log.Fatal("Please set the AZURE_DOCAI_KEY environment variable for Azure provider")
+		}
+	}
+
+	if ocrProvider == "minicpm_ocr" {
+		if strings.TrimSpace(os.Getenv("MINICPM_OCR_BASE_URL")) == "" {
+			log.Fatal("Please set the MINICPM_OCR_BASE_URL environment variable for the MiniCPM-OCR provider")
 		}
 	}
 

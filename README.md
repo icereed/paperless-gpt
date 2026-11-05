@@ -105,6 +105,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [2. Azure Document Intelligence](#2-azure-document-intelligence)
     - [3. Google Document AI](#3-google-document-ai)
     - [4. Docling Server](#4-docling-server)
+    - [5. MiniCPM-OCR](#5-minicpm-ocr)
   - [OCR Processing Modes](#ocr-processing-modes)
     - [Image Mode (Default)](#image-mode-default)
     - [PDF Mode](#pdf-mode)
@@ -303,6 +304,15 @@ services:
       # DOCLING_OCR_ENGINE: "easyocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE is set to 'standard')
       # DOCLING_OUTPUT_FORMAT: "md" # Optional, defaults to "md", other option: "text"
 
+      # Option 5: MiniCPM-OCR (OpenAI-compatible server: vLLM, SGLang, llama.cpp, Ollama)
+      # OCR_PROVIDER: "minicpm_ocr"
+      # MINICPM_OCR_BASE_URL: "http://minicpm-ocr:8000" # Server root, or a base URL that already includes /v1
+      # MINICPM_OCR_MODEL: "minicpm-ocr" # Optional, must match the served model name
+      # MINICPM_OCR_API_KEY: "your-key" # Optional bearer token
+      # MINICPM_OCR_TIMEOUT_SECONDS: "300" # Optional
+      # MINICPM_OCR_MAX_TOKENS: "8192" # Optional; raise it if a page comes back truncated
+      # OCR_PROCESS_MODE: "image" # Required: MiniCPM-OCR receives rendered page images
+
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
@@ -372,7 +382,7 @@ For detailed provider-specific documentation:
 
 - [Mistral AI Integration](docs/mistral_llm.md)
 
-paperless-gpt supports four different OCR providers, each with unique strengths and capabilities:
+paperless-gpt supports five different OCR providers, each with unique strengths and capabilities:
 
 ### 1. LLM-based OCR (Default)
 
@@ -463,6 +473,29 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   DOCLING_OUTPUT_FORMAT: "md" # Optional, defaults to "md", other option: "text"
   ```
 
+### 5. MiniCPM-OCR
+
+- **Key Features**:
+  - Self-hosted document OCR with [MiniCPM-OCR 1.0](https://github.com/OpenBMB/MiniCPM-OCR) (OpenBMB, 1.3B, Apache-2.0)
+  - Talks to any OpenAI-compatible `/v1/chat/completions` server (vLLM, SGLang, llama.cpp, or Ollama)
+  - Sends each rendered page image as a base64 data URL, image first and then the prompt
+  - Uses the official page prompt `Text Recognition:` and the official sampling parameters (`temperature=0.01`, `top_p=0.001`, `top_k=1`)
+- **Best For**:
+  - Local or private OCR of Chinese and English documents
+  - Scans and photographs where a small vision model is enough
+- **Configuration**:
+  ```yaml
+  OCR_PROVIDER: "minicpm_ocr"
+  MINICPM_OCR_BASE_URL: "http://minicpm-ocr:8000" # server root, or a base URL that already includes /v1
+  MINICPM_OCR_MODEL: "minicpm-ocr" # optional; must match the served model name
+  # MINICPM_OCR_API_KEY: "your-key" # optional, sent as Authorization: Bearer
+  # MINICPM_OCR_TIMEOUT_SECONDS: "300" # optional
+  # MINICPM_OCR_MAX_TOKENS: "8192" # optional; raise it when a page is truncated
+  OCR_PROCESS_MODE: "image" # pdf and whole_pdf are not supported
+  ```
+
+  Each page is recognized in one request. The [recognition guide](https://huggingface.co/openbmb/MiniCPM-OCR-1.0) lists `Text Recognition:` for a text block, paragraph, title, or page. The official SDK can instead detect layout and send crops with `Table Recognition:` or `Formula Recognition:` (HTML tables, LaTeX formulas); that layout stage is not part of this provider. Start the inference server with the project's recommended settings, including 4× visual downsampling and thinking disabled. A `finish_reason` of `length` means the page hit `MINICPM_OCR_MAX_TOKENS` and the text may be cut off.
+
 ## OCR Processing Modes
 
 paperless-gpt offers different methods for processing documents, giving you flexibility based on your needs and OCR provider capabilities:
@@ -498,6 +531,7 @@ Different OCR providers support different processing modes:
 | **Google Document AI** | ✅ | ✅ | ✅ |
 | **Mistral OCR** | ✅ | ✅ | ✅ |
 | **Docling Server** | ✅ | ✅ | ✅ |
+| **MiniCPM-OCR** | ✅ | ❌ | ❌ |
 
 > **Important**: paperless-gpt will validate your configuration at startup and prevent unsupported mode/provider combinations. If you specify an unsupported mode for your provider, the application will fail to start with a clear error message.
 
@@ -694,7 +728,7 @@ For best results with the enhanced OCR features:
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
 | `SUGGESTION_WORKERS`                | Number of async manual suggestion workers. Keep this at `1` for slow or local LLM backends to avoid concurrent generation overload.                                                           | No       | 1                          |
 | `SUGGESTION_JOB_TIMEOUT_SECONDS`    | Optional timeout for async manual suggestion jobs. Leave unset to disable; set a bounded value for slow local inference when jobs must not run forever.                                      | No       |                            |
-| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, `google_docai`, `docling`, or `mistral_ocr`).                                                                                                             | No       | llm                        |
+| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, `google_docai`, `docling`, `mistral_ocr`, or `minicpm_ocr`).                                                                                              | No       | llm                        |
 | `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
 | `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `ollama`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                                                    | Cond.    |                            |
 | `VISION_LLM_MODEL`                  | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                                                                                                 | Cond.    |                            |
@@ -721,6 +755,11 @@ For best results with the enhanced OCR features:
 | `DOCLING_OCR_PIPELINE`              | Sets the pipeline type. Optional; defaults to `vlm` if unset.                                                                                                                                 | No       | vlm                        |
 | `DOCLING_OCR_ENGINE`                | Sets the ocr engine, if `DOCLING_OCR_PIPELINE` is set to `standard`. Optional; defaults to `easyocr`                                                                                          | No       | easyocr                    |
 | `DOCLING_OUTPUT_FORMAT`             | Output format requested from Docling (`to_formats`): `md` (Markdown, keeps tables and headings) or `text` (plain text). Optional; defaults to `md`.                                           | No       | md                         |
+| `MINICPM_OCR_BASE_URL`              | MiniCPM-OCR server URL. Required if `OCR_PROVIDER` is `minicpm_ocr`. Accepts the server root (`http://host:8000`) or an OpenAI-compatible base that already includes `/v1`.                   | Cond.    |                            |
+| `MINICPM_OCR_API_KEY`               | Optional bearer token for the MiniCPM-OCR server. Sent as `Authorization: Bearer` when set.                                                                                                   | No       |                            |
+| `MINICPM_OCR_MODEL`                 | Served model name for MiniCPM-OCR. Must match the server's model id.                                                                                                                          | No       | minicpm-ocr                |
+| `MINICPM_OCR_TIMEOUT_SECONDS`       | Per-request timeout in seconds for MiniCPM-OCR chat completions.                                                                                                                              | No       | 300                        |
+| `MINICPM_OCR_MAX_TOKENS`            | Maximum tokens generated for one page. Raise this when a page is truncated (`finish_reason=length`).                                                                                          | No       | 8192                       |
 | `CREATE_LOCAL_HOCR`                 | Whether to save hOCR files locally.                                                                                                                                                           | No       | false                      |
 | `LOCAL_HOCR_PATH`                   | Path where hOCR files will be saved when hOCR generation is enabled.                                                                                                                          | No       | /app/hocr                  |
 | `CREATE_LOCAL_PDF`                  | Whether to save enhanced PDFs locally.                                                                                                                                                        | No       | false                      |
