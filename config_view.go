@@ -41,6 +41,7 @@ var urlEnvVars = map[string]bool{
 	"OPENAI_BASE_URL":      true,
 	"OLLAMA_HOST":          true,
 	"DOCLING_URL":          true,
+	"MINICPM_OCR_BASE_URL": true,
 }
 
 // scrubURLUserinfo removes any user:password@ component from a URL so
@@ -113,6 +114,15 @@ func buildConfigEntries() []ConfigEntry {
 		} else if isSet {
 			entry.Source = "env"
 			if !e.Secret {
+				if e.Name == "MINICPM_OCR_BASE_URL" {
+					if u, err := url.Parse(envVal); err == nil {
+						u.RawQuery = ""
+						u.Fragment = ""
+						envVal = u.String()
+					} else {
+						envVal = ""
+					}
+				}
 				if urlEnvVars[e.Name] {
 					entry.Value = scrubURLUserinfo(envVal)
 				} else {

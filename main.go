@@ -141,6 +141,7 @@ type App struct {
 	LLM                llms.Model
 	VisionLLM          llms.Model
 	ocrProvider        ocr.Provider           // OCR provider interface
+	ocrProviderName    string                 // OCR_PROVIDER value ("llm", "azure", "minicpm_ocr", ...)
 	ocrProcessMode     string                 // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
 	docProcessor       DocumentProcessor      // Optional: Can be used for mocking
 	localHOCRPath      string                 // Path for saving hOCR files locally
@@ -373,6 +374,24 @@ func main() {
 		}
 	}
 
+	var miniCPMTimeout int
+	if timeoutStr := os.Getenv("MINICPM_OCR_TIMEOUT_SECONDS"); timeoutStr != "" {
+		if parsed, err := strconv.Atoi(timeoutStr); err == nil && parsed > 0 {
+			miniCPMTimeout = parsed
+		} else {
+			log.Warnf("Invalid MINICPM_OCR_TIMEOUT_SECONDS value: %q, using default", timeoutStr)
+		}
+	}
+
+	var miniCPMMaxTokens int
+	if maxTokStr := os.Getenv("MINICPM_OCR_MAX_TOKENS"); maxTokStr != "" {
+		if parsed, err := strconv.Atoi(maxTokStr); err == nil && parsed > 0 {
+			miniCPMMaxTokens = parsed
+		} else {
+			log.Warnf("Invalid MINICPM_OCR_MAX_TOKENS value: %q, using default", maxTokStr)
+		}
+	}
+
 	if val, ok := os.LookupEnv("GOOGLEAI_THINKING_BUDGET"); ok {
 		if v, err := strconv.ParseInt(val, 10, 32); err == nil {
 			if v >= math.MinInt32 && v <= math.MaxInt32 {
@@ -400,6 +419,11 @@ func main() {
 		MistralModel:             os.Getenv("MISTRAL_MODEL"),
 		MistralImageLimit:        mistralImageLimit,
 		MistralImageMinSize:      mistralImageMinSize,
+		MiniCPMBaseURL:           os.Getenv("MINICPM_OCR_BASE_URL"),
+		MiniCPMAPIKey:            os.Getenv("MINICPM_OCR_API_KEY"),
+		MiniCPMModel:             os.Getenv("MINICPM_OCR_MODEL"),
+		MiniCPMTimeout:           miniCPMTimeout,
+		MiniCPMMaxTokens:         miniCPMMaxTokens,
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
 		DoclingOCRPipeline:       doclingOCRPipeline,
@@ -447,6 +471,7 @@ func main() {
 		LLM:                llm,
 		VisionLLM:          visionLlm,
 		ocrProvider:        ocrProvider,
+		ocrProviderName:    providerType,
 		ocrProcessMode:     ocrProcessMode,
 		docProcessor:       nil, // App itself implements DocumentProcessor
 		localHOCRPath:      localHOCRPath,
@@ -753,6 +778,12 @@ func ocrProviderLabel() string {
 			model = "mistral-ocr-latest"
 		}
 		return fmt.Sprintf("mistral_ocr (%s)", model)
+	case "minicpm_ocr":
+		model := strings.TrimSpace(os.Getenv("MINICPM_OCR_MODEL"))
+		if model == "" {
+			model = "minicpm-ocr"
+		}
+		return fmt.Sprintf("minicpm_ocr (%s)", model)
 	default:
 		return provider
 	}
@@ -767,6 +798,7 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
 		"docling":      {"image", "pdf", "whole_pdf"}, // Docling supports image and PDF modes
+		"minicpm_ocr":  {"image"},                     // Page images via chat completions
 	}
 
 	// Google Gemini API natively handles PDF documents
@@ -788,6 +820,17 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 
 	return fmt.Errorf("OCR provider '%s' does not support processing mode '%s'. Supported modes: %v",
 		provider, mode, modes)
+}
+
+// rejectUnsupportedOCRMode applies validateOCRProviderModeCompatibility to the
+// mode a job or saved default would actually use. Image-only providers,
+// including minicpm_ocr, reject pdf and whole_pdf here the same way startup
+// does. An empty provider name skips the check.
+func (app *App) rejectUnsupportedOCRMode(mode string) error {
+	if app.ocrProviderName == "" || mode == "" {
+		return nil
+	}
+	return validateOCRProviderModeCompatibility(app.ocrProviderName, mode, visionLlmProvider)
 }
 
 // validateOrDefaultEnvVars ensures all necessary environment variables are set
@@ -871,6 +914,12 @@ func validateOrDefaultEnvVars() {
 		}
 		if azureDocAIKey == "" {
 			log.Fatal("Please set the AZURE_DOCAI_KEY environment variable for Azure provider")
+		}
+	}
+
+	if ocrProvider == "minicpm_ocr" {
+		if strings.TrimSpace(os.Getenv("MINICPM_OCR_BASE_URL")) == "" {
+			log.Fatal("Please set the MINICPM_OCR_BASE_URL environment variable for the MiniCPM-OCR provider")
 		}
 	}
 
