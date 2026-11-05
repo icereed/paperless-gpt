@@ -93,3 +93,12 @@ func TestScrubURLUserinfo(t *testing.T) {
 	// non-URL input is returned unchanged
 	assert.Equal(t, "not a url", scrubURLUserinfo("not a url"))
 }
+
+func TestMiniCPMURLQueryCredentialsAreHidden(t *testing.T) {
+	t.Setenv("MINICPM_OCR_BASE_URL", "https://user:password@ocr.example/v1?token=secret")
+	entry := findEntry(buildConfigEntries(), "MINICPM_OCR_BASE_URL")
+	require.NotNil(t, entry)
+	assert.NotContains(t, entry.Value, "password")
+	assert.NotContains(t, entry.Value, "secret")
+	assert.Contains(t, entry.Value, "ocr.example/v1")
+}

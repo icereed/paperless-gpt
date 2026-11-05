@@ -385,33 +385,30 @@ func writeMiniCPMChatResponse(t *testing.T, w http.ResponseWriter, content, fini
 	require.NoError(t, json.NewEncoder(w).Encode(payload))
 }
 
-func TestRedactURLUserinfo(t *testing.T) {
-	assert.Equal(t, "https://ocr.example/v1", redactURLUserinfo("https://ocr.example/v1"))
-	redacted := redactURLUserinfo("https://user:s3cret@ocr.example/v1")
-	assert.NotContains(t, redacted, "s3cret")
-	assert.NotContains(t, redacted, "user")
-	assert.Contains(t, redacted, "ocr.example")
-	assert.Equal(t, "<invalid URL>", redactURLUserinfo("http://%"))
-}
-
-func TestNewProvider_MiniCPMLogsWithoutURLCredentials(t *testing.T) {
-	var buf bytes.Buffer
-	prevOut := log.Out
-	log.SetOutput(&buf)
-	t.Cleanup(func() { log.SetOutput(prevOut) })
-
-	provider, err := NewProvider(Config{
-		Provider:       "minicpm_ocr",
-		MiniCPMBaseURL: "http://user:s3cret@127.0.0.1:9/v1",
-	})
-	require.NoError(t, err)
-	got := provider.(*MiniCPMOCRProvider)
-	assert.Contains(t, got.chatURL, "user:s3cret@")
-	assert.NotContains(t, buf.String(), "s3cret")
-}
-
 func TestParseMiniCPMChatResponse_UnsupportedContent(t *testing.T) {
 	_, _, _, err := parseMiniCPMChatResponse([]byte(`{"choices":[{"message":{"content":{"unexpected":true}},"finish_reason":"stop"}]}`))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported content")
+}
+
+func TestMiniCPMRefusal(t *testing.T) {
+	for _, body := range []string{`{"choices":[{"message":{"refusal":"no","content":null}}]}`, `{"choices":[{"message":{"content":[{"type":"refusal","refusal":"no"}]}}]}`} {
+		_, _, _, err := parseMiniCPMChatResponse([]byte(body))
+		require.Error(t, err)
+	}
+}
+
+func TestMiniCPMDoesNotExposeURLSecrets(t *testing.T) {
+	var logs bytes.Buffer
+	previous := log.Out
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	provider, err := NewProvider(Config{Provider: "minicpm_ocr", MiniCPMBaseURL: "http://user:password@127.0.0.1:1/v1?token=secret"})
+	require.NoError(t, err)
+	_, err = provider.ProcessImage(context.Background(), []byte("page"), 1)
+	require.Error(t, err)
+	for _, secret := range []string{"password", "secret"} {
+		assert.NotContains(t, logs.String(), secret)
+		assert.NotContains(t, err.Error(), secret)
+	}
 }

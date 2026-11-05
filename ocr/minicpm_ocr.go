@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -99,6 +100,7 @@ type miniCPMChatResponse struct {
 	Choices []struct {
 		Message struct {
 			Content json.RawMessage `json:"content"`
+			Refusal string          `json:"refusal"`
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -131,7 +133,6 @@ func newMiniCPMOCRProvider(config Config) (*MiniCPMOCRProvider, error) {
 
 	logger := log.WithFields(logrus.Fields{
 		"provider":   miniCPMProviderName,
-		"url":        redactURLUserinfo(chatURL),
 		"model":      model,
 		"timeout_s":  timeout,
 		"max_tokens": maxTokens,
@@ -159,7 +160,7 @@ func miniCPMChatCompletionsURL(base string) (string, error) {
 	}
 	u, err := url.Parse(base)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return "", fmt.Errorf("MINICPM_OCR_BASE_URL must be an http(s) URL, got %q", base)
+		return "", fmt.Errorf("MINICPM_OCR_BASE_URL must be an http(s) URL")
 	}
 	path := strings.TrimRight(u.Path, "/")
 	lowerPath := strings.ToLower(path)
@@ -171,21 +172,8 @@ func miniCPMChatCompletionsURL(base string) (string, error) {
 		path += "/v1/chat/completions"
 	}
 	u.Path = path
+	u.RawPath = ""
 	return u.String(), nil
-}
-
-// redactURLUserinfo removes any user:password@ component so a base URL can be
-// logged. The original URL is still used for the request.
-func redactURLUserinfo(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "<invalid URL>"
-	}
-	if u.User == nil {
-		return u.String()
-	}
-	u.User = nil
-	return u.String()
 }
 
 func (p *MiniCPMOCRProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error) {
@@ -213,7 +201,6 @@ func (p *MiniCPMOCRProvider) ProcessImage(ctx context.Context, imageContent []by
 		"mime_type":     mimeType,
 		"base64_length": len(reqBody.Messages[0].Content[0].ImageURL.URL),
 		"prompt":        miniCPMPagePrompt,
-		"url":           redactURLUserinfo(p.chatURL),
 	}).Debug("Sending MiniCPM-OCR chat completion")
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatURL, bytes.NewReader(payload))
@@ -228,6 +215,10 @@ func (p *MiniCPMOCRProvider) ProcessImage(ctx context.Context, imageContent []by
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		logger.WithError(err).Error("MiniCPM-OCR request failed")
 		return nil, fmt.Errorf("MiniCPM-OCR request failed: %w", err)
 	}
@@ -332,6 +323,9 @@ func parseMiniCPMChatResponse(body []byte) (string, string, map[string]interface
 		return "", "", nil, fmt.Errorf("MiniCPM-OCR response contained no choices")
 	}
 
+	if parsed.Choices[0].Message.Refusal != "" {
+		return "", "", nil, fmt.Errorf("MiniCPM-OCR refused the request")
+	}
 	text, err := miniCPMMessageText(parsed.Choices[0].Message.Content)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("failed to read MiniCPM-OCR message content: %w", err)
