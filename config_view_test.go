@@ -42,11 +42,17 @@ func TestBuildConfigEntriesNeverExposesOllamaHeaders(t *testing.T) {
 
 func TestBuildConfigEntriesScrubsURLUserinfo(t *testing.T) {
 	t.Setenv("PAPERLESS_BASE_URL", "https://user:hunter2@paperless.example.com:8000")
+	t.Setenv("MINICPM_OCR_BASE_URL", "https://user:s3cret@ocr.example/v1")
 
 	e := findEntry(buildConfigEntries(), "PAPERLESS_BASE_URL")
 	require.NotNil(t, e)
 	assert.NotContains(t, e.Value, "hunter2", "embedded credentials must be scrubbed")
 	assert.Contains(t, e.Value, "paperless.example.com")
+
+	mini := findEntry(buildConfigEntries(), "MINICPM_OCR_BASE_URL")
+	require.NotNil(t, mini)
+	assert.NotContains(t, mini.Value, "s3cret")
+	assert.Contains(t, mini.Value, "ocr.example")
 }
 
 func TestBuildConfigEntriesReportsSavedOverride(t *testing.T) {

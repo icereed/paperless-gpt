@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -130,7 +131,7 @@ func newMiniCPMOCRProvider(config Config) (*MiniCPMOCRProvider, error) {
 
 	logger := log.WithFields(logrus.Fields{
 		"provider":   miniCPMProviderName,
-		"url":        chatURL,
+		"url":        redactURLUserinfo(chatURL),
 		"model":      model,
 		"timeout_s":  timeout,
 		"max_tokens": maxTokens,
@@ -150,23 +151,41 @@ func newMiniCPMOCRProvider(config Config) (*MiniCPMOCRProvider, error) {
 
 // miniCPMChatCompletionsURL accepts the server root (http://host:8000), an
 // OpenAI base that already includes /v1, or a full chat completions URL.
+// Only the path is rewritten, so a query string stays intact.
 func miniCPMChatCompletionsURL(base string) (string, error) {
-	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	base = strings.TrimSpace(base)
 	if base == "" {
 		return "", fmt.Errorf("missing required MiniCPM-OCR base URL (MINICPM_OCR_BASE_URL)")
 	}
-	lower := strings.ToLower(base)
-	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+	u, err := url.Parse(base)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return "", fmt.Errorf("MINICPM_OCR_BASE_URL must be an http(s) URL, got %q", base)
 	}
+	path := strings.TrimRight(u.Path, "/")
+	lowerPath := strings.ToLower(path)
 	switch {
-	case strings.HasSuffix(lower, "/chat/completions"):
-		return base, nil
-	case strings.HasSuffix(lower, "/v1"):
-		return base + "/chat/completions", nil
+	case strings.HasSuffix(lowerPath, "/chat/completions"):
+	case strings.HasSuffix(lowerPath, "/v1"):
+		path += "/chat/completions"
 	default:
-		return base + "/v1/chat/completions", nil
+		path += "/v1/chat/completions"
 	}
+	u.Path = path
+	return u.String(), nil
+}
+
+// redactURLUserinfo removes any user:password@ component so a base URL can be
+// logged. The original URL is still used for the request.
+func redactURLUserinfo(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "<invalid URL>"
+	}
+	if u.User == nil {
+		return u.String()
+	}
+	u.User = nil
+	return u.String()
 }
 
 func (p *MiniCPMOCRProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error) {
@@ -194,7 +213,7 @@ func (p *MiniCPMOCRProvider) ProcessImage(ctx context.Context, imageContent []by
 		"mime_type":     mimeType,
 		"base64_length": len(reqBody.Messages[0].Content[0].ImageURL.URL),
 		"prompt":        miniCPMPagePrompt,
-		"url":           p.chatURL,
+		"url":           redactURLUserinfo(p.chatURL),
 	}).Debug("Sending MiniCPM-OCR chat completion")
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatURL, bytes.NewReader(payload))
@@ -350,7 +369,14 @@ func miniCPMMessageText(raw json.RawMessage) (string, error) {
 	}
 	if err := json.Unmarshal(raw, &parts); err == nil {
 		var b strings.Builder
+		textParts := 0
 		for _, part := range parts {
+			// A missing type with a text field is still text. Anything else
+			// (refusal, image, and so on) is not a transcription.
+			if part.Type != "" && part.Type != "text" {
+				continue
+			}
+			textParts++
 			if part.Text == "" {
 				continue
 			}
@@ -358,6 +384,9 @@ func miniCPMMessageText(raw json.RawMessage) (string, error) {
 				b.WriteByte('\n')
 			}
 			b.WriteString(part.Text)
+		}
+		if b.Len() == 0 && textParts == 0 && len(parts) > 0 {
+			return "", fmt.Errorf("unsupported content parts")
 		}
 		return b.String(), nil
 	}

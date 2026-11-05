@@ -1,6 +1,7 @@
 package ocr
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -29,6 +30,9 @@ func TestMiniCPMChatCompletionsURL(t *testing.T) {
 		{name: "full endpoint", in: "http://localhost:8000/v1/chat/completions", want: "http://localhost:8000/v1/chat/completions"},
 		{name: "full endpoint trailing slash", in: "http://localhost:8000/v1/chat/completions/", want: "http://localhost:8000/v1/chat/completions"},
 		{name: "whitespace", in: "  http://localhost:8000/v1  ", want: "http://localhost:8000/v1/chat/completions"},
+		{name: "query on v1 base", in: "https://ocr.example/v1?token=secret", want: "https://ocr.example/v1/chat/completions?token=secret"},
+		{name: "query on server root", in: "https://ocr.example?token=secret", want: "https://ocr.example/v1/chat/completions?token=secret"},
+		{name: "userinfo preserved", in: "https://user:secret@ocr.example/v1", want: "https://user:secret@ocr.example/v1/chat/completions"},
 		{name: "missing", in: "  ", wantErr: "MINICPM_OCR_BASE_URL"},
 		{name: "not http", in: "localhost:8000", wantErr: "http(s)"},
 	}
@@ -304,6 +308,41 @@ func TestMiniCPMOCRProvider_ProcessImage(t *testing.T) {
 		assert.Contains(t, err.Error(), "empty image")
 	})
 
+	t.Run("configured max tokens", func(t *testing.T) {
+		var got miniCPMChatRequest
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			assert.NoError(t, err)
+			assert.NoError(t, json.Unmarshal(body, &got))
+			writeMiniCPMChatResponse(t, w, "short", "stop", 0, 0, 0)
+		}))
+		defer server.Close()
+
+		provider, err := newMiniCPMOCRProvider(Config{
+			MiniCPMBaseURL:   server.URL,
+			MiniCPMTimeout:   5,
+			MiniCPMMaxTokens: 1024,
+		})
+		require.NoError(t, err)
+		_, err = provider.ProcessImage(context.Background(), image, 1)
+		require.NoError(t, err)
+		assert.Equal(t, 1024, got.MaxTokens)
+	})
+
+	t.Run("unsupported content parts", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, err := w.Write([]byte(`{"choices":[{"message":{"content":[{"type":"refusal","refusal":"Cannot process this image"}]},"finish_reason":"stop"}]}`))
+			assert.NoError(t, err)
+		}))
+		defer server.Close()
+
+		provider := testMiniCPMProvider(t, server.URL, "")
+		result, err := provider.ProcessImage(context.Background(), image, 1)
+		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unsupported content parts")
+	})
+
 	t.Run("canceled context", func(t *testing.T) {
 		provider := testMiniCPMProvider(t, "http://127.0.0.1:9", "")
 		ctx, cancel := context.WithCancel(context.Background())
@@ -344,6 +383,31 @@ func writeMiniCPMChatResponse(t *testing.T, w http.ResponseWriter, content, fini
 	}
 	w.Header().Set("Content-Type", "application/json")
 	require.NoError(t, json.NewEncoder(w).Encode(payload))
+}
+
+func TestRedactURLUserinfo(t *testing.T) {
+	assert.Equal(t, "https://ocr.example/v1", redactURLUserinfo("https://ocr.example/v1"))
+	redacted := redactURLUserinfo("https://user:s3cret@ocr.example/v1")
+	assert.NotContains(t, redacted, "s3cret")
+	assert.NotContains(t, redacted, "user")
+	assert.Contains(t, redacted, "ocr.example")
+	assert.Equal(t, "<invalid URL>", redactURLUserinfo("http://%"))
+}
+
+func TestNewProvider_MiniCPMLogsWithoutURLCredentials(t *testing.T) {
+	var buf bytes.Buffer
+	prevOut := log.Out
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(prevOut) })
+
+	provider, err := NewProvider(Config{
+		Provider:       "minicpm_ocr",
+		MiniCPMBaseURL: "http://user:s3cret@127.0.0.1:9/v1",
+	})
+	require.NoError(t, err)
+	got := provider.(*MiniCPMOCRProvider)
+	assert.Contains(t, got.chatURL, "user:s3cret@")
+	assert.NotContains(t, buf.String(), "s3cret")
 }
 
 func TestParseMiniCPMChatResponse_UnsupportedContent(t *testing.T) {

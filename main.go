@@ -141,6 +141,7 @@ type App struct {
 	LLM                llms.Model
 	VisionLLM          llms.Model
 	ocrProvider        ocr.Provider           // OCR provider interface
+	ocrProviderName    string                 // OCR_PROVIDER value ("llm", "azure", "minicpm_ocr", ...)
 	ocrProcessMode     string                 // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
 	docProcessor       DocumentProcessor      // Optional: Can be used for mocking
 	localHOCRPath      string                 // Path for saving hOCR files locally
@@ -470,6 +471,7 @@ func main() {
 		LLM:                llm,
 		VisionLLM:          visionLlm,
 		ocrProvider:        ocrProvider,
+		ocrProviderName:    providerType,
 		ocrProcessMode:     ocrProcessMode,
 		docProcessor:       nil, // App itself implements DocumentProcessor
 		localHOCRPath:      localHOCRPath,
@@ -777,7 +779,7 @@ func ocrProviderLabel() string {
 		}
 		return fmt.Sprintf("mistral_ocr (%s)", model)
 	case "minicpm_ocr":
-		model := os.Getenv("MINICPM_OCR_MODEL")
+		model := strings.TrimSpace(os.Getenv("MINICPM_OCR_MODEL"))
 		if model == "" {
 			model = "minicpm-ocr"
 		}
@@ -818,6 +820,17 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 
 	return fmt.Errorf("OCR provider '%s' does not support processing mode '%s'. Supported modes: %v",
 		provider, mode, modes)
+}
+
+// rejectUnsupportedOCRMode applies validateOCRProviderModeCompatibility to the
+// mode a job or saved default would actually use. Image-only providers,
+// including minicpm_ocr, reject pdf and whole_pdf here the same way startup
+// does. An empty provider name skips the check.
+func (app *App) rejectUnsupportedOCRMode(mode string) error {
+	if app.ocrProviderName == "" || mode == "" {
+		return nil
+	}
+	return validateOCRProviderModeCompatibility(app.ocrProviderName, mode, visionLlmProvider)
 }
 
 // validateOrDefaultEnvVars ensures all necessary environment variables are set

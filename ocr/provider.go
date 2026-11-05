@@ -167,7 +167,7 @@ func NewProvider(config Config) (Provider, error) {
 		}
 		log.WithFields(logrus.Fields{
 			"model": config.MiniCPMModel,
-			"url":   config.MiniCPMBaseURL,
+			"url":   redactURLUserinfo(config.MiniCPMBaseURL),
 		}).Info("Using MiniCPM-OCR provider")
 		return newMiniCPMOCRProvider(config)
 

@@ -382,7 +382,7 @@ For detailed provider-specific documentation:
 
 - [Mistral AI Integration](docs/mistral_llm.md)
 
-paperless-gpt supports five different OCR providers, each with unique strengths and capabilities:
+paperless-gpt supports six different OCR providers, each with unique strengths and capabilities:
 
 ### 1. LLM-based OCR (Default)
 
