@@ -373,6 +373,47 @@ func main() {
 		}
 	}
 
+	// MiniCPM-OCR settings: everything but the endpoint has a provider-side
+	// default, so only the numeric fields are parsed here.
+	minicpmMaxTokens := 0
+	if v := os.Getenv("MINICPM_OCR_MAX_TOKENS"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			if parsed > 0 {
+				minicpmMaxTokens = parsed
+			} else {
+				log.Warnf("Invalid MINICPM_OCR_MAX_TOKENS value: must be > 0, got %d, ignoring", parsed)
+			}
+		} else {
+			log.Warnf("Invalid MINICPM_OCR_MAX_TOKENS value: %v, ignoring", err)
+		}
+	}
+
+	minicpmTimeoutSeconds := 0
+	if v := os.Getenv("MINICPM_OCR_TIMEOUT_SECONDS"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			if parsed > 0 {
+				minicpmTimeoutSeconds = parsed
+			} else {
+				log.Warnf("Invalid MINICPM_OCR_TIMEOUT_SECONDS value: must be > 0, got %d, ignoring", parsed)
+			}
+		} else {
+			log.Warnf("Invalid MINICPM_OCR_TIMEOUT_SECONDS value: %v, ignoring", err)
+		}
+	}
+
+	minicpmMaxSliceNums := 0
+	if v := os.Getenv("MINICPM_OCR_MAX_SLICE_NUMS"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			if parsed > 0 {
+				minicpmMaxSliceNums = parsed
+			} else {
+				log.Warnf("Invalid MINICPM_OCR_MAX_SLICE_NUMS value: must be > 0, got %d, ignoring", parsed)
+			}
+		} else {
+			log.Warnf("Invalid MINICPM_OCR_MAX_SLICE_NUMS value: %v, ignoring", err)
+		}
+	}
+
 	if val, ok := os.LookupEnv("GOOGLEAI_THINKING_BUDGET"); ok {
 		if v, err := strconv.ParseInt(val, 10, 32); err == nil {
 			if v >= math.MinInt32 && v <= math.MaxInt32 {
@@ -405,6 +446,14 @@ func main() {
 		DoclingOCRPipeline:       doclingOCRPipeline,
 		DoclingOCREngine:         doclingOCREngine,
 		DoclingOutputFormat:      doclingOutputFormat,
+		MiniCPMEndpoint:          os.Getenv("MINICPM_OCR_ENDPOINT"),
+		MiniCPMAPIKey:            os.Getenv("MINICPM_OCR_API_KEY"),
+		MiniCPMModel:             os.Getenv("MINICPM_OCR_MODEL"),
+		MiniCPMPrompt:            os.Getenv("MINICPM_OCR_PROMPT"),
+		MiniCPMMaxTokens:         minicpmMaxTokens,
+		MiniCPMTimeoutSeconds:    minicpmTimeoutSeconds,
+		MiniCPMMaxSliceNums:      minicpmMaxSliceNums,
+		MiniCPMDownsampleMode:    os.Getenv("MINICPM_OCR_DOWNSAMPLE_MODE"),
 		EnableHOCR:               true, // Always generate hOCR struct if provider supports it
 		VisionLLMMaxTokens:       visionLlmMaxTokens,
 		VisionLLMTemperature:     visionLlmTemperature,
@@ -753,6 +802,12 @@ func ocrProviderLabel() string {
 			model = "mistral-ocr-latest"
 		}
 		return fmt.Sprintf("mistral_ocr (%s)", model)
+	case "minicpm":
+		model := os.Getenv("MINICPM_OCR_MODEL")
+		if model == "" {
+			model = "minicpm-ocr"
+		}
+		return fmt.Sprintf("minicpm (%s)", model)
 	default:
 		return provider
 	}
@@ -767,6 +822,7 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
 		"docling":      {"image", "pdf", "whole_pdf"}, // Docling supports image and PDF modes
+		"minicpm":      {"image"},                     // MiniCPM-OCR reads page images one at a time
 	}
 
 	// Google Gemini API natively handles PDF documents
@@ -890,6 +946,10 @@ func validateOrDefaultEnvVars() {
 			doclingOCREngine = "easyocr"
 			log.Infof("DOCLING_OCR_ENGINE not set, defaulting to %s", doclingOCREngine)
 		}
+	}
+
+	if ocrProvider == "minicpm" && os.Getenv("MINICPM_OCR_ENDPOINT") == "" {
+		log.Fatal("Please set the MINICPM_OCR_ENDPOINT environment variable for the MiniCPM OCR provider (OpenAI-compatible /v1/chat/completions URL)")
 	}
 
 	if llmModel == "" {

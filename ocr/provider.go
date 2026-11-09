@@ -81,6 +81,16 @@ type Config struct {
 	DoclingOCREngine       string // Optional, defaults to "easyocr", if DoclingOCRPipeline == "standard"
 	DoclingOutputFormat    string // Optional, "md" (default) or "text"
 
+	// MiniCPM-OCR settings (self-hosted, OpenAI-compatible endpoint)
+	MiniCPMEndpoint       string // Required when Provider is "minicpm"
+	MiniCPMAPIKey         string // Optional, only for servers started with --api-key
+	MiniCPMModel          string // Optional, defaults to "minicpm-ocr"
+	MiniCPMPrompt         string // Optional, defaults to the model's region prompt
+	MiniCPMMaxTokens      int    // Optional, defaults to 8192
+	MiniCPMTimeoutSeconds int    // Optional, defaults to 180
+	MiniCPMMaxSliceNums   int    // Optional, defaults to 9
+	MiniCPMDownsampleMode string // Optional, defaults to "4x"
+
 	// OCR output options
 	EnableHOCR     bool   // Whether to generate hOCR data if supported by the provider
 	HOCROutputPath string // Where to save hOCR output files
@@ -153,6 +163,12 @@ func NewProvider(config Config) (Provider, error) {
 			"model": config.MistralModel,
 		}).Info("Using Mistral OCR provider")
 		return newMistralOCRProvider(config)
+
+	case "minicpm":
+		if config.MiniCPMEndpoint == "" {
+			return nil, fmt.Errorf("missing required MiniCPM-OCR endpoint (MINICPM_OCR_ENDPOINT)")
+		}
+		return newMiniCPMProvider(config)
 
 	default:
 		return nil, fmt.Errorf("unsupported OCR provider: %s", config.Provider)

@@ -303,6 +303,15 @@ services:
       # DOCLING_OCR_ENGINE: "easyocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE is set to 'standard')
       # DOCLING_OUTPUT_FORMAT: "md" # Optional, defaults to "md", other option: "text"
 
+      # Option 5: MiniCPM-OCR (self-hosted)
+      # OCR_PROVIDER: 'minicpm' # Use a self-hosted MiniCPM-OCR server
+      # MINICPM_OCR_ENDPOINT: 'http://host.docker.internal:18499/v1/chat/completions' # OpenAI-compatible URL
+      # MINICPM_OCR_MODEL: 'minicpm-ocr' # Optional, must match --served-model-name
+      # MINICPM_OCR_API_KEY: 'your-key' # Optional, only if the server runs with --api-key
+      # MINICPM_OCR_MAX_TOKENS: '8192' # Optional, raise when dense pages finish with `length`
+      # The server must run with --trust-request-mm-kwargs; see the model's vLLM guide:
+      # vllm serve openbmb/MiniCPM-OCR-1.0 --served-model-name minicpm-ocr --limit-mm-per-prompt '{"image":36,"video":0}' --mm-processor-kwargs '{"downsample_mode":"4x"}' --trust-request-mm-kwargs
+
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
       OCR_LIMIT_PAGES: "5" # Optional, default: 5. Set to 0 for no limit.
