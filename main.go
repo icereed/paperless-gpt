@@ -392,6 +392,15 @@ func main() {
 		}
 	}
 
+	var miniCPMMaxSliceNums *int
+	if sliceStr := os.Getenv("MINICPM_OCR_MAX_SLICE_NUMS"); sliceStr != "" {
+		if parsed, err := strconv.Atoi(sliceStr); err == nil && parsed > 0 {
+			miniCPMMaxSliceNums = &parsed
+		} else {
+			log.Warnf("Invalid MINICPM_OCR_MAX_SLICE_NUMS value: %q, ignoring", sliceStr)
+		}
+	}
+
 	if val, ok := os.LookupEnv("GOOGLEAI_THINKING_BUDGET"); ok {
 		if v, err := strconv.ParseInt(val, 10, 32); err == nil {
 			if v >= math.MinInt32 && v <= math.MaxInt32 {
@@ -424,6 +433,9 @@ func main() {
 		MiniCPMModel:             os.Getenv("MINICPM_OCR_MODEL"),
 		MiniCPMTimeout:           miniCPMTimeout,
 		MiniCPMMaxTokens:         miniCPMMaxTokens,
+		MiniCPMPrompt:            os.Getenv("MINICPM_OCR_PROMPT"),
+		MiniCPMDownsampleMode:    os.Getenv("MINICPM_OCR_DOWNSAMPLE_MODE"),
+		MiniCPMMaxSliceNums:      miniCPMMaxSliceNums,
 		DoclingURL:               doclingURL,
 		DoclingImageExportMode:   doclingImageExportMode,
 		DoclingOCRPipeline:       doclingOCRPipeline,

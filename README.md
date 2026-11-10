@@ -311,6 +311,9 @@ services:
       # MINICPM_OCR_API_KEY: "your-key" # Optional bearer token
       # MINICPM_OCR_TIMEOUT_SECONDS: "300" # Optional
       # MINICPM_OCR_MAX_TOKENS: "8192" # Optional; raise it if a page comes back truncated
+      # MINICPM_OCR_PROMPT: "Text Recognition:" # Optional; e.g. "Table Recognition:" for a crop
+      # MINICPM_OCR_DOWNSAMPLE_MODE: "4x" # Optional; set to "off" if the server rejects mm_processor_kwargs
+      # MINICPM_OCR_MAX_SLICE_NUMS: "9" # Optional; omitted unless set
       # OCR_PROCESS_MODE: "image" # Required: MiniCPM-OCR receives rendered page images
 
 
@@ -491,10 +494,24 @@ paperless-gpt supports six different OCR providers, each with unique strengths a
   # MINICPM_OCR_API_KEY: "your-key" # optional, sent as Authorization: Bearer
   # MINICPM_OCR_TIMEOUT_SECONDS: "300" # optional
   # MINICPM_OCR_MAX_TOKENS: "8192" # optional; raise it when a page is truncated
+  # MINICPM_OCR_PROMPT: "Text Recognition:" # optional; e.g. "Table Recognition:" for a pre-cropped region
+  # MINICPM_OCR_DOWNSAMPLE_MODE: "4x" # optional; "off" omits mm_processor_kwargs
+  # MINICPM_OCR_MAX_SLICE_NUMS: "9" # optional; omitted unless set
   OCR_PROCESS_MODE: "image" # pdf and whole_pdf are not supported
   ```
 
-  Each page is recognized in one request. The [recognition guide](https://huggingface.co/openbmb/MiniCPM-OCR-1.0) lists `Text Recognition:` for a text block, paragraph, title, or page. The official SDK can instead detect layout and send crops with `Table Recognition:` or `Formula Recognition:` (HTML tables, LaTeX formulas); that layout stage is not part of this provider. Start the inference server with the project's recommended settings, including 4× visual downsampling and thinking disabled. A `finish_reason` of `length` means the page hit `MINICPM_OCR_MAX_TOKENS` and the text may be cut off.
+  Each page is recognized in one request. The [recognition guide](https://huggingface.co/openbmb/MiniCPM-OCR-1.0) lists `Text Recognition:` for a text block, paragraph, title, or page. Set `MINICPM_OCR_PROMPT` to a block prompt such as `Table Recognition:` when the image is already a single crop. The official SDK's layout stage is not part of this provider.
+
+  The request includes `mm_processor_kwargs` (`downsample_mode` defaults to `4x`, plus `max_slice_nums` when `MINICPM_OCR_MAX_SLICE_NUMS` is set), so vLLM does not need `--mm-processor-kwargs` at startup. It does need `--trust-request-mm-kwargs`:
+
+  ```bash
+  vllm serve openbmb/MiniCPM-OCR-1.0 \
+    --served-model-name minicpm-ocr \
+    --trust-request-mm-kwargs \
+    --default-chat-template-kwargs '{"enable_thinking":false}'
+  ```
+
+  Servers that reject `mm_processor_kwargs` (some llama.cpp and Ollama builds) should set `MINICPM_OCR_DOWNSAMPLE_MODE=off`. HTTP 429, 5xx, and transient network errors are retried with `VISION_LLM_MAX_RETRIES` and `VISION_LLM_BACKOFF_MAX_WAIT` (8 retries and a 90s cap when those are unset). `Retry-After` is honored. Other 4xx responses are not retried. A `finish_reason` of `length` means the page hit `MINICPM_OCR_MAX_TOKENS` and the text may be cut off.
 
 ## OCR Processing Modes
 
@@ -758,6 +775,9 @@ For best results with the enhanced OCR features:
 | `MINICPM_OCR_BASE_URL`              | MiniCPM-OCR server URL. Required if `OCR_PROVIDER` is `minicpm_ocr`. Accepts the server root (`http://host:8000`) or an OpenAI-compatible base that already includes `/v1`.                   | Cond.    |                            |
 | `MINICPM_OCR_API_KEY`               | Optional bearer token for the MiniCPM-OCR server. Sent as `Authorization: Bearer` when set.                                                                                                   | No       |                            |
 | `MINICPM_OCR_MODEL`                 | Served model name for MiniCPM-OCR. Must match the server's model id.                                                                                                                          | No       | minicpm-ocr                |
+| `MINICPM_OCR_PROMPT`                | Prompt sent with each MiniCPM-OCR page image. Use a block prompt such as `Table Recognition:` for a pre-cropped region.                                                                        | No       | Text Recognition:          |
+| `MINICPM_OCR_DOWNSAMPLE_MODE`       | `mm_processor_kwargs.downsample_mode` sent to MiniCPM-OCR. Set to `off` to omit `mm_processor_kwargs` when the server rejects the field. vLLM needs `--trust-request-mm-kwargs`.                 | No       | 4x                         |
+| `MINICPM_OCR_MAX_SLICE_NUMS`        | Optional `mm_processor_kwargs.max_slice_nums`. Omitted unless set. Ignored when `MINICPM_OCR_DOWNSAMPLE_MODE=off`.                                                                              | No       |                            |
 | `MINICPM_OCR_TIMEOUT_SECONDS`       | Per-request timeout in seconds for MiniCPM-OCR chat completions.                                                                                                                              | No       | 300                        |
 | `MINICPM_OCR_MAX_TOKENS`            | Maximum tokens generated for one page. Raise this when a page is truncated (`finish_reason=length`).                                                                                          | No       | 8192                       |
 | `CREATE_LOCAL_HOCR`                 | Whether to save hOCR files locally.                                                                                                                                                           | No       | false                      |

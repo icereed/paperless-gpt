@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +38,11 @@ const (
 	// layout-and-crop pipeline, which this provider does not run.
 	miniCPMPagePrompt = "Text Recognition:"
 
+	// Official visual token compression. Sent on each request so a plain
+	// `vllm serve --trust-request-mm-kwargs` does not also need
+	// `--mm-processor-kwargs` at startup.
+	miniCPMDefaultDownsample = "4x"
+
 	// Sampling parameters from the SDK decode config and the official
 	// image-recognition example. They keep OCR output close to greedy.
 	miniCPMTemperature       = 0.01
@@ -53,11 +60,15 @@ const (
 // each crop with a block prompt. paperless-gpt already renders one image per
 // page, so this provider sends that image with the official page prompt.
 type MiniCPMOCRProvider struct {
-	chatURL    string
-	apiKey     string
-	model      string
-	maxTokens  int
-	httpClient *http.Client
+	chatURL        string
+	apiKey         string
+	model          string
+	prompt         string
+	maxTokens      int
+	downsampleMode string
+	maxSliceNums   *int
+	sendMMKwargs   bool
+	httpClient     *http.Client
 }
 
 type miniCPMImageURL struct {
@@ -82,6 +93,11 @@ type miniCPMChatTemplateKwargs struct {
 	EnableThinking bool `json:"enable_thinking"`
 }
 
+type miniCPMMMProcessorKwargs struct {
+	DownsampleMode string `json:"downsample_mode,omitempty"`
+	MaxSliceNums   *int   `json:"max_slice_nums,omitempty"`
+}
+
 type miniCPMChatRequest struct {
 	Model              string                    `json:"model"`
 	Messages           []miniCPMMessage          `json:"messages"`
@@ -93,6 +109,23 @@ type miniCPMChatRequest struct {
 	NoRepeatNgramSize  int                       `json:"no_repeat_ngram_size"`
 	Stream             bool                      `json:"stream"`
 	ChatTemplateKwargs miniCPMChatTemplateKwargs `json:"chat_template_kwargs"`
+	MMProcessorKwargs  *miniCPMMMProcessorKwargs `json:"mm_processor_kwargs,omitempty"`
+}
+
+// miniCPMStatusError is a non-2xx chat completion. retryAfter is set from a
+// Retry-After header so retryAfterDelay can extend the backoff.
+type miniCPMStatusError struct {
+	status     int
+	body       string
+	retryAfter time.Duration
+}
+
+func (e *miniCPMStatusError) Error() string {
+	msg := fmt.Sprintf("MiniCPM-OCR request failed with status %d: %s", e.status, e.body)
+	if e.retryAfter > 0 {
+		msg += fmt.Sprintf("; retry-after-ms:%d", e.retryAfter.Milliseconds())
+	}
+	return msg
 }
 
 type miniCPMChatResponse struct {
@@ -130,24 +163,48 @@ func newMiniCPMOCRProvider(config Config) (*MiniCPMOCRProvider, error) {
 	if maxTokens <= 0 {
 		maxTokens = miniCPMDefaultMaxTokens
 	}
+	prompt := strings.TrimSpace(config.MiniCPMPrompt)
+	if prompt == "" {
+		prompt = miniCPMPagePrompt
+	}
+	downsample, sendMM := miniCPMDownsampleMode(config.MiniCPMDownsampleMode)
 
 	logger := log.WithFields(logrus.Fields{
 		"provider":   miniCPMProviderName,
 		"model":      model,
 		"timeout_s":  timeout,
 		"max_tokens": maxTokens,
+		"mm_kwargs":  sendMM,
+		"downsample": downsample,
 	})
 	logger.Info("Creating new MiniCPM-OCR provider")
 
 	return &MiniCPMOCRProvider{
-		chatURL:   chatURL,
-		apiKey:    strings.TrimSpace(config.MiniCPMAPIKey),
-		model:     model,
-		maxTokens: maxTokens,
+		chatURL:        chatURL,
+		apiKey:         strings.TrimSpace(config.MiniCPMAPIKey),
+		model:          model,
+		prompt:         prompt,
+		maxTokens:      maxTokens,
+		downsampleMode: downsample,
+		maxSliceNums:   config.MiniCPMMaxSliceNums,
+		sendMMKwargs:   sendMM,
 		httpClient: &http.Client{
 			Timeout: time.Duration(timeout) * time.Second,
 		},
 	}, nil
+}
+
+// miniCPMDownsampleMode returns the downsample mode to send and whether
+// mm_processor_kwargs should be included. "off" omits the object entirely.
+func miniCPMDownsampleMode(raw string) (string, bool) {
+	mode := strings.TrimSpace(raw)
+	if strings.EqualFold(mode, "off") {
+		return "", false
+	}
+	if mode == "" {
+		return miniCPMDefaultDownsample, true
+	}
+	return mode, true
 }
 
 // miniCPMChatCompletionsURL accepts the server root (http://host:8000), an
@@ -200,41 +257,12 @@ func (p *MiniCPMOCRProvider) ProcessImage(ctx context.Context, imageContent []by
 	logger.WithFields(logrus.Fields{
 		"mime_type":     mimeType,
 		"base64_length": len(reqBody.Messages[0].Content[0].ImageURL.URL),
-		"prompt":        miniCPMPagePrompt,
+		"prompt":        p.prompt,
 	}).Debug("Sending MiniCPM-OCR chat completion")
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatURL, bytes.NewReader(payload))
+	body, err := p.postWithRetry(ctx, payload, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create MiniCPM-OCR request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
-	if p.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	}
-
-	resp, err := p.httpClient.Do(httpReq)
-	if err != nil {
-		var urlErr *url.Error
-		if errors.As(err, &urlErr) {
-			err = urlErr.Err
-		}
-		logger.WithError(err).Error("MiniCPM-OCR request failed")
-		return nil, fmt.Errorf("MiniCPM-OCR request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read MiniCPM-OCR response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		logger.WithFields(logrus.Fields{
-			"status_code":   resp.StatusCode,
-			"response_body": truncateForLog(string(body), 500),
-		}).Error("MiniCPM-OCR request failed")
-		return nil, fmt.Errorf("MiniCPM-OCR request failed with status %d: %s", resp.StatusCode, truncateForLog(string(body), 500))
+		return nil, err
 	}
 
 	text, finishReason, genInfo, err := parseMiniCPMChatResponse(body)
@@ -272,14 +300,14 @@ func (p *MiniCPMOCRProvider) ProcessImage(ctx context.Context, imageContent []by
 
 func (p *MiniCPMOCRProvider) buildChatRequest(imageContent []byte, mimeType string) miniCPMChatRequest {
 	dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(imageContent)
-	return miniCPMChatRequest{
+	req := miniCPMChatRequest{
 		Model: p.model,
 		Messages: []miniCPMMessage{{
 			Role: "user",
 			// Image first, then the prompt, matching the official example.
 			Content: []miniCPMContentPart{
 				{Type: "image_url", ImageURL: &miniCPMImageURL{URL: dataURL}},
-				{Type: "text", Text: miniCPMPagePrompt},
+				{Type: "text", Text: p.prompt},
 			},
 		}},
 		MaxTokens:         p.maxTokens,
@@ -293,6 +321,116 @@ func (p *MiniCPMOCRProvider) buildChatRequest(imageContent []byte, mimeType stri
 			EnableThinking: false,
 		},
 	}
+	if p.sendMMKwargs {
+		req.MMProcessorKwargs = &miniCPMMMProcessorKwargs{
+			DownsampleMode: p.downsampleMode,
+			MaxSliceNums:   p.maxSliceNums,
+		}
+	}
+	return req
+}
+
+// postWithRetry posts one chat completion, retrying 429, 5xx, and transient
+// network errors with the same VISION_LLM_MAX_RETRIES / VISION_LLM_BACKOFF_MAX_WAIT
+// budget the LLM OCR provider uses. Other 4xx responses are not retried.
+// Retry-After extends the backoff via retryAfterDelay.
+func (p *MiniCPMOCRProvider) postWithRetry(ctx context.Context, payload []byte, logger *logrus.Entry) ([]byte, error) {
+	maxRetries := 8
+	if v, convErr := strconv.Atoi(os.Getenv("VISION_LLM_MAX_RETRIES")); convErr == nil && v >= 0 {
+		maxRetries = v
+	}
+	backoffMax := 90 * time.Second
+	if d, parseErr := time.ParseDuration(os.Getenv("VISION_LLM_BACKOFF_MAX_WAIT")); parseErr == nil && d > 0 {
+		backoffMax = d
+	}
+
+	for attempt := 0; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		body, err := p.postOnce(ctx, payload)
+		if err == nil {
+			return body, nil
+		}
+		if !miniCPMTransient(err) || attempt >= maxRetries {
+			logger.WithError(err).Error("MiniCPM-OCR request failed")
+			return nil, err
+		}
+		backoff := time.Duration(1<<uint(attempt)) * time.Second
+		if backoff <= 0 || backoff > backoffMax {
+			backoff = backoffMax
+		}
+		backoff = retryAfterDelay(err, backoff)
+		if backoff > maxProviderRetryDelay {
+			return nil, fmt.Errorf("provider retry delay %s exceeds limit", backoff)
+		}
+		logger.WithError(err).Warnf("Transient MiniCPM-OCR error, retrying in %s (attempt %d/%d)", backoff, attempt+1, maxRetries)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+}
+
+func (p *MiniCPMOCRProvider) postOnce(ctx context.Context, payload []byte) ([]byte, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatURL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MiniCPM-OCR request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	if p.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
+
+	resp, err := p.httpClient.Do(httpReq)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			if errors.Is(urlErr.Err, context.Canceled) {
+				return nil, context.Canceled
+			}
+			// Drop the URL so a credential in MINICPM_OCR_BASE_URL cannot leak
+			// through a dial error. The inner error is still a network failure.
+			return nil, fmt.Errorf("MiniCPM-OCR request failed: %v", urlErr.Err)
+		}
+		return nil, fmt.Errorf("MiniCPM-OCR request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("failed to read MiniCPM-OCR response: %w", err)
+	}
+	if resp.StatusCode == http.StatusOK {
+		return body, nil
+	}
+	statusErr := &miniCPMStatusError{
+		status: resp.StatusCode,
+		body:   truncateForLog(string(body), 500),
+	}
+	if delay, ok := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()); ok && delay > 0 {
+		statusErr.retryAfter = delay
+	}
+	return nil, statusErr
+}
+
+func miniCPMTransient(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var statusErr *miniCPMStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.status == http.StatusTooManyRequests || statusErr.status >= 500
+	}
+	return true
 }
 
 func miniCPMImageMIME(data []byte) (string, error) {

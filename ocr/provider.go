@@ -75,11 +75,14 @@ type Config struct {
 	AzureOutputContentFormat string // Optional, defaults to ""
 
 	// MiniCPM-OCR settings (OpenAI-compatible chat completions)
-	MiniCPMBaseURL   string
-	MiniCPMAPIKey    string
-	MiniCPMModel     string // Optional, defaults to "minicpm-ocr"
-	MiniCPMTimeout   int    // Optional, seconds, defaults to 300
-	MiniCPMMaxTokens int    // Optional, defaults to 8192
+	MiniCPMBaseURL        string
+	MiniCPMAPIKey         string
+	MiniCPMModel          string // Optional, defaults to "minicpm-ocr"
+	MiniCPMTimeout        int    // Optional, seconds, defaults to 300
+	MiniCPMMaxTokens      int    // Optional, defaults to 8192
+	MiniCPMPrompt         string // Optional, defaults to "Text Recognition:"
+	MiniCPMDownsampleMode string // Optional, defaults to "4x"; "off" omits mm_processor_kwargs
+	MiniCPMMaxSliceNums   *int   // Optional; sent only when set
 
 	// Docling settings
 	DoclingURL             string

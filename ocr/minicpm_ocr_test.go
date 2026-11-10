@@ -137,6 +137,11 @@ func TestMiniCPMOCRProvider_ProcessImage(t *testing.T) {
 		assert.Equal(t, "data:image/jpeg;base64,"+base64.StdEncoding.EncodeToString(image), got.Messages[0].Content[0].ImageURL.URL)
 		assert.Equal(t, "text", got.Messages[0].Content[1].Type)
 		assert.Equal(t, miniCPMPagePrompt, got.Messages[0].Content[1].Text)
+		require.NotNil(t, got.MMProcessorKwargs)
+		assert.Equal(t, miniCPMDefaultDownsample, got.MMProcessorKwargs.DownsampleMode)
+		assert.Nil(t, got.MMProcessorKwargs.MaxSliceNums)
+		assert.Contains(t, string(rawBody), `"mm_processor_kwargs":{"downsample_mode":"4x"}`)
+		assert.NotContains(t, string(rawBody), "max_slice_nums")
 		assert.Equal(t, miniCPMDefaultMaxTokens, got.MaxTokens)
 		assert.InDelta(t, miniCPMTemperature, got.Temperature, 1e-9)
 		assert.InDelta(t, miniCPMTopP, got.TopP, 1e-9)
@@ -398,7 +403,196 @@ func TestMiniCPMRefusal(t *testing.T) {
 	}
 }
 
+func TestMiniCPMOCRProvider_PromptAndMMKwargs(t *testing.T) {
+	image := []byte("page-image-bytes")
+
+	t.Run("custom prompt and slice count", func(t *testing.T) {
+		var got miniCPMChatRequest
+		var raw string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			assert.NoError(t, err)
+			raw = string(body)
+			assert.NoError(t, json.Unmarshal(body, &got))
+			writeMiniCPMChatResponse(t, w, "table", "stop", 0, 0, 0)
+		}))
+		defer server.Close()
+
+		slices := 9
+		provider, err := newMiniCPMOCRProvider(Config{
+			MiniCPMBaseURL:        server.URL,
+			MiniCPMTimeout:        5,
+			MiniCPMPrompt:         "  Table Recognition:  ",
+			MiniCPMDownsampleMode: "2x",
+			MiniCPMMaxSliceNums:   &slices,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "Table Recognition:", provider.prompt)
+		_, err = provider.ProcessImage(context.Background(), image, 1)
+		require.NoError(t, err)
+		assert.Equal(t, "Table Recognition:", got.Messages[0].Content[1].Text)
+		require.NotNil(t, got.MMProcessorKwargs)
+		assert.Equal(t, "2x", got.MMProcessorKwargs.DownsampleMode)
+		require.NotNil(t, got.MMProcessorKwargs.MaxSliceNums)
+		assert.Equal(t, 9, *got.MMProcessorKwargs.MaxSliceNums)
+		assert.Contains(t, raw, `"downsample_mode":"2x"`)
+		assert.Contains(t, raw, `"max_slice_nums":9`)
+	})
+
+	t.Run("off omits mm processor kwargs", func(t *testing.T) {
+		var raw string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			assert.NoError(t, err)
+			raw = string(body)
+			writeMiniCPMChatResponse(t, w, "text", "stop", 0, 0, 0)
+		}))
+		defer server.Close()
+
+		slices := 3
+		provider, err := newMiniCPMOCRProvider(Config{
+			MiniCPMBaseURL:        server.URL,
+			MiniCPMTimeout:        5,
+			MiniCPMDownsampleMode: "off",
+			MiniCPMMaxSliceNums:   &slices,
+			MiniCPMPrompt:         "   ",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, miniCPMPagePrompt, provider.prompt)
+		assert.False(t, provider.sendMMKwargs)
+		_, err = provider.ProcessImage(context.Background(), image, 1)
+		require.NoError(t, err)
+		assert.NotContains(t, raw, "mm_processor_kwargs")
+		assert.NotContains(t, raw, "max_slice_nums")
+	})
+}
+
+func TestMiniCPMOCRProvider_Retries(t *testing.T) {
+	image := []byte("page-image-bytes")
+	t.Setenv("VISION_LLM_BACKOFF_MAX_WAIT", "1ms")
+
+	t.Run("503 then 200", func(t *testing.T) {
+		t.Setenv("VISION_LLM_MAX_RETRIES", "8")
+		var calls int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			if calls == 1 {
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			writeMiniCPMChatResponse(t, w, "recovered", "stop", 0, 0, 0)
+		}))
+		defer server.Close()
+
+		result, err := testMiniCPMProvider(t, server.URL, "").ProcessImage(context.Background(), image, 1)
+		require.NoError(t, err)
+		assert.Equal(t, "recovered", result.Text)
+		assert.Equal(t, 2, calls)
+	})
+
+	t.Run("429 honors retry-after", func(t *testing.T) {
+		t.Setenv("VISION_LLM_MAX_RETRIES", "8")
+		var calls int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			if calls == 1 {
+				w.Header().Set("Retry-After", "1")
+				http.Error(w, "slow down", http.StatusTooManyRequests)
+				return
+			}
+			writeMiniCPMChatResponse(t, w, "after wait", "stop", 0, 0, 0)
+		}))
+		defer server.Close()
+
+		start := time.Now()
+		result, err := testMiniCPMProvider(t, server.URL, "").ProcessImage(context.Background(), image, 1)
+		elapsed := time.Since(start)
+		require.NoError(t, err)
+		assert.Equal(t, "after wait", result.Text)
+		assert.Equal(t, 2, calls)
+		assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
+	})
+
+	t.Run("400 is not retried", func(t *testing.T) {
+		t.Setenv("VISION_LLM_MAX_RETRIES", "8")
+		var calls int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			http.Error(w, "bad request", http.StatusBadRequest)
+		}))
+		defer server.Close()
+
+		_, err := testMiniCPMProvider(t, server.URL, "").ProcessImage(context.Background(), image, 1)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "400")
+		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("retries exhausted", func(t *testing.T) {
+		t.Setenv("VISION_LLM_MAX_RETRIES", "2")
+		var calls int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		}))
+		defer server.Close()
+
+		_, err := testMiniCPMProvider(t, server.URL, "").ProcessImage(context.Background(), image, 1)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "503")
+		assert.Equal(t, 3, calls)
+	})
+
+	t.Run("canceled during retry-after", func(t *testing.T) {
+		t.Setenv("VISION_LLM_MAX_RETRIES", "8")
+		var calls int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			w.Header().Set("Retry-After", "30")
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+		}))
+		defer server.Close()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			time.Sleep(150 * time.Millisecond)
+			cancel()
+		}()
+		_, err := testMiniCPMProvider(t, server.URL, "").ProcessImage(ctx, image, 1)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, context.Canceled)
+		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("network error is retried", func(t *testing.T) {
+		t.Setenv("VISION_LLM_MAX_RETRIES", "1")
+		var calls int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			if calls == 1 {
+				hj, ok := w.(http.Hijacker)
+				if !assert.True(t, ok) {
+					return
+				}
+				conn, _, err := hj.Hijack()
+				assert.NoError(t, err)
+				_ = conn.Close()
+				return
+			}
+			writeMiniCPMChatResponse(t, w, "after reset", "stop", 0, 0, 0)
+		}))
+		defer server.Close()
+
+		result, err := testMiniCPMProvider(t, server.URL, "").ProcessImage(context.Background(), image, 1)
+		require.NoError(t, err)
+		assert.Equal(t, "after reset", result.Text)
+		assert.Equal(t, 2, calls)
+	})
+}
+
 func TestMiniCPMDoesNotExposeURLSecrets(t *testing.T) {
+	t.Setenv("VISION_LLM_MAX_RETRIES", "0")
 	var logs bytes.Buffer
 	previous := log.Out
 	log.SetOutput(&logs)
