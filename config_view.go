@@ -79,6 +79,8 @@ func sanitizeConfigURL(raw string, stripQuery bool) string {
 	return strings.Replace(u.String(), "://", "://***@", 1)
 }
 
+// displayableHTTPURL reports whether u is an absolute http(s) URL with a host.
+// Opaque values such as "user:password@host" are not displayable.
 func displayableHTTPURL(u *url.URL) bool {
 	if u == nil || u.Opaque != "" || u.Host == "" {
 		return false

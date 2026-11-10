@@ -845,6 +845,18 @@ func (app *App) rejectUnsupportedOCRMode(mode string) error {
 	return validateOCRProviderModeCompatibility(app.ocrProviderName, mode, visionLlmProvider)
 }
 
+// autoOCRModeError reports when the effective saved processing mode cannot be
+// used by the configured provider. The message tells the operator to switch
+// the saved mode to image; callers must leave queued documents tagged.
+func (app *App) autoOCRModeError() error {
+	mode := app.effectiveOCRDefaults().ProcessMode
+	err := app.rejectUnsupportedOCRMode(mode)
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("automatic OCR skipped: %w. Change the saved OCR processing mode to \"image\"; documents stay in the %s queue until then", err, autoOcrTag)
+}
+
 // validateOrDefaultEnvVars ensures all necessary environment variables are set
 func validateOrDefaultEnvVars() {
 

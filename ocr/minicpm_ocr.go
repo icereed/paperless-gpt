@@ -120,6 +120,8 @@ type miniCPMStatusError struct {
 	retryAfter time.Duration
 }
 
+// Error reports the HTTP status and, when the server sent Retry-After, the
+// delay in the form retryAfterDelay already parses.
 func (e *miniCPMStatusError) Error() string {
 	msg := fmt.Sprintf("MiniCPM-OCR request failed with status %d: %s", e.status, e.body)
 	if e.retryAfter > 0 {
@@ -145,6 +147,8 @@ type miniCPMChatResponse struct {
 	Model string `json:"model"`
 }
 
+// newMiniCPMOCRProvider builds a provider from config, applying defaults for
+// the model, timeout, token budget, page prompt, and downsample mode.
 func newMiniCPMOCRProvider(config Config) (*MiniCPMOCRProvider, error) {
 	chatURL, err := miniCPMChatCompletionsURL(config.MiniCPMBaseURL)
 	if err != nil {
@@ -233,6 +237,8 @@ func miniCPMChatCompletionsURL(base string) (string, error) {
 	return u.String(), nil
 }
 
+// ProcessImage sends one rendered page to the MiniCPM-OCR chat endpoint and
+// returns the recognized text. A length finish reason sets OcrLimitHit.
 func (p *MiniCPMOCRProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error) {
 	logger := log.WithFields(logrus.Fields{
 		"provider":    miniCPMProviderName,
@@ -298,6 +304,8 @@ func (p *MiniCPMOCRProvider) ProcessImage(ctx context.Context, imageContent []by
 	}, nil
 }
 
+// buildChatRequest encodes the page as a data URL, image first, then the prompt.
+// mm_processor_kwargs is omitted when downsample mode is off.
 func (p *MiniCPMOCRProvider) buildChatRequest(imageContent []byte, mimeType string) miniCPMChatRequest {
 	dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(imageContent)
 	req := miniCPMChatRequest{
@@ -373,6 +381,9 @@ func (p *MiniCPMOCRProvider) postWithRetry(ctx context.Context, payload []byte, 
 	}
 }
 
+// postOnce performs a single chat completion. Non-2xx responses become a
+// miniCPMStatusError. Network errors omit the request URL so credentials in
+// it cannot leak. A canceled context is returned as ctx.Err().
 func (p *MiniCPMOCRProvider) postOnce(ctx context.Context, payload []byte) ([]byte, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatURL, bytes.NewReader(payload))
 	if err != nil {
@@ -422,6 +433,9 @@ func (p *MiniCPMOCRProvider) postOnce(ctx context.Context, payload []byte) ([]by
 	return nil, statusErr
 }
 
+// miniCPMTransient reports whether err is worth retrying. HTTP 429 and 5xx
+// are transient. Other 4xx responses and context cancellation are not.
+// Remaining errors are treated as transient network failures.
 func miniCPMTransient(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
@@ -433,6 +447,9 @@ func miniCPMTransient(err error) bool {
 	return true
 }
 
+// miniCPMImageMIME returns the data-URL media type for a page image.
+// PDFs and empty input are rejected. Unrecognized bytes are labeled JPEG,
+// matching the image-mode renderer.
 func miniCPMImageMIME(data []byte) (string, error) {
 	if len(data) == 0 {
 		return "", fmt.Errorf("empty image content")
@@ -449,6 +466,8 @@ func miniCPMImageMIME(data []byte) (string, error) {
 	return "image/jpeg", nil
 }
 
+// parseMiniCPMChatResponse reads the assistant text, finish reason, and token
+// usage from a chat completion body. Refusals and API error objects are errors.
 func parseMiniCPMChatResponse(body []byte) (string, string, map[string]interface{}, error) {
 	var parsed miniCPMChatResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
@@ -481,11 +500,14 @@ func parseMiniCPMChatResponse(body []byte) (string, string, map[string]interface
 	return text, parsed.Choices[0].FinishReason, genInfo, nil
 }
 
+// miniCPMErrorPresent reports whether the response included a non-null error.
 func miniCPMErrorPresent(raw json.RawMessage) bool {
 	trimmed := strings.TrimSpace(string(raw))
 	return trimmed != "" && trimmed != "null"
 }
 
+// miniCPMMessageText accepts either a string or an array of content parts.
+// Text parts are joined. An array with no text part is an error, not a blank page.
 func miniCPMMessageText(raw json.RawMessage) (string, error) {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
@@ -525,6 +547,7 @@ func miniCPMMessageText(raw json.RawMessage) (string, error) {
 	return "", fmt.Errorf("unsupported content shape: %s", truncateForLog(trimmed, 200))
 }
 
+// truncateForLog shortens s to limit bytes and marks the cut, for logs and errors.
 func truncateForLog(s string, limit int) string {
 	if len(s) <= limit {
 		return s
