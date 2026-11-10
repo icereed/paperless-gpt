@@ -676,6 +676,75 @@ func TestRecoverFromFailedUpdate(t *testing.T) {
 	})
 }
 
+func TestProcessAutoOcrTagDocuments_SkipsIncompatibleSavedMode(t *testing.T) {
+	prevAutoOcrTag := autoOcrTag
+	prevMaxRetries := ocrMaxRetries
+	settingsMutex.Lock()
+	origSettings := settings
+	settingsMutex.Unlock()
+	t.Cleanup(func() {
+		autoOcrTag = prevAutoOcrTag
+		ocrMaxRetries = prevMaxRetries
+		settingsMutex.Lock()
+		settings = origSettings
+		settingsMutex.Unlock()
+	})
+	autoOcrTag = "paperless-gpt-ocr-auto"
+	ocrMaxRetries = 1
+
+	setMode := func(mode string) {
+		t.Helper()
+		settingsMutex.Lock()
+		settings.OCR.ProcessMode = &mode
+		settingsMutex.Unlock()
+	}
+
+	newQueuedApp := func() (*App, *recordingClient, *mockDocumentProcessor) {
+		client := &recordingClient{taggedDocuments: map[string][]Document{
+			autoOcrTag: {{ID: 21, Title: "Queued", Tags: []string{autoOcrTag}}},
+		}}
+		processor := &mockDocumentProcessor{mockText: "ocr text"}
+		app := &App{
+			Client:          client,
+			Database:        newOCRRunTestDB(t),
+			docProcessor:    processor,
+			ocrProviderName: "minicpm_ocr",
+			ocrProcessMode:  "image",
+		}
+		return app, client, processor
+	}
+
+	for _, mode := range []string{"pdf", "whole_pdf"} {
+		t.Run(mode, func(t *testing.T) {
+			setMode(mode)
+			app, client, _ := newQueuedApp()
+
+			for round := 1; round <= 3; round++ {
+				count, err := app.processAutoOcrTagDocuments(context.Background())
+				assert.Error(t, err, "round %d", round)
+				assert.Contains(t, err.Error(), "image")
+				assert.Contains(t, err.Error(), mode)
+				assert.Contains(t, err.Error(), autoOcrTag)
+				assert.Equal(t, 0, count)
+			}
+			assert.Empty(t, client.calls, "the auto-OCR tag must stay so the document remains queued")
+			var runs []OCRRun
+			require.NoError(t, app.Database.Find(&runs).Error)
+			assert.Empty(t, runs, "incompatible mode must not start an OCR run")
+		})
+	}
+
+	t.Run("image mode still runs", func(t *testing.T) {
+		setMode("image")
+		app, client, _ := newQueuedApp()
+		count, err := app.processAutoOcrTagDocuments(context.Background())
+		assert.NoError(t, err)
+		assert.Equal(t, 1, count)
+		require.NotEmpty(t, client.calls)
+		assert.Equal(t, []string{autoOcrTag}, client.calls[0].RemoveTags)
+	})
+}
+
 // TestProcessAutoOcrTagDocuments_FailTagAfterMaxRetries verifies that a
 // document whose OCR processing keeps failing is retried up to ocrMaxRetries
 // times and then taken out of the queue: the auto-OCR tag is removed and the

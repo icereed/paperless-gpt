@@ -202,6 +202,77 @@ func TestSubmitOCRJobHandlerValidation(t *testing.T) {
 	}
 }
 
+func TestMiniCPMOCRRejectsNonImageModes(t *testing.T) {
+	t.Chdir(t.TempDir())
+	gin.SetMode(gin.TestMode)
+	db := newOCRRunTestDB(t)
+	app := &App{
+		Client:          &mockPaperlessClient{},
+		Database:        db,
+		ocrProviderName: "minicpm_ocr",
+		ocrProcessMode:  "image",
+	}
+
+	settingsMutex.Lock()
+	orig := settings
+	settingsMutex.Unlock()
+	defer func() {
+		settingsMutex.Lock()
+		settings = orig
+		settingsMutex.Unlock()
+	}()
+
+	router := gin.New()
+	router.POST("/api/documents/:id/ocr", app.submitOCRJobHandler)
+	router.PUT("/api/ocr/defaults", app.updateOCRDefaultsHandler)
+
+	post := func(body string) *httptest.ResponseRecorder {
+		req, err := http.NewRequest(http.MethodPost, "/api/documents/12/ocr", bytes.NewBufferString(body))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+	put := func(body string) *httptest.ResponseRecorder {
+		req, err := http.NewRequest(http.MethodPut, "/api/ocr/defaults", bytes.NewBufferString(body))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	for _, mode := range []string{"pdf", "whole_pdf"} {
+		w := post(`{"process_mode": "` + mode + `"}`)
+		assert.Equal(t, http.StatusBadRequest, w.Code, mode)
+		assert.Contains(t, w.Body.String(), "minicpm_ocr")
+
+		w = put(`{"process_mode": "` + mode + `"}`)
+		assert.Equal(t, http.StatusBadRequest, w.Code, mode)
+		assert.Contains(t, w.Body.String(), "minicpm_ocr")
+	}
+
+	w := post(`{"process_mode": "image"}`)
+	assert.Equal(t, http.StatusAccepted, w.Code)
+	select {
+	case <-jobQueue:
+	default:
+	}
+
+	w = put(`{"process_mode": "image"}`)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestOCRProviderLabelMiniCPMTrimsModel(t *testing.T) {
+	t.Setenv("OCR_PROVIDER", "minicpm_ocr")
+	t.Setenv("MINICPM_OCR_MODEL", "  custom-ocr  ")
+	assert.Equal(t, "minicpm_ocr (custom-ocr)", ocrProviderLabel())
+
+	t.Setenv("MINICPM_OCR_MODEL", "   ")
+	assert.Equal(t, "minicpm_ocr (minicpm-ocr)", ocrProviderLabel())
+}
+
 func TestUpdateOCRDefaultsRejectsUploadWithoutHOCR(t *testing.T) {
 	t.Chdir(t.TempDir()) // the handlers save config/settings.json relative to the working directory
 	gin.SetMode(gin.TestMode)

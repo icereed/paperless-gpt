@@ -36,7 +36,7 @@ type Provider interface {
 
 // Config holds the OCR provider configuration
 type Config struct {
-	// Provider type (e.g., "llm", "google_docai", "azure", "mistral_ocr")
+	// Provider type (e.g., "llm", "google_docai", "azure", "mistral_ocr", "minicpm_ocr")
 	Provider string
 
 	// Mistral OCR settings
@@ -73,6 +73,16 @@ type Config struct {
 	AzureModelID             string // Optional, defaults to "prebuilt-read"
 	AzureTimeout             int    // Optional, defaults to 120 seconds
 	AzureOutputContentFormat string // Optional, defaults to ""
+
+	// MiniCPM-OCR settings (OpenAI-compatible chat completions)
+	MiniCPMBaseURL        string
+	MiniCPMAPIKey         string
+	MiniCPMModel          string // Optional, defaults to "minicpm-ocr"
+	MiniCPMTimeout        int    // Optional, seconds, defaults to 300
+	MiniCPMMaxTokens      int    // Optional, defaults to 8192
+	MiniCPMPrompt         string // Optional, defaults to "Text Recognition:"
+	MiniCPMDownsampleMode string // Optional, defaults to "4x"; "off" omits mm_processor_kwargs
+	MiniCPMMaxSliceNums   *int   // Optional; sent only when set
 
 	// Docling settings
 	DoclingURL             string
@@ -153,6 +163,15 @@ func NewProvider(config Config) (Provider, error) {
 			"model": config.MistralModel,
 		}).Info("Using Mistral OCR provider")
 		return newMistralOCRProvider(config)
+
+	case "minicpm_ocr":
+		if strings.TrimSpace(config.MiniCPMBaseURL) == "" {
+			return nil, fmt.Errorf("missing required MiniCPM-OCR base URL (MINICPM_OCR_BASE_URL)")
+		}
+		log.WithFields(logrus.Fields{
+			"model": config.MiniCPMModel,
+		}).Info("Using MiniCPM-OCR provider")
+		return newMiniCPMOCRProvider(config)
 
 	default:
 		return nil, fmt.Errorf("unsupported OCR provider: %s", config.Provider)

@@ -35,24 +35,62 @@ type ConfigEntry struct {
 
 // urlEnvVars hold URLs whose embedded credentials (user:pass@host) must be
 // scrubbed before display even though the variable itself is not a secret.
+// Redaction does not depend on which OCR provider is active: a leftover
+// MINICPM_OCR_BASE_URL is still returned by GET /api/config.
 var urlEnvVars = map[string]bool{
 	"PAPERLESS_BASE_URL":   true,
 	"PAPERLESS_PUBLIC_URL": true,
 	"OPENAI_BASE_URL":      true,
 	"OLLAMA_HOST":          true,
 	"DOCLING_URL":          true,
+	"MINICPM_OCR_BASE_URL": true,
 }
 
-// scrubURLUserinfo removes any user:password@ component from a URL so
-// credentials embedded in a connection string never reach the UI, replacing
-// it with a plain "***@" marker (url.UserPassword would percent-encode it).
+// redactedConfigURL is shown when a URL setting cannot be parsed and stripped
+// of credentials. Returning the raw value would expose a secret in a
+// malformed or opaque URL.
+const redactedConfigURL = "***"
+
+// scrubURLUserinfo removes any user:password@ component from an http(s) URL
+// so credentials never reach the UI, replacing it with a plain "***@" marker
+// (url.UserPassword would percent-encode it). A value that cannot be parsed
+// as an http(s) URL with a host is replaced entirely.
 func scrubURLUserinfo(raw string) string {
+	return sanitizeConfigURL(raw, false)
+}
+
+// sanitizeConfigURL prepares a URL setting for the config view. stripQuery
+// drops the query and fragment (used for MINICPM_OCR_BASE_URL, where a token
+// may be passed as a query parameter). Unsafe values are fully masked.
+func sanitizeConfigURL(raw string, stripQuery bool) string {
 	u, err := url.Parse(raw)
-	if err != nil || u.User == nil {
-		return raw
+	if err != nil || !displayableHTTPURL(u) {
+		return redactedConfigURL
+	}
+	if stripQuery {
+		u.RawQuery = ""
+		u.Fragment = ""
+		u.RawFragment = ""
+	}
+	if u.User == nil {
+		return u.String()
 	}
 	u.User = nil
 	return strings.Replace(u.String(), "://", "://***@", 1)
+}
+
+// displayableHTTPURL reports whether u is an absolute http(s) URL with a host.
+// Opaque values such as "user:password@host" are not displayable.
+func displayableHTTPURL(u *url.URL) bool {
+	if u == nil || u.Opaque != "" || u.Host == "" {
+		return false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return true
+	default:
+		return false
+	}
 }
 
 // ocrOverrideValue returns the UI-saved override for the env vars that the OCR
@@ -114,7 +152,7 @@ func buildConfigEntries() []ConfigEntry {
 			entry.Source = "env"
 			if !e.Secret {
 				if urlEnvVars[e.Name] {
-					entry.Value = scrubURLUserinfo(envVal)
+					entry.Value = sanitizeConfigURL(envVal, e.Name == "MINICPM_OCR_BASE_URL")
 				} else {
 					entry.Value = envVal
 				}

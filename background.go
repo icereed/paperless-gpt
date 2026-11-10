@@ -501,7 +501,9 @@ func (app *App) runWorkflowDocumentOCR(ctx context.Context, document Document, w
 	return &document, nil
 }
 
-// processAutoOcrTagDocuments handles the background auto-tagging of OCR documents
+// processAutoOcrTagDocuments OCRs documents that carry the auto-OCR tag.
+// An effective processing mode the provider does not support is refused
+// before any document is sent, and those documents stay queued.
 func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 	documents, err := app.Client.GetDocumentsByTag(ctx, autoOcrTag, 25)
 	if err != nil {
@@ -511,6 +513,14 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 	if len(documents) == 0 {
 		log.Debugf("No documents with tag %s found", autoOcrTag)
 		return 0, nil
+	}
+
+	// A saved pdf/whole_pdf default overrides OCR_PROCESS_MODE. Sending those
+	// bytes to an image-only provider fails every document and, after
+	// OCR_MAX_RETRIES, removes the auto-OCR tag. Stop before that happens.
+	if err := app.autoOCRModeError(); err != nil {
+		log.Error(err)
+		return 0, err
 	}
 
 	log.Debugf("Found %d documents with tag %s", len(documents), autoOcrTag)
