@@ -97,6 +97,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Option 2: Self-Hosting](#option-2-self-hosting)
     - [Prerequisites](#prerequisites)
     - [Security](#security)
+      - [Sign in with your paperless-ngx account (`PAPERLESS_FORWARD_AUTH`)](#sign-in-with-your-paperless-ngx-account-paperless_forward_auth)
     - [Installation](#installation)
       - [Docker Compose](#docker-compose)
       - [Manual Setup](#manual-setup)
