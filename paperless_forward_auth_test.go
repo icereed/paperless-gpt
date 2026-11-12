@@ -146,6 +146,27 @@ func TestForwardAuthLevels(t *testing.T) {
 	}
 }
 
+// Hashed frontend bundles may stay in the browser cache; pages, API answers
+// and denials must not.
+func TestForwardAuthCacheControl(t *testing.T) {
+	router, _ := newAuthRouter(t, forwardAuthSuperuser, newFakePaperless(t))
+	router.GET("/assets/*filepath", func(c *gin.Context) { c.String(http.StatusOK, "asset") })
+	super := map[string]string{"Cookie": "sessionid=super"}
+
+	rec := serve(router, http.MethodGet, "/assets/index-abc123.js", super)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "private, max-age=31536000, immutable", rec.Header().Get("Cache-Control"))
+
+	rec = serve(router, http.MethodGet, "/", super)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+
+	// Without a login, an asset is denied and the denial is not cached.
+	rec = serve(router, http.MethodGet, "/assets/index-abc123.js", nil)
+	assert.Equal(t, http.StatusFound, rec.Code)
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+}
+
 func TestForwardAuthForwardsOnlyVisitorCredentials(t *testing.T) {
 	f := newFakePaperless(t)
 	router, _ := newAuthRouter(t, forwardAuthSuperuser, f)

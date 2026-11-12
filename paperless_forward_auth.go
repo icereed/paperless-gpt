@@ -261,8 +261,7 @@ func (a *forwardAuth) middleware() gin.HandlerFunc {
 			a.deny(c, http.StatusForbidden, fmt.Sprintf("requires a paperless-ngx %s account", a.level), user)
 			return
 		}
-		// Answers depend on who asks; shared caches must not keep them.
-		c.Header("Cache-Control", "no-store")
+		c.Header("Cache-Control", cacheControlFor(c.Request.URL.Path))
 		c.Next()
 	}
 }
@@ -295,6 +294,18 @@ func (a *forwardAuth) deny(c *gin.Context, status int, message string, user *pap
 		c.Data(status, "text/plain; charset=utf-8", []byte(message))
 	}
 	c.Abort()
+}
+
+// cacheControlFor: pages and API answers depend on who asks, so no cache may
+// keep them. The frontend bundles under /assets/ carry a content hash in their
+// file name and are the same for everyone; letting the browser keep them spares
+// a download and a login check per bundle on every page load. "private" keeps
+// them out of shared caches, which never saw the login.
+func cacheControlFor(path string) string {
+	if strings.HasPrefix(path, "/assets/") {
+		return "private, max-age=31536000, immutable"
+	}
+	return "no-store"
 }
 
 // returnPath is where paperless-ngx sends the browser back to after sign-in.
