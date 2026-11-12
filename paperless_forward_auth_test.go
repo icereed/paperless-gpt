@@ -146,25 +146,29 @@ func TestForwardAuthLevels(t *testing.T) {
 	}
 }
 
-// Hashed frontend bundles may stay in the browser cache; pages, API answers
-// and denials must not.
+// Hashed bundles may stay in the browser; pages, the API and denials must not.
 func TestForwardAuthCacheControl(t *testing.T) {
 	router, _ := newAuthRouter(t, forwardAuthSuperuser, newFakePaperless(t))
-	router.GET("/assets/*filepath", func(c *gin.Context) { c.String(http.StatusOK, "asset") })
+	router.GET("/assets/*filepath", func(c *gin.Context) { c.String(http.StatusOK, "reached") })
 	super := map[string]string{"Cookie": "sessionid=super"}
 
-	rec := serve(router, http.MethodGet, "/assets/index-abc123.js", super)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "private, max-age=31536000, immutable", rec.Header().Get("Cache-Control"))
+	t.Run("assets are kept", func(t *testing.T) {
+		rec := serve(router, http.MethodGet, "/assets/index-abc123.js", super)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "private, max-age=31536000, immutable", rec.Header().Get("Cache-Control"))
+	})
 
-	rec = serve(router, http.MethodGet, "/", super)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	t.Run("pages are not", func(t *testing.T) {
+		rec := serve(router, http.MethodGet, "/", super)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	})
 
-	// Without a login, an asset is denied and the denial is not cached.
-	rec = serve(router, http.MethodGet, "/assets/index-abc123.js", nil)
-	assert.Equal(t, http.StatusFound, rec.Code)
-	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	t.Run("denied assets are not", func(t *testing.T) {
+		rec := serve(router, http.MethodGet, "/assets/index-abc123.js", nil)
+		assert.Equal(t, http.StatusFound, rec.Code)
+		assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	})
 }
 
 func TestForwardAuthForwardsOnlyVisitorCredentials(t *testing.T) {
