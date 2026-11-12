@@ -85,6 +85,7 @@ var (
 	localPDFPath                  = os.Getenv("LOCAL_PDF_PATH")
 	pdfUpload                     = os.Getenv("PDF_UPLOAD") == "true"
 	pdfUploadMode                 = strings.ToLower(strings.TrimSpace(os.Getenv("PDF_UPLOAD_MODE")))
+	createdObjectOwner            = strings.ToLower(strings.TrimSpace(os.Getenv("CREATED_OBJECT_OWNER")))
 	pdfReplace                    = os.Getenv("PDF_REPLACE") == "true"
 	pdfCopyMetadata               = os.Getenv("PDF_COPY_METADATA") == "true"
 	pdfOCRCompleteTag             = os.Getenv("PDF_OCR_COMPLETE_TAG")
@@ -195,6 +196,7 @@ func main() {
 
 	// Initialize PaperlessClient
 	client := NewPaperlessClient(paperlessBaseURL, paperlessAPIToken)
+	client.CreatedObjectOwner = createdObjectOwner
 
 	// Bound startup metadata calls so the HTTP server can still come up when
 	// Paperless-ngx is temporarily unavailable. Background workers retry later.
@@ -924,6 +926,13 @@ func validateOrDefaultEnvVars() {
 	default:
 		// No silent fallback: "new" would add a duplicate document for every PDF.
 		log.Fatalf("Invalid PDF_UPLOAD_MODE value: %q (must be %q or %q)", pdfUploadMode, PDFUploadModeNew, PDFUploadModeVersion)
+	}
+	switch createdObjectOwner {
+	case "":
+		createdObjectOwner = CreatedObjectOwnerAPIUser
+	case CreatedObjectOwnerAPIUser, CreatedObjectOwnerNone:
+	default:
+		log.Fatalf("Invalid CREATED_OBJECT_OWNER value: %q (must be %q or %q)", createdObjectOwner, CreatedObjectOwnerAPIUser, CreatedObjectOwnerNone)
 	}
 	if pdfUploadMode == PDFUploadModeVersion && pdfReplace {
 		log.Warnf("PDF_REPLACE is ignored when PDF_UPLOAD_MODE=%s: versions never delete anything", PDFUploadModeVersion)

@@ -39,6 +39,8 @@ type PaperlessClient struct {
 	APIToken    string
 	HTTPClient  *http.Client
 	CacheFolder string
+	// CreatedObjectOwner is CreatedObjectOwnerAPIUser or CreatedObjectOwnerNone.
+	CreatedObjectOwner string
 }
 
 // CustomField represents a custom field from the Paperless-ngx API
@@ -1825,6 +1827,25 @@ func urlEncode(s string) string {
 	return strings.ReplaceAll(s, " ", "+")
 }
 
+// createObjectBody marshals the body for creating a tag or correspondent.
+// paperless-ngx makes the request user the owner unless the body carries an
+// "owner" key, so CREATED_OBJECT_OWNER=none adds an explicit "owner": null.
+// An owner the caller set is kept.
+func (client *PaperlessClient) createObjectBody(v interface{}) ([]byte, error) {
+	data, err := json.Marshal(v)
+	if err != nil || client.CreatedObjectOwner != CreatedObjectOwnerNone {
+		return data, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	if _, ok := fields["owner"]; !ok {
+		fields["owner"] = json.RawMessage("null")
+	}
+	return json.Marshal(fields)
+}
+
 // instantiateCorrespondent creates a new Correspondent object with default values
 func instantiateCorrespondent(name string) Correspondent {
 	return Correspondent{
@@ -1853,7 +1874,7 @@ func (client *PaperlessClient) CreateOrGetCorrespondent(ctx context.Context, cor
 
 	// If not found, create new correspondent
 	url := "api/correspondents/"
-	jsonData, err := json.Marshal(correspondent)
+	jsonData, err := client.createObjectBody(correspondent)
 	if err != nil {
 		return 0, err
 	}
@@ -2062,7 +2083,7 @@ func (client *PaperlessClient) CreateTag(ctx context.Context, tagName string) (i
 		Name string `json:"name"`
 	}
 
-	requestBody, err := json.Marshal(tagRequest{Name: tagName})
+	requestBody, err := client.createObjectBody(tagRequest{Name: tagName})
 	if err != nil {
 		return 0, fmt.Errorf("error marshaling tag request: %w", err)
 	}

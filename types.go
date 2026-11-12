@@ -200,10 +200,8 @@ type Correspondent struct {
 	IsInsensitive     bool   `json:"is_insensitive"`
 	// omitempty so nil owners are dropped from the JSON body; paperless-ngx
 	// then falls back to the request user (request.user) as the owner of
-	// the newly created object. Sending "owner": null overrides that and
-	// produces ownerless correspondents — they still appear in the
-	// correspondents list, but documents assigned to them are shown as
-	// "private" in the UI instead of the correspondent name.
+	// the newly created object. CREATED_OBJECT_OWNER=none sends an explicit
+	// "owner": null instead (see PaperlessClient.createObjectBody).
 	Owner          *int `json:"owner,omitempty"`
 	SetPermissions struct {
 		View struct {
@@ -216,6 +214,18 @@ type Correspondent struct {
 		} `json:"change"`
 	} `json:"set_permissions"`
 }
+
+// Owner of the tags and correspondents paperless-gpt creates (CREATED_OBJECT_OWNER).
+const (
+	// CreatedObjectOwnerAPIUser omits the owner, so paperless-ngx makes the
+	// user behind PAPERLESS_API_TOKEN the owner. Other users only see the
+	// object if they are granted permissions on it.
+	CreatedObjectOwnerAPIUser = "api_user"
+	// CreatedObjectOwnerNone sends "owner": null. paperless-ngx shows unowned
+	// objects to every user, and every user with the model permission can
+	// edit or delete them.
+	CreatedObjectOwnerNone = "none"
+)
 
 // OCROptions contains options for the OCR processing
 // Searchable-PDF upload modes (PDF_UPLOAD_MODE).
