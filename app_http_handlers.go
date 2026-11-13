@@ -138,6 +138,7 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
 	}
+	newSettings.IgnoredTags = normalizeTagList(newSettings.IgnoredTags)
 
 	// Update the global settings variable
 	settings = newSettings
@@ -311,6 +312,7 @@ func (app *App) updateDocumentsHandler(c *gin.Context) {
 	err := app.Client.UpdateDocuments(ctx, documents, app.Database, false)
 	if err == nil || errors.As(err, new(*PartialUpdateError)) {
 		clearPendingReviews(app.Database, documents)
+		app.refreshEmbeddingMetadata(ctx, documents)
 	}
 	var partial *PartialUpdateError
 	if errors.As(err, &partial) {
@@ -1111,6 +1113,7 @@ func (app *App) undoModificationHandler(c *gin.Context) {
 		log.Errorf("Failed to update document: %v", err)
 		return
 	}
+	app.refreshEmbeddingMetadata(ctx, []DocumentSuggestion{suggestion})
 
 	// Successful, so set modification as undone
 	err = SetModificationUndone(app.Database, modification)

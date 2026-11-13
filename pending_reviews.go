@@ -86,13 +86,19 @@ func pendingSuggestion(record PendingReview, current Document) (DocumentSuggesti
 	suggestion.OriginalDocument = current
 	if len(suggestion.SuggestedTags) > 0 && !suggestion.KeepOriginalTags {
 		// The suggested tags include the tags the document had at generation
-		// time; carry over what was added since.
+		// time; carry over what was added since. Workflow tags are not carried:
+		// applying the suggestion removes them.
 		for _, tag := range current.Tags {
+			if len(ignoredTagsPresent([]string{tag})) > 0 {
+				continue
+			}
 			if !slices.Contains(snapshot.Tags, tag) && !slices.Contains(suggestion.SuggestedTags, tag) {
 				suggestion.SuggestedTags = append(suggestion.SuggestedTags, tag)
 			}
 		}
 	}
+	suggestion.SuggestedTags = removeIgnoredTags(suggestion.SuggestedTags)
+	suggestion.RemoveTags = mergeTagNames(suggestion.RemoveTags, ignoredTagsPresent(current.Tags))
 	return suggestion, nil
 }
 

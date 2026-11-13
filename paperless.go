@@ -438,6 +438,7 @@ func (client *PaperlessClient) GetDocumentsByTag(ctx context.Context, tag string
 			Tags:          tagNames,
 			TagIDs:        result.Tags,
 			CreatedDate:   result.CreatedDate,
+			Modified:      result.Modified,
 		})
 	}
 
@@ -577,10 +578,71 @@ func (client *PaperlessClient) GetDocument(ctx context.Context, documentID int) 
 		Tags:             tagNames,
 		TagIDs:           documentResponse.Tags,
 		CreatedDate:      documentResponse.CreatedDate,
+		Modified:         documentResponse.Modified,
 		OriginalFileName: documentResponse.OriginalFileName,
 		CustomFields:     documentResponse.CustomFields,
 		DocumentTypeName: documentTypeName,
 	}, nil
+}
+
+// DocumentStub is a document id and its paperless-ngx modification time.
+// The index scan uses it to avoid downloading text that has not changed.
+type DocumentStub struct {
+	ID       int    `json:"id"`
+	Modified string `json:"modified"`
+}
+
+// DocumentCount returns how many documents the API token can see.
+func (client *PaperlessClient) DocumentCount(ctx context.Context) (int, error) {
+	resp, err := client.Do(ctx, "GET", "api/documents/?page_size=1&fields=id", nil)
+	if err != nil {
+		return 0, fmt.Errorf("HTTP request failed in DocumentCount: %w", err)
+	}
+	defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read response body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("error counting documents: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
+	}
+	var documentsResponse GetDocumentsApiResponse
+	if err := json.Unmarshal(bodyBytes, &documentsResponse); err != nil {
+		return 0, fmt.Errorf("failed to parse JSON response: %w", err)
+	}
+	return documentsResponse.Count, nil
+}
+
+// ListDocumentStubs pages documents as id plus modified time, ordered by id
+// so pages do not overlap while the archive changes.
+func (client *PaperlessClient) ListDocumentStubs(ctx context.Context, page, pageSize int) ([]DocumentStub, int, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = embeddingIndexPageSize
+	}
+	path := fmt.Sprintf("api/documents/?fields=id,modified&ordering=id&page_size=%d&page=%d", pageSize, page)
+	resp, err := client.Do(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("HTTP request failed in ListDocumentStubs: %w", err)
+	}
+	defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read response body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, 0, fmt.Errorf("error listing documents: status=%d, body=%s", resp.StatusCode, string(bodyBytes))
+	}
+	var documentsResponse struct {
+		Count   int            `json:"count"`
+		Results []DocumentStub `json:"results"`
+	}
+	if err := json.Unmarshal(bodyBytes, &documentsResponse); err != nil {
+		return nil, 0, fmt.Errorf("failed to parse JSON response: %w", err)
+	}
+	return documentsResponse.Results, documentsResponse.Count, nil
 }
 
 // getCurrentCustomFields fetches only the document's custom fields. Unlike

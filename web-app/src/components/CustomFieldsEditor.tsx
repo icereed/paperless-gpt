@@ -10,6 +10,7 @@ interface SettingsData {
   custom_fields_enable: boolean;
   custom_fields_selected_ids: number[];
   custom_fields_write_mode: 'append' | 'replace' | 'update';
+  ignored_tags?: string[];
 }
 
 const CustomFieldsEditor: React.FC = () => {
@@ -61,10 +62,18 @@ const CustomFieldsEditor: React.FC = () => {
     setIsSaving(true);
     setError(null);
     try {
+      const latestRes = await fetch('./api/settings');
+      if (!latestRes.ok) throw new Error('Failed to fetch settings');
+      const latestData = await latestRes.json();
       const response = await fetch('./api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({
+          ...(latestData.settings ?? {}),
+          custom_fields_enable: settings.custom_fields_enable,
+          custom_fields_selected_ids: settings.custom_fields_selected_ids,
+          custom_fields_write_mode: settings.custom_fields_write_mode,
+        }),
       });
       if (!response.ok) {
         const errData = await response.json();

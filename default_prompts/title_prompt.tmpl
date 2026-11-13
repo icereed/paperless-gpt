@@ -6,6 +6,10 @@ Respond only with the title, without any additional information. The content is 
 The data will be provided using an XML-like format for clarity:
 
 <original_title>{{.Title}}</original_title>
-<content>
+{{if .SimilarDocuments}}
+
+{{.SimilarDocuments}}
+
+{{end}}<content>
 {{.Content}}
 </content>

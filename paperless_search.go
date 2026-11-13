@@ -82,6 +82,7 @@ func (client *PaperlessClient) SearchDocuments(ctx context.Context, query string
 			Tags:          tagNames,
 			TagIDs:        result.Tags,
 			CreatedDate:   result.CreatedDate,
+			Modified:      result.Modified,
 		})
 	}
 

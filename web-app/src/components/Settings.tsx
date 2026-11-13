@@ -5,6 +5,7 @@ import ConfigurationSection from './ConfigurationSection';
 import PromptsEditor from './PromptsEditor';
 import CustomFieldsEditor from './CustomFieldsEditor';
 import PersistenceWarning from './PersistenceWarning';
+import EmbeddingIndexSection from './EmbeddingIndexSection';
 
 interface VersionInfo {
   version: string;
@@ -79,6 +80,8 @@ const Settings: React.FC = () => {
       <section aria-label="Custom fields">
         <CustomFieldsEditor />
       </section>
+
+      <EmbeddingIndexSection />
 
       <SupportSection />
     </div>

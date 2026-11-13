@@ -125,6 +125,28 @@ func TestPendingSuggestionUsesCurrentDocument(t *testing.T) {
 	assert.Contains(t, got.SuggestedTags, "paperless-gpt")
 }
 
+func TestPendingSuggestionRemovesIgnoredWorkflowTags(t *testing.T) {
+	withIgnoredTags(t, []string{"inbox"})
+	held := DocumentSuggestion{
+		ID:               7,
+		OriginalDocument: Document{ID: 7, Title: "old", Tags: []string{"inbox", "mine"}},
+		SuggestedTitle:   "New",
+		SuggestedTags:    []string{"inbox", "mine", "finance"},
+	}
+	data, err := json.Marshal(held)
+	require.NoError(t, err)
+	current := Document{ID: 7, Title: "edited by hand", Tags: []string{"mine", "Inbox", "urgent"}}
+
+	got, err := pendingSuggestion(PendingReview{DocumentID: 7, Suggestion: string(data)}, current)
+	require.NoError(t, err)
+	assert.NotContains(t, got.SuggestedTags, "inbox")
+	assert.NotContains(t, got.SuggestedTags, "Inbox")
+	assert.Contains(t, got.SuggestedTags, "mine")
+	assert.Contains(t, got.SuggestedTags, "finance")
+	assert.Contains(t, got.SuggestedTags, "urgent")
+	assert.Contains(t, got.RemoveTags, "Inbox")
+}
+
 func TestPendingReviewHandlers(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	prevManual := manualTag

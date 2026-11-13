@@ -10,7 +10,10 @@ You have to find the values for a list of custom fields that are provided as an 
 {{ .Content }}
 - **Document Type:** {{ .DocumentType }}
 
-**Custom Fields to Extract:**
+{{if .SimilarDocuments}}
+{{.SimilarDocuments}}
+
+{{end}}**Custom Fields to Extract:**
 {{ .CustomFieldsXML }}
 
 **Instructions:**
