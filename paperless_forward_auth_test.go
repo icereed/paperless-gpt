@@ -171,6 +171,32 @@ func TestForwardAuthCacheControl(t *testing.T) {
 	})
 }
 
+// The image handlers set their own browser cache policy; behind forward auth
+// the middleware's no-store must survive them.
+func TestForwardAuthImageRoutesStayUncached(t *testing.T) {
+	router, _ := newAuthRouter(t, forwardAuthSuperuser, newFakePaperless(t))
+	app := &App{Client: &mockPaperlessClient{}}
+	router.GET("/api/documents/:id/thumb", app.getDocumentThumbnailHandler)
+	router.GET("/api/documents/:id/pages/:pageIndex/image", app.getDocumentPageImageHandler)
+
+	for _, path := range []string{"/api/documents/1/thumb", "/api/documents/1/pages/0/image"} {
+		t.Run(path, func(t *testing.T) {
+			rec := serve(router, http.MethodGet, path, map[string]string{"Cookie": "sessionid=super"})
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+		})
+	}
+
+	t.Run("without forward auth the handlers' policy applies", func(t *testing.T) {
+		gin.SetMode(gin.TestMode)
+		plain := gin.New()
+		plain.GET("/api/documents/:id/thumb", app.getDocumentThumbnailHandler)
+		rec := serve(plain, http.MethodGet, "/api/documents/1/thumb", nil)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "private, max-age=3600", rec.Header().Get("Cache-Control"))
+	})
+}
+
 func TestForwardAuthForwardsOnlyVisitorCredentials(t *testing.T) {
 	f := newFakePaperless(t)
 	router, _ := newAuthRouter(t, forwardAuthSuperuser, f)
