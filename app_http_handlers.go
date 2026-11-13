@@ -672,7 +672,7 @@ func (app *App) getDocumentPageImageHandler(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to render page image"})
 		return
 	}
-	c.Header("Cache-Control", "private, max-age=3600")
+	setDefaultCacheControl(c, "private, max-age=3600")
 	c.Data(http.StatusOK, "image/jpeg", data)
 }
 
@@ -756,7 +756,7 @@ func (app *App) getDocumentThumbnailHandler(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Failed to fetch thumbnail"})
 		return
 	}
-	c.Header("Cache-Control", "private, max-age=3600")
+	setDefaultCacheControl(c, "private, max-age=3600")
 	c.Data(http.StatusOK, contentType, data)
 }
 
@@ -1190,4 +1190,12 @@ func getVersionHandler(c *gin.Context) {
 // containsDotDot checks if a string contains ".." to prevent path traversal.
 func containsDotDot(s string) bool {
 	return strings.Contains(s, "..")
+}
+
+// setDefaultCacheControl keeps a policy set earlier, e.g. the forward-auth
+// middleware's no-store for answers that depend on who is signed in.
+func setDefaultCacheControl(c *gin.Context, value string) {
+	if c.Writer.Header().Get("Cache-Control") == "" {
+		c.Header("Cache-Control", value)
+	}
 }

@@ -34,7 +34,7 @@ WORKDIR /app
 # renovate: datasource=repology depName=alpine_3_24/gcc versioning=loose
 ENV GCC_VERSION="15.2.0-r5"
 # renovate: datasource=repology depName=alpine_3_24/musl-dev versioning=loose
-ENV MUSL_DEV_VERSION="1.2.6-r2"
+ENV MUSL_DEV_VERSION="1.2.6-r3"
 # renovate: datasource=repology depName=alpine_3_24/sed versioning=loose
 ENV SED_VERSION="4.9-r2"
 

@@ -46,6 +46,7 @@ var (
 	correspondentPromptLimit      int // Will be read from CORRESPONDENT_PROMPT_LIMIT
 	paperlessBaseURL              = os.Getenv("PAPERLESS_BASE_URL")
 	paperlessAPIToken             = os.Getenv("PAPERLESS_API_TOKEN")
+	forwardAuthMode               forwardAuthLevel // Will be read from PAPERLESS_FORWARD_AUTH
 	azureDocAIEndpoint            = os.Getenv("AZURE_DOCAI_ENDPOINT")
 	azureDocAIKey                 = os.Getenv("AZURE_DOCAI_KEY")
 	azureDocAIModelID             = os.Getenv("AZURE_DOCAI_MODEL_ID")
@@ -518,6 +519,16 @@ func main() {
 	// Create a Gin router with default middleware (logger and recovery)
 	router := gin.Default()
 
+	// Must be registered before the routes: gin only applies middleware to
+	// routes added after Use().
+	if forwardAuthMode != forwardAuthOff {
+		auth := newForwardAuth(forwardAuthMode, paperlessBaseURL, os.Getenv("PAPERLESS_PUBLIC_URL"), client.HTTPClient.Transport)
+		router.Use(auth.middleware())
+		log.Infof("Sign-in required: paperless-ngx %s accounts only (PAPERLESS_FORWARD_AUTH)", forwardAuthMode)
+	} else {
+		log.Warn("PAPERLESS_FORWARD_AUTH is off: anyone who can reach paperless-gpt can use it. Set PAPERLESS_FORWARD_AUTH or put an authenticating reverse proxy in front of it.")
+	}
+
 	// API routes
 	api := router.Group("/api")
 	{
@@ -844,6 +855,13 @@ func validateOrDefaultEnvVars() {
 
 	if paperlessAPIToken == "" {
 		log.Fatal("Please set the PAPERLESS_API_TOKEN environment variable.")
+	}
+
+	// Checked here, before any background work starts, so a typo can't leave
+	// paperless-gpt processing documents and then die (or run unprotected).
+	var err error
+	if forwardAuthMode, err = parseForwardAuthLevel(os.Getenv("PAPERLESS_FORWARD_AUTH")); err != nil {
+		log.Fatal(err)
 	}
 
 	if llmProvider == "" {

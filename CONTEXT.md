@@ -74,3 +74,9 @@ _Avoid_: settings dump, env dump
 
 **Source**:
 Where a setting's effective value comes from: `env` (set in the environment), `saved` (a UI-saved value shadows the environment) or `default`. Saved shadowing is always surfaced so the environment never silently lies.
+
+### Access
+
+**Forward Auth**:
+Opt-in access control (`PAPERLESS_FORWARD_AUTH`) that reuses the paperless-ngx login: paperless-gpt forwards the visitor's paperless-ngx session cookie or API token to paperless-ngx and lets in only the configured accounts (`superuser` or any signed-in `user`). paperless-gpt has no accounts of its own.
+_Avoid_: login, user management, SSO

@@ -23,6 +23,8 @@ export const PREDEFINED_TAGS = [
 export interface TestEnvironmentConfig {
   ocrProvider?: string;
   processMode?: string;
+  // PAPERLESS_FORWARD_AUTH level; unset leaves paperless-gpt open as before.
+  forwardAuth?: 'superuser' | 'user';
 }
 
 // Stoppable is anything started so far that setupTestEnvironment needs to
@@ -186,11 +188,21 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
       console.log('Configured for LLM OCR with process mode:', config?.processMode || "image");
     }
 
+    if (config?.forwardAuth) {
+      Object.assign(baseEnvironment, {
+        PAPERLESS_FORWARD_AUTH: config.forwardAuth,
+        // Where the browser signs in; the session cookie is shared with
+        // paperless-gpt because cookies ignore the port.
+        PAPERLESS_PUBLIC_URL: baseUrl,
+      });
+    }
+
     const paperlessGpt = await new GenericContainer(paperlessGptImage)
       .withNetwork(network)
       .withEnvironment(baseEnvironment)
       .withExposedPorts(gptPort)
-      .withWaitStrategy(Wait.forHttp('/', gptPort))
+      // With forward auth, "/" redirects anonymous visitors to the login.
+      .withWaitStrategy(Wait.forHttp('/', gptPort).forStatusCodeMatching((status) => status === 200 || status === 302))
       .start();
     started.push(paperlessGpt);
     console.log('Paperless-gpt container started');

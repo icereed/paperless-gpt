@@ -97,6 +97,8 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Option 2: Self-Hosting](#option-2-self-hosting)
     - [Prerequisites](#prerequisites)
     - [Security](#security)
+      - [Sign in with your paperless-ngx account (`PAPERLESS_FORWARD_AUTH`)](#sign-in-with-your-paperless-ngx-account-paperless_forward_auth)
+        - [Example: paperless-gpt under a sub-path with Traefik](#example-paperless-gpt-under-a-sub-path-with-traefik)
     - [Installation](#installation)
       - [Docker Compose](#docker-compose)
       - [Manual Setup](#manual-setup)
@@ -187,9 +189,71 @@ paperless-gpt is fully self-hostable and free under the MIT license. Everything 
 
 ### Security
 
-**paperless-gpt has no built-in authentication.** Its web UI and `/api/*` endpoints are open to anyone who can reach the port — by default it listens on all interfaces (`LISTEN_INTERFACE` defaults to `:8080`), so a plain `-p 8080:8080` (as in the example below) exposes it to your whole LAN/VPN, not just `localhost`. Anyone who can reach it can rewrite documents in your connected paperless-ngx instance, trigger LLM/OCR jobs against your API keys, and change settings — with zero credentials required.
+**By default, paperless-gpt has no authentication.** Its web UI and `/api/*` endpoints are open to anyone who can reach the port — by default it listens on all interfaces (`LISTEN_INTERFACE` defaults to `:8080`), so a plain `-p 8080:8080` (as in the example below) exposes it to your whole LAN/VPN, not just `localhost`. Anyone who can reach it can rewrite documents in your connected paperless-ngx instance, trigger LLM/OCR jobs against your API keys, and change settings — with zero credentials required.
 
-Do not expose it directly to the internet or an untrusted network. Put it behind a reverse proxy that adds authentication (e.g. Authelia, Authentik, a Basic Auth layer), restrict it to a VPN/Tailscale network, or otherwise limit who can reach the port.
+Do not expose it directly to the internet or an untrusted network. Either let paperless-gpt require a paperless-ngx login (below), put it behind a reverse proxy that adds authentication (e.g. Authelia, Authentik, a Basic Auth layer), restrict it to a VPN/Tailscale network, or otherwise limit who can reach the port.
+
+#### Sign in with your paperless-ngx account (`PAPERLESS_FORWARD_AUTH`)
+
+paperless-gpt can reuse the paperless-ngx login instead of having users of its own. With `PAPERLESS_FORWARD_AUTH` set, paperless-gpt forwards the credentials of every page and API request – the paperless-ngx session cookie, or a paperless-ngx API token in the `Authorization` header – to paperless-ngx, asks who they belong to, and only lets the request through for the configured accounts:
+
+| Value       | Who gets in                                                        |
+| ----------- | ------------------------------------------------------------------ |
+| `off`       | Everyone who can reach the port (default)                          |
+| `superuser` | paperless-ngx accounts with superuser status (**recommended**)     |
+| `user`      | Every signed-in paperless-ngx account                              |
+
+Visitors without a session are sent to the paperless-ngx login (`PAPERLESS_PUBLIC_URL/accounts/login/`); signed-in accounts without the required status see an "access denied" page. API calls get `401`/`403` JSON instead. Results are cached for five seconds, so signing out or losing the status takes effect within that time. Write requests (POST/PUT/PATCH/DELETE) from other sites are rejected, because the browser sends the session cookie along with them too.
+
+Things to know:
+
+- **Same host required.** Browsers only send the paperless-ngx session cookie to paperless-gpt if both are served from the same host name, e.g. paperless-ngx at `https://docs.example.com` and paperless-gpt behind the same reverse proxy at `https://docs.example.com/gpt/`. On a different host name, nobody gets in except API clients sending a token. Cookies ignore the port, so `http://nas:8000` and `http://nas:8080` work as well – but after signing in, paperless-ngx only sends you back to paperless-gpt when both share the same origin (sub-path setup); otherwise open paperless-gpt again yourself. Set `PAPERLESS_PUBLIC_URL` to the address of paperless-ngx: the login link and the links to documents use it. Without it, the login link stays on the current host (fine for the sub-path setup), but document links point to `PAPERLESS_BASE_URL`, which browsers usually cannot reach. See the [Traefik example](#example-paperless-gpt-under-a-sub-path-with-traefik) below.
+- **Why `superuser` is recommended.** paperless-gpt works with its own `PAPERLESS_API_TOKEN` and shows everything that account can see. Anyone let in with less than that account's permissions can read documents through paperless-gpt that paperless-ngx hides from them. That is also why there is no level for the "Admin" (staff) flag: it does not grant access to other users' documents in paperless-ngx. Use `user` only if every paperless-ngx account may see all documents anyway, e.g. a single-user or family instance.
+- Behind a reverse proxy that strips a path prefix, send `X-Forwarded-Prefix` (Traefik's `stripPrefix` does) so the login sends users back to the right page.
+- Over plain HTTP (no TLS, not `localhost`) browsers don't send `Sec-Fetch-Site`; the cross-site check then compares `Origin` with the `Host` header, so a reverse proxy must pass the original `Host` on (Traefik does by default, nginx needs `proxy_set_header Host $host;`).
+- Health checks that request paperless-gpt's pages or API get `302`/`401` once this is on; use a plain TCP check of the port instead.
+- `PAPERLESS_BASE_URL` must be reachable from paperless-gpt as before; paperless-gpt sends the visitor's cookie or token there (`/api/ui_settings/`, `/api/profile/`), never its own token.
+
+##### Example: paperless-gpt under a sub-path with Traefik
+
+paperless-ngx at `https://docs.example.com`, paperless-gpt at `https://docs.example.com/gpt/`. Both share one host name, so the browser sends the session cookie along, and paperless-ngx sends users back to the page they came from after signing in. This assumes a running Traefik with the Docker provider and an entry point that serves `docs.example.com`; add your usual entry point and TLS labels.
+
+```yaml
+services:
+  paperless-ngx:
+    # ... (your existing paperless-ngx config)
+    environment:
+      PAPERLESS_URL: "https://docs.example.com"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.paperless.rule: "Host(`docs.example.com`)"
+      traefik.http.services.paperless.loadbalancer.server.port: "8000"
+
+  paperless-gpt:
+    image: icereed/paperless-gpt:latest
+    # no "ports:": paperless-gpt is only reached through Traefik
+    environment:
+      PAPERLESS_BASE_URL: "http://paperless-ngx:8000"
+      PAPERLESS_API_TOKEN: "your_paperless_api_token"
+      PAPERLESS_PUBLIC_URL: "https://docs.example.com"
+      PAPERLESS_FORWARD_AUTH: "superuser"
+      # ... (LLM and OCR settings as in the Docker Compose example)
+    labels:
+      traefik.enable: "true"
+      # The longer rule wins over paperless-ngx' Host() rule, so /gpt goes here.
+      traefik.http.routers.paperless-gpt.rule: "Host(`docs.example.com`) && PathPrefix(`/gpt`)"
+      traefik.http.routers.paperless-gpt.middlewares: "gpt-addslash,gpt-stripprefix"
+      # /gpt -> /gpt/: the frontend resolves its API calls relative to the page,
+      # so without the trailing slash they would end up at paperless-ngx.
+      traefik.http.middlewares.gpt-addslash.redirectregex.regex: "^(https?://[^/]+/gpt)$$"
+      traefik.http.middlewares.gpt-addslash.redirectregex.replacement: "$${1}/"
+      traefik.http.middlewares.gpt-addslash.redirectregex.permanent: "true"
+      # Also sets X-Forwarded-Prefix, so the login sends users back to /gpt/...
+      traefik.http.middlewares.gpt-stripprefix.stripprefix.prefixes: "/gpt"
+      traefik.http.services.paperless-gpt.loadbalancer.server.port: "8080"
+```
+
+`$$` keeps Docker Compose from reading `$` as a variable. A health check that requests a paperless-gpt page gets the redirect to the login instead of `200`; check the port instead (see above).
 
 > **Prefer not to manage this layer yourself?**  
 > For users in Germany, Austria and Switzerland, [server.camp](https://server.camp/product/paperless-ngx) provides paperless-gpt as part of a managed paperless-ngx environment, including operation of the surrounding infrastructure. See [Managed Hosting](#managed-hosting-for-germany-austria-and-switzerland).
@@ -215,6 +279,7 @@ services:
       PAPERLESS_BASE_URL: "http://paperless-ngx:8000"
       PAPERLESS_API_TOKEN: "your_paperless_api_token"
       PAPERLESS_PUBLIC_URL: "http://paperless.mydomain.com" # Optional
+      # PAPERLESS_FORWARD_AUTH: "superuser" # Recommended: only paperless-ngx superusers may use paperless-gpt. Needs paperless-gpt on the same host name as paperless-ngx, see Security
       MANUAL_TAG: "paperless-gpt" # Optional, default: paperless-gpt
       AUTO_TAG: "paperless-gpt-auto" # Optional, default: paperless-gpt-auto
       FAIL_TAG: "paperless-gpt-failed" # Optional, default: paperless-gpt-failed. Applied to documents whose update is rejected by paperless-ngx or whose OCR keeps failing (see OCR_MAX_RETRIES), so they don't get re-processed in a loop. Auto-created at startup.
@@ -665,6 +730,7 @@ For best results with the enhanced OCR features:
 | `PAPERLESS_BASE_URL`                | URL of your paperless-ngx instance (e.g. `http://paperless-ngx:8000`).                                                                                                                        | Yes      |                            |
 | `PAPERLESS_API_TOKEN`               | API token for paperless-ngx. Generate one in paperless-ngx admin.                                                                                                                             | Yes      |                            |
 | `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                            | No       |                            |
+| `PAPERLESS_FORWARD_AUTH`            | Forward visitors' paperless-ngx login to paperless-ngx and only let in `superuser` or `user` (any signed-in) accounts; `off` disables it. See [Sign in with your paperless-ngx account](#sign-in-with-your-paperless-ngx-account-paperless_forward_auth). | No       | off                        |
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
 | `AUTO_TAG`                          | Tag for auto processing.                                                                                                                                                                      | No       | paperless-gpt-auto         |
 | `AUTO_TAG_MAX_RETRIES`              | How many times suggestion generation (title/tags/correspondent/document type) may fail for a document in the auto-tag poll before paperless-gpt gives up: the auto tag is removed and `FAIL_TAG` applied, so the document stops being retried (and re-billed) every cycle and stops occupying a slot in the poll's page of 25. Counted in memory — a restart resets the count. Set to `0` to keep retrying forever. | No       | 3                          |
