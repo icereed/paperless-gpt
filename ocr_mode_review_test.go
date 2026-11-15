@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -139,4 +140,64 @@ func TestCompatibleSavedOCRModeRemainsForOtherProvider(t *testing.T) {
 	require.NoError(t, validateSavedOCRProcessMode("google_docai", ""))
 
 	assert.Equal(t, "image", *settings.OCR.ProcessMode)
+}
+
+func TestGeneralSettingsRejectsIncompatibleModeWithoutMutation(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("OCR_PROVIDER", "ocrmypdf")
+	settingsMutex.Lock()
+	previous := settings
+	settings = Settings{}
+	validMode := "whole_pdf"
+	settings.OCR.ProcessMode = &validMode
+	err := saveSettingsLocked()
+	settingsMutex.Unlock()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		settingsMutex.Lock()
+		settings = previous
+		settingsMutex.Unlock()
+	})
+	before, err := os.ReadFile("config/settings.json")
+	require.NoError(t, err)
+	router := gin.New()
+	router.POST("/api/settings", (&App{}).updateSettingsHandler)
+	for _, mode := range []string{"image", "pdf"} {
+		req := httptest.NewRequest(http.MethodPost, "/api/settings", bytes.NewBufferString(`{"ocr":{"process_mode":"`+mode+`"}}`))
+		req.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		assert.Equal(t, http.StatusBadRequest, response.Code)
+		settingsMutex.RLock()
+		actual := *settings.OCR.ProcessMode
+		settingsMutex.RUnlock()
+		assert.Equal(t, validMode, actual)
+		after, err := os.ReadFile("config/settings.json")
+		require.NoError(t, err)
+		assert.Equal(t, before, after, "rejected mode must not alter saved settings")
+	}
+}
+
+func TestUnsetProviderDefaultsToLLMModeRules(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("OCR_PROVIDER", "")
+	settingsMutex.Lock()
+	previousSettings := settings
+	settings = Settings{}
+	settingsMutex.Unlock()
+	t.Cleanup(func() {
+		settingsMutex.Lock()
+		settings = previousSettings
+		settingsMutex.Unlock()
+	})
+	previousVision := visionLlmProvider
+	visionLlmProvider = "openai"
+	t.Cleanup(func() { visionLlmProvider = previousVision })
+	router := gin.New()
+	router.PUT("/api/ocr/defaults", (&App{ocrProcessMode: "image"}).updateOCRDefaultsHandler)
+	req := httptest.NewRequest(http.MethodPut, "/api/ocr/defaults", bytes.NewBufferString(`{"process_mode":"whole_pdf"}`))
+	req.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, req)
+	assert.Equal(t, http.StatusBadRequest, response.Code, "unset provider follows startup's llm default")
 }

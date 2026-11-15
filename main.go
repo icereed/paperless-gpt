@@ -808,7 +808,10 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 func validateConfiguredOCRProcessMode(mode string) error {
 	provider := strings.TrimSpace(os.Getenv("OCR_PROVIDER"))
 	if provider == "" {
-		return nil // No explicitly configured provider to constrain this request.
+		provider = "llm"
+	}
+	if mode == "" {
+		mode = "image"
 	}
 	return validateOCRProviderModeCompatibility(provider, mode, visionLlmProvider)
 }

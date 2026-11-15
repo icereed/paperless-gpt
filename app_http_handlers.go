@@ -140,6 +140,13 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 		return
 	}
 
+	if mode := newSettings.OCR.ProcessMode; mode != nil && *mode != "" {
+		if err := validateConfiguredOCRProcessMode(*mode); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
 	// Update the global settings variable
 	settings = newSettings
 
