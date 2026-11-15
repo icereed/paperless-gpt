@@ -1233,3 +1233,32 @@ This project is **not** officially affiliated with [paperless-ngx][paperless-ngx
 
 [paperless-ngx]: https://github.com/paperless-ngx/paperless-ngx
 [docker-install]: https://docs.docker.com/get-docker/
+
+## OCRmyPDF runtime
+
+`Dockerfile.ocr` builds a combined Paperless-GPT image with a pinned OCRmyPDF runtime. Build for Linux/amd64:
+
+```sh
+docker build --platform linux/amd64 -f Dockerfile.ocr -t paperless-gpt:ocr .
+```
+
+Configure the application to use the bundled provider:
+
+```env
+OCR_PROVIDER=ocrmypdf
+OCR_PROCESS_MODE=whole_pdf
+OCRMY_PDF_ENGINE=paddleocr
+OCRMY_PDF_LANGUAGE=eng
+```
+
+The image includes OCRmyPDF 17.14.1, PaddleOCR 3.3.2/PaddlePaddle 3.2.2, RapidOCR 3.10.0/ONNX Runtime 1.23.2, and a pinned Paddle plugin commit. Supported requested languages are English (`eng`) and English plus Hindi (`eng+hin`); both OCR engines use models supporting these languages. Set `OCRMY_PDF_LANGUAGE` to `eng` or `eng+hin`. PaddleOCR is the default engine: set `OCRMY_PDF_ENGINE=paddleocr`, and the application enables it with `--plugin ocrmypdf_paddleocr --ocr-engine auto`. Set `OCRMY_PDF_ENGINE=rapidocr` to use RapidOCR with `--ocr-engine rapidocr`, without the Paddle plugin. Keep model caches and settings on persistent writable storage outside the image.
+
+In `whole_pdf` mode, JPEG and PNG inputs are embedded locally into a one-page PDF before OCR; PDF inputs retain the existing whole-document path. Other unsupported input types remain rejected. The generated searchable PDF is validated, including page count, before upload.
+
+For Paperless-ngx 3.0 or newer, use `PDF_UPLOAD_MODE=version` to upload searchable output as a new version of the existing document, preserving the original. The integration account needs document read/edit and required metadata access, `add_document` for version uploads, and `view_paperlesstask` to confirm import completion. Set Paperless-ngx native OCR mode to `auto` so its OCR does not replace the generated text layer. Processing waits for confirmed upload completion; reconcile an unknown upload outcome rather than retrying blindly.
+
+Restart handling is deliberately conservative: any interrupted run requesting a PDF upload is held for operator reconciliation, even if it stopped during OCR before the upload began. Automatic processing does not resend that run. Check the Paperless task/version history before clearing an unresolved-upload hold; this can require manual intervention after an otherwise harmless restart.
+
+**Migration requirement:** this patch audits all Paperless API mutations, including existing non-OCR metadata operations. Every installation must configure `OCR_AUDIT_PATH` and provision its file before running this version; leaving it unset blocks mutations. Use a durable, writable append-only JSONL audit file on persistent storage. Mutations fail closed if the audit intent cannot be appended and synced; the audit file has a 64 MiB hard limit. Operators are responsible for monitoring capacity, protecting and backing up the audit data, and defining retention and safe archival/rotation before the limit is reached. Keep the writer unable to modify/delete retained records. Use a documented 30-day retention fallback when no longer requirement applies, preserving incident/reconciliation holds.
+
+This is an optional custom image, not an upstream release. The Docker build does not deploy or update a running service. Operators must separately configure, deploy, verify, and roll back their own installation.

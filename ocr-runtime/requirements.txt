@@ -1,0 +1,15 @@
+# Direct pins; compile to requirements.lock with platform/Python targets and hashes.
+# OCRmyPDF's rapidocr extra provides its built-in --ocr-engine rapidocr engine.
+ocrmypdf[rapidocr]==17.14.1
+rapidocr==3.10.0
+onnxruntime==1.23.2
+paddlepaddle==3.2.2
+paddleocr==3.3.2
+paddlex==3.3.8
+numpy==1.26.4
+
+# Pinned build tools required by upstream plugin's legacy setup.py/use_scm_version.
+pip==25.3
+setuptools==80.9.0
+setuptools-scm==9.2.2
+wheel==0.45.1

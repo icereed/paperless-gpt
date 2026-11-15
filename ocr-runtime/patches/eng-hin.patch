@@ -1,0 +1,89 @@
+diff --git a/setup.py b/setup.py
+index 0c39cbd..1ce3f5d 100644
+--- a/setup.py
++++ b/setup.py
+@@ -44,9 +44,4 @@ setup(
+             "paddleocr[doc-parser]>=3.3.0",
+         ],
+     },
+-    entry_points={
+-        "ocrmypdf": [
+-            "paddleocr = ocrmypdf_paddleocr.plugin:get_plugin",
+-        ],
+-    },
+ )
+diff --git a/src/ocrmypdf_paddleocr/__init__.py b/src/ocrmypdf_paddleocr/__init__.py
+index 197c5cb..2f253a0 100644
+--- a/src/ocrmypdf_paddleocr/__init__.py
++++ b/src/ocrmypdf_paddleocr/__init__.py
+@@ -5,4 +5,6 @@ try:
+ except ImportError:
+     __version__ = "unknown"
+ 
+-__all__ = ["__version__"]
++from .plugin import add_options, check_options, get_ocr_engine
++
++__all__ = ["__version__", "add_options", "check_options", "get_ocr_engine"]
+diff --git a/src/ocrmypdf_paddleocr/plugin.py b/src/ocrmypdf_paddleocr/plugin.py
+index 3fe1325..89dc7a0 100644
+--- a/src/ocrmypdf_paddleocr/plugin.py
++++ b/src/ocrmypdf_paddleocr/plugin.py
+@@ -217,7 +217,7 @@ class PaddleOCREngine(OcrEngine):
+             'de', 'es', 'et', 'fr', 'ga', 'hi', 'it', 'ja', 'ko', 'la', 'nl', 'no',
+             'oc', 'pt', 'ro', 'ru', 'sr', 'sv', 'tr', 'uk', 'vi',
+             # Also include common Tesseract codes for compatibility
+-            'eng', 'chi_sim', 'chi_tra', 'deu', 'fra', 'spa', 'rus', 'jpn', 'kor'
++            'eng', 'hin', 'chi_sim', 'chi_tra', 'deu', 'fra', 'spa', 'rus', 'jpn', 'kor'
+         }
+ 
+     @staticmethod
+@@ -226,6 +226,13 @@ class PaddleOCREngine(OcrEngine):
+         if not options.languages:
+             return 'en'
+ 
++        # The Devanagari PP-OCRv5 recognition model supports both Hindi and
++        # English. OCRmyPDF expresses the requested pair as eng+hin; the plugin
++        # README's first-language behavior would otherwise silently drop hin.
++        requested = {str(language).lower() for language in options.languages}
++        if requested == {'eng', 'hin'}:
++            return 'hi'
++
+         # Use first language
+         lang = options.languages[0].lower()
+         return PaddleOCREngine.LANGUAGE_MAP.get(lang, lang)
+@@ -877,6 +884,8 @@ class PaddleOCREngine(OcrEngine):
+ 
+ 
+ @hookimpl
+-def get_ocr_engine():
+-    """Register PaddleOCR as an OCR engine."""
++def get_ocr_engine(options=None):
++    """Return PaddleOCR only when selected or left as the requested default."""
++    if options is not None and getattr(options, 'ocr_engine', 'auto') not in ('auto', 'paddleocr'):
++        return None
+     return PaddleOCREngine()
+diff --git a/pyproject.toml b/pyproject.toml
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -13,3 +13,0 @@
+-authors = [
+-    {name = "Your Name", email = "your.email@example.com"}
+-]
+@@ -40,9 +40,6 @@
+-[project.urls]
+-Homepage = "https://github.com/yourusername/ocrmypdf-paddleocr"
+-Repository = "https://github.com/yourusername/ocrmypdf-paddleocr"
+-"Bug Tracker" = "https://github.com/yourusername/ocrmypdf-paddleocr/issues"
+-
+-[project.entry-points.ocrmypdf]
+-paddleocr = "ocrmypdf_paddleocr.plugin"
+-
++[project.urls]
++Homepage = "https://github.com/clefru/ocrmypdf-paddleocr"
++Repository = "https://github.com/clefru/ocrmypdf-paddleocr"
++"Bug Tracker" = "https://github.com/clefru/ocrmypdf-paddleocr/issues"
++
+ [tool.setuptools]
+ package-dir = {"" = "src"}
+ 
+ [tool.setuptools.packages.find]

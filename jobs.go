@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sort"
 	"sync"
@@ -192,9 +193,39 @@ func processJob(app *App, job *Job) {
 	if (options == OCROptions{}) {
 		options = app.effectiveOCRDefaults()
 	}
+	if options.UploadPDF {
+		var intentErr error
+		switch {
+		case app.Database == nil:
+			intentErr = fmt.Errorf("OCR run persistence is unavailable")
+		default:
+			run, err := GetOCRRunByJobID(app.Database, job.ID)
+			switch {
+			case err != nil:
+				intentErr = fmt.Errorf("could not load persisted OCR run: %w", err)
+			case !run.UploadPDF || run.DocumentID != job.DocumentID:
+				intentErr = fmt.Errorf("persisted OCR run does not authorize this searchable PDF upload")
+			}
+		}
+		if intentErr != nil {
+			logger.Errorf("Blocking searchable PDF upload for job %s: %v", job.ID, intentErr)
+			pagesDone, totalPages := jobStore.progress(job.ID)
+			jobStore.updateJobStatus(job.ID, "failed", intentErr.Error())
+			finishOCRRunLogged(app, job.ID, "failed", intentErr.Error(), pagesDone, totalPages, "", "")
+			return
+		}
+	}
 
 	processedDoc, err := app.ProcessDocumentOCR(jobCtx, job.DocumentID, options, job.ID)
 	pagesDone, totalPages := jobStore.progress(job.ID)
+	if err == nil && processedDoc != nil {
+		if pdfErr := requiredPDFUploadError(options, processedDoc); pdfErr != nil {
+			logger.Errorf("Searchable PDF upload failed for job %s: %v", job.ID, pdfErr)
+			jobStore.updateJobStatus(job.ID, "failed", pdfErr.Error())
+			finishOCRRunLogged(app, job.ID, "failed", pdfErr.Error(), pagesDone, totalPages, processedDoc.PDFAction, processedDoc.PDFDetail)
+			return
+		}
+	}
 	if err != nil {
 		if jobCtx.Err() == context.Canceled {
 			jobStore.updateJobStatus(job.ID, "cancelled", "Job cancelled by user")

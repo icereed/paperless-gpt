@@ -412,6 +412,11 @@ func main() {
 		OllamaContextLength:      ollamaContextLength,
 		GoogleAIAPIKey:           os.Getenv("GOOGLEAI_API_KEY"),
 		GoogleAIThinkingBudget:   googleThinkingBudget,
+		OCRMyPDFCommand:          os.Getenv("OCRMY_PDF_COMMAND"),
+		PDFToTextCommand:         os.Getenv("PDFTOTEXT_COMMAND"),
+		PDFInfoCommand:           os.Getenv("PDFINFO_COMMAND"),
+		OCRMyPDFEngine:           os.Getenv("OCRMY_PDF_ENGINE"),
+		OCRMyPDFLanguage:         os.Getenv("OCRMY_PDF_LANGUAGE"),
 	}
 
 	// Parse Azure timeout if set
@@ -747,6 +752,12 @@ func ocrProviderLabel() string {
 			return fmt.Sprintf("llm (%s)", visionLlmProvider)
 		}
 		return "llm"
+	case "ocrmypdf":
+		engine := strings.ToLower(strings.TrimSpace(os.Getenv("OCRMY_PDF_ENGINE")))
+		if engine == "" {
+			engine = "paddleocr"
+		}
+		return fmt.Sprintf("ocrmypdf (%s)", engine)
 	case "mistral_ocr":
 		model := os.Getenv("MISTRAL_MODEL")
 		if model == "" {
@@ -767,6 +778,7 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
 		"docling":      {"image", "pdf", "whole_pdf"}, // Docling supports image and PDF modes
+		"ocrmypdf":     {"whole_pdf"},
 	}
 
 	// Google Gemini API natively handles PDF documents

@@ -16,6 +16,9 @@ type OCRResult struct {
 	// Plain text output (required)
 	Text string
 
+	// Full searchable PDF output for whole-document OCR providers.
+	PDF []byte
+
 	// hOCR Page data (optional, if provider supports it)
 	HOCRPage *hocr.Page
 
@@ -32,6 +35,12 @@ type OCRResult struct {
 // Provider defines the interface for OCR processing
 type Provider interface {
 	ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error)
+}
+
+// SearchablePDFCapable marks providers that return full searchable PDFs when
+// called with pageNumber zero and whole-document PDF input.
+type SearchablePDFCapable interface {
+	ProducesSearchablePDF() bool
 }
 
 // Config holds the OCR provider configuration
@@ -81,6 +90,13 @@ type Config struct {
 	DoclingOCREngine       string // Optional, defaults to "easyocr", if DoclingOCRPipeline == "standard"
 	DoclingOutputFormat    string // Optional, "md" (default) or "text"
 
+	// OCRmyPDF settings
+	OCRMyPDFCommand  string
+	PDFToTextCommand string
+	PDFInfoCommand   string
+	OCRMyPDFEngine   string
+	OCRMyPDFLanguage string
+
 	// OCR output options
 	EnableHOCR     bool   // Whether to generate hOCR data if supported by the provider
 	HOCROutputPath string // Where to save hOCR output files
@@ -91,6 +107,8 @@ func NewProvider(config Config) (Provider, error) {
 	log.Info("Initializing OCR provider: ", config.Provider)
 
 	switch config.Provider {
+	case "ocrmypdf":
+		return newOCRMyPDFProvider(config)
 	case "google_docai":
 		if config.GoogleProjectID == "" || config.GoogleLocation == "" || config.GoogleProcessorID == "" {
 			return nil, fmt.Errorf("missing required Google Document AI configuration")

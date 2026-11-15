@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "target": "linux/amd64",
+  "verified": "2026-11-14",
+  "base_images": {
+    "node": {
+      "reference": "docker.io/library/node:24.12.0-bookworm-slim",
+      "oci_index_digest": "sha256:7326fb2dbdce998edd72140946851be64ef4a643e8715e138ca467e8e9d92c99",
+      "metadata": "https://hub.docker.com/v2/repositories/library/node/tags/24.12.0-bookworm-slim"
+    },
+    "golang": {
+      "reference": "docker.io/library/golang:1.27.2-bookworm",
+      "oci_index_digest": "sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61",
+      "metadata": "https://hub.docker.com/v2/repositories/library/golang/tags/1.27.2-bookworm"
+    },
+    "python": {
+      "reference": "docker.io/library/python:3.12.12-slim-bookworm",
+      "oci_index_digest": "sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c",
+      "metadata": "https://hub.docker.com/v2/repositories/library/python/tags/3.12.12-slim-bookworm"
+    }
+  },
+  "debian_snapshot": "https://snapshot.debian.org/archive/debian/20261114T000000Z/ (bookworm + bookworm-security)",
+  "python_packages": {
+    "ocrmypdf": {
+      "version": "17.14.1",
+      "extra": "rapidocr",
+      "reason": "OCRmyPDF baseline; rapidocr extra supplies built-in --ocr-engine rapidocr",
+      "metadata": "https://pypi.org/pypi/ocrmypdf/17.14.1/json",
+      "wheel_sha256": "f3914926608e408d6a3cb4d7cb8d2a1f6e3ed21e3e817c0fd39ebd90aa593967"
+    },
+    "rapidocr": {
+      "version": "3.10.0",
+      "reason": "Satisfies OCRmyPDF 17.14.1 rapidocr extra",
+      "metadata": "https://pypi.org/pypi/rapidocr/3.10.0/json",
+      "wheel_sha256": "2fc34e26cd0f48514804a94f8832283039c7334076bff60768b1fed9ad068050"
+    },
+    "onnxruntime": {
+      "version": "1.23.2",
+      "reason": "CPU ONNX backend for RapidOCR; Paddle engine separately uses native PaddlePaddle",
+      "metadata": "https://pypi.org/pypi/onnxruntime/1.23.2/json"
+    },
+    "paddlepaddle": {
+      "version": "3.2.2",
+      "reason": "Native CPU PaddlePaddle, not RapidOCR's Paddle backend",
+      "metadata": "https://pypi.org/pypi/paddlepaddle/3.2.2/json"
+    },
+    "paddleocr": {
+      "version": "3.3.2",
+      "reason": "Matches plugin's paddleocr==3.3.* requirement",
+      "metadata": "https://pypi.org/pypi/paddleocr/3.3.2/json",
+      "wheel_sha256": "b7536b7e8ee531ec8f6073555986c7eaa9ed2b50e00605b796b167635fd799ac"
+    },
+    "paddlex": {
+      "version": "3.3.8",
+      "reason": "Matches plugin's paddlex==3.3.* requirement",
+      "metadata": "https://pypi.org/pypi/paddlex/3.3.8/json",
+      "wheel_sha256": "bf6f4780e739f5d25ca930a5aa274ef00c67cce3b0b4724d10f9fdbbf079eee6"
+    },
+    "numpy": {
+      "version": "1.26.4",
+      "reason": "Avoids known PaddlePaddle NumPy 2.x compatibility issue; satisfies Paddle/PaddleX/RapidOCR constraints",
+      "metadata": "https://pypi.org/pypi/numpy/1.26.4/json"
+    },
+    "pip": {
+      "version": "25.3",
+      "metadata": "https://pypi.org/pypi/pip/25.3/json"
+    },
+    "setuptools": {
+      "version": "80.9.0",
+      "metadata": "https://pypi.org/pypi/setuptools/80.9.0/json"
+    },
+    "setuptools-scm": {
+      "version": "9.2.2",
+      "metadata": "https://pypi.org/pypi/setuptools-scm/9.2.2/json"
+    },
+    "wheel": {
+      "version": "0.45.1",
+      "metadata": "https://pypi.org/pypi/wheel/0.45.1/json"
+    }
+  },
+  "paddleocr_paddle_plugin": {
+    "repository": "https://github.com/clefru/ocrmypdf-paddleocr",
+    "commit": "46fd027feb69de08ab831be27e337f97086ff2f0",
+    "commit_tree": "https://api.github.com/repos/clefru/ocrmypdf-paddleocr/git/trees/46fd027feb69de08ab831be27e337f97086ff2f0",
+    "readme": "https://raw.githubusercontent.com/clefru/ocrmypdf-paddleocr/master/README.md",
+    "setup_py": "https://raw.githubusercontent.com/clefru/ocrmypdf-paddleocr/master/setup.py",
+    "license": "MPL-2.0 (upstream README declaration; source LICENSE retained in cloned package)",
+    "compatibility_patch": "patches/eng-hin.patch"
+  },
+  "engine_selection": {
+    "paddle_cli": "--plugin ocrmypdf_paddleocr --ocr-engine auto",
+    "paddle_registration": "Explicit CLI plugin only; no setuptools auto-entrypoint, preventing duplicate hook registration and engine shadowing.",
+    "rapid_cli": "--ocr-engine rapidocr without --plugin",
+    "tesseract_system_package": "tesseract-ocr",
+    "tesseract_role": "OCRmyPDF 17.14.1 checks Tesseract version for engine auto even when registered plugin selects Paddle. It is installed only to satisfy that preflight; regression tests assert the selected engine object for Paddle and Rapid."
+  },
+  "language_compatibility": {
+    "requested_tesseract_codes": ["eng", "hin"],
+    "paddle_plugin_lang": "hi",
+    "paddle_model": "devanagari_PP-OCRv5_mobile_rec",
+    "paddle_model_languages": ["Hindi", "English"],
+    "rapidocr_model": "PP-OCRv5 mobile devanagari",
+    "rapidocr_model_languages": ["Hindi", "English"],
+    "rapidocr_model_cache": "/models/rapidocr",
+    "rapidocr_source": "https://raw.githubusercontent.com/ocrmypdf/OCRmyPDF/v17.14.1/src/ocrmypdf/builtin_plugins/rapidocr_ocr.py",
+    "rapidocr_source_commit": "3343116ba204c99c9fee762d538dc1b668711bfb",
+    "paddle_evidence": "https://www.paddleocr.ai/v3.3.2/en/version3.x/algorithm/PP-OCRv5/PP-OCRv5_multi_languages.html",
+    "limitation": "The upstream Paddle plugin ordinarily takes only the first OCRmyPDF language. Local patch handles exact eng+hin. RapidOCR rejects requests requiring different recognition models; other combinations are not claimed as supported."
+  },
+  "persistent_cache": {
+    "container_path": "/models",
+    "expected_owner": "18040:18040",
+    "mode": "0700",
+    "mounted_volume_required": true
+  },
+  "dependency_lock": {
+    "file": "requirements.lock",
+    "generator": "uv pip compile --generate-hashes --python-version 3.12 --python-platform x86_64-manylinux_2_28",
+    "scope": "Complete transitive Python dependency closure for Python 3.12 on x86_64 manylinux_2_28"
+  }
+}
