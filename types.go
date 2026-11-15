@@ -29,7 +29,7 @@ type GetDocumentApiResponseResult struct {
 	Tags    []int  `json:"tags"`
 	// Created             time.Time     `json:"created"`
 	CreatedDate string `json:"created_date"`
-	// Modified            time.Time     `json:"modified"`
+	Modified    string `json:"modified"`
 	// Added               time.Time     `json:"added"`
 	// ArchiveSerialNumber interface{}   `json:"archive_serial_number"`
 	// OriginalFileName    string        `json:"original_file_name"`
@@ -69,6 +69,7 @@ type GetDocumentApiResponse struct {
 	Content          string                `json:"content"`
 	Tags             []int                 `json:"tags"`
 	CreatedDate      string                `json:"created_date"`
+	Modified         string                `json:"modified"`
 	OriginalFileName string                `json:"original_file_name"`
 	Notes            []interface{}         `json:"notes"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
@@ -90,6 +91,7 @@ type Document struct {
 	TagIDs           []int                 `json:"tag_ids,omitempty"`
 	Correspondent    string                `json:"correspondent"`
 	CreatedDate      string                `json:"created_date"`
+	Modified         string                `json:"modified,omitempty"`
 	OriginalFileName string                `json:"original_file_name"`
 	DocumentTypeName string                `json:"document_type_name"`
 	CustomFields     []CustomFieldResponse `json:"custom_fields"`
@@ -162,6 +164,10 @@ type Settings struct {
 	CustomFieldsWriteMode   string           `json:"custom_fields_write_mode"` // "append" or "replace"
 	OCR                     OCRDefaults      `json:"ocr"`
 	Workflows               []WorkflowConfig `json:"workflows,omitempty"`
+	// IgnoredTags are structural tags (an inbox, a review queue) left out of
+	// similar-document context and removed from the document when a suggestion
+	// is applied.
+	IgnoredTags []string `json:"ignored_tags,omitempty"`
 }
 
 // OCRDefaults are persisted run-option defaults, editable from the UI.

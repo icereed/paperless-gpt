@@ -357,6 +357,7 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 				// The auto tag is already gone (it was part of the successful
 				// retry's tag update). Apply the fail tag so the user sees
 				// that this document needs review.
+				app.refreshEmbeddingMetadata(ctx, suggestions)
 				applyFailTagAfterPartialSuccess(ctx, app.Client, app.Database, partial.DocumentID, partial.DroppedFields)
 				processedCount++
 				continue
@@ -369,6 +370,7 @@ func (app *App) processTagDocuments(ctx context.Context, triggerTag string) (int
 		}
 
 		docLogger.Info("Successfully processed document")
+		app.refreshEmbeddingMetadata(ctx, suggestions)
 		processedCount++
 	}
 

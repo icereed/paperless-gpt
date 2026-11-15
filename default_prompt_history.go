@@ -9,16 +9,25 @@ package main
 var previousDefaultPrompts = map[string][]string{
 	"correspondent_prompt.tmpl": {
 		"4257eafb65354c82d62a7d4d37453e234172f3a908e6df1bd97aebff964ffc63",
+		"8877a49f286ea6920393d2f565ce57a401e9449ff5de0a9ceb95e1e3b4bbf178",
 	},
 	"custom_field_prompt.tmpl": {
 		"391979d2b0518e495ccc77ae2ac2bc7d02ea22c9902b2acdcd807964230b3875",
+		"bee7e73a36ac78f4241c43036a1a483d3554bf722ee0688ea5d26af8b93481d8",
 		"cad2ed737a0ba79c6519f1e870b2c862c9a108f28f81ca41d6ca5e12ab33603a",
 		"e169fd7a4db89342fa7165fccb0198461803d140e7264106625bc5efcb08dd1b",
+	},
+	"document_type_prompt.tmpl": {
+		"55287aa5eef98b2d1a1e0c2f1d00e2f234245da1dcdeebe0ddbd9dc9dea665a8",
 	},
 	"ocr_prompt.tmpl": {
 		"96375d60e7074f9de2ae351a90dbcc3f4e21e833aa69fb314148cf95f0cc3db3",
 	},
 	"tag_prompt.tmpl": {
 		"777ee47c0b8b8bb2c857f363a2e2a529a706e090e6fe5668aa3c9eb3cda05e23",
+		"ffde90a083ebd0ad1d7d174107f23bb5a2074f169b901c61aaa165dbd0b77b62",
+	},
+	"title_prompt.tmpl": {
+		"afbb91faee19f96ad5603f521f49264e8179dd354e484eeab3975f2aed2973d6",
 	},
 }

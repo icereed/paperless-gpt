@@ -18,7 +18,10 @@ The data will be provided using an XML-like format for clarity:
 {{.Title}}
 </title>
 
-<content>
+{{if .SimilarDocuments}}
+{{.SimilarDocuments}}
+
+{{end}}<content>
 {{.Content}}
 </content>
 

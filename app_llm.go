@@ -40,6 +40,7 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 		"AvailableCorrespondents": availableCorrespondents,
 		"BlackList":               correspondentBlackList,
 		"Title":                   suggestedTitle,
+		"SimilarDocuments":        similarDocumentsFromContext(ctx),
 	}
 
 	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
@@ -101,16 +102,19 @@ func (app *App) getSuggestedTags(
 		activeTmpl = tmplOverride
 	}
 
-	// Remove all paperless-gpt related tags from available tags
-	availableTags = removeSystemTags(availableTags)
+	// System tags and the user's workflow tags are not candidates. A workflow
+	// tag already on this document is removed from the suggestion, so applying
+	// it takes the tag off the document.
+	availableTags = removeIgnoredTags(removeSystemTags(availableTags))
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
-		"Language":      likelyLanguage,
-		"AvailableTags": availableTags,
-		"OriginalTags":  originalTags,
-		"Title":         suggestedTitle,
-		"CreateNewTags": createNewTags,
+		"Language":         likelyLanguage,
+		"AvailableTags":    availableTags,
+		"OriginalTags":     removeIgnoredTags(originalTags),
+		"Title":            suggestedTitle,
+		"CreateNewTags":    createNewTags,
+		"SimilarDocuments": similarDocumentsFromContext(ctx),
 	}
 
 	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
@@ -190,7 +194,7 @@ func (app *App) getSuggestedTags(
 		// processed those include the trigger tag paperless-gpt is reacting to.
 		// With CREATE_NEW_TAGS on, nothing else here would drop them, so a
 		// system tag would come back out as a "suggestion" and be re-applied.
-		return removeSystemTags(filteredTags), nil
+		return removeIgnoredTags(removeSystemTags(filteredTags)), nil
 	}
 
 	filteredTags := []string{}
@@ -206,7 +210,7 @@ func (app *App) getSuggestedTags(
 	// Belt and braces: availableTags is already system-tag-free, so this only
 	// matters if that ever regresses. paperless-gpt applies its own tags
 	// through AddTags/RemoveTags, never through a suggestion.
-	return removeSystemTags(filteredTags), nil
+	return removeIgnoredTags(removeSystemTags(filteredTags)), nil
 }
 
 // getSuggestedDocumentType generates a suggested document type for a document using the LLM.
@@ -232,6 +236,7 @@ func (app *App) getSuggestedDocumentType(
 		"Language":               likelyLanguage,
 		"AvailableDocumentTypes": availableDocumentTypes,
 		"Title":                  suggestedTitle,
+		"SimilarDocuments":       similarDocumentsFromContext(ctx),
 	}
 
 	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
@@ -304,9 +309,10 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 
 	// Get available tokens for content
 	templateData := map[string]interface{}{
-		"Language": likelyLanguage,
-		"Content":  content,
-		"Title":    originalTitle,
+		"Language":         likelyLanguage,
+		"Content":          content,
+		"Title":            originalTitle,
+		"SimilarDocuments": similarDocumentsFromContext(ctx),
 	}
 
 	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
@@ -511,11 +517,12 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 	}
 
 	templateData := map[string]interface{}{
-		"Language":        getLikelyLanguage(),
-		"Title":           doc.Title,
-		"CreatedDate":     doc.CreatedDate,
-		"DocumentType":    doc.DocumentTypeName,
-		"CustomFieldsXML": customFieldsXML,
+		"Language":         getLikelyLanguage(),
+		"Title":            doc.Title,
+		"CreatedDate":      doc.CreatedDate,
+		"DocumentType":     doc.DocumentTypeName,
+		"CustomFieldsXML":  customFieldsXML,
+		"SimilarDocuments": similarDocumentsFromContext(ctx),
 	}
 
 	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
@@ -784,6 +791,7 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	}
 
 	content := sanitize.Sanitize(doc.Content)
+	ctx = contextWithSimilarDocuments(ctx, app.similarDocumentsBlock(ctx, doc, content))
 	suggestedTitle := doc.Title
 	var suggestedTags []string
 	var suggestedCorrespondent string
@@ -907,6 +915,11 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	}
 
 	suggestion.RemoveTags, suggestion.AddTags = handoverTags(app.autoTagComplete, suggestionRequest.IsAutoProcessing, suggestionRequest.TriggerTag, suggestionRequest.Workflow)
+	if suggestionRequest.GenerateTags {
+		// Workflow tags come off when the suggestion is applied, including
+		// when the suggested list is empty and would not replace the tags.
+		suggestion.RemoveTags = mergeTagNames(suggestion.RemoveTags, ignoredTagsPresent(doc.Tags))
+	}
 	if len(suggestion.AddTags) > 0 {
 		docLogger.Debugf("Adding completion tags %v", suggestion.AddTags)
 	}

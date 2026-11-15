@@ -159,6 +159,10 @@ type App struct {
 	ocrFailures        documentFailureTracker // Per-document OCR failure counts for the auto-OCR poll
 	suggestionFailures documentFailureTracker // Per-document suggestion failure counts for the auto-tag poll
 	WorkflowRouter     WorkflowRouter         // Maps documents to workflows; nil uses one trigger tag per workflow
+	Embedder           Embedder               // nil disables similar-document context
+	Embeddings         *EmbeddingStore        // local vectors for the configured embedding model
+	similarLimit       int                    // how many neighbors to put in a suggestion prompt
+	embeddingJob       *embeddingJob          // build/rebuild progress
 }
 
 func main() {
@@ -464,6 +468,22 @@ func main() {
 		ocrProviderLabel:   ocrProviderLabel(),
 	}
 
+	embeddingCfg, err := loadEmbeddingConfig()
+	if err != nil {
+		log.Fatalf("Invalid embedding configuration: %v", err)
+	}
+	if embeddingCfg.Provider != "" {
+		embedder, err := newEmbedder(embeddingCfg)
+		if err != nil {
+			log.Fatalf("Failed to initialize embeddings: %v", err)
+		}
+		app.Embedder = embedder
+		app.Embeddings = NewEmbeddingStore(database, embeddingCfg.Model)
+		app.similarLimit = embeddingCfg.SimilarLimit
+		app.embeddingJob = &embeddingJob{}
+		log.Infof("Similar-document context enabled with %s model %s", embeddingCfg.Provider, embeddingCfg.Model)
+	}
+
 	rawAutoTagMaxRetries := os.Getenv("AUTO_TAG_MAX_RETRIES")
 	if rawAutoTagMaxRetries == "" {
 		autoTagMaxRetries = 3
@@ -543,6 +563,10 @@ func main() {
 		api.POST("/prompts", updatePromptsHandler)
 		api.GET("/settings", app.getSettingsHandler)
 		api.POST("/settings", app.updateSettingsHandler)
+		api.GET("/embeddings", app.getEmbeddingsHandler)
+		api.POST("/embeddings/build", app.buildEmbeddingsHandler)
+		api.POST("/embeddings/rebuild", app.rebuildEmbeddingsHandler)
+		api.POST("/embeddings/cancel", app.cancelEmbeddingsHandler)
 
 		// OCR endpoints
 		api.POST("/documents/:id/ocr", app.submitOCRJobHandler)
@@ -1118,6 +1142,115 @@ func removeSystemTags(tags []string) []string {
 		}
 	}
 	return filtered
+}
+
+// ignoredTags returns the structural tags the user asked to keep out of
+// suggestions. Comparison is case-insensitive; the saved spelling is kept.
+func ignoredTags() []string {
+	settingsMutex.RLock()
+	defer settingsMutex.RUnlock()
+	return append([]string{}, settings.IgnoredTags...)
+}
+
+// normalizeTagList trims entries, drops blanks, and keeps the first spelling
+// of each tag.
+func normalizeTagList(tags []string) []string {
+	seen := make(map[string]struct{}, len(tags))
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		key := strings.ToLower(tag)
+		if tag == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, tag)
+	}
+	return out
+}
+
+// removeIgnoredTags drops tags the user listed under Settings. Tags that are
+// not on the list are returned unchanged, including when the list is empty.
+func removeIgnoredTags(tags []string) []string {
+	excluded := make(map[string]struct{})
+	for _, tag := range ignoredTags() {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		excluded[strings.ToLower(tag)] = struct{}{}
+	}
+	if len(excluded) == 0 {
+		return tags
+	}
+	filtered := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if _, skip := excluded[strings.ToLower(strings.TrimSpace(tag))]; skip {
+			continue
+		}
+		filtered = append(filtered, tag)
+	}
+	return filtered
+}
+
+// ignoredTagsPresent returns the given tags that are on the user's workflow
+// list, using the spelling on the document.
+func ignoredTagsPresent(tags []string) []string {
+	excluded := make(map[string]struct{})
+	for _, tag := range ignoredTags() {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		excluded[strings.ToLower(tag)] = struct{}{}
+	}
+	if len(excluded) == 0 {
+		return nil
+	}
+	present := make([]string, 0, len(tags))
+	seen := make(map[string]struct{})
+	for _, tag := range tags {
+		trimmed := strings.TrimSpace(tag)
+		key := strings.ToLower(trimmed)
+		if _, listed := excluded[key]; !listed {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		present = append(present, trimmed)
+	}
+	return present
+}
+
+// mergeTagNames appends tags that are not already in the list. Comparison is
+// case-insensitive and the first spelling is kept.
+func mergeTagNames(base, extra []string) []string {
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	out := make([]string, 0, len(base)+len(extra))
+	add := func(tag string) {
+		tag = strings.TrimSpace(tag)
+		key := strings.ToLower(tag)
+		if tag == "" {
+			return
+		}
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, tag)
+	}
+	for _, tag := range base {
+		add(tag)
+	}
+	for _, tag := range extra {
+		add(tag)
+	}
+	return out
 }
 
 // getLikelyLanguage determines the likely language of the document content

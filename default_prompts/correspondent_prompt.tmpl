@@ -42,7 +42,10 @@ Important constraints:
 {{.Title}}
 </title>
 
-<content>
+{{if .SimilarDocuments}}
+{{.SimilarDocuments}}
+
+{{end}}<content>
 {{.Content}}
 </content>
 
