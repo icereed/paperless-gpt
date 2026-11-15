@@ -220,7 +220,7 @@ func (client *PaperlessClient) Do(ctx context.Context, method, path string, body
 		"url":    url,
 	}).Debug("Making HTTP request")
 
-	resp, err := client.HTTPClient.Do(req)
+	resp, _, err := client.doAuditedRequest(req)
 	if err != nil {
 		log.WithError(err).WithFields(logrus.Fields{
 			"url":    url,
@@ -1038,11 +1038,11 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 					updatedFields["tags"] = []int{}
 				}
 			} else {
-				// Nothing to send, but a suggestion was dropped (e.g. a
-				// correspondent that could not be created): report it so the
-				// caller flags the document instead of treating it as done.
 				if len(partialDroppedFields) > 0 && firstPartial == nil {
 					firstPartial = &PartialUpdateError{DocumentID: documentID, DroppedFields: partialDroppedFields}
+				}
+				if err := client.recordMutationNoOp(fmt.Sprintf("api/documents/%d/", documentID), "document_update", documentID, "no changed fields"); err != nil {
+					return fmt.Errorf("persist document update no-op audit: %w", err)
 				}
 				continue
 			}
@@ -1130,66 +1130,58 @@ func (client *PaperlessClient) UpdateDocuments(ctx context.Context, documents []
 				// Now we need to remove the auto/manual tag using the bulk edit API
 				log.Infof("Document %d: Removing auto/manual tag in separate update", documentID)
 
-				// Get the current document state to see what tags it has now
+				// Get the current document state to see what tags it has now.
 				currentDoc, err := client.GetDocument(ctx, documentID)
 				if err != nil {
-					log.Warnf("Failed to get current document state for tag removal: %v", err)
-				} else {
-					// Remove auto/manual tags from current tags. Work on tag
-					// IDs rather than names so tags the API user cannot see
-					// survive: they have no resolvable name and would
-					// otherwise be dropped here.
-					workflowTagIDs := make(map[int]bool)
-					for tagName, tagID := range availableTags {
-						if isHandoverTag(tagName) {
-							workflowTagIDs[tagID] = true
-						}
-					}
-					var remainingTagIDs []int
-					var remainingTagNames []string
-					for _, tagID := range currentDoc.TagIDs {
-						if workflowTagIDs[tagID] {
-							continue
-						}
-						remainingTagIDs = append(remainingTagIDs, tagID)
-						if tagName, ok := idToTagName[tagID]; ok {
-							remainingTagNames = append(remainingTagNames, tagName)
-						}
-					}
+					return fmt.Errorf("failed to get current document state for tag removal: %w", err)
+				}
 
-					// Always send the tag update to remove auto/manual tags, even if it results in an empty array
-					// This is required - the auto/manual tag MUST be removed
-					// Ensure we send an empty array [] instead of null
-					if remainingTagIDs == nil {
-						remainingTagIDs = []int{}
+				// Remove auto/manual tags from current tags. Work on tag IDs
+				// rather than names so tags the API user cannot see survive.
+				workflowTagIDs := make(map[int]bool)
+				for tagName, tagID := range availableTags {
+					if isHandoverTag(tagName) {
+						workflowTagIDs[tagID] = true
 					}
-					tagUpdateFields := map[string]interface{}{
-						"tags": remainingTagIDs,
+				}
+				var remainingTagIDs []int
+				var remainingTagNames []string
+				for _, tagID := range currentDoc.TagIDs {
+					if workflowTagIDs[tagID] {
+						continue
 					}
-					tagJsonData, err := json.Marshal(tagUpdateFields)
-					if err == nil {
-						tagPath := fmt.Sprintf("api/documents/%d/", documentID)
-						tagResp, err := client.Do(ctx, "PATCH", tagPath, bytes.NewBuffer(tagJsonData))
-						if err == nil {
-							defer tagResp.Body.Close()
-							if tagResp.StatusCode == http.StatusOK {
-								log.Infof("Document %d: Successfully removed auto/manual tag", documentID)
-								// Record this tag change with tag names for both PreviousValue and NewValue
-								mod := ModificationHistory{
-									DocumentID:    uint(documentID),
-									ModField:      "tags",
-									PreviousValue: marshalTagsForHistory(originalDoc.Tags),
-									NewValue:      marshalTagsForHistory(remainingTagNames),
-								}
-								if err := InsertModification(db, &mod); err != nil {
-									log.Warnf("Error inserting tag modification record: %v", err)
-								}
-							} else {
-								bodyBytes, _ := io.ReadAll(tagResp.Body)
-								log.Warnf("Failed to remove auto/manual tag: %d, %s", tagResp.StatusCode, string(bodyBytes))
-							}
-						}
+					remainingTagIDs = append(remainingTagIDs, tagID)
+					if tagName, ok := idToTagName[tagID]; ok {
+						remainingTagNames = append(remainingTagNames, tagName)
 					}
+				}
+				if remainingTagIDs == nil {
+					remainingTagIDs = []int{}
+				}
+				tagJsonData, err := json.Marshal(map[string]interface{}{"tags": remainingTagIDs})
+				if err != nil {
+					return fmt.Errorf("error marshalling tags for document %d: %w", documentID, err)
+				}
+				tagPath := fmt.Sprintf("api/documents/%d/", documentID)
+				tagResp, err := client.Do(ctx, "PATCH", tagPath, bytes.NewBuffer(tagJsonData))
+				if err != nil {
+					return fmt.Errorf("error removing auto/manual tags from document %d: %w", documentID, err)
+				}
+				tagStatus := tagResp.StatusCode
+				tagResp.Body.Close()
+				if tagStatus != http.StatusOK {
+					return fmt.Errorf("error removing auto/manual tags from document %d: Paperless returned HTTP %d", documentID, tagStatus)
+				}
+
+				log.Infof("Document %d: Successfully removed auto/manual tag", documentID)
+				mod := ModificationHistory{
+					DocumentID:    uint(documentID),
+					ModField:      "tags",
+					PreviousValue: marshalTagsForHistory(originalDoc.Tags),
+					NewValue:      marshalTagsForHistory(remainingTagNames),
+				}
+				if err := InsertModification(db, &mod); err != nil {
+					log.Warnf("Error inserting tag modification record: %v", err)
 				}
 			}
 		}
@@ -2166,7 +2158,7 @@ func (client *PaperlessClient) UploadDocument(ctx context.Context, pdfData []byt
 	req.Header.Set("Authorization", fmt.Sprintf("Token %s", client.APIToken))
 
 	// Send the request
-	resp, err := client.HTTPClient.Do(req)
+	resp, _, err := client.doAuditedRequest(req)
 	if err != nil {
 		return "", fmt.Errorf("error sending request: %w", err)
 	}
@@ -2233,7 +2225,7 @@ func (client *PaperlessClient) UploadDocumentVersion(ctx context.Context, docume
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Authorization", fmt.Sprintf("Token %s", client.APIToken))
 
-	resp, err := client.HTTPClient.Do(req)
+	resp, _, err := client.doAuditedRequest(req)
 	if err != nil {
 		return "", fmt.Errorf("error sending request: %w", err)
 	}
@@ -2241,7 +2233,18 @@ func (client *PaperlessClient) UploadDocumentVersion(ctx context.Context, docume
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("error reading response: %w", err)
+		auditErr := client.recordAsyncMutationOutcome(
+			fmt.Sprintf("api/documents/%d/update_version/", documentID),
+			"document_version_upload_response",
+			fmt.Sprint(documentID),
+			"",
+			"invalid_response",
+			"response_read_error",
+		)
+		if auditErr != nil {
+			return "", fmt.Errorf("error reading version response; audit outcome could not be persisted: %w", auditErr)
+		}
+		return "", fmt.Errorf("error reading version response")
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		return "", fmt.Errorf("error uploading document version: document %d not found, or paperless-ngx is older than 3.0 (no version support): %s", documentID, string(bodyBytes))
@@ -2252,6 +2255,17 @@ func (client *PaperlessClient) UploadDocumentVersion(ctx context.Context, docume
 
 	taskID := strings.Trim(strings.TrimSpace(string(bodyBytes)), "\"")
 	if taskID == "" {
+		auditErr := client.recordAsyncMutationOutcome(
+			fmt.Sprintf("api/documents/%d/update_version/", documentID),
+			"document_version_upload_response",
+			fmt.Sprint(documentID),
+			"",
+			"invalid_response",
+			"task_id_missing",
+		)
+		if auditErr != nil {
+			return "", fmt.Errorf("empty task ID returned; audit outcome could not be persisted: %w", auditErr)
+		}
 		return "", fmt.Errorf("empty task ID returned")
 	}
 

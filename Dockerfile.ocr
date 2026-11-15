@@ -1,0 +1,123 @@
+# Combined Paperless-GPT + OCRmyPDF/PaddleOCR/RapidOCR image.
+# Docker Hub OCI index digests verified 2026-11-14; build targets linux/amd64.
+ARG VERSION=0.31.0
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG PADDLE_PLUGIN_COMMIT=46fd027feb69de08ab831be27e337f97086ff2f0
+
+FROM --platform=linux/amd64 docker.io/library/node:24.12.0-bookworm-slim@sha256:7326fb2dbdce998edd72140946851be64ef4a643e8715e138ca467e8e9d92c99 AS frontend
+WORKDIR /app
+COPY web-app/package.json web-app/package-lock.json ./
+RUN npm ci
+COPY web-app/ ./
+RUN npm run build
+
+FROM --platform=linux/amd64 docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY *.go ./
+COPY ocr ./ocr
+COPY sanitize ./sanitize
+COPY internal ./internal
+COPY --from=frontend /app/dist /app/web-app/dist
+ARG VERSION
+ARG COMMIT
+ARG BUILD_DATE
+RUN CGO_ENABLED=1 GOMAXPROCS=2 go build \
+    -ldflags="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
+    -o /app/paperless-gpt .
+
+# Fetch genuine upstream source at an immutable commit. The compatibility patch
+# preserves English/Hindi support and makes Paddle activation explicit-only.
+FROM --platform=linux/amd64 docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS paddle-plugin
+ARG PADDLE_PLUGIN_COMMIT
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN git init /src/ocrmypdf-paddleocr \
+    && git -C /src/ocrmypdf-paddleocr remote add origin https://github.com/clefru/ocrmypdf-paddleocr.git \
+    && git -C /src/ocrmypdf-paddleocr fetch --depth=1 origin "${PADDLE_PLUGIN_COMMIT}" \
+    && git -C /src/ocrmypdf-paddleocr checkout --detach FETCH_HEAD
+COPY ocr-runtime/patches/eng-hin.patch /tmp/eng-hin.patch
+RUN git --version \
+    && git -C /src/ocrmypdf-paddleocr apply --check /tmp/eng-hin.patch \
+    && git -C /src/ocrmypdf-paddleocr apply /tmp/eng-hin.patch \
+    && git -C /src/ocrmypdf-paddleocr diff --check
+
+# Independent glibc/Python image; Paperless-NGX image remains untouched.
+FROM --platform=linux/amd64 docker.io/library/python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c AS ocr-base
+ARG APP_UID=18040
+ARG APP_GID=18040
+ARG PADDLE_PLUGIN_COMMIT
+ARG VERSION
+ARG COMMIT
+ARG BUILD_DATE
+ENV GIN_MODE=release \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/ocr/bin:${PATH}" \
+    OCRMY_PDF_COMMAND=/opt/ocr/bin/ocrmypdf \
+    PDFTOTEXT_COMMAND=/usr/bin/pdftotext \
+    PDFINFO_COMMAND=/usr/bin/pdfinfo \
+    OCR_PROCESS_MODE=whole_pdf \
+    OCRMY_PDF_ENGINE=paddleocr \
+    OCRMY_PDF_LANGUAGE=eng+hin \
+    OCR_PADDLE_PLUGIN_COMMIT=${PADDLE_PLUGIN_COMMIT} \
+    APP_VERSION=${VERSION} \
+    APP_COMMIT=${COMMIT} \
+    APP_BUILD_DATE=${BUILD_DATE} \
+    HOME=/models \
+    XDG_CACHE_HOME=/models/cache \
+    PADDLE_PDX_CACHE_HOME=/models/paddle \
+    OCRMYPDF_RAPIDOCR_MODEL_DIR=/models/rapidocr
+
+# Freeze Debian packages at a signed, dated snapshot. Poppler supplies
+# pdftotext/pdfinfo; Ghostscript and qpdf support OCRmyPDF's PDF pipeline.
+RUN rm -f /etc/apt/sources.list.d/debian.sources \
+    && printf '%s\n' \
+       'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20261114T000000Z bookworm main' \
+       'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20261114T000000Z bookworm-security main' \
+       > /etc/apt/sources.list \
+    && printf '%s\n' 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99snapshot \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       ca-certificates ghostscript qpdf poppler-utils unpaper pngquant jbig2dec \
+       libgl1 libglib2.0-0 libgomp1 fonts-noto-core fontconfig tesseract-ocr \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/ocr
+COPY ocr-runtime/requirements.lock /tmp/requirements.lock
+RUN /opt/ocr/bin/pip install --no-cache-dir --require-hashes -r /tmp/requirements.lock
+COPY --from=paddle-plugin /src/ocrmypdf-paddleocr /tmp/ocrmypdf-paddleocr
+RUN SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 \
+    /opt/ocr/bin/pip install --no-cache-dir --no-deps --no-build-isolation /tmp/ocrmypdf-paddleocr \
+    && rm -rf /tmp/ocrmypdf-paddleocr /tmp/requirements.lock
+
+COPY ocr-runtime/versions.py /opt/ocr/bin/ocr-runtime-versions
+RUN chmod 0555 /opt/ocr/bin/ocr-runtime-versions \
+    && groupadd --gid "${APP_GID}" paperless-gpt \
+    && useradd --uid "${APP_UID}" --gid "${APP_GID}" --home-dir /models \
+       --no-create-home --shell /usr/sbin/nologin paperless-gpt \
+    && mkdir -p /models/cache /models/rapidocr /models/paddle \
+    && chown -R "${APP_UID}:${APP_GID}" /models \
+    && chmod 0700 /models
+
+# This target allows OCR dependencies to build and smoke-test before app changes.
+FROM ocr-base AS ocr-runtime
+ARG APP_UID=18040
+ARG APP_GID=18040
+USER ${APP_UID}:${APP_GID}
+ENTRYPOINT ["/opt/ocr/bin/ocrmypdf"]
+
+# Final app image reuses exact OCR runtime and adds Paperless-GPT binary/assets.
+FROM ocr-runtime AS paperless-gpt
+ARG APP_UID=18040
+ARG APP_GID=18040
+USER root
+WORKDIR /app
+COPY --from=builder --chown=${APP_UID}:${APP_GID} /app/paperless-gpt /app/paperless-gpt
+COPY --chown=${APP_UID}:${APP_GID} default_prompts/ /app/default_prompts/
+RUN mkdir -p /app/config /app/db /app/prompts \
+    && chown -R "${APP_UID}:${APP_GID}" /app/config /app/db /app/prompts
+EXPOSE 8080
+USER ${APP_UID}:${APP_GID}
+ENTRYPOINT ["/app/paperless-gpt"]

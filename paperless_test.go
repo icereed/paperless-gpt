@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -56,6 +57,10 @@ func newTestEnv(t *testing.T) *testEnv {
 	}))
 
 	// Initialize the PaperlessClient with the mock server URL
+	auditPath := filepath.Join(t.TempDir(), "events.jsonl")
+	require.NoError(t, os.WriteFile(auditPath, nil, 0o600))
+	t.Setenv("OCR_AUDIT_PATH", auditPath)
+
 	env.client = NewPaperlessClient(env.server.URL, "test-token")
 	env.client.HTTPClient = env.server.Client()
 
@@ -81,14 +86,14 @@ func newTestEnv(t *testing.T) *testEnv {
 }
 
 func InitializeTestDB() (*gorm.DB, error) {
-	// Use in-memory SQLite for testing
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	// Match production schema without sharing pending upload state across tests.
+	db, err := gorm.Open(sqlite.Open("file:"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}
 
 	// Migrate schema
-	err = db.AutoMigrate(&ModificationHistory{})
+	err = db.AutoMigrate(&ModificationHistory{}, &OCRPageResult{}, &OCRRun{})
 	if err != nil {
 		return nil, err
 	}

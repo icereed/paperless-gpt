@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -81,8 +82,20 @@ func FinishOCRRun(db *gorm.DB, jobID string, status string, errorMsg string, pag
 // MarkInterruptedOCRRuns flags runs that were in progress when the process
 // died. Called once on startup.
 func MarkInterruptedOCRRuns(db *gorm.DB) error {
-	return db.Model(&OCRRun{}).Where("status = ?", "in_progress").
-		Updates(map[string]interface{}{"status": "interrupted", "error": "paperless-gpt restarted while this run was in progress"}).Error
+	updates := map[string]interface{}{
+		"status": "interrupted",
+		"error":  "paperless-gpt restarted while this run was in progress",
+	}
+	if err := db.Model(&OCRRun{}).Where("status = ? AND upload_pdf = ?", "in_progress", true).
+		Updates(map[string]interface{}{
+			"status":     "interrupted",
+			"error":      "paperless-gpt restarted during a searchable PDF upload; reconcile Paperless before retrying",
+			"pdf_action": "failed",
+			"pdf_detail": "upload outcome unknown after restart; manual reconciliation required before retrying",
+		}).Error; err != nil {
+		return err
+	}
+	return db.Model(&OCRRun{}).Where("status = ? AND upload_pdf = ?", "in_progress", false).Updates(updates).Error
 }
 
 // ListOCRRuns returns runs newest-first, optionally filtered by document.
@@ -108,6 +121,29 @@ func GetOCRRunByJobID(db *gorm.DB, jobID string) (*OCRRun, error) {
 		return nil, err
 	}
 	return &run, nil
+}
+
+// HasUnresolvedPDFUpload reports whether any searchable-PDF upload still needs
+// reconciliation. Newer runs that failed before upload do not erase an older
+// uncertain upload. Auto OCR must not repeat a consequential version-upload POST.
+func HasUnresolvedPDFUpload(db *gorm.DB, documentID int, completionTagPresent bool) (bool, error) {
+	var run OCRRun
+	err := db.Select("status", "pdf_action").
+		Where("document_id = ? AND upload_pdf = ?", documentID, true).
+		Where("status IN ? OR pdf_action IN ?",
+			[]string{"in_progress", "interrupted"},
+			[]string{"failed", "attached", "versioned", "replaced"}).
+		Order("started_at DESC").Order("id DESC").First(&run).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if run.Status == "in_progress" || run.Status == "interrupted" || run.PDFAction == "failed" {
+		return true, nil
+	}
+	return !completionTagPresent, nil
 }
 
 // PruneOCRRuns keeps page texts for the newest runs of a document and caps

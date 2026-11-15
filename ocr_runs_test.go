@@ -68,6 +68,58 @@ func TestMarkInterruptedOCRRuns(t *testing.T) {
 	assert.Equal(t, "interrupted", stored.Status)
 }
 
+func TestHasUnresolvedPDFUploadBlocksAutomaticResend(t *testing.T) {
+	db := newOCRRunTestDB(t)
+	failed := &OCRRun{JobID: "pdf-failed", DocumentID: 20, UploadPDF: true}
+	require.NoError(t, CreateOCRRun(db, failed))
+	require.NoError(t, FinishOCRRun(db, failed.JobID, "failed", "upload unconfirmed", 1, 1, "failed", "unconfirmed"))
+
+	blocked, err := HasUnresolvedPDFUpload(db, 20, false)
+	require.NoError(t, err)
+	assert.True(t, blocked, "failed or unconfirmed version upload must not be sent again automatically")
+	blocked, err = HasUnresolvedPDFUpload(db, 20, true)
+	require.NoError(t, err)
+	assert.True(t, blocked, "an older completion tag must not hide a failed upload")
+
+	withoutUpload := &OCRRun{JobID: "pdf-not-created", DocumentID: 20, UploadPDF: true}
+	require.NoError(t, CreateOCRRun(db, withoutUpload))
+	require.NoError(t, FinishOCRRun(db, withoutUpload.JobID, "failed", "OCR failed before upload", 0, 1, "none", ""))
+	blocked, err = HasUnresolvedPDFUpload(db, 20, false)
+	require.NoError(t, err)
+	assert.True(t, blocked, "a later failure before upload must not hide an earlier unconfirmed upload")
+
+	preUploadOnly := &OCRRun{JobID: "pre-upload-only", DocumentID: 22, UploadPDF: true}
+	require.NoError(t, CreateOCRRun(db, preUploadOnly))
+	require.NoError(t, FinishOCRRun(db, preUploadOnly.JobID, "failed", "OCR failed before upload", 0, 1, "none", ""))
+	blocked, err = HasUnresolvedPDFUpload(db, 22, false)
+	require.NoError(t, err)
+	assert.False(t, blocked, "a pre-upload failure with no prior upload may be retried")
+
+	succeeded := &OCRRun{JobID: "pdf-succeeded", DocumentID: 20, UploadPDF: true}
+	require.NoError(t, CreateOCRRun(db, succeeded))
+	require.NoError(t, FinishOCRRun(db, succeeded.JobID, "completed", "", 1, 1, "versioned", ""))
+	blocked, err = HasUnresolvedPDFUpload(db, 20, false)
+	require.NoError(t, err)
+	assert.True(t, blocked, "confirmed version must not be resent while its completion tag is missing")
+	blocked, err = HasUnresolvedPDFUpload(db, 20, true)
+	require.NoError(t, err)
+	assert.False(t, blocked, "confirmed version plus completion tag may clear the pending tag")
+}
+
+func TestHasUnresolvedPDFUploadBlocksInterruptedRun(t *testing.T) {
+	db := newOCRRunTestDB(t)
+	require.NoError(t, CreateOCRRun(db, &OCRRun{JobID: "pdf-interrupted", DocumentID: 21, UploadPDF: true}))
+	require.NoError(t, MarkInterruptedOCRRuns(db))
+
+	blocked, err := HasUnresolvedPDFUpload(db, 21, false)
+	require.NoError(t, err)
+	assert.True(t, blocked, "an interrupted upload may already have been accepted by Paperless")
+	stored, err := GetOCRRunByJobID(db, "pdf-interrupted")
+	require.NoError(t, err)
+	assert.Equal(t, "failed", stored.PDFAction)
+	assert.Contains(t, stored.PDFDetail, "manual reconciliation")
+}
+
 func TestPruneOCRRunsKeepsPageTextsForRecentRuns(t *testing.T) {
 	db := newOCRRunTestDB(t)
 

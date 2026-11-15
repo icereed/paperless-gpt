@@ -412,6 +412,11 @@ func main() {
 		OllamaContextLength:      ollamaContextLength,
 		GoogleAIAPIKey:           os.Getenv("GOOGLEAI_API_KEY"),
 		GoogleAIThinkingBudget:   googleThinkingBudget,
+		OCRMyPDFCommand:          os.Getenv("OCRMY_PDF_COMMAND"),
+		PDFToTextCommand:         os.Getenv("PDFTOTEXT_COMMAND"),
+		PDFInfoCommand:           os.Getenv("PDFINFO_COMMAND"),
+		OCRMyPDFEngine:           os.Getenv("OCRMY_PDF_ENGINE"),
+		OCRMyPDFLanguage:         os.Getenv("OCRMY_PDF_LANGUAGE"),
 	}
 
 	// Parse Azure timeout if set
@@ -438,6 +443,9 @@ func main() {
 			log.Fatalf("❌ Invalid OCR configuration: %v", err)
 		}
 		log.Infof("✅ OCR provider and processing mode configuration is valid")
+		if err := validateSavedOCRProcessMode(providerType, visionLlmProvider); err != nil {
+			log.Fatalf("Invalid saved OCR configuration: %v", err)
+		}
 	}
 
 	// Initialize App with dependencies
@@ -747,6 +755,12 @@ func ocrProviderLabel() string {
 			return fmt.Sprintf("llm (%s)", visionLlmProvider)
 		}
 		return "llm"
+	case "ocrmypdf":
+		engine := strings.ToLower(strings.TrimSpace(os.Getenv("OCRMY_PDF_ENGINE")))
+		if engine == "" {
+			engine = "paddleocr"
+		}
+		return fmt.Sprintf("ocrmypdf (%s)", engine)
 	case "mistral_ocr":
 		model := os.Getenv("MISTRAL_MODEL")
 		if model == "" {
@@ -767,6 +781,7 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
 		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
 		"docling":      {"image", "pdf", "whole_pdf"}, // Docling supports image and PDF modes
+		"ocrmypdf":     {"whole_pdf"},
 	}
 
 	// Google Gemini API natively handles PDF documents
@@ -788,6 +803,31 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 
 	return fmt.Errorf("OCR provider '%s' does not support processing mode '%s'. Supported modes: %v",
 		provider, mode, modes)
+}
+
+func validateConfiguredOCRProcessMode(mode string) error {
+	provider := strings.TrimSpace(os.Getenv("OCR_PROVIDER"))
+	if provider == "" {
+		provider = "llm"
+	}
+	if mode == "" {
+		mode = "image"
+	}
+	return validateOCRProviderModeCompatibility(provider, mode, visionLlmProvider)
+}
+
+func validateSavedOCRProcessMode(provider, visionProvider string) error {
+	settingsMutex.RLock()
+	defer settingsMutex.RUnlock()
+
+	savedMode := settings.OCR.ProcessMode
+	if savedMode == nil || *savedMode == "" {
+		return nil
+	}
+	if err := validateOCRProviderModeCompatibility(provider, *savedMode, visionProvider); err != nil {
+		return fmt.Errorf("saved OCR mode %q is incompatible with provider %q: %w; set `ocr.process_mode` to a supported mode in config/settings.json or remove the saved override", *savedMode, provider, err)
+	}
+	return nil
 }
 
 // validateOrDefaultEnvVars ensures all necessary environment variables are set

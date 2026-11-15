@@ -15,6 +15,7 @@ import (
 	"text/template"
 	"time"
 
+	"paperless-gpt/ocr"
 	"paperless-gpt/sanitize"
 
 	"github.com/Masterminds/sprig/v3"
@@ -137,6 +138,13 @@ func (app *App) updateSettingsHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&newSettings); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
+	}
+
+	if mode := newSettings.OCR.ProcessMode; mode != nil && *mode != "" {
+		if err := validateConfiguredOCRProcessMode(*mode); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	// Update the global settings variable
@@ -346,11 +354,14 @@ type submitOCRJobRequest struct {
 	PromptOverride  string  `json:"prompt_override"`
 }
 
-// ocrSupportsHOCR reports whether the configured provider can produce hOCR
-// (the prerequisite for searchable PDFs).
-func (app *App) ocrSupportsHOCR() bool {
+// ocrSupportsSearchablePDF reports whether the configured provider can return a
+// complete searchable PDF, either directly or through generated hOCR.
+func (app *App) ocrSupportsSearchablePDF() bool {
 	if app.ocrProvider == nil {
 		return false
+	}
+	if capable, ok := app.ocrProvider.(ocr.SearchablePDFCapable); ok && capable.ProducesSearchablePDF() {
+		return true
 	}
 	capable, ok := app.ocrProvider.(HOCRCapable)
 	return ok && capable.IsHOCREnabled()
@@ -388,6 +399,10 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 		}
 		options.ProcessMode = mode
 	}
+	if err := validateConfiguredOCRProcessMode(options.ProcessMode); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	if req.UploadPDF != nil {
 		options.UploadPDF = *req.UploadPDF
 	}
@@ -405,8 +420,8 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "replace_original is not available when PDF_UPLOAD_MODE=version: the PDF is added as a new version and nothing is deleted"})
 		return
 	}
-	if options.UploadPDF && !app.ocrSupportsHOCR() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Searchable PDFs need an hOCR-capable OCR provider (enable hOCR for the LLM provider)"})
+	if options.UploadPDF && !app.ocrSupportsSearchablePDF() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Searchable PDFs need a provider that returns full PDFs or hOCR"})
 		return
 	}
 	if req.PromptOverride != "" {
@@ -460,6 +475,10 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 	}
 	if err := CreateOCRRun(app.Database, run); err != nil {
 		log.Warnf("Failed to persist OCR run for job %s: %v", jobID, err)
+		if options.UploadPDF {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not persist OCR run before searchable PDF upload"})
+			return
+		}
 	}
 
 	// Add job to store and queue
@@ -505,7 +524,7 @@ func (app *App) getOCRConfigHandler(c *gin.Context) {
 	response := gin.H{
 		"enabled":      enabled,
 		"provider":     app.ocrProviderLabel,
-		"hocr_capable": app.ocrSupportsHOCR(),
+		"hocr_capable": app.ocrSupportsSearchablePDF(),
 		"defaults": gin.H{
 			"limit_pages":      defaults.LimitPages,
 			"process_mode":     defaults.ProcessMode,
@@ -550,6 +569,12 @@ func (app *App) updateOCRDefaultsHandler(c *gin.Context) {
 			return
 		}
 	}
+	if defaults.ProcessMode != nil && *defaults.ProcessMode != "" {
+		if err := validateConfiguredOCRProcessMode(*defaults.ProcessMode); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	uploadEnabled := app.pdfUpload
 	if defaults.UploadPDF != nil {
 		uploadEnabled = *defaults.UploadPDF
@@ -564,8 +589,8 @@ func (app *App) updateOCRDefaultsHandler(c *gin.Context) {
 	}
 	// Mirror the submit-time guard: a saved upload_pdf default without an
 	// hOCR-capable provider would break every run that inherits it.
-	if uploadEnabled && !app.ocrSupportsHOCR() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Searchable PDFs need an hOCR-capable OCR provider; cannot save upload_pdf as a default"})
+	if uploadEnabled && !app.ocrSupportsSearchablePDF() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Searchable PDFs need a provider that returns full PDFs or hOCR; cannot save upload_pdf as a default"})
 		return
 	}
 

@@ -432,6 +432,14 @@ func (app *App) runWorkflowDocumentOCR(ctx context.Context, document Document, w
 	}
 
 	pagesDone, totalPages := jobStore.progress(jobID)
+	if err == nil && processedDoc != nil {
+		if pdfErr := requiredPDFUploadError(options, processedDoc); pdfErr != nil {
+			docLogger.WithError(pdfErr).Error("Workflow searchable PDF upload was not confirmed; leaving trigger tag untouched")
+			jobStore.updateJobStatus(jobID, "failed", pdfErr.Error())
+			finishOCRRunLogged(app, jobID, "failed", pdfErr.Error(), pagesDone, totalPages, processedDoc.PDFAction, processedDoc.PDFDetail)
+			return nil, fmt.Errorf("document %d workflow searchable PDF upload error: %w", document.ID, pdfErr)
+		}
+	}
 	if err != nil {
 		docLogger.Errorf("Workflow OCR processing failed: %v", err)
 		jobStore.updateJobStatus(jobID, "failed", err.Error())
@@ -507,6 +515,18 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
 	}
+	if len(documents) == 25 {
+		count, countErr := app.Client.GetDocumentCountByTag(ctx, autoOcrTag)
+		if countErr != nil {
+			return 0, fmt.Errorf("error counting documents with autoOcrTag: %w", countErr)
+		}
+		if count > len(documents) {
+			documents, err = app.Client.GetDocumentsByTag(ctx, autoOcrTag, count)
+			if err != nil {
+				return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
+			}
+		}
+	}
 
 	if len(documents) == 0 {
 		log.Debugf("No documents with tag %s found", autoOcrTag)
@@ -522,42 +542,47 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		docLogger := documentLogger(document.ID)
 		docLogger.Info("Processing document for OCR")
 
-		// Skip OCR if the document already has the OCR complete tag and tagging is enabled
+		options := app.effectiveOCRDefaults()
+		hasCompleteTag := false
 		if app.pdfOCRTagging {
-			hasCompleteTag := false
 			for _, tag := range document.Tags {
 				if tag == app.pdfOCRCompleteTag {
 					hasCompleteTag = true
 					break
 				}
 			}
-
-			if hasCompleteTag {
-				docLogger.Infof("Document already has OCR complete tag '%s', skipping OCR processing", app.pdfOCRCompleteTag)
-
-				// Remove only the autoOcrTag to take it out of the processing queue
-				// while preserving the OCR complete tag
-				err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
-					{
-						ID:               document.ID,
-						OriginalDocument: document,
-						RemoveTags:       []string{autoOcrTag},
-					},
-				}, app.Database, false)
-
-				if err != nil {
-					docLogger.Errorf("Update to remove autoOcrTag failed: %v", err)
-					errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
-					continue
-				}
-
-				docLogger.Info("Successfully removed auto OCR tag")
-				successCount++
-				continue
-			}
 		}
 
-		options := app.effectiveOCRDefaults()
+		blocked, guardErr := HasUnresolvedPDFUpload(app.Database, document.ID, hasCompleteTag)
+		if guardErr != nil {
+			docLogger.WithError(guardErr).Warn("Could not check prior searchable PDF upload; leaving the pending tag untouched")
+			errs = append(errs, fmt.Errorf("document %d PDF upload history error: %w", document.ID, guardErr))
+			continue
+		}
+		if blocked {
+			docLogger.Warn("Leaving pending OCR tag in place; latest searchable PDF upload is unresolved and will not be sent again")
+			continue
+		}
+
+		if hasCompleteTag {
+			docLogger.Infof("Document already has OCR complete tag '%s', skipping OCR processing", app.pdfOCRCompleteTag)
+			err = app.Client.UpdateDocuments(ctx, []DocumentSuggestion{
+				{
+					ID:               document.ID,
+					OriginalDocument: document,
+					RemoveTags:       []string{autoOcrTag},
+				},
+			}, app.Database, false)
+			if err != nil {
+				docLogger.Errorf("Update to remove autoOcrTag failed: %v", err)
+				errs = append(errs, fmt.Errorf("document %d update error: %w", document.ID, err))
+				continue
+			}
+			docLogger.Info("Successfully removed auto OCR tag")
+			successCount++
+			continue
+		}
+
 		options.ExistingContent = document.Content
 
 		// Every auto run is tracked exactly like a manual one: registered in
@@ -587,6 +612,11 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 			PDFAction:       "none",
 		}); err != nil {
 			docLogger.Warnf("Failed to persist auto OCR run: %v", err)
+			if options.UploadPDF {
+				jobStore.updateJobStatus(jobID, "failed", "could not persist OCR run before searchable PDF upload")
+				errs = append(errs, fmt.Errorf("document %d: could not persist OCR run before searchable PDF upload: %w", document.ID, err))
+				continue
+			}
 		}
 
 		// Use the DocumentProcessor interface instead of calling the method directly
@@ -601,10 +631,20 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		}
 
 		pagesDone, totalPages := jobStore.progress(jobID)
+		pdfAction, pdfDetail := "", ""
+		if processedDoc != nil {
+			pdfAction, pdfDetail = processedDoc.PDFAction, processedDoc.PDFDetail
+		}
+		if err == nil && processedDoc != nil {
+			if pdfErr := requiredPDFUploadError(options, processedDoc); pdfErr != nil {
+				docLogger.WithError(pdfErr).Error("Searchable PDF upload was not confirmed; leaving pending OCR tag untouched")
+				err = pdfErr
+			}
+		}
 		if err != nil {
 			docLogger.Errorf("OCR processing failed: %v", err)
 			jobStore.updateJobStatus(jobID, "failed", err.Error())
-			finishOCRRunLogged(app, jobID, "failed", err.Error(), pagesDone, totalPages, "", "")
+			finishOCRRunLogged(app, jobID, "failed", err.Error(), pagesDone, totalPages, pdfAction, pdfDetail)
 
 			// A canceled/expired poll-loop context is a shutdown, not a
 			// document problem — never count it against the document.
