@@ -443,6 +443,9 @@ func main() {
 			log.Fatalf("❌ Invalid OCR configuration: %v", err)
 		}
 		log.Infof("✅ OCR provider and processing mode configuration is valid")
+		if err := validateSavedOCRProcessMode(providerType, visionLlmProvider); err != nil {
+			log.Fatalf("Invalid saved OCR configuration: %v", err)
+		}
 	}
 
 	// Initialize App with dependencies
@@ -800,6 +803,28 @@ func validateOCRProviderModeCompatibility(provider, mode, visionProvider string)
 
 	return fmt.Errorf("OCR provider '%s' does not support processing mode '%s'. Supported modes: %v",
 		provider, mode, modes)
+}
+
+func validateConfiguredOCRProcessMode(mode string) error {
+	provider := strings.TrimSpace(os.Getenv("OCR_PROVIDER"))
+	if provider == "" {
+		return nil // No explicitly configured provider to constrain this request.
+	}
+	return validateOCRProviderModeCompatibility(provider, mode, visionLlmProvider)
+}
+
+func validateSavedOCRProcessMode(provider, visionProvider string) error {
+	settingsMutex.RLock()
+	defer settingsMutex.RUnlock()
+
+	savedMode := settings.OCR.ProcessMode
+	if savedMode == nil || *savedMode == "" {
+		return nil
+	}
+	if err := validateOCRProviderModeCompatibility(provider, *savedMode, visionProvider); err != nil {
+		return fmt.Errorf("saved OCR mode %q is incompatible with provider %q: %w; set `ocr.process_mode` to a supported mode in config/settings.json or remove the saved override", *savedMode, provider, err)
+	}
+	return nil
 }
 
 // validateOrDefaultEnvVars ensures all necessary environment variables are set

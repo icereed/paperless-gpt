@@ -99,7 +99,7 @@ func TestReplaceDeletesOriginalOnlyAfterConfirmedImport(t *testing.T) {
 		name        string
 		statuses    []string // one task response per poll; "500" fails the request
 		wantDeleted bool
-		wantKept    bool // uploaded but original kept (replaceAfterUploadError)
+		wantKept    bool // import unconfirmed; original must remain
 	}{
 		{"success deletes", []string{"STARTED", "success"}, true, false},
 		{"a transient status error is retried", []string{"500", "SUCCESS"}, true, false},
@@ -149,8 +149,8 @@ func TestReplaceDeletesOriginalOnlyAfterConfirmedImport(t *testing.T) {
 
 			assert.Equal(t, tt.wantDeleted, deleted)
 			if tt.wantKept {
-				var kept *replaceAfterUploadError
-				require.ErrorAs(t, err, &kept, "reported as uploaded-but-not-replaced, not as a failed upload")
+				var kept *documentImportUnconfirmedError
+				require.ErrorAs(t, err, &kept, "unconfirmed imports must remain unresolved, not successful attachments")
 				assert.Contains(t, err.Error(), "original was kept")
 			} else {
 				assert.NoError(t, err)

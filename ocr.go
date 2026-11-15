@@ -639,6 +639,13 @@ func setPDFUploadOutcome(processedDoc *ProcessedDocument, options OCROptions, up
 		}
 		return
 	}
+	var documentUnconfirmed *documentImportUnconfirmedError
+	if errors.As(uploadErr, &documentUnconfirmed) {
+		processedDoc.PDFAction = "failed"
+		processedDoc.PDFDetail = fmt.Sprintf("Upload accepted, but paperless-ngx did not confirm the document import; check task %s before retrying.", documentUnconfirmed.taskID)
+		logger.WithError(uploadErr).Error("Paperless-ngx did not confirm the uploaded PDF import")
+		return
+	}
 
 	var unconfirmedErr *versionUnconfirmedError
 	if errors.As(uploadErr, &unconfirmedErr) {
@@ -812,21 +819,33 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 
 	logger.WithField("task_id", taskID).Info("PDF uploaded successfully")
 
-	// If replacing the original is requested, delete it after upload, but
-	// only once paperless-ngx has confirmed that the upload was imported.
-	// Deleting on anything less (status unreadable, still pending when we stop
-	// waiting) can leave neither the original nor the replacement.
-	if options.ReplaceOriginal {
-		logger.Info("Waiting for document processing to complete before deletion...")
-		imported, reason, err := app.waitForImport(ctx, taskID, logger)
-		if err != nil {
-			return err
-		}
-		if !imported {
-			return &replaceAfterUploadError{cause: fmt.Errorf(
-				"paperless-ngx did not confirm the import of the searchable PDF (task %s: %s), so the original was kept; delete it once the new document shows up", taskID, reason)}
-		}
+	// Every new-document upload must be confirmed, including attachments that
+	// do not replace an original. Acceptance alone does not finish ingestion.
+	imported, reason, importErr := app.waitForImport(ctx, taskID, logger)
+	outcome, errorCode := "success", ""
+	if importErr != nil {
+		outcome, errorCode = "rejected", "paperless_task_failure"
+	} else if !imported {
+		outcome, errorCode = "unconfirmed", "import_status_unconfirmed"
+	}
+	recorder, ok := app.Client.(interface {
+		recordAsyncMutationOutcome(target, action, documentID, taskID, outcome, errorCode string) error
+	})
+	if !ok {
+		return fmt.Errorf("Paperless client has no durable mutation audit recorder for task %s", taskID)
+	}
+	auditErr := recorder.recordAsyncMutationOutcome("api/documents/post_document/", "document_import", fmt.Sprint(documentID), taskID, outcome, errorCode)
+	if importErr != nil {
+		return fmt.Errorf("Paperless import task %s failed: %w", taskID, errors.Join(importErr, auditErr))
+	}
+	if !imported {
+		return &documentImportUnconfirmedError{taskID: taskID, cause: errors.Join(fmt.Errorf("%s", reason), auditErr)}
+	}
+	if auditErr != nil {
+		return fmt.Errorf("Paperless confirmed document task %s, but audit outcome could not be recorded: %w", taskID, auditErr)
+	}
 
+	if options.ReplaceOriginal {
 		// Delete original document. The PDF is already uploaded at this point,
 		// so signal that distinctly: the caller must not report the whole upload
 		// as failed (a retry would create a duplicate).
@@ -838,6 +857,17 @@ func (app *App) uploadProcessedPDF(ctx context.Context, documentID int, pdfData 
 
 	return nil
 }
+
+type documentImportUnconfirmedError struct {
+	taskID string
+	cause  error
+}
+
+func (e *documentImportUnconfirmedError) Error() string {
+	return fmt.Sprintf("paperless-ngx did not confirm the searchable PDF import (task %s: %v); original was kept", e.taskID, e.cause)
+}
+
+func (e *documentImportUnconfirmedError) Unwrap() error { return e.cause }
 
 // waitForImport polls an upload task until paperless-ngx reports it done.
 // imported is true only for a SUCCESS status. A FAILURE status is returned as

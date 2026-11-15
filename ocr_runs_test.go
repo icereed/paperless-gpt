@@ -86,7 +86,14 @@ func TestHasUnresolvedPDFUploadBlocksAutomaticResend(t *testing.T) {
 	require.NoError(t, FinishOCRRun(db, withoutUpload.JobID, "failed", "OCR failed before upload", 0, 1, "none", ""))
 	blocked, err = HasUnresolvedPDFUpload(db, 20, false)
 	require.NoError(t, err)
-	assert.False(t, blocked, "a failure before any PDF upload may be retried")
+	assert.True(t, blocked, "a later failure before upload must not hide an earlier unconfirmed upload")
+
+	preUploadOnly := &OCRRun{JobID: "pre-upload-only", DocumentID: 22, UploadPDF: true}
+	require.NoError(t, CreateOCRRun(db, preUploadOnly))
+	require.NoError(t, FinishOCRRun(db, preUploadOnly.JobID, "failed", "OCR failed before upload", 0, 1, "none", ""))
+	blocked, err = HasUnresolvedPDFUpload(db, 22, false)
+	require.NoError(t, err)
+	assert.False(t, blocked, "a pre-upload failure with no prior upload may be retried")
 
 	succeeded := &OCRRun{JobID: "pdf-succeeded", DocumentID: 20, UploadPDF: true}
 	require.NoError(t, CreateOCRRun(db, succeeded))

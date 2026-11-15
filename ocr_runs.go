@@ -123,12 +123,16 @@ func GetOCRRunByJobID(db *gorm.DB, jobID string) (*OCRRun, error) {
 	return &run, nil
 }
 
-// HasUnresolvedPDFUpload reports whether the newest searchable-PDF run is
-// active, interrupted, failed, or already uploaded while the completion tag is
-// still absent. Auto OCR must not repeat a consequential version-upload POST.
+// HasUnresolvedPDFUpload reports whether any searchable-PDF upload still needs
+// reconciliation. Newer runs that failed before upload do not erase an older
+// uncertain upload. Auto OCR must not repeat a consequential version-upload POST.
 func HasUnresolvedPDFUpload(db *gorm.DB, documentID int, completionTagPresent bool) (bool, error) {
 	var run OCRRun
-	err := db.Where("document_id = ? AND upload_pdf = ?", documentID, true).
+	err := db.Select("status", "pdf_action").
+		Where("document_id = ? AND upload_pdf = ?", documentID, true).
+		Where("status IN ? OR pdf_action IN ?",
+			[]string{"in_progress", "interrupted"},
+			[]string{"failed", "attached", "versioned", "replaced"}).
 		Order("started_at DESC").Order("id DESC").First(&run).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return false, nil
@@ -136,17 +140,10 @@ func HasUnresolvedPDFUpload(db *gorm.DB, documentID int, completionTagPresent bo
 	if err != nil {
 		return false, err
 	}
-	if run.Status == "in_progress" || run.Status == "interrupted" {
+	if run.Status == "in_progress" || run.Status == "interrupted" || run.PDFAction == "failed" {
 		return true, nil
 	}
-	switch run.PDFAction {
-	case "failed":
-		return true, nil
-	case "attached", "versioned", "replaced":
-		return !completionTagPresent, nil
-	default:
-		return false, nil
-	}
+	return !completionTagPresent, nil
 }
 
 // PruneOCRRuns keeps page texts for the newest runs of a document and caps

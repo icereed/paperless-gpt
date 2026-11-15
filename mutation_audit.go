@@ -92,8 +92,8 @@ func (client *PaperlessClient) doAuditedRequest(req *http.Request) (*http.Respon
 			outcome.Outcome = "rejected"
 			outcome.Error = "Paperless returned a non-success HTTP status"
 		case strings.HasPrefix(req.URL.Path, "/api/") && strings.Contains(resp.Header.Get("Content-Type"), "text/html"):
-			outcome.Outcome = "rejected"
-			outcome.Error = "Paperless returned HTML instead of an API response"
+			outcome.Outcome = "unconfirmed"
+			outcome.Error = "Paperless returned HTML instead of an API response; mutation outcome is unknown"
 		default:
 			outcome.Outcome = "success"
 		}
@@ -205,7 +205,7 @@ func appendMutationAudit(path string, event *mutationAuditEvent) error {
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("audit path must be a regular file")
 	}
-	file, err := os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_APPEND, 0)
+	file, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_APPEND, 0)
 	if err != nil {
 		return fmt.Errorf("open audit file: %w", err)
 	}
@@ -216,6 +216,15 @@ func appendMutationAudit(path string, event *mutationAuditEvent) error {
 	}
 	if !stat.Mode().IsRegular() {
 		return fmt.Errorf("audit path must be a regular file")
+	}
+	if stat.Size() > 0 {
+		var tail [1]byte
+		if _, err := file.ReadAt(tail[:], stat.Size()-1); err != nil {
+			return fmt.Errorf("read audit record boundary: %w", err)
+		}
+		if tail[0] != '\n' {
+			return fmt.Errorf("audit file ends with an incomplete record; operator reconciliation required")
+		}
 	}
 	event.Sequence = stat.Size()
 	line, err := json.Marshal(event)

@@ -515,6 +515,18 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
 	}
+	if len(documents) == 25 {
+		count, countErr := app.Client.GetDocumentCountByTag(ctx, autoOcrTag)
+		if countErr != nil {
+			return 0, fmt.Errorf("error counting documents with autoOcrTag: %w", countErr)
+		}
+		if count > len(documents) {
+			documents, err = app.Client.GetDocumentsByTag(ctx, autoOcrTag, count)
+			if err != nil {
+				return 0, fmt.Errorf("error fetching documents with autoOcrTag: %w", err)
+			}
+		}
+	}
 
 	if len(documents) == 0 {
 		log.Debugf("No documents with tag %s found", autoOcrTag)
@@ -619,19 +631,20 @@ func (app *App) processAutoOcrTagDocuments(ctx context.Context) (int, error) {
 		}
 
 		pagesDone, totalPages := jobStore.progress(jobID)
+		pdfAction, pdfDetail := "", ""
+		if processedDoc != nil {
+			pdfAction, pdfDetail = processedDoc.PDFAction, processedDoc.PDFDetail
+		}
 		if err == nil && processedDoc != nil {
 			if pdfErr := requiredPDFUploadError(options, processedDoc); pdfErr != nil {
 				docLogger.WithError(pdfErr).Error("Searchable PDF upload was not confirmed; leaving pending OCR tag untouched")
-				jobStore.updateJobStatus(jobID, "failed", pdfErr.Error())
-				finishOCRRunLogged(app, jobID, "failed", pdfErr.Error(), pagesDone, totalPages, processedDoc.PDFAction, processedDoc.PDFDetail)
-				errs = append(errs, fmt.Errorf("document %d searchable PDF upload error: %w", document.ID, pdfErr))
-				continue
+				err = pdfErr
 			}
 		}
 		if err != nil {
 			docLogger.Errorf("OCR processing failed: %v", err)
 			jobStore.updateJobStatus(jobID, "failed", err.Error())
-			finishOCRRunLogged(app, jobID, "failed", err.Error(), pagesDone, totalPages, "", "")
+			finishOCRRunLogged(app, jobID, "failed", err.Error(), pagesDone, totalPages, pdfAction, pdfDetail)
 
 			// A canceled/expired poll-loop context is a shutdown, not a
 			// document problem — never count it against the document.

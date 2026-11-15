@@ -212,20 +212,22 @@ func runOCRCommand(ctx context.Context, command string, args ...string) (string,
 const maxCommandOutputBytes = 64 << 20
 
 type boundedCommandOutput struct {
-	bytes.Buffer
+	buffer    bytes.Buffer
 	truncated bool
 }
 
 func (b *boundedCommandOutput) Write(data []byte) (int, error) {
 	original := len(data)
-	remaining := maxCommandOutputBytes - b.Len()
+	remaining := maxCommandOutputBytes - b.buffer.Len()
 	if len(data) > remaining {
 		data = data[:remaining]
 		b.truncated = true
 	}
-	_, _ = b.Buffer.Write(data)
+	_, _ = b.buffer.Write(data)
 	return original, nil
 }
+
+func (b *boundedCommandOutput) String() string { return b.buffer.String() }
 
 type discardCommandOutput struct{}
 

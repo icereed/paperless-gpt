@@ -115,16 +115,26 @@ func TestOCRmyPDFProviderReportsCLIError(t *testing.T) {
 	assert.Contains(t, err.Error(), "ocrmypdf")
 }
 
+func TestRunOCRCommandRejectsOutputOverflow(t *testing.T) {
+	command := writeOCRmyPDFScript(t, "head -c 67108865 /dev/zero\n")
+
+	_, err := runOCRCommand(context.Background(), command)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "command output exceeded")
+}
+
 func TestOCRmyPDFProviderCancellationKillsProcessGroup(t *testing.T) {
 	commands := newOCRmyPDFTestCommands(t, "Pages: 2\n", "recognized text\n")
 	started := filepath.Join(t.TempDir(), "child-started")
+	childReady := filepath.Join(t.TempDir(), "child-ready")
 	childMarker := filepath.Join(t.TempDir(), "child-survived")
 	released := filepath.Join(t.TempDir(), "release-child")
 	t.Cleanup(func() { _ = os.WriteFile(released, nil, 0o600) })
 	quote := func(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
 	commands.ocr = writeOCRmyPDFScript(t, fmt.Sprintf(
-		"(while [ ! -e %s ]; do sleep 0.01; done; printf alive > %s) &\nprintf ready > %s\nwait\n",
-		quote(released), quote(childMarker), quote(started),
+		"(printf ready > %s; while [ ! -e %s ]; do sleep 0.01; done; printf alive > %s) &\nprintf ready > %s\nwait\n",
+		quote(childReady), quote(released), quote(childMarker), quote(started),
 	))
 	provider := mustOCRmyPDFProvider(t, commands)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -135,16 +145,19 @@ func TestOCRmyPDFProviderCancellationKillsProcessGroup(t *testing.T) {
 		done <- err
 	}()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(started); err == nil {
-			break
+	waitForFile := func(path string, timeout time.Duration) bool {
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(path); err == nil {
+				return true
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
-		if time.Now().After(deadline) {
-			cancel()
-			t.Fatal("OCR CLI did not start its child process")
-		}
-		time.Sleep(10 * time.Millisecond)
+		return false
+	}
+	if !waitForFile(started, 5*time.Second) || !waitForFile(childReady, 5*time.Second) {
+		cancel()
+		t.Fatal("OCR CLI child did not acknowledge startup")
 	}
 	cancel()
 	select {
@@ -154,8 +167,7 @@ func TestOCRmyPDFProviderCancellationKillsProcessGroup(t *testing.T) {
 		t.Fatal("OCR cancellation did not stop the CLI process group")
 	}
 	require.NoError(t, os.WriteFile(released, nil, 0o600))
-	_, err := os.Stat(childMarker)
-	require.True(t, os.IsNotExist(err), "OCR worker child survived CLI cancellation")
+	assert.False(t, waitForFile(childMarker, time.Second), "OCR worker child survived CLI cancellation")
 }
 
 func TestOCRmyPDFProviderRejectsNonWholePDFInput(t *testing.T) {
