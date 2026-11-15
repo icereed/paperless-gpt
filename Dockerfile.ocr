@@ -39,7 +39,9 @@ RUN git init /src/ocrmypdf-paddleocr \
     && git -C /src/ocrmypdf-paddleocr fetch --depth=1 origin "${PADDLE_PLUGIN_COMMIT}" \
     && git -C /src/ocrmypdf-paddleocr checkout --detach FETCH_HEAD
 COPY ocr-runtime/patches/eng-hin.patch /tmp/eng-hin.patch
-RUN git -C /src/ocrmypdf-paddleocr apply /tmp/eng-hin.patch \
+RUN git --version \
+    && git -C /src/ocrmypdf-paddleocr apply --check /tmp/eng-hin.patch \
+    && git -C /src/ocrmypdf-paddleocr apply /tmp/eng-hin.patch \
     && git -C /src/ocrmypdf-paddleocr diff --check
 
 # Independent glibc/Python image; Paperless-NGX image remains untouched.

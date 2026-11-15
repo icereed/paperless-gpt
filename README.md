@@ -1251,6 +1251,8 @@ OCRMY_PDF_ENGINE=paddleocr
 OCRMY_PDF_LANGUAGE=eng
 ```
 
+When switching from another OCR provider, change the saved OCR mode to `whole_pdf` before switching, or remove its `ocr.process_mode` override from `config/settings.json`. Startup rejects incompatible saved modes with a repair message; it does not silently rewrite settings.
+
 The image includes OCRmyPDF 17.14.1, PaddleOCR 3.3.2/PaddlePaddle 3.2.2, RapidOCR 3.10.0/ONNX Runtime 1.23.2, and a pinned Paddle plugin commit. Supported requested languages are English (`eng`) and English plus Hindi (`eng+hin`); both OCR engines use models supporting these languages. Set `OCRMY_PDF_LANGUAGE` to `eng` or `eng+hin`. PaddleOCR is the default engine: set `OCRMY_PDF_ENGINE=paddleocr`, and the application enables it with `--plugin ocrmypdf_paddleocr --ocr-engine auto`. Set `OCRMY_PDF_ENGINE=rapidocr` to use RapidOCR with `--ocr-engine rapidocr`, without the Paddle plugin. Keep model caches and settings on persistent writable storage outside the image.
 
 In `whole_pdf` mode, JPEG and PNG inputs are embedded locally into a one-page PDF before OCR; PDF inputs retain the existing whole-document path. Other unsupported input types remain rejected. The generated searchable PDF is validated, including page count, before upload.

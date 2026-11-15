@@ -65,25 +65,29 @@ index 3fe1325..89dc7a0 100644
 diff --git a/pyproject.toml b/pyproject.toml
 --- a/pyproject.toml
 +++ b/pyproject.toml
-@@ -13,3 +13,0 @@
+@@ -9,9 +9,6 @@
+ readme = "README.md"
+ requires-python = ">=3.8"
+ license = {text = "MPL-2.0"}
 -authors = [
 -    {name = "Your Name", email = "your.email@example.com"}
 -]
-@@ -40,9 +40,6 @@
--[project.urls]
+ keywords = ["ocr", "pdf", "paddleocr", "ocrmypdf"]
+ classifiers = [
+     "Development Status :: 4 - Beta",
+@@ -36,12 +33,9 @@
+ ]
+ 
+ [project.urls]
 -Homepage = "https://github.com/yourusername/ocrmypdf-paddleocr"
 -Repository = "https://github.com/yourusername/ocrmypdf-paddleocr"
 -"Bug Tracker" = "https://github.com/yourusername/ocrmypdf-paddleocr/issues"
 -
 -[project.entry-points.ocrmypdf]
 -paddleocr = "ocrmypdf_paddleocr.plugin"
--
-+[project.urls]
 +Homepage = "https://github.com/clefru/ocrmypdf-paddleocr"
 +Repository = "https://github.com/clefru/ocrmypdf-paddleocr"
 +"Bug Tracker" = "https://github.com/clefru/ocrmypdf-paddleocr/issues"
-+
+ 
  [tool.setuptools]
  package-dir = {"" = "src"}
- 
- [tool.setuptools.packages.find]
