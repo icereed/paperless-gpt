@@ -95,6 +95,15 @@ OPENAI_API_KEY: "<your LiteLLM virtual key>"
 LLM_MODEL: "<the model alias configured in LiteLLM>"
 ```
 
+### OpenLLM
+
+```yaml
+LLM_PROVIDER: "openai"
+OPENAI_BASE_URL: "https://www.openllm.sh/v1"
+OPENAI_API_KEY: "sk-llm-..."
+LLM_MODEL: "lite" # or "plus" / "ultra", or any <provider>/<model> ID from GET /v1/models
+```
+
 ### llama.cpp server
 
 ```yaml
