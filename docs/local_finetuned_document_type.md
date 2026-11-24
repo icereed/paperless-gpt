@@ -23,14 +23,17 @@ Pull the model straight from Hugging Face into Ollama:
 ollama run hf.co/singhabhishekkk/apprentice-gemma4-e4b-lora-document-types
 ```
 
-Then point paperless-gpt at it:
+Then use it for document type only, with `LLM_MODEL_DOCUMENT_TYPE`. Your other suggestions (title, tags, correspondent, created date, custom fields) keep using `LLM_MODEL`:
 
 ```yaml
 environment:
   LLM_PROVIDER: "ollama"
-  LLM_MODEL: "hf.co/singhabhishekkk/apprentice-gemma4-e4b-lora-document-types"
+  LLM_MODEL: "qwen3:8b" # your usual model for the other fields
+  LLM_MODEL_DOCUMENT_TYPE: "hf.co/singhabhishekkk/apprentice-gemma4-e4b-lora-document-types"
   OLLAMA_HOST: "http://host.docker.internal:11434"
 ```
+
+`LLM_MODEL_DOCUMENT_TYPE` uses the same `LLM_PROVIDER` as `LLM_MODEL`, so this model needs `LLM_PROVIDER: "ollama"`.
 
 On native Linux Docker Engine, `host.docker.internal` needs an extra hosts mapping (Docker Desktop sets it up for you):
 
@@ -41,7 +44,8 @@ extra_hosts:
 
 ## Know the limits before you switch
 
-- **This model is specialized for document type only.** paperless-gpt uses one text LLM for all suggestions (title, correspondent, tags, and type). If you switch `LLM_MODEL` to this one, the other fields have not been evaluated and may perform poorly. Use it if document type is the field you care about, or as a starting point for a per-field model option.
+- **This model is specialized for document type only.** Set it as `LLM_MODEL_DOCUMENT_TYPE`, not `LLM_MODEL`. Its quality on the other fields has not been evaluated.
+- If your `LLM_PROVIDER` is not `ollama`, you can't use this model alongside your current one yet.
 - It was trained on English tobacco-industry documents with 10 fixed classes. Your type list, languages, and OCR quality will differ. Test on your own documents first.
 - 60 held-out rows is a small eval. The numbers above are honest but not a guarantee.
 
