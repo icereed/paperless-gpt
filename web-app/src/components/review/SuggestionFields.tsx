@@ -1,10 +1,11 @@
 import classNames from "classnames";
-import React from "react";
+import React, { useId } from "react";
 import { ReactTags } from "react-tag-autocomplete";
 import { DocumentSuggestion, TagOption } from "../../DocumentProcessor";
 import {
   FieldKey,
   SuggestionEditHandlers,
+  customFieldInputError,
   fieldChanged,
   fieldLabels,
   originalValue,
@@ -107,6 +108,7 @@ const SuggestionFields: React.FC<SuggestionFieldsProps> = ({
   handlers,
   disabled,
 }) => {
+  const customFieldsId = useId();
   const sortedAvailableTags = [...availableTags].sort((a, b) =>
     a.name.localeCompare(b.name)
   );
@@ -231,29 +233,49 @@ const SuggestionFields: React.FC<SuggestionFieldsProps> = ({
               Custom fields
             </span>
             <div className="mt-2 space-y-1.5">
-              {suggestion.suggested_custom_fields.map((field) => (
-                <label
-                  key={field.id}
-                  className="flex cursor-pointer items-start gap-2 text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={field.isSelected}
-                    onChange={() =>
-                      handlers.onCustomFieldSuggestionToggle(
-                        suggestion.id,
-                        field.id
-                      )
-                    }
-                    disabled={disabled}
-                    className="mt-0.5 h-4 w-4 cursor-pointer rounded accent-primary"
-                  />
-                  <span className="min-w-0 break-words">
-                    <span className="font-medium">{field.name}:</span>{" "}
-                    {String(field.value)}
-                  </span>
-                </label>
-              ))}
+              {suggestion.suggested_custom_fields.map((field) => {
+                const editable = field.dataType === "string" || field.dataType === "date";
+                const error = field.isSelected ? customFieldInputError(field) : undefined;
+                const errorId = `custom-field-${suggestion.id}-${field.id}-error-${customFieldsId}`;
+                return (
+                  <div key={field.id} className="space-y-1 text-sm">
+                    <label className="flex cursor-pointer items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={field.isSelected}
+                        onChange={() =>
+                          handlers.onCustomFieldSuggestionToggle(suggestion.id, field.id)
+                        }
+                        disabled={disabled}
+                        aria-label={`Apply suggested ${field.name}`}
+                        className="mt-0.5 h-4 w-4 cursor-pointer rounded accent-primary"
+                      />
+                      <span className="min-w-0 break-words">
+                        <span className="font-medium">{field.name}</span>
+                        {!editable && `: ${String(field.value)}`}
+                      </span>
+                    </label>
+                    {editable && (
+                      <div className="pl-6">
+                        <input
+                          type="text"
+                          aria-label={`Suggested ${field.name}`}
+                          aria-invalid={error ? true : undefined}
+                          aria-describedby={error ? errorId : undefined}
+                          value={String(field.value ?? "")}
+                          placeholder={field.dataType === "date" ? "YYYY-MM-DD" : undefined}
+                          onChange={(event) =>
+                            handlers.onCustomFieldValueChange(suggestion.id, field.id, event.target.value)
+                          }
+                          disabled={disabled || !field.isSelected}
+                          className={inputClasses}
+                        />
+                        {error && <p id={errorId} className="mt-1 text-xs text-neg">{error}</p>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

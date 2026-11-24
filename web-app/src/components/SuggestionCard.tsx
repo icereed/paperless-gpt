@@ -11,6 +11,7 @@ import {
   FieldKey,
   SuggestionEditHandlers,
   countChanges,
+  hasInvalidCustomFields,
 } from "./review/fields";
 import SuggestionFields from "./review/SuggestionFields";
 
@@ -128,6 +129,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
           <Button
             size="sm"
             variant="primary"
+            disabled={hasInvalidCustomFields(suggestion)}
             onClick={() => onApply(suggestion.id)}
             loading={applying}
           >

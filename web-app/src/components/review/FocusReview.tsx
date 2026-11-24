@@ -14,6 +14,7 @@ import {
   FieldKey,
   SuggestionEditHandlers,
   countChanges,
+  hasInvalidCustomFields,
 } from "./fields";
 import SuggestionFields from "./SuggestionFields";
 
@@ -74,6 +75,7 @@ const FocusReview: React.FC<FocusReviewProps> = ({
   const excluded = excludedMap[item.id] || new Set<FieldKey>();
   const changeCount = countChanges(item, excluded);
   const applying = applyingIds.has(item.id);
+  const invalidCustomFields = hasInvalidCustomFields(item);
 
   const goPrev = () => onNavigate(index > 0 ? index - 1 : items.length - 1);
   const goNext = () => onNavigate(index < items.length - 1 ? index + 1 : 0);
@@ -93,7 +95,7 @@ const FocusReview: React.FC<FocusReviewProps> = ({
         break;
       case "a":
         e.preventDefault();
-        if (decision === "pending" && !applying) {
+        if (decision === "pending" && !applying && !invalidCustomFields) {
           onApply(item.id);
           goNext();
         }
@@ -255,6 +257,7 @@ const FocusReview: React.FC<FocusReviewProps> = ({
                     size="sm"
                     variant="primary"
                     loading={applying}
+                    disabled={invalidCustomFields}
                     onClick={() => {
                       onApply(item.id);
                       goNext();

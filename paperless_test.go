@@ -1669,6 +1669,22 @@ func TestUpdateDocuments_CustomFieldsMergeUsesCurrentState(t *testing.T) {
 			},
 		},
 		{
+			name:      "append applies a corrected missing value and preserves an attached value",
+			writeMode: "append",
+			serverFields: []map[string]interface{}{
+				{"field": 7, "value": "SAVED-001"},
+			},
+			suggested: []CustomFieldSuggestion{
+				{ID: 1, Name: "Haus", Value: "DEMO-0042"},
+				{ID: 7, Name: "Betrag", Value: "DEMO-0099"},
+			},
+			wantFieldIDs: []int{7, 1},
+			wantFieldValue: map[int]interface{}{
+				7: "SAVED-001",
+				1: "DEMO-0042",
+			},
+		},
+		{
 			name:      "update overwrites selected field and keeps the rest",
 			writeMode: "update",
 			serverFields: []map[string]interface{}{
