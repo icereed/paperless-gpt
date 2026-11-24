@@ -17,6 +17,7 @@ import {
   SuggestionEditHandlers,
   buildUpdatePayload,
   countChanges,
+  hasInvalidCustomFields,
 } from "./review/fields";
 import { recordReviewDecision } from "./review/reviewSession";
 
@@ -100,6 +101,13 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
         ...item,
         suggested_created_date: createdDate,
       })),
+    onCustomFieldValueChange: (docId, fieldId, value) =>
+      updateItem(docId, (item) => ({
+        ...item,
+        suggested_custom_fields: item.suggested_custom_fields?.map((field) =>
+          field.id === fieldId ? { ...field, value } : field
+        ),
+      })),
     onCustomFieldSuggestionToggle: (docId, fieldId) =>
       updateItem(docId, (item) => ({
         ...item,
@@ -158,6 +166,12 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   // every success in that batch, and the next click sent those documents again.
   const applyDocuments = async (docsToApply: DocumentSuggestion[]) => {
     setError(null);
+    const invalid = docsToApply.find(hasInvalidCustomFields);
+    if (invalid) {
+      setShowSummary(false);
+      setError(`Correct or deselect the invalid custom fields on "${invalid.original_document.title}" before applying.`);
+      return;
+    }
     const ids = docsToApply.map((doc) => doc.id);
     // Track applying ids incrementally so concurrent single-doc applies don't
     // clear each other's loading state.

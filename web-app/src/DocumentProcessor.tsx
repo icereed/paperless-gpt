@@ -44,6 +44,7 @@ export interface CustomFieldSuggestion {
   id: number;
   value: unknown;
   name: string;
+  dataType?: string;
   isSelected: boolean;
 }
 
@@ -195,14 +196,15 @@ const DocumentProcessor: React.FC = () => {
   const withFieldNames = useCallback(
     (list: DocumentSuggestion[]) => {
       const customFieldMap = new Map(
-        (allCustomFields || []).map((cf) => [cf.id, cf.name])
+        (allCustomFields || []).map((cf) => [cf.id, cf])
       );
       return list.map((suggestion) => ({
         ...suggestion,
         suggested_custom_fields: suggestion.suggested_custom_fields?.map(
           (cf) => ({
             ...cf,
-            name: customFieldMap.get(cf.id) || "Unknown Field",
+            name: customFieldMap.get(cf.id)?.name || "Unknown Field",
+            dataType: customFieldMap.get(cf.id)?.data_type,
             isSelected: true,
           })
         ),
