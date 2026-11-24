@@ -119,7 +119,7 @@ func TestGetAvailableTokensForContent(t *testing.T) {
 			// Set tokenLimit based on environment
 			resetTokenLimit()
 
-			count, err := getAvailableTokensForContent(tmpl, tc.data)
+			count, err := getAvailableTokensForContent(llmModel, tmpl, tc.data)
 
 			if tc.wantErr {
 				assert.Error(t, err)
@@ -187,7 +187,7 @@ func TestTruncateContentByTokens(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := truncateContentByTokens(tc.content, tc.availableTokens)
+			result, err := truncateContentByTokens(llmModel, tc.content, tc.availableTokens)
 
 			if tc.wantErr {
 				require.Error(t, err)
@@ -269,7 +269,7 @@ Content: {{.Content}}
 			resetTokenLimit()
 
 			// First get available tokens
-			availableTokens, err := getAvailableTokensForContent(tmpl, data)
+			availableTokens, err := getAvailableTokensForContent(llmModel, tmpl, data)
 			if tc.wantError {
 				require.Error(t, err)
 				return
@@ -277,7 +277,7 @@ Content: {{.Content}}
 			require.NoError(t, err)
 
 			// Then truncate content
-			truncated, err := truncateContentByTokens(tc.content, availableTokens)
+			truncated, err := truncateContentByTokens(llmModel, tc.content, availableTokens)
 			require.NoError(t, err)
 
 			// Finally execute template with truncated content

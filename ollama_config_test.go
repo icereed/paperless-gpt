@@ -86,11 +86,11 @@ func TestCreateLLMOllamaSendsThinkAtTopLevel(t *testing.T) {
 			})
 			t.Setenv("OLLAMA_HOST", server.URL)
 			t.Setenv("OLLAMA_THINK", tc.env)
-			previousProvider, previousModel := llmProvider, llmModel
-			llmProvider, llmModel = "ollama", "test-model"
-			t.Cleanup(func() { llmProvider, llmModel = previousProvider, previousModel })
+			previousProvider := llmProvider
+			llmProvider = "ollama"
+			t.Cleanup(func() { llmProvider = previousProvider })
 
-			model, err := createLLM()
+			model, err := createLLM("test-model")
 			require.NoError(t, err)
 			_, err = model.Call(context.Background(), "Return a title")
 			require.NoError(t, err)
@@ -119,11 +119,11 @@ func TestCreateLLMOllamaAppliesEnvironmentAndCallOptions(t *testing.T) {
 	t.Setenv("OLLAMA_CONTEXT_LENGTH", "4096")
 	t.Setenv("OLLAMA_KEEP_ALIVE", "0")
 	t.Setenv("OLLAMA_THINK", "high")
-	previousProvider, previousModel := llmProvider, llmModel
-	llmProvider, llmModel = "ollama", "test-model"
-	t.Cleanup(func() { llmProvider, llmModel = previousProvider, previousModel })
+	previousProvider := llmProvider
+	llmProvider = "ollama"
+	t.Cleanup(func() { llmProvider = previousProvider })
 
-	model, err := createLLM()
+	model, err := createLLM("test-model")
 	require.NoError(t, err)
 	_, err = model.GenerateContent(
 		context.Background(),
@@ -153,10 +153,10 @@ func TestOllamaSettingsDoNotAffectOtherMetadataProviders(t *testing.T) {
 	t.Setenv("LLM_TEMPERATURE", "0.3")
 	t.Setenv("OLLAMA_THINK", "high")
 	t.Setenv("OPENAI_BASE_URL", server.URL)
-	previousProvider, previousModel, previousKey := llmProvider, llmModel, openaiAPIKey
-	llmProvider, llmModel, openaiAPIKey = "openai", "test-model", "test-key"
-	t.Cleanup(func() { llmProvider, llmModel, openaiAPIKey = previousProvider, previousModel, previousKey })
+	previousProvider, previousKey := llmProvider, openaiAPIKey
+	llmProvider, openaiAPIKey = "openai", "test-key"
+	t.Cleanup(func() { llmProvider, openaiAPIKey = previousProvider, previousKey })
 
-	_, err := createLLM()
+	_, err := createLLM("test-model")
 	require.NoError(t, err)
 }
