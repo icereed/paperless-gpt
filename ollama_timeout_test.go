@@ -142,11 +142,11 @@ func TestCreateLLMOllamaAppliesTimeout(t *testing.T) {
 	})
 	t.Setenv("OLLAMA_HOST", server.URL)
 
-	previousProvider, previousModel := llmProvider, llmModel
-	llmProvider, llmModel = "ollama", "test-model"
-	t.Cleanup(func() { llmProvider, llmModel = previousProvider, previousModel })
+	previousProvider := llmProvider
+	llmProvider = "ollama"
+	t.Cleanup(func() { llmProvider = previousProvider })
 
-	model, err := createLLM()
+	model, err := createLLM("test-model")
 	require.NoError(t, err)
 
 	start := time.Now()

@@ -76,6 +76,7 @@ var envRegistry = []EnvVar{
 	{Name: "LLM_MAX_RETRIES", Category: "LLM", Secret: false, Default: "3", Description: "Maximum retry attempts for failed main LLM requests."},
 	{Name: "LLM_MAX_TOKENS", Category: "LLM", Secret: false, Default: "", Description: "(Ollama metadata only) Maximum generated tokens. Set a positive integer or `-1` for no limit; invalid values are ignored."},
 	{Name: "LLM_MODEL", Category: "LLM", Secret: false, Default: "", Description: "AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`)."},
+	{Name: "LLM_MODEL_DOCUMENT_TYPE", Category: "LLM", Secret: false, Default: "LLM_MODEL", Description: "Model name for document type suggestions only, using the configured LLM provider and settings."},
 	{Name: "LLM_PROVIDER", Category: "LLM", Secret: false, Default: "", Description: "AI backend (`openai`, `ollama`, `googleai`, `mistral`, or `anthropic`)."},
 	{Name: "LLM_REQUESTS_PER_MINUTE", Category: "LLM", Secret: false, Default: "120", Description: "Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load."},
 	{Name: "LLM_TEMPERATURE", Category: "LLM", Secret: false, Default: "0", Description: "(Ollama metadata only) Sampling temperature for title, tag, and metadata generation. When unset, the native-client baseline is `0`. Must be a non-negative finite number; invalid values are ignored with a warning. Does not apply to Vision OCR or other LLM providers."},

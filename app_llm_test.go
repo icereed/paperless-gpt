@@ -89,6 +89,44 @@ Content: {{.Content}}
 `
 )
 
+func TestDocumentTypeModelSelection(t *testing.T) {
+	previousLimit := tokenLimit
+	tokenLimit = 0
+	t.Cleanup(func() { tokenLimit = previousLimit })
+
+	ctx := context.Background()
+	logger := logrus.WithField("test", t.Name())
+	documentTypeTmpl := template.Must(template.New("document type").Parse("Document type for {{.Content}}"))
+	titleTmpl := template.Must(template.New("title").Parse("Title for {{.Content}}"))
+	documentTypes := []string{"Invoice", "Receipt"}
+
+	t.Run("unset", func(t *testing.T) {
+		mainLLM := &mockLLM{Response: "Invoice"}
+		app := &App{LLM: mainLLM}
+		suggestedType, err := app.getSuggestedDocumentType(ctx, "sample", "Original", documentTypes, logger, documentTypeTmpl)
+		require.NoError(t, err)
+		assert.Equal(t, "Invoice", suggestedType)
+		assert.Equal(t, "Document type for sample", mainLLM.lastPrompt)
+	})
+
+	t.Run("set", func(t *testing.T) {
+		mainLLM := &mockLLM{Response: "Suggested title"}
+		documentTypeLLM := &mockLLM{Response: "Receipt"}
+		app := &App{LLM: mainLLM, DocumentTypeLLM: documentTypeLLM, documentTypeModel: "document-type-model"}
+		suggestedType, err := app.getSuggestedDocumentType(ctx, "sample", "Original", documentTypes, logger, documentTypeTmpl)
+		require.NoError(t, err)
+		assert.Equal(t, "Receipt", suggestedType)
+		assert.Equal(t, "Document type for sample", documentTypeLLM.lastPrompt)
+		assert.Empty(t, mainLLM.lastPrompt)
+
+		suggestedTitle, err := app.getSuggestedTitle(ctx, "sample", "Original", logger, titleTmpl)
+		require.NoError(t, err)
+		assert.Equal(t, "Suggested title", suggestedTitle)
+		assert.Equal(t, "Title for sample", mainLLM.lastPrompt)
+		assert.Equal(t, "Document type for sample", documentTypeLLM.lastPrompt)
+	})
+}
+
 func TestPromptTokenLimits(t *testing.T) {
 	testLogger := logrus.WithField("test", "test")
 
@@ -153,11 +191,11 @@ Content: {{.Content}}
 			}
 
 			// Calculate available tokens
-			availableTokens, err := getAvailableTokensForContent(testTemplate, data)
+			availableTokens, err := getAvailableTokensForContent(llmModel, testTemplate, data)
 			require.NoError(t, err)
 
 			// Truncate content if needed
-			truncatedContent, err := truncateContentByTokens(tc.content, availableTokens)
+			truncatedContent, err := truncateContentByTokens(llmModel, tc.content, availableTokens)
 			require.NoError(t, err)
 
 			// Test with the app's LLM

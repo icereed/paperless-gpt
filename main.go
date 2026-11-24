@@ -139,6 +139,8 @@ type App struct {
 	Client             ClientInterface
 	Database           *gorm.DB
 	LLM                llms.Model
+	DocumentTypeLLM    llms.Model
+	documentTypeModel  string
 	VisionLLM          llms.Model
 	ocrProvider        ocr.Provider           // OCR provider interface
 	ocrProcessMode     string                 // OCR processing mode: "image" (default), "pdf" or "whole_pdf"
@@ -280,9 +282,20 @@ func main() {
 	}
 
 	// Initialize LLM
-	llm, err := createLLM()
+	llm, err := createLLM(llmModel)
 	if err != nil {
 		log.Fatalf("Failed to create LLM client: %v", err)
+	}
+	var documentTypeLLM llms.Model
+	documentTypeModel := os.Getenv("LLM_MODEL_DOCUMENT_TYPE")
+	if documentTypeModel != "" {
+		override, err := createLLM(documentTypeModel)
+		if err != nil {
+			log.Fatalf("Failed to create document type LLM client: %v", err)
+		}
+		// Keep both metadata clients within the same request budget.
+		override.rateLimiter = llm.rateLimiter
+		documentTypeLLM = override
 	}
 
 	// Initialize Vision LLM
@@ -445,6 +458,8 @@ func main() {
 		Client:             client,
 		Database:           database,
 		LLM:                llm,
+		DocumentTypeLLM:    documentTypeLLM,
+		documentTypeModel:  documentTypeModel,
 		VisionLLM:          visionLlm,
 		ocrProvider:        ocrProvider,
 		ocrProcessMode:     ocrProcessMode,
@@ -1272,7 +1287,7 @@ func getRateLimitConfig(isVision bool) RateLimitConfig {
 }
 
 // createLLM creates the appropriate LLM client based on the provider
-func createLLM() (llms.Model, error) {
+func createLLM(model string) (*RateLimitedLLM, error) {
 	if strings.ToLower(llmProvider) != "ollama" {
 		if temperature := os.Getenv("LLM_TEMPERATURE"); temperature != "" {
 			log.Warn("LLM_TEMPERATURE only applies when LLM_PROVIDER=ollama; ignoring")
@@ -1291,7 +1306,7 @@ func createLLM() (llms.Model, error) {
 			return nil, fmt.Errorf("Mistral API key is not set")
 		}
 		llm, err := mistral.New(
-			mistral.WithModel(llmModel),
+			mistral.WithModel(model),
 			mistral.WithAPIKey(mistralApiKey),
 		)
 		if err != nil {
@@ -1306,7 +1321,7 @@ func createLLM() (llms.Model, error) {
 		}
 
 		options := []openai.Option{
-			openai.WithModel(llmModel),
+			openai.WithModel(model),
 			openai.WithToken(openaiAPIKey),
 			openai.WithHTTPClient(createCustomHTTPClient()),
 		}
@@ -1341,7 +1356,7 @@ func createLLM() (llms.Model, error) {
 		}
 		var config OllamaMetadataConfig
 		applyOllamaMetadataEnvironment(&config)
-		llm, err := newOllamaMetadataModel(host, llmModel, 0, nil, 0, ollamaHTTPClientWithTimeout(), config)
+		llm, err := newOllamaMetadataModel(host, model, 0, nil, 0, ollamaHTTPClientWithTimeout(), config)
 		if err != nil {
 			return nil, err
 		}
@@ -1360,7 +1375,7 @@ func createLLM() (llms.Model, error) {
 				}
 			}
 		}
-		provider, err := NewGoogleAIProvider(ctx, llmModel, apiKey, thinkingBudget)
+		provider, err := NewGoogleAIProvider(ctx, model, apiKey, thinkingBudget)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create GoogleAI provider: %w", err)
 		}
@@ -1376,7 +1391,7 @@ func createLLM() (llms.Model, error) {
 			return nil, fmt.Errorf("ANTHROPIC_API_KEY is not set")
 		}
 		llm, err := anthropic.New(
-			anthropic.WithModel(llmModel),
+			anthropic.WithModel(model),
 			anthropic.WithToken(apiKey),
 		)
 		if err != nil {

@@ -42,13 +42,13 @@ func (app *App) getSuggestedCorrespondent(ctx context.Context, content string, s
 		"Title":                   suggestedTitle,
 	}
 
-	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
+	availableTokens, err := getAvailableTokensForContent(llmModel, activeTmpl, templateData)
 	if err != nil {
 		return "", fmt.Errorf("error calculating available tokens: %v", err)
 	}
 
 	// Truncate content if needed
-	truncatedContent, err := truncateContentByTokens(content, availableTokens)
+	truncatedContent, err := truncateContentByTokens(llmModel, content, availableTokens)
 	if err != nil {
 		return "", fmt.Errorf("error truncating content: %v", err)
 	}
@@ -113,14 +113,14 @@ func (app *App) getSuggestedTags(
 		"CreateNewTags": createNewTags,
 	}
 
-	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
+	availableTokens, err := getAvailableTokensForContent(llmModel, activeTmpl, templateData)
 	if err != nil {
 		logger.Errorf("Error calculating available tokens: %v", err)
 		return nil, fmt.Errorf("error calculating available tokens: %v", err)
 	}
 
 	// Truncate content if needed
-	truncatedContent, err := truncateContentByTokens(content, availableTokens)
+	truncatedContent, err := truncateContentByTokens(llmModel, content, availableTokens)
 	if err != nil {
 		logger.Errorf("Error truncating content: %v", err)
 		return nil, fmt.Errorf("error truncating content: %v", err)
@@ -219,6 +219,10 @@ func (app *App) getSuggestedDocumentType(
 	logger *logrus.Entry,
 	tmplOverride *template.Template) (string, error) {
 	likelyLanguage := getLikelyLanguage()
+	llm, model := app.LLM, llmModel
+	if app.DocumentTypeLLM != nil {
+		llm, model = app.DocumentTypeLLM, app.documentTypeModel
+	}
 
 	templateMutex.RLock()
 	activeTmpl := documentTypeTemplate
@@ -234,14 +238,14 @@ func (app *App) getSuggestedDocumentType(
 		"Title":                  suggestedTitle,
 	}
 
-	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
+	availableTokens, err := getAvailableTokensForContent(model, activeTmpl, templateData)
 	if err != nil {
 		logger.Errorf("Error calculating available tokens: %v", err)
 		return "", fmt.Errorf("error calculating available tokens: %v", err)
 	}
 
 	// Truncate content if needed
-	truncatedContent, err := truncateContentByTokens(content, availableTokens)
+	truncatedContent, err := truncateContentByTokens(model, content, availableTokens)
 	if err != nil {
 		logger.Errorf("Error truncating content: %v", err)
 		return "", fmt.Errorf("error truncating content: %v", err)
@@ -259,7 +263,7 @@ func (app *App) getSuggestedDocumentType(
 	prompt := promptBuffer.String()
 	logger.Debugf("Document type suggestion prompt: %s", prompt)
 
-	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+	completion, err := llm.GenerateContent(ctx, []llms.MessageContent{
 		{
 			Parts: []llms.ContentPart{
 				llms.TextContent{
@@ -309,14 +313,14 @@ func (app *App) getSuggestedTitle(ctx context.Context, content string, originalT
 		"Title":    originalTitle,
 	}
 
-	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
+	availableTokens, err := getAvailableTokensForContent(llmModel, activeTmpl, templateData)
 	if err != nil {
 		logger.Errorf("Error calculating available tokens: %v", err)
 		return "", fmt.Errorf("error calculating available tokens: %v", err)
 	}
 
 	// Truncate content if needed
-	truncatedContent, err := truncateContentByTokens(content, availableTokens)
+	truncatedContent, err := truncateContentByTokens(llmModel, content, availableTokens)
 	if err != nil {
 		logger.Errorf("Error truncating content: %v", err)
 		return "", fmt.Errorf("error truncating content: %v", err)
@@ -370,14 +374,14 @@ func (app *App) getSuggestedCreatedDate(ctx context.Context, content string, log
 		"Today":    getTodayDate(), // must be in YYYY-MM-DD format
 	}
 
-	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
+	availableTokens, err := getAvailableTokensForContent(llmModel, activeTmpl, templateData)
 	if err != nil {
 		logger.Errorf("Error calculating available tokens: %v", err)
 		return "", fmt.Errorf("error calculating available tokens: %v", err)
 	}
 
 	// Truncate content if needed
-	truncatedContent, err := truncateContentByTokens(content, availableTokens)
+	truncatedContent, err := truncateContentByTokens(llmModel, content, availableTokens)
 	if err != nil {
 		logger.Errorf("Error truncating content: %v", err)
 		return "", fmt.Errorf("error truncating content: %v", err)
@@ -518,12 +522,12 @@ func (app *App) getSuggestedCustomFields(ctx context.Context, doc Document, sele
 		"CustomFieldsXML": customFieldsXML,
 	}
 
-	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
+	availableTokens, err := getAvailableTokensForContent(llmModel, activeTmpl, templateData)
 	if err != nil {
 		return nil, fmt.Errorf("error calculating available tokens for custom fields: %v", err)
 	}
 
-	truncatedContent, err := truncateContentByTokens(sanitize.Sanitize(doc.Content), availableTokens)
+	truncatedContent, err := truncateContentByTokens(llmModel, sanitize.Sanitize(doc.Content), availableTokens)
 	if err != nil {
 		return nil, fmt.Errorf("error truncating content for custom fields: %v", err)
 	}

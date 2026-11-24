@@ -86,15 +86,13 @@ func TestCreateLLMGoogleAIIsRateLimited(t *testing.T) {
 	t.Setenv("GOOGLEAI_API_KEY", "test-key")
 	t.Setenv("LLM_REQUESTS_PER_MINUTE", "8")
 
-	previousProvider, previousModel := llmProvider, llmModel
-	llmProvider, llmModel = "googleai", "gemini-test"
-	t.Cleanup(func() { llmProvider, llmModel = previousProvider, previousModel })
+	previousProvider := llmProvider
+	llmProvider = "googleai"
+	t.Cleanup(func() { llmProvider = previousProvider })
 
-	model, err := createLLM()
+	wrapped, err := createLLM("gemini-test")
 	require.NoError(t, err)
 
-	wrapped, ok := model.(*RateLimitedLLM)
-	require.True(t, ok, "Google AI metadata calls must go through the same rate-limit wrapper as the other providers")
 	_, isGoogle := wrapped.llm.(*GoogleAIProvider)
 	require.True(t, isGoogle)
 	require.NotNil(t, wrapped.rateLimiter)

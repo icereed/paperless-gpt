@@ -10,7 +10,7 @@ import (
 
 // getAvailableTokensForContent calculates how many tokens are available for content
 // by rendering the template with empty content and counting tokens
-func getAvailableTokensForContent(tmpl *template.Template, data map[string]interface{}) (int, error) {
+func getAvailableTokensForContent(model string, tmpl *template.Template, data map[string]interface{}) (int, error) {
 	if tokenLimit <= 0 {
 		return -1, nil // No limit when disabled
 	}
@@ -29,7 +29,7 @@ func getAvailableTokensForContent(tmpl *template.Template, data map[string]inter
 	}
 
 	// Count tokens in prompt template
-	promptTokens, err := getTokenCount(promptBuffer.String())
+	promptTokens, err := getTokenCount(model, promptBuffer.String())
 	if err != nil {
 		return 0, fmt.Errorf("error counting tokens in prompt: %v", err)
 	}
@@ -46,18 +46,18 @@ func getAvailableTokensForContent(tmpl *template.Template, data map[string]inter
 	return availableTokens, nil
 }
 
-func getTokenCount(content string) (int, error) {
-	return llms.CountTokens(llmModel, content), nil
+func getTokenCount(model, content string) (int, error) {
+	return llms.CountTokens(model, content), nil
 }
 
 // truncateContentByTokens truncates the content so that its token count does not exceed availableTokens.
 // This implementation uses a binary search on runes to find the longest prefix whose token count is within the limit.
 // If availableTokens is 0 or negative, the original content is returned.
-func truncateContentByTokens(content string, availableTokens int) (string, error) {
+func truncateContentByTokens(model, content string, availableTokens int) (string, error) {
 	if availableTokens < 0 || tokenLimit <= 0 {
 		return content, nil
 	}
-	totalTokens, err := getTokenCount(content)
+	totalTokens, err := getTokenCount(model, content)
 	if err != nil {
 		return "", fmt.Errorf("error counting tokens: %v", err)
 	}
@@ -74,7 +74,7 @@ func truncateContentByTokens(content string, availableTokens int) (string, error
 	for low <= high {
 		mid := (low + high) / 2
 		substr := string(runes[:mid])
-		count, err := getTokenCount(substr)
+		count, err := getTokenCount(model, substr)
 		if err != nil {
 			return "", fmt.Errorf("error counting tokens in substring: %v", err)
 		}
@@ -88,7 +88,7 @@ func truncateContentByTokens(content string, availableTokens int) (string, error
 
 	truncated := string(runes[:validCut])
 	// Final verification
-	finalTokens, err := getTokenCount(truncated)
+	finalTokens, err := getTokenCount(model, truncated)
 	if err != nil {
 		return "", fmt.Errorf("error counting tokens in final truncated content: %v", err)
 	}
