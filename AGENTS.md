@@ -20,7 +20,7 @@ paperless-gpt/
 
 ## Setup and build
 
-System dependency: mupdf (`apt-get install -y mupdf libmupdf-dev` on Debian/Ubuntu, `brew install mupdf` on macOS).
+No system PDF library is needed: PDF pages are rendered with PDFium through go-pdfium's WebAssembly runtime (`internal/pdfrender`). A C compiler is still required for CGO (go-sqlite3).
 
 Build the frontend first — the Go binary embeds it from `dist/` at the repo root:
 
@@ -71,7 +71,6 @@ To validate a change end-to-end: start the app, verify the web server comes up o
 ## Common pitfalls
 
 - **Frontend changes not visible**: re-run `npm run build` and `cp -r dist ../` — the Go binary serves the copied `dist/`, not `web-app/dist/`.
-- **mupdf build errors**: install the `mupdf`/`libmupdf-dev` system packages.
 - **Docker build fails**: needs external network access (Alpine repositories); `docker build -t paperless-gpt .` takes 5+ minutes.
 
 ## CI and PR guidelines
@@ -80,3 +79,22 @@ To validate a change end-to-end: start the app, verify the web server comes up o
 - `.github/workflows/e2e-real-llm.yml` — real-LLM E2E behind an environment-approval gate (maintainer-triggered).
 - Before committing: run `cd web-app && npm run lint` and check `gofmt -l .` reports nothing.
 - Commit messages follow Conventional Commits (`feat:`, `fix:`, `ci:`, `docs:` — see `git log`).
+
+## Release communication
+
+Release notes are written by hand. For significant releases (not every patch release), end the GitHub release notes with this footer, after the changelog and credits. Don't edit past releases.
+
+```md
+---
+
+☁️ **Want paperless-gpt without hosting it yourself?**
+
+paperless-gpt remains free and fully self-hostable. For users in Germany, Austria and Switzerland, our Fair Hosting Partner [server.camp](https://server.camp/product/paperless-ngx) offers a managed paperless-ngx + paperless-gpt setup and shares part of the revenue with the open source project.
+```
+
+paperless-gpt's current Fair Hosting Partner for Germany, Austria and Switzerland is server.camp. When writing about it anywhere:
+
+- paperless-gpt stays fully self-hostable and MIT licensed; never present self-hosting as the worse option.
+- server.camp is a managed hosting option for the DACH region, not the official, exclusive or global host.
+- Describe the relationship as Fair Hosting / open source revenue sharing. Never use affiliate or referral wording (affiliate, referral, commission, "use our link").
+- Don't publish revenue-share percentages, and don't claim SLAs, certifications, backup schedules or security guarantees on server.camp's behalf, without maintainer approval.

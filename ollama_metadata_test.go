@@ -306,7 +306,7 @@ func TestOllamaMetadataModelDocumentTypeAcceptsNoSuggestion(t *testing.T) {
 	tokenLimit = 0
 
 	app := &App{LLM: model}
-	suggestion, err := app.getSuggestedDocumentType(context.Background(), "content", "title", []string{"Invoice"}, logrus.NewEntry(logrus.New()))
+	suggestion, err := app.getSuggestedDocumentType(context.Background(), "content", "title", []string{"Invoice"}, logrus.NewEntry(logrus.New()), nil)
 	require.NoError(t, err)
 	assert.Empty(t, suggestion)
 }

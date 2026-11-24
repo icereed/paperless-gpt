@@ -46,6 +46,26 @@ OPENAI_API_KEY: "sk-or-..."
 LLM_MODEL: "anthropic/claude-sonnet-4-5"
 ```
 
+Documents processed by paperless-gpt often contain personal or sensitive
+information. If you want a guarantee that OpenRouter's upstream model
+provider does not retain your document content, set:
+
+```yaml
+OPENROUTER_ENFORCE_ZDR: "true"
+```
+
+This restricts routing to upstream providers that offer a
+[Zero Data Retention](https://openrouter.ai/docs/guides/features/zdr)
+guarantee. It only affects requests to `openrouter.ai`; any other
+`OPENAI_BASE_URL` is unaffected even with this flag set.
+
+**Trade-off:** restricting to ZDR-capable providers narrows the pool of
+upstream providers for a given model. Check
+`https://openrouter.ai/<model>/providers` — if only one provider offers ZDR
+for your chosen model, that provider becoming rate-limited produces a
+429/5xx with no fallback. Prefer models with multiple ZDR-capable providers
+when using this flag.
+
 ### LM Studio
 
 Enable the local server in LM Studio, then:

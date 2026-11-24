@@ -23,6 +23,8 @@ interface SuggestionCardProps {
   handlers: SuggestionEditHandlers;
   onApply: (docId: number) => void;
   onSkip: (docId: number) => void;
+  /** Only for suggestions a workflow holds for approval. */
+  onDiscard?: (docId: number) => void;
   onOpenFocus: (docId: number) => void;
   applying: boolean;
 }
@@ -36,6 +38,7 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
   handlers,
   onApply,
   onSkip,
+  onDiscard,
   onOpenFocus,
   applying,
 }) => {
@@ -64,12 +67,19 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
               </span>
             ) : decision === "skipped" ? (
               "Skipped — stays in the queue"
+            ) : decision === "discarded" ? (
+              "Discarded — nothing was written"
             ) : changeCount === 0 ? (
               "No changes suggested"
             ) : (
               `${changeCount} field ${changeCount === 1 ? "change" : "changes"}`
             )}
           </p>
+          {suggestion.workflow_name && (
+            <p className="mt-0.5 text-xs text-muted">
+              From workflow: {suggestion.workflow_name}
+            </p>
+          )}
         </div>
         <button
           type="button"
@@ -95,6 +105,18 @@ const SuggestionCard: React.FC<SuggestionCardProps> = ({
 
       {!decided && (
         <footer className="flex items-center justify-end gap-2 border-t border-line px-4 py-3">
+          {onDiscard && suggestion.workflow_name && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mr-auto"
+              onClick={() => onDiscard(suggestion.id)}
+              disabled={applying}
+              title="Drop these suggestions and take the document out of the queue, without the completion tag"
+            >
+              Discard
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"

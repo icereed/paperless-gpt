@@ -10,6 +10,13 @@ import GenerationOptions, {
 import JobProgress from "./components/JobProgress";
 import NoDocuments from "./components/NoDocuments";
 import SuggestionsReview from "./components/SuggestionsReview";
+import {
+  clearReviewDecisions,
+  filterRestoredSuggestions,
+  parseReviewDecisions,
+  queueIdsForRestore,
+  reviewDecisionsKey,
+} from "./components/review/reviewSession";
 
 export interface Document {
   id: number;
@@ -50,6 +57,9 @@ export interface DocumentSuggestion {
   suggested_document_type?: string;
   suggested_created_date?: string;
   suggested_custom_fields?: CustomFieldSuggestion[];
+  /** Set when a workflow with approval made these suggestions. */
+  workflow_id?: string;
+  workflow_name?: string;
 }
 
 export interface TagOption {
@@ -81,10 +91,30 @@ interface CustomField {
 }
 
 const ACTIVE_JOB_KEY = "pgpt-active-suggestion-job";
+
+const APPROVALS_POLL_MS = 10000;
+
+// Approvals are optional for the page: if they can't be loaded, the manual
+// queue still works. null means unknown, which callers must not treat as
+// "nothing waits": the held documents would then join ordinary generation.
+const fetchApprovals = async (): Promise<DocumentSuggestion[] | null> => {
+  try {
+    const { data } = await axios.get<DocumentSuggestion[]>("./api/reviews");
+    return data || [];
+  } catch (err) {
+    console.error("Error fetching suggestions waiting for approval:", err);
+    return null;
+  }
+};
 const POLL_INTERVAL_MS = 1500;
 
 const DocumentProcessor: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
+  // Suggestions workflows made and hold for approval; their documents carry
+  // the review tag too, but are already generated.
+  const [approvals, setApprovals] = useState<DocumentSuggestion[]>([]);
+  const [approvalsKnown, setApprovalsKnown] = useState(true);
+  const [documentsLoaded, setDocumentsLoaded] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [suggestions, setSuggestions] = useState<DocumentSuggestion[] | null>(
     null
@@ -102,6 +132,7 @@ const DocumentProcessor: React.FC = () => {
     customFields: true,
   });
   const [job, setJob] = useState<SuggestionJobStatus | null>(null);
+  const [reviewJobId, setReviewJobId] = useState<string | null>(null);
   const [failedDocuments, setFailedDocuments] = useState<
     SuggestionJobFailedDocument[]
   >([]);
@@ -109,6 +140,11 @@ const DocumentProcessor: React.FC = () => {
   const [toast, setToast] = useState<ToastData | null>(null);
   const pollingDocumentsRef = useRef(false);
   const consumedJobsRef = useRef<Set<string>>(new Set());
+
+  // The manual queue: documents with the review tag that don't already have
+  // suggestions waiting from a workflow.
+  const approvalIds = new Set(approvals.map((a) => a.id));
+  const queue = documents.filter((doc) => !approvalIds.has(doc.id));
 
   const jobRunning =
     job !== null && (job.status === "pending" || job.status === "in_progress");
@@ -120,17 +156,21 @@ const DocumentProcessor: React.FC = () => {
 
   const fetchInitialData = useCallback(async () => {
     try {
-      const [filterTagRes, documentsRes, tagsRes, customFieldsRes] =
+      const [filterTagRes, documentsRes, tagsRes, customFieldsRes, approvalsRes] =
         await Promise.all([
           axios.get<{ tag: string }>("./api/filter-tag"),
           axios.get<Document[]>("./api/documents"),
           axios.get<Record<string, number>>("./api/tags"),
           axios.get<CustomField[]>("./api/custom_fields"),
+          fetchApprovals(),
         ]);
 
       setFilterTag(filterTagRes.data.tag);
+      if (approvalsRes) setApprovals(approvalsRes);
+      setApprovalsKnown(approvalsRes !== null);
       setAllCustomFields(customFieldsRes.data || []);
       setDocuments(documentsRes.data);
+      setDocumentsLoaded(true);
       setSelectedIds(new Set(documentsRes.data.map((doc) => doc.id)));
       const tags = Object.keys(tagsRes.data).map((tag) => ({
         id: tag,
@@ -151,16 +191,13 @@ const DocumentProcessor: React.FC = () => {
     fetchInitialData();
   }, [fetchInitialData]);
 
-  // Attach custom-field names to a job result and hand it to the review phase.
-  const consumeJobResult = useCallback(
-    (finishedJob: SuggestionJobStatus) => {
-      if (consumedJobsRef.current.has(finishedJob.job_id)) return;
-      consumedJobsRef.current.add(finishedJob.job_id);
-
+  // Attach custom-field names to suggestions for the review.
+  const withFieldNames = useCallback(
+    (list: DocumentSuggestion[]) => {
       const customFieldMap = new Map(
         (allCustomFields || []).map((cf) => [cf.id, cf.name])
       );
-      const processed = (finishedJob.result || []).map((suggestion) => ({
+      return list.map((suggestion) => ({
         ...suggestion,
         suggested_custom_fields: suggestion.suggested_custom_fields?.map(
           (cf) => ({
@@ -170,11 +207,55 @@ const DocumentProcessor: React.FC = () => {
           })
         ),
       }));
-
-      setFailedDocuments(finishedJob.failed_documents || []);
-      setSuggestions((prev) => (prev ? [...prev, ...processed] : processed));
     },
     [allCustomFields]
+  );
+
+  // Attach custom-field names to a job result and hand it to the review phase.
+  const consumeJobResult = useCallback(
+    (finishedJob: SuggestionJobStatus, restored: boolean) => {
+      if (consumedJobsRef.current.has(finishedJob.job_id)) return;
+      // A failed document fetch leaves `documents` empty. Filtering against
+      // that would drop the whole review and delete the saved decisions.
+      const queuedIds = restored
+        ? queueIdsForRestore(
+            documentsLoaded,
+            documents.map((doc) => doc.id)
+          )
+        : null;
+      if (restored && !queuedIds) return;
+      consumedJobsRef.current.add(finishedJob.job_id);
+
+      let processed = withFieldNames(finishedJob.result || []);
+
+      // A reload has no memory of which rows were applied or skipped, and a
+      // timed-out apply can have succeeded on the server anyway. Drop both.
+      if (restored && queuedIds) {
+        processed = filterRestoredSuggestions(
+          processed,
+          queuedIds,
+          parseReviewDecisions(
+            localStorage.getItem(reviewDecisionsKey(finishedJob.job_id))
+          )
+        );
+      }
+
+      if (restored && processed.length === 0) {
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+        clearReviewDecisions(localStorage, finishedJob.job_id);
+        setToast({
+          kind: "info",
+          message:
+            "The saved review was already applied, skipped, or is no longer in the queue.",
+        });
+        return;
+      }
+
+      setFailedDocuments(finishedJob.failed_documents || []);
+      setReviewJobId(finishedJob.job_id);
+      setSuggestions((prev) => (prev ? [...prev, ...processed] : processed));
+    },
+    [withFieldNames, documents, documentsLoaded]
   );
 
   // Resume a job after a reload: the job id survives in localStorage and the
@@ -183,7 +264,7 @@ const DocumentProcessor: React.FC = () => {
   // otherwise every custom field name resolves to "Unknown Field" and the job
   // is marked consumed, so the names never recover.
   useEffect(() => {
-    if (loading) return;
+    if (loading || !documentsLoaded) return;
     const storedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
     if (!storedJobId) return;
     (async () => {
@@ -194,7 +275,7 @@ const DocumentProcessor: React.FC = () => {
         if (data.status === "pending" || data.status === "in_progress") {
           setJob(data);
         } else if (data.status === "completed") {
-          consumeJobResult(data);
+          consumeJobResult(data, true);
         } else {
           localStorage.removeItem(ACTIVE_JOB_KEY);
         }
@@ -202,7 +283,7 @@ const DocumentProcessor: React.FC = () => {
         localStorage.removeItem(ACTIVE_JOB_KEY);
       }
     })();
-  }, [loading, consumeJobResult]);
+  }, [loading, documentsLoaded, consumeJobResult]);
 
   // Poll the active job until it reaches a terminal state.
   useEffect(() => {
@@ -214,7 +295,7 @@ const DocumentProcessor: React.FC = () => {
         );
         setJob(data);
         if (data.status === "completed") {
-          consumeJobResult(data);
+          consumeJobResult(data, false);
           if ((data.failed_documents || []).length === 0) {
             localStorage.setItem(ACTIVE_JOB_KEY, data.job_id);
           }
@@ -275,7 +356,13 @@ const DocumentProcessor: React.FC = () => {
   };
 
   const handleGenerateClick = () => {
-    const docsToProcess = documents.filter((doc) => selectedIds.has(doc.id));
+    if (!approvalsKnown) {
+      setError(
+        "Could not check which documents wait for a workflow approval. Refresh, then generate."
+      );
+      return;
+    }
+    const docsToProcess = queue.filter((doc) => selectedIds.has(doc.id));
     if (docsToProcess.length === 0) return;
     startGeneration(docsToProcess);
   };
@@ -313,9 +400,9 @@ const DocumentProcessor: React.FC = () => {
 
   const handleToggleAll = () => {
     setSelectedIds((prev) =>
-      prev.size === documents.length
+      prev.size === queue.length
         ? new Set()
-        : new Set(documents.map((doc) => doc.id))
+        : new Set(queue.map((doc) => doc.id))
     );
   };
 
@@ -323,8 +410,14 @@ const DocumentProcessor: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await axios.get<Document[]>("./api/documents");
+      const [{ data }, pending] = await Promise.all([
+        axios.get<Document[]>("./api/documents"),
+        fetchApprovals(),
+      ]);
       setDocuments(data);
+      if (pending) setApprovals(pending);
+      setApprovalsKnown(pending !== null);
+      setDocumentsLoaded(true);
       setSelectedIds(new Set(data.map((doc) => doc.id)));
     } catch (err) {
       console.error("Error reloading documents:", err);
@@ -336,7 +429,7 @@ const DocumentProcessor: React.FC = () => {
 
   // While the queue is empty, watch for newly tagged documents.
   useEffect(() => {
-    if (documents.length === 0 && phase === "select") {
+    if (queue.length === 0 && phase === "select") {
       const interval = setInterval(async () => {
         if (pollingDocumentsRef.current) return;
         pollingDocumentsRef.current = true;
@@ -355,13 +448,38 @@ const DocumentProcessor: React.FC = () => {
       }, 5000);
       return () => clearInterval(interval);
     }
-  }, [documents, phase]);
+  }, [queue.length, phase]);
 
-  const finishReview = (appliedCount: number, fieldChanges: number) => {
+  // Workflows can hold new suggestions while the page is open, also when the
+  // manual queue isn't empty.
+  useEffect(() => {
+    if (phase !== "select") return;
+    const interval = setInterval(async () => {
+      const pending = await fetchApprovals();
+      if (pending) setApprovals(pending);
+      setApprovalsKnown(pending !== null);
+    }, APPROVALS_POLL_MS);
+    return () => clearInterval(interval);
+  }, [phase]);
+
+  const startApprovalReview = () => {
+    setError(null);
+    setFailedDocuments([]);
+    setReviewJobId(null);
+    setSuggestions(withFieldNames(approvals));
+  };
+
+  const closeReview = () => {
+    if (reviewJobId) clearReviewDecisions(localStorage, reviewJobId);
     localStorage.removeItem(ACTIVE_JOB_KEY);
+    setReviewJobId(null);
     setSuggestions(null);
     setJob(null);
     setFailedDocuments([]);
+  };
+
+  const finishReview = (appliedCount: number, fieldChanges: number) => {
+    closeReview();
     setToast({
       kind: "success",
       message:
@@ -377,10 +495,7 @@ const DocumentProcessor: React.FC = () => {
   };
 
   const discardReview = () => {
-    localStorage.removeItem(ACTIVE_JOB_KEY);
-    setSuggestions(null);
-    setJob(null);
-    setFailedDocuments([]);
+    closeReview();
   };
 
   if (loading && documents.length === 0 && phase === "select") {
@@ -428,23 +543,31 @@ const DocumentProcessor: React.FC = () => {
           availableTags={availableTags}
           filterTag={filterTag}
           failedDocuments={failedDocuments}
+          reviewJobId={reviewJobId}
           onRetryFailed={handleRetryFailed}
           onFinished={finishReview}
           onDiscard={discardReview}
         />
-      ) : documents.length === 0 && phase === "select" ? (
-        <NoDocuments
-          filterTag={filterTag}
-          onReload={reloadDocuments}
-          reloading={loading}
-        />
       ) : (
+        <>
+          {phase === "select" && approvals.length > 0 && (
+            <ApprovalQueue approvals={approvals} onReview={startApprovalReview} />
+          )}
+          {queue.length === 0 && phase === "select" ? (
+            approvals.length === 0 && (
+              <NoDocuments
+                filterTag={filterTag}
+                onReload={reloadDocuments}
+                reloading={loading}
+              />
+            )
+          ) : (
         <section aria-label="Documents to process">
           <header className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h1 className="text-xl font-semibold">
-                {documents.length}{" "}
-                {documents.length === 1 ? "document" : "documents"} waiting for
+                {queue.length}{" "}
+                {queue.length === 1 ? "document" : "documents"} waiting for
                 review
               </h1>
               <p className="mt-1 text-sm text-muted">
@@ -472,7 +595,7 @@ const DocumentProcessor: React.FC = () => {
           {phase === "generating" && job ? (
             <JobProgress
               job={job}
-              documents={documents}
+              documents={queue}
               onCancel={handleCancelJob}
             />
           ) : (
@@ -486,7 +609,7 @@ const DocumentProcessor: React.FC = () => {
 
           <div className="mt-6">
             <DocumentsToProcess
-              documents={documents}
+              documents={queue}
               selectedDocuments={Array.from(selectedIds)}
               onSelectDocument={
                 phase === "generating" ? undefined : handleToggleDocument
@@ -495,10 +618,41 @@ const DocumentProcessor: React.FC = () => {
             />
           </div>
         </section>
+          )}
+        </>
       )}
 
       {toast && <Toast toast={toast} onDismiss={() => setToast(null)} />}
     </div>
+  );
+};
+
+const ApprovalQueue: React.FC<{
+  approvals: DocumentSuggestion[];
+  onReview: () => void;
+}> = ({ approvals, onReview }) => {
+  const workflowNames = [
+    ...new Set(approvals.map((a) => a.workflow_name || a.workflow_id || "")),
+  ].filter(Boolean);
+  return (
+    <section
+      aria-label="Waiting for your approval"
+      className="mb-8 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-line bg-surface p-5 shadow-card"
+    >
+      <div>
+        <h2 className="text-lg font-semibold">Waiting for your approval</h2>
+        <p className="mt-1 text-sm text-muted">
+          {approvals.length}{" "}
+          {approvals.length === 1 ? "document was" : "documents were"} processed
+          by {workflowNames.length === 1 ? "the workflow" : "the workflows"}{" "}
+          {workflowNames.join(", ")}. Nothing is written to paperless-ngx until
+          you apply.
+        </p>
+      </div>
+      <Button variant="primary" onClick={onReview}>
+        Review {approvals.length}
+      </Button>
+    </section>
   );
 };
 

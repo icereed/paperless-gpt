@@ -18,12 +18,14 @@ import {
   buildUpdatePayload,
   countChanges,
 } from "./review/fields";
+import { recordReviewDecision } from "./review/reviewSession";
 
 interface SuggestionsReviewProps {
   suggestions: DocumentSuggestion[];
   availableTags: TagOption[];
   filterTag: string | null;
   failedDocuments: SuggestionJobFailedDocument[];
+  reviewJobId: string | null;
   onRetryFailed: () => void;
   onFinished: (appliedCount: number, fieldChanges: number) => void;
   onDiscard: () => void;
@@ -34,6 +36,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   availableTags,
   filterTag,
   failedDocuments,
+  reviewJobId,
   onRetryFailed,
   onFinished,
   onDiscard,
@@ -125,6 +128,9 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
   const skippedCount = items.filter(
     (item) => decisions[item.id] === "skipped"
   ).length;
+  const discardedCount = items.filter(
+    (item) => decisions[item.id] === "discarded"
+  ).length;
 
   // Fire onFinished exactly once, from an effect (not inside a state updater,
   // which React may replay). It triggers when every item has been decided.
@@ -139,6 +145,17 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
     }
   }, [items, decisions, onFinished]);
 
+  const markApplied = (docId: number, fieldChanges: number) => {
+    statsRef.current.docs += 1;
+    statsRef.current.fields += fieldChanges;
+    setDecisions((prev) => ({ ...prev, [docId]: "applied" }));
+    if (reviewJobId) {
+      recordReviewDecision(localStorage, reviewJobId, docId, "applied");
+    }
+  };
+
+  // One request per document. A proxy that closes a long batch used to drop
+  // every success in that batch, and the next click sent those documents again.
   const applyDocuments = async (docsToApply: DocumentSuggestion[]) => {
     setError(null);
     const ids = docsToApply.map((doc) => doc.id);
@@ -149,31 +166,39 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
       ids.forEach((id) => next.add(id));
       return next;
     });
+    let applied = 0;
     try {
-      const payload = docsToApply.map((item) =>
-        buildUpdatePayload(item, excludedMap[item.id] || new Set())
-      );
-      await axios.patch("./api/update-documents", payload);
-
-      statsRef.current.docs += docsToApply.length;
-      statsRef.current.fields += docsToApply.reduce(
-        (sum, item) =>
-          sum + countChanges(item, excludedMap[item.id] || new Set()),
-        0
-      );
-
-      setDecisions((prev) => {
-        const next = { ...prev };
-        docsToApply.forEach((doc) => {
-          next[doc.id] = "applied";
-        });
-        return next;
-      });
+      for (const item of docsToApply) {
+        const excluded = excludedMap[item.id] || new Set();
+        const payload = buildUpdatePayload(item, excluded);
+        const res = await axios.patch<{
+          partial?: {
+            document_id: number;
+            dropped_fields: string[];
+            fail_tag?: string;
+          };
+        }>("./api/update-documents", [payload]);
+        const partial = res.data?.partial;
+        if (partial) {
+          setError(
+            `Applied, but paperless-ngx did not take ${partial.dropped_fields.join(", ")} for document ${partial.document_id}` +
+              (partial.fail_tag
+                ? `; it was tagged "${partial.fail_tag}" for review.`
+                : ".")
+          );
+        }
+        markApplied(item.id, countChanges(item, excluded));
+        applied += 1;
+      }
       setShowSummary(false);
     } catch (err) {
       console.error("Error updating documents:", err);
+      setShowSummary(false);
+      const remaining = docsToApply.length - applied;
       setError(
-        "Applying the changes failed — nothing was marked as done. Check the backend connection and try again."
+        applied === 0
+          ? "Applying the changes failed — nothing was marked as done. Check the backend connection and try again."
+          : `Applied ${applied} ${applied === 1 ? "document" : "documents"} before the request failed. ${remaining} ${remaining === 1 ? "is" : "are"} still pending.`
       );
     } finally {
       setApplyingIds((prev) => {
@@ -191,6 +216,29 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
 
   const handleSkip = (docId: number) => {
     setDecisions((prev) => ({ ...prev, [docId]: "skipped" as Decision }));
+    if (reviewJobId) {
+      recordReviewDecision(localStorage, reviewJobId, docId, "skipped");
+    }
+  };
+
+  // A workflow's held suggestions can be dropped: the document leaves the
+  // queue without anything written and without the completion tag.
+  const handleDiscardOne = async (docId: number) => {
+    setError(null);
+    setApplyingIds((prev) => new Set(prev).add(docId));
+    try {
+      await axios.post(`./api/reviews/${docId}/discard`);
+      setDecisions((prev) => ({ ...prev, [docId]: "discarded" }));
+    } catch (err) {
+      console.error("Error discarding suggestions:", err);
+      setError("Discarding failed — the document is still waiting. Try again.");
+    } finally {
+      setApplyingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(docId);
+        return next;
+      });
+    }
   };
 
   const handleDiscard = () => {
@@ -267,6 +315,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
             handlers={handlers}
             onApply={handleApplyOne}
             onSkip={handleSkip}
+            onDiscard={handleDiscardOne}
             onOpenFocus={() => setFocusIndex(index)}
             applying={applyingIds.has(item.id)}
           />
@@ -278,6 +327,7 @@ const SuggestionsReview: React.FC<SuggestionsReviewProps> = ({
           <p className="text-sm tabular-nums text-muted" role="status">
             {decidedCount} of {items.length} decided
             {skippedCount > 0 && ` · ${skippedCount} skipped`}
+            {discardedCount > 0 && ` · ${discardedCount} discarded`}
           </p>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={handleDiscard}>
