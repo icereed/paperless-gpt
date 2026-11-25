@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -323,7 +324,67 @@ func OpenAIHTTPClient() *http.Client {
 	// to openrouter.ai; see internal/openrouterzdr. It sits below the header
 	// transport, so it covers the text LLM, the vision LLM and LLM OCR alike.
 	client.Transport.(*headerTransport).base = openrouterzdr.NewTransport(http.DefaultTransport)
+	// Above the ZDR transport: injects OPENAI_EXTRA_PARAMS into chat
+	// completion bodies (see extraParamsTransport).
+	client.Transport = newExtraParamsTransport(client.Transport)
 	return client
+}
+
+// extraParamsTransport injects the JSON object from OPENAI_EXTRA_PARAMS into
+// OpenAI-compatible chat completion request bodies. Langchaingo only sends
+// certain fields for models it recognizes as supporting them, so generic
+// OpenAI-compatible endpoints (OpenRouter, vLLM, LM Studio, ...) never
+// receive e.g. reasoning_effort; most of them accept and honor it
+// regardless. Values in the object override what the client already set.
+type extraParamsTransport struct {
+	base   http.RoundTripper
+	params map[string]any
+}
+
+func newExtraParamsTransport(base http.RoundTripper) *extraParamsTransport {
+	t := &extraParamsTransport{base: base}
+	if raw := os.Getenv("OPENAI_EXTRA_PARAMS"); raw != "" {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(raw), &m); err != nil {
+			logrus.Warnf("paperless-gpt: ignoring OPENAI_EXTRA_PARAMS: %v", err)
+		} else {
+			t.params = m
+		}
+	}
+	return t
+}
+
+func (t *extraParamsTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if len(t.params) == 0 || req.Body == nil || !strings.HasSuffix(req.URL.Path, "/chat/completions") {
+		return t.base.RoundTrip(req)
+	}
+	data, err := io.ReadAll(req.Body)
+	req.Body.Close()
+	if err != nil {
+		return t.base.RoundTrip(req.Clone(req.Context()))
+	}
+	var body map[string]any
+	if json.Unmarshal(data, &body) != nil {
+		// Not JSON: restore the original body and pass through.
+		req = req.Clone(req.Context())
+		req.Body = io.NopCloser(bytes.NewReader(data))
+		req.ContentLength = int64(len(data))
+		return t.base.RoundTrip(req)
+	}
+	for key, value := range t.params {
+		body[key] = value
+	}
+	updated, err := json.Marshal(body)
+	if err != nil {
+		req = req.Clone(req.Context())
+		req.Body = io.NopCloser(bytes.NewReader(data))
+		req.ContentLength = int64(len(data))
+		return t.base.RoundTrip(req)
+	}
+	req = req.Clone(req.Context())
+	req.Body = io.NopCloser(bytes.NewReader(updated))
+	req.ContentLength = int64(len(updated))
+	return t.base.RoundTrip(req)
 }
 
 // headerClient adds headers to every request. The headers are configured for

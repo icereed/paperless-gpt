@@ -139,3 +139,85 @@ func TestOpenAIHTTPClientEnforcesOpenRouterZDR(t *testing.T) {
 	resp.Body.Close()
 	assert.JSONEq(t, `{"model":"m"}`, string(rec.body))
 }
+
+func TestExtraParamsTransportInjectsParams(t *testing.T) {
+	t.Setenv("OPENAI_EXTRA_PARAMS", `{"reasoning_effort":"high","temperature":0.2}`)
+	rec := &recordingRoundTripper{}
+	tr := newExtraParamsTransport(rec)
+
+	req, _ := http.NewRequest(http.MethodPost, "https://api.example.com/v1/chat/completions", strings.NewReader(`{"model":"m","messages":[],"temperature":0.7}`))
+	resp, err := tr.RoundTrip(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.JSONEq(t, `{"model":"m","messages":[],"temperature":0.2,"reasoning_effort":"high"}`, string(rec.body))
+}
+
+func TestExtraParamsTransportSkipsWhenUnset(t *testing.T) {
+	t.Setenv("OPENAI_EXTRA_PARAMS", "")
+	rec := &recordingRoundTripper{}
+	tr := newExtraParamsTransport(rec)
+
+	req, _ := http.NewRequest(http.MethodPost, "https://api.example.com/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
+	resp, err := tr.RoundTrip(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.JSONEq(t, `{"model":"m"}`, string(rec.body))
+}
+
+func TestExtraParamsTransportSkipsNonChatPaths(t *testing.T) {
+	t.Setenv("OPENAI_EXTRA_PARAMS", `{"reasoning_effort":"high"}`)
+	rec := &recordingRoundTripper{}
+	tr := newExtraParamsTransport(rec)
+
+	req, _ := http.NewRequest(http.MethodPost, "https://api.example.com/v1/embeddings", strings.NewReader(`{"model":"m"}`))
+	resp, err := tr.RoundTrip(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.JSONEq(t, `{"model":"m"}`, string(rec.body))
+}
+
+func TestExtraParamsTransportPassesThroughNonJSONBody(t *testing.T) {
+	t.Setenv("OPENAI_EXTRA_PARAMS", `{"reasoning_effort":"high"}`)
+	rec := &recordingRoundTripper{}
+	tr := newExtraParamsTransport(rec)
+
+	req, _ := http.NewRequest(http.MethodPost, "https://api.example.com/v1/chat/completions", strings.NewReader(`not-json`))
+	resp, err := tr.RoundTrip(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, `not-json`, string(rec.body))
+}
+
+func TestExtraParamsTransportIgnoresInvalidJSON(t *testing.T) {
+	t.Setenv("OPENAI_EXTRA_PARAMS", `{not json`)
+	rec := &recordingRoundTripper{}
+	tr := newExtraParamsTransport(rec)
+
+	req, _ := http.NewRequest(http.MethodPost, "https://api.example.com/v1/chat/completions", strings.NewReader(`{"model":"m"}`))
+	resp, err := tr.RoundTrip(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.JSONEq(t, `{"model":"m"}`, string(rec.body))
+}
+
+// The shared OpenAI-compatible client injects OPENAI_EXTRA_PARAMS into
+// chat completion bodies for the text LLM, vision LLM and LLM OCR alike.
+func TestOpenAIHTTPClientInjectsExtraParams(t *testing.T) {
+	t.Setenv("OPENAI_EXTRA_PARAMS", `{"reasoning_effort":"medium"}`)
+	rec := &recordingRoundTripper{}
+	previous := http.DefaultTransport
+	http.DefaultTransport = rec
+	t.Cleanup(func() { http.DefaultTransport = previous })
+
+	client := OpenAIHTTPClient()
+	resp, err := client.Post("https://api.example.com/v1/chat/completions", "application/json", strings.NewReader(`{"model":"m"}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.JSONEq(t, `{"model":"m","reasoning_effort":"medium"}`, string(rec.body))
+
+	// Non-chat requests are left alone.
+	resp, err = client.Post("https://api.example.com/v1/embeddings", "application/json", strings.NewReader(`{"model":"m"}`))
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.JSONEq(t, `{"model":"m"}`, string(rec.body))
+}
