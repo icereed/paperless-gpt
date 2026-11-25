@@ -22,8 +22,10 @@ var (
 
 // MistralOCRProvider implements the OCR Provider interface using Mistral's OCR API
 type MistralOCRProvider struct {
-	apiKey string
-	model  string
+	apiKey       string
+	model        string
+	imageLimit   *int
+	imageMinSize *int
 }
 
 // MistralOCRRequest represents the request body for the Mistral OCR API
@@ -35,6 +37,8 @@ type MistralOCRRequest struct {
 		ImageURL    string `json:"image_url,omitempty"`
 	} `json:"document"`
 	IncludeImageBase64 bool `json:"include_image_base64,omitempty"`
+	ImageLimit         *int `json:"image_limit,omitempty"`
+	ImageMinSize       *int `json:"image_min_size,omitempty"`
 }
 
 // MistralOCRResponse represents the response from Mistral's OCR API
@@ -79,6 +83,8 @@ func newMistralOCRProvider(config Config) (Provider, error) {
 			}
 			return config.MistralModel
 		}(),
+		imageLimit:   config.MistralImageLimit,
+		imageMinSize: config.MistralImageMinSize,
 	}, nil
 }
 
@@ -90,7 +96,7 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 		"provider":    "mistral_ocr",
 		"model":       p.model,
 	})
-	
+
 	logger.Info("Processing image with Mistral OCR provider")
 
 	// Detect the actual MIME type of the data
@@ -99,6 +105,8 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 
 	var req MistralOCRRequest
 	req.Model = p.model
+	req.ImageLimit = p.imageLimit
+	req.ImageMinSize = p.imageMinSize
 
 	// Handle different content types appropriately
 	if mtype.String() == "application/pdf" {
@@ -109,6 +117,16 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 			logger.WithError(err).Error("Failed to upload PDF file")
 			return nil, fmt.Errorf("failed to upload PDF file: %w", err)
 		}
+
+		// Delete the uploaded file once OCR is done — uploads otherwise stay
+		// in Mistral's cloud storage indefinitely. Deferred so cleanup also
+		// runs when getSignedURL or the OCR call fails; best-effort, a failed
+		// delete never affects the OCR result.
+		defer func() {
+			if err := p.deleteFile(fileID); err != nil {
+				logger.WithError(err).WithField("file_id", fileID).Warn("Failed to delete uploaded file from Mistral")
+			}
+		}()
 
 		// Get signed URL for the uploaded file
 		signedURL, err := p.getSignedURL(fileID)
@@ -124,16 +142,16 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 		logger.Debug("Processing image content via base64 method")
 		// For image content, use base64 encoding
 		base64Data := base64.StdEncoding.EncodeToString(data)
-		
+
 		// Use the detected MIME type for the data URL
 		dataURL := fmt.Sprintf("data:%s;base64,%s", mtype.String(), base64Data)
-		
+
 		req.Document.Type = "image_url"
 		req.Document.ImageURL = dataURL
 		logger.WithFields(logrus.Fields{
-			"mime_type":        mtype.String(),
-			"base64_length":    len(base64Data),
-			"data_url_prefix":  dataURL[:min(50, len(dataURL))],
+			"mime_type":       mtype.String(),
+			"base64_length":   len(base64Data),
+			"data_url_prefix": dataURL[:min(50, len(dataURL))],
 		}).Debug("Using image URL method")
 	}
 
@@ -145,10 +163,10 @@ func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, page
 	return &OCRResult{
 		Text: text,
 		Metadata: map[string]string{
-			"provider":   "mistral_ocr",
-			"model":      p.model,
-			"mime_type":  mtype.String(),
-			"page":       fmt.Sprintf("%d", pageNumber),
+			"provider":  "mistral_ocr",
+			"model":     p.model,
+			"mime_type": mtype.String(),
+			"page":      fmt.Sprintf("%d", pageNumber),
 		},
 	}, nil
 }
@@ -230,6 +248,44 @@ func (p *MistralOCRProvider) uploadFile(data []byte) (string, error) {
 
 	logger.WithField("file_id", uploadResp.ID).Info("File uploaded successfully")
 	return uploadResp.ID, nil
+}
+
+// deleteFile removes an uploaded file from Mistral's files API. Uploaded
+// documents are not expired by Mistral automatically, so every upload must
+// be deleted once it is no longer needed.
+func (p *MistralOCRProvider) deleteFile(fileID string) error {
+	logger := log.WithField("file_id", fileID)
+	logger.Debug("Deleting uploaded file from Mistral")
+
+	url := fmt.Sprintf("%s/%s", mistralFilesEndpoint, fileID)
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+	req.Header.Set("Accept", "application/json")
+
+	// Short timeout on purpose: cleanup is best-effort and must not hold up
+	// an already finished OCR result.
+	client := &http.Client{Timeout: time.Second * 10}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("file deletion failed with status: %d, response: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	logger.Debug("Deleted uploaded file from Mistral")
+	return nil
 }
 
 // getSignedURL gets a signed URL for an uploaded file
@@ -358,25 +414,25 @@ func (p *MistralOCRProvider) processDocument(req MistralOCRRequest, logger *logr
 	}
 
 	logger.WithFields(logrus.Fields{
-		"pages_count":      len(ocrResp.Pages),
-		"pages_processed":  ocrResp.UsageInfo.PagesProcessed,
-		"model":            ocrResp.Model,
+		"pages_count":     len(ocrResp.Pages),
+		"pages_processed": ocrResp.UsageInfo.PagesProcessed,
+		"model":           ocrResp.Model,
 	}).Info("OCR processing completed")
 
 	// Combine text from all pages
 	var combinedText string
 	for i, page := range ocrResp.Pages {
 		logger.WithFields(logrus.Fields{
-			"page_index":     i,
-			"page_markdown":  len(page.Markdown),
-			"page_dpi":       page.Dimensions.Dpi,
-			"page_width":     page.Dimensions.Width,
-			"page_height":    page.Dimensions.Height,
+			"page_index":    i,
+			"page_markdown": len(page.Markdown),
+			"page_dpi":      page.Dimensions.Dpi,
+			"page_width":    page.Dimensions.Width,
+			"page_height":   page.Dimensions.Height,
 		}).Debug("Processing page content")
-		
+
 		combinedText += page.Markdown + "\n"
 	}
-	
+
 	// Remove trailing newline
 	if len(combinedText) > 0 {
 		combinedText = combinedText[:len(combinedText)-1]

@@ -28,6 +28,7 @@ func newTestDoclingProvider(serverURL string) *DoclingProvider {
 	return &DoclingProvider{
 		baseURL:         serverURL,
 		imageExportMode: "md",
+		outputFormat:    "md",
 		httpClient:      client,
 	}
 }
@@ -188,6 +189,71 @@ func TestDoclingProvider_ProcessImage(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expectedResult, result)
+			}
+		})
+	}
+}
+
+// TestDoclingProvider_SendsConfiguredOutputFormat checks that DOCLING_OUTPUT_FORMAT
+// ends up in the request instead of the former hardcoded "md".
+func TestDoclingProvider_SendsConfiguredOutputFormat(t *testing.T) {
+	var gotToFormats string
+	server := setupDoclingTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		err := r.ParseMultipartForm(10 << 20)
+		assert.NoError(t, err)
+		gotToFormats = r.FormValue("to_formats")
+
+		resp := DoclingConvertResponse{
+			Status:   "success",
+			Document: DoclingDocumentResponse{TextContent: "plain text"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+	defer server.Close()
+
+	provider := newTestDoclingProvider(server.URL)
+	provider.outputFormat = "text"
+
+	result, err := provider.ProcessImage(context.Background(), []byte("dummy"), 1)
+	assert.NoError(t, err)
+	assert.Equal(t, "plain text", result.Text)
+	assert.Equal(t, "text", gotToFormats)
+}
+
+// TestNewProvider_DoclingOutputFormat checks default, normalization and
+// validation of DOCLING_OUTPUT_FORMAT.
+func TestNewProvider_DoclingOutputFormat(t *testing.T) {
+	tests := []struct {
+		name             string
+		outputFormat     string
+		wantOutputFormat string
+		wantErr          string
+	}{
+		{name: "defaults to md when unset", wantOutputFormat: "md"},
+		{name: "text output", outputFormat: "text", wantOutputFormat: "text"},
+		{name: "normalizes case and spaces", outputFormat: " TEXT ", wantOutputFormat: "text"},
+		{name: "rejects unsupported output format", outputFormat: "json", wantErr: "unsupported docling output format"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider, err := NewProvider(Config{
+				Provider:            "docling",
+				DoclingURL:          "http://docling.invalid:5001",
+				DoclingOutputFormat: tt.outputFormat,
+			})
+
+			if tt.wantErr != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+
+			assert.NoError(t, err)
+			docling, ok := provider.(*DoclingProvider)
+			if assert.True(t, ok, "expected a *DoclingProvider") {
+				assert.Equal(t, tt.wantOutputFormat, docling.outputFormat)
 			}
 		})
 	}

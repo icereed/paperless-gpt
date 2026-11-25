@@ -6,6 +6,7 @@
 [![GitHub Container Registry](https://img.shields.io/badge/GHCR-Package-181717?logo=github)](https://github.com/icereed/paperless-gpt/pkgs/container/paperless-gpt)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-icereed-ea4aaa?logo=github-sponsors)](https://github.com/sponsors/icereed)
+[![Fair Hosting](https://img.shields.io/badge/Fair%20Hosting-server.camp-blue)](#managed-hosting-for-germany-austria-and-switzerland)
 
 
 <a href="https://trendshift.io/repositories/12701" target="_blank"><img src="https://trendshift.io/api/badge/repositories/12701" alt="icereed%2Fpaperless-gpt | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
@@ -15,9 +16,12 @@
 <sub>💡 Maintained by [Icereed](https://github.com/icereed). Proudly supported by [BubbleTax.de](https://bubbletax.de/?utm_source=github&utm_medium=readme&utm_campaign=paperless) – automated, BMF-compliant tax reports for Interactive Brokers traders in Germany.</sub>
 
 ---
-**paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**-ensuring high accuracy, even with tricky scans. If you're craving next-level text extraction and effortless document organization, this is your solution.
+**paperless-gpt** seamlessly pairs with [paperless-ngx][paperless-ngx] to generate **AI-powered document titles** and **tags**, saving you hours of manual sorting. While other tools may offer AI chat features, **paperless-gpt** stands out by **supercharging OCR with LLMs**-ensuring high accuracy, even with tricky scans. It also **connects documents that belong together**: a reminder gets linked to the invoice it is about, an amendment to its contract, a letter to the case it cites. If you're craving next-level text extraction and effortless document organization, this is your solution.
 
 https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
+
+> **☁️ Self-host it or have it hosted**  
+> paperless-gpt is free, open source and fully self-hostable. If you're in Germany, Austria or Switzerland and would rather not run it yourself, [server.camp](https://server.camp/product/paperless-ngx) offers managed paperless-ngx with paperless-gpt and shares part of that revenue with this project. → [Managed hosting](#managed-hosting-for-germany-austria-and-switzerland)
 
 > **❤️ Support This Project**  
 > If paperless-gpt is helping you organize your documents and saving you time, please consider [sponsoring its development](https://github.com/sponsors/icereed). Your support helps ensure continued improvements and maintenance!
@@ -29,46 +33,54 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 1. **LLM-Enhanced OCR**  
    Harness Large Language Models (OpenAI or Ollama) for **better-than-traditional** OCR—turn messy or low-quality scans into context-aware, high-fidelity text.
 
-2. **Use specialized AI OCR services**
+2. **Links related documents for you** 🔗  
+   Reminders, credit notes, amendments, delivery notes and follow-up letters all cite a number: an invoice, contract, order or case number (Aktenzeichen). paperless-gpt reads that reference, finds the matching document in your archive and fills a paperless-ngx **Document Link** field, so both documents point at each other. Order, delivery note and invoice end up connected; a contract carries its amendments and termination; every letter citing the same file number lands in one case file, no matter who sent it.
+
+   Built to be conservative: the model only extracts the reference, paperless-gpt does an exact whole-word lookup, and anything ambiguous is left unlinked rather than guessed. → [Use cases and setup](docs/document_linking.md)
+
+3. **Use specialized AI OCR services**
 
    - **LLM OCR**: Use OpenAI or Ollama to extract text from images.
    - **Google Document AI**: Leverage Google's powerful Document AI for OCR tasks.
    - **Azure Document Intelligence**: Use Microsoft's enterprise OCR solution.
    - **Docling Server**: Self-hosted OCR and document conversion service
 
-3. **Automatic Title, Tag & Created Date Generation**  
+4. **Automatic Title, Tag & Created Date Generation**  
    No more guesswork. Let the AI do the naming and categorizing. You can easily review suggestions and refine them if needed.
 
-4. **Supports reasoning models in Ollama**  
+5. **Supports reasoning models in Ollama**  
    Greatly enhance accuracy by using a reasoning model like `qwen3:8b`. The perfect tradeoff between privacy and performance! Of course, if you got enough GPUs or NPUs, a bigger model will enhance the experience.
 
-5. **Automatic Correspondent Generation**  
+6. **Automatic Correspondent Generation**  
    Automatically identify and generate correspondents from your documents, making it easier to track and organize your communications.
 
-6. **Automatic Custom Field Generation**  
+7. **Automatic Custom Field Generation**  
    Extract and populate custom fields from your documents. Configure which fields to target and how they should be filled. This feature must be enabled in the settings, and you must select at least one custom field for it to function. Three write modes are available:
    - **Append**: This is the safest option: It only adds new fields that do not already exist on the document. It will never overwrite an existing field, even if it's empty.
    - **Update**: Adds new fields and overwrites existing fields with new suggestions. Fields on the document that don't have a new suggestion are left untouched.
    - **Replace**: Deletes all existing custom fields on the document and replaces them entirely with the suggested fields.
 
-7. **Searchable & Selectable PDFs**  
-   Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance.
+   Fields of type **Document Link** are special: instead of filling in text, paperless-gpt resolves the references a document cites to the actual documents in your archive (see [Links related documents](#key-highlights) above).
 
-7. **Extensive Customization**
+8. **Searchable & Selectable PDFs**  
+   Generate PDFs with transparent text layers positioned accurately over each word, making your documents both searchable and selectable while preserving the original appearance. With paperless-ngx 3.0, the searchable PDF can be added as a **new version of the same document**, so it keeps its ID, tags, custom fields and notes, and the original stays available as the previous version (`PDF_UPLOAD_MODE=version`, see [PDF Upload to paperless-ngx](#pdf-upload-to-paperless-ngx)).
+
+9. **Extensive Customization**
 
    - **Customizable Prompts via Web UI**: Tweak and manage all AI prompts for titles, tags, correspondents, and more directly within the web interface under the "Settings" menu. The application uses a safe `default_prompts` and `prompts` directory structure, ensuring your customizations are persistent.
    - **Tagging**: Decide how documents get tagged—manually, automatically, or via OCR-based flows.
+   - **AI Workflows**: Give each kind of document its own trigger tag, prompts and processing steps: invoices get a title prompt tuned for invoice numbers, contracts get custom fields, private mail only gets a title. Test a workflow on a real document before saving it; workflows are plain files next to your prompts. → [AI Workflows](docs/workflows.md)
    - **PDF Processing**: Configure how OCR-enhanced PDFs are handled, with options to save locally or upload to paperless-ngx.
 
-8. **Simple Docker Deployment**  
+10. **Simple Docker Deployment**  
    A few environment variables, and you're off! Compose it alongside paperless-ngx with minimal fuss.
 
-9. **Unified Web UI**
+11. **Unified Web UI**
 
    - **Manual Review**: Approve or tweak AI's suggestions.
    - **Auto Processing**: Focus only on edge cases while the rest is sorted for you.
 
-9. **Ad-hoc Document Analysis**
+12. **Ad-hoc Document Analysis**
    Perform ad-hoc analysis on a selection of documents using a custom prompt. Gain quick insights, summaries, or extract specific information from multiple documents at once.
 
 ---
@@ -78,7 +90,11 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 - [paperless-gpt](#paperless-gpt)
   - [Key Highlights](#key-highlights)
   - [Table of Contents](#table-of-contents)
+  - [Managed Hosting for Germany, Austria and Switzerland](#managed-hosting-for-germany-austria-and-switzerland)
+    - [Fair Hosting](#fair-hosting)
   - [Getting Started](#getting-started)
+    - [Option 1: Managed Hosting](#option-1-managed-hosting)
+    - [Option 2: Self-Hosting](#option-2-self-hosting)
     - [Prerequisites](#prerequisites)
     - [Security](#security)
     - [Installation](#installation)
@@ -104,6 +120,7 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Usage Recommendations](#usage-recommendations)
   - [Configuration](#configuration)
     - [Environment Variables](#environment-variables)
+    - [Using a Different AI Provider](#using-a-different-ai-provider)
     - [Custom Prompt Templates](#custom-prompt-templates)
       - [Template Variables](#template-variables)
   - [LLM-Based OCR: Compare for Yourself](#llm-based-ocr-compare-for-yourself)
@@ -118,13 +135,47 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
     - [Custom Field Generation Issues](#custom-field-generation-issues)
   - [Contributing](#contributing)
   - [Support the Project](#support-the-project)
+    - [Support paperless-gpt through Fair Hosting](#support-paperless-gpt-through-fair-hosting)
   - [License](#license)
   - [Star History](#star-history)
   - [Disclaimer](#disclaimer)
 
 ---
 
+## Managed Hosting for Germany, Austria and Switzerland
+
+paperless-gpt is built to be self-hosted and remains free and open source.
+
+If you'd rather use it without operating the infrastructure yourself, [server.camp](https://server.camp/product/paperless-ngx) provides managed paperless-ngx hosting with paperless-gpt and the AI components it needs already set up:
+
+- paperless-ngx and paperless-gpt ready to use
+- hosting and updates managed for you
+- no GPU of your own and no separate AI infrastructure to run
+- AI processing in the EU
+- aimed at individuals and businesses in Germany, Austria and Switzerland
+
+### Fair Hosting
+
+server.camp follows a simple principle: when open source software creates value for their hosting business, the projects behind it should share in that value. A share of the revenue server.camp generates with paperless-gpt goes back to the paperless-gpt project and funds its continued development.
+
+**→ [Use paperless-gpt as a managed service with server.camp](https://server.camp/product/paperless-ngx)**  
+→ [More about managed hosting and Fair Hosting](docs/managed-hosting.md)
+
+Prefer to run everything yourself? Great. Continue with [Getting Started](#getting-started) below.
+
+---
+
 ## Getting Started
+
+There are two ways to run paperless-gpt.
+
+### Option 1: Managed Hosting
+
+If you're in Germany, Austria or Switzerland and don't want to operate paperless-gpt yourself, server.camp provides a managed paperless-ngx + paperless-gpt environment. → [Managed paperless-gpt with server.camp](https://server.camp/product/paperless-ngx)
+
+### Option 2: Self-Hosting
+
+paperless-gpt is fully self-hostable and free under the MIT license. Everything below covers running it yourself with Docker Compose or a manual setup.
 
 ### Prerequisites
 
@@ -139,6 +190,9 @@ https://github.com/user-attachments/assets/bd5d38b9-9309-40b9-93ca-918dfa4f3fd4
 **paperless-gpt has no built-in authentication.** Its web UI and `/api/*` endpoints are open to anyone who can reach the port — by default it listens on all interfaces (`LISTEN_INTERFACE` defaults to `:8080`), so a plain `-p 8080:8080` (as in the example below) exposes it to your whole LAN/VPN, not just `localhost`. Anyone who can reach it can rewrite documents in your connected paperless-ngx instance, trigger LLM/OCR jobs against your API keys, and change settings — with zero credentials required.
 
 Do not expose it directly to the internet or an untrusted network. Put it behind a reverse proxy that adds authentication (e.g. Authelia, Authentik, a Basic Auth layer), restrict it to a VPN/Tailscale network, or otherwise limit who can reach the port.
+
+> **Prefer not to manage this layer yourself?**  
+> For users in Germany, Austria and Switzerland, [server.camp](https://server.camp/product/paperless-ngx) provides paperless-gpt as part of a managed paperless-ngx environment, including operation of the surrounding infrastructure. See [Managed Hosting](#managed-hosting-for-germany-austria-and-switzerland).
 
 ### Installation
 
@@ -193,6 +247,9 @@ services:
       # LLM_MODEL: "qwen3:8b"
       # OLLAMA_HOST: "http://host.docker.internal:11434"
       # OLLAMA_CONTEXT_LENGTH: "8192" # Sets Ollama NumCtx (context window)
+      # LLM_MAX_TOKENS: "256" # Sets Ollama num_predict (output-token budget)
+      # OLLAMA_KEEP_ALIVE: "10m" # Keeps the model loaded between metadata requests
+      # OLLAMA_THINK: "false" # true/false, or low/medium/high for supported models
       # OLLAMA_HEADERS: "Authorization=Bearer mytoken" # Optional headers for reverse-proxy auth
       # TOKEN_LIMIT: 1000 # Recommended for smaller models
 
@@ -237,7 +294,8 @@ services:
       CREATE_LOCAL_PDF: "false" # Optional, save enhanced PDFs locally
       LOCAL_PDF_PATH: "/app/pdf" # Optional, path for PDF files
       PDF_UPLOAD: "false" # Optional, upload enhanced PDFs to paperless-ngx
-      PDF_REPLACE: "false" # Optional and DANGEROUS, delete original after upload
+      PDF_UPLOAD_MODE: "new" # Optional: "new" (new document) or "version" (new version of the same document, paperless-ngx 3.0+, recommended)
+      PDF_REPLACE: "false" # Optional and DANGEROUS, delete original after upload ("new" mode only)
       PDF_COPY_METADATA: "true" # Optional, copy metadata from original document
       PDF_OCR_TAGGING: "true" # Optional, add tag to processed documents
       PDF_OCR_COMPLETE_TAG: "paperless-gpt-ocr-complete" # Optional, tag name
@@ -248,6 +306,7 @@ services:
       # DOCLING_IMAGE_EXPORT_MODE: "placeholder" # Optional, defaults to "embedded"
       # DOCLING_OCR_PIPELINE: "standard" # Optional, defaults to "vlm"
       # DOCLING_OCR_ENGINE: "easyocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE is set to 'standard')
+      # DOCLING_OUTPUT_FORMAT: "md" # Optional, defaults to "md", other option: "text"
 
 
       AUTO_OCR_TAG: "paperless-gpt-ocr-auto" # Optional, default: paperless-gpt-ocr-auto
@@ -256,7 +315,8 @@ services:
       LOG_LEVEL: "info" # Optional: debug, warn, error
     volumes:
       - ./prompts:/app/prompts # Mount the prompts directory
-      - ./config:/app/config # Mount the config directory
+      - ./config:/app/config # Mount the config directory (settings made in the UI)
+      - ./db:/app/db # Mount the db directory (history for undo, OCR run log)
       # For Google Document AI:
       - ${HOME}/.config/gcloud/application_default_credentials.json:/app/credentials.json
       # For local hOCR and PDF saving:
@@ -303,6 +363,8 @@ services:
      -e VISION_LLM_MODEL='minicpm-v' \
      -e LOG_LEVEL='info' \
      -v $(pwd)/prompts:/app/prompts \
+     -v $(pwd)/config:/app/config \
+     -v $(pwd)/db:/app/db \
      -p 8080:8080 \
      paperless-gpt
    ```
@@ -403,6 +465,7 @@ paperless-gpt supports four different OCR providers, each with unique strengths 
   DOCLING_IMAGE_EXPORT_MODE: "placeholder" # Optional, defaults to "embedded"
   DOCLING_OCR_PIPELINE: "standard" # Optional, defaults to "vlm"
   DOCLING_OCR_ENGINE: "macocr" # Optional, defaults to "easyocr" (only used when `DOCLING_OCR_PIPELINE is set to 'standard')
+  DOCLING_OUTPUT_FORMAT: "md" # Optional, defaults to "md", other option: "text"
   ```
 
 ## OCR Processing Modes
@@ -455,6 +518,29 @@ environment:
 
 > **Note**: Not all OCR providers support all processing modes. Some may work better with certain modes than others. Processing as PDF might use more or fewer API tokens than processing as images, depending on the provider. Results may vary based on document complexity and provider capabilities. It's recommended to experiment with different modes to find what works best for your specific documents and OCR provider.
 
+### Skip OCR for pages that already have text
+
+Many archives mix born-digital documents (invoices, statements, letters generated as PDF), whose text is already exact, with scans. OCR on the digital pages costs time and tokens and can only make their text worse. In one real archive we checked, about half of all pages were digital. With this option paperless-gpt checks each page of the **original** file first and only sends pages to OCR that need it:
+
+```yaml
+environment:
+  OCR_SKIP_DIGITAL_PAGES: "true"
+```
+
+| Page | Decision |
+|---|---|
+| No text layer | OCR |
+| Invisible text over a scanned image (a scanner's or OCR tool's text layer) | OCR, that is what paperless-gpt improves on |
+| Broken text: replacement glyphs, mojibake such as "f¸r" or "fÃ¼r" | OCR |
+| Clean, visible text, no large images | Its own text is used |
+| A little text over a large image | OCR |
+
+- **Original, not archive:** routing looks at the original file, not paperless-ngx' archive version. The archive carries paperless-ngx' own Tesseract text on every scanned page, which is the text paperless-gpt is meant to replace.
+- **Image mode only:** it applies to the image OCR mode, and stays off for runs that create a searchable PDF or hOCR (`PDF_UPLOAD`, `CREATE_LOCAL_PDF`, `CREATE_LOCAL_HOCR`, or an OCR provider that produces hOCR such as Google Document AI), because those need OCR on every page.
+- **Never blocks OCR:** if the original is not a PDF, its page count differs from the archive version, or anything goes wrong, every page is OCRed as before.
+
+The idea comes from [doc-router](https://github.com/misbahsy/doc-router): don't pay to OCR a page that already has text on it.
+
 ## Enhanced OCR Features
 
 paperless-gpt includes powerful OCR enhancements that go beyond basic text extraction:
@@ -489,7 +575,20 @@ volumes:
 
 ### PDF Upload to paperless-ngx
 
-Due to limitations in paperless-ngx's API, it's not possible to directly update existing documents with their OCR-enhanced versions. As a workaround, paperless-gpt can:
+paperless-gpt can hand the enhanced PDF back to paperless-ngx in one of two ways, chosen with `PDF_UPLOAD_MODE`:
+
+- **`version` (paperless-ngx 3.0+, recommended):** the enhanced PDF is added as a **new version of the same document** through paperless-ngx's document versions API. The document keeps its id, tags, custom fields, notes and storage path, the original file stays available as the previous version, and downloads serve the searchable PDF. Nothing is deleted, so `PDF_REPLACE` and `PDF_COPY_METADATA` do not apply.
+- **`new` (default, any paperless-ngx version):** older paperless-ngx releases cannot update an existing document's file, so paperless-gpt uploads the enhanced PDF as a new document, copies some metadata to it, and can optionally delete the original.
+
+```yaml
+environment:
+  PDF_UPLOAD: "true"
+  PDF_UPLOAD_MODE: "version" # Add the searchable PDF as a new version (paperless-ngx 3.0+)
+```
+
+> **Note**: in `version` mode paperless-ngx runs its normal consumption on the new version. With paperless-ngx's OCR mode set to `redo`, it would re-OCR the file with Tesseract and use that text for search instead of the text layer paperless-gpt wrote; set the OCR mode to `auto` (Settings → OCR) so files that already have text are left alone.
+
+In `new` mode paperless-gpt will:
 
 1. Upload the enhanced PDF as a new document
 2. Copy metadata from the original document to the new one
@@ -506,9 +605,13 @@ environment:
 ```
 
 > **⚠️ WARNING ⚠️**  
-> Setting `PDF_REPLACE: "true"` will delete the original document after uploading the enhanced version. This process cannot be undone and may result in data loss if something goes wrong during the upload or metadata copying process. Use with extreme caution!
+> Setting `PDF_REPLACE: "true"` will delete the original document after uploading the enhanced version. This process cannot be undone and may result in data loss if something goes wrong during the upload or metadata copying process. Use with extreme caution! paperless-gpt only deletes the original once paperless-ngx reports the upload as imported (within about a minute); if it can't confirm that, the original is kept and the run says so.
+>
+> On paperless-ngx 3.0 or newer, use `PDF_UPLOAD_MODE: "version"` instead. It gives the same result, one document with a searchable PDF, without deleting anything: the original stays available as the previous version. `PDF_REPLACE` is ignored in that mode.
 
 ### Metadata Copying Limitations
+
+This section applies to `PDF_UPLOAD_MODE: "new"` only. In `version` mode nothing has to be copied: the searchable PDF becomes a new version of the same document, which keeps its ID, title, tags, correspondent, custom fields, notes and storage path.
 
 When copying metadata from the original document to the new one, paperless-gpt attempts to copy:
 
@@ -544,7 +647,7 @@ environment:
 
 For best results with the enhanced OCR features:
 
-1. **Initial Testing**: Start with `PDF_REPLACE: "false"` until you've confirmed the process works well with your documents.
+1. **Initial Testing**: On paperless-ngx 3.0+, prefer `PDF_UPLOAD_MODE: "version"`, which never deletes anything. With `new` mode, start with `PDF_REPLACE: "false"` until you've confirmed the process works well with your documents.
 
 2. **Regular Backups**: Ensure you have backups of your paperless-ngx database and documents before enabling document replacement.
 
@@ -569,36 +672,45 @@ For best results with the enhanced OCR features:
 | `PAPERLESS_PUBLIC_URL`              | Public URL for Paperless (if different from `PAPERLESS_BASE_URL`).                                                                                                                            | No       |                            |
 | `MANUAL_TAG`                        | Tag for manual processing.                                                                                                                                                                    | No       | paperless-gpt              |
 | `AUTO_TAG`                          | Tag for auto processing.                                                                                                                                                                      | No       | paperless-gpt-auto         |
-| `FAIL_TAG`                          | Tag applied to a document when paperless-gpt could not apply the full LLM suggestion. Two cases trigger it: (1) **partial success** — paperless-ngx rejected one or more fields (e.g. an LLM-suggested date in an impossible format such as `2023-01-79`); paperless-gpt drops the rejected fields, retries the update with the rest, and applies this tag so the user knows the document needs review; (2) **hard failure** — the update could not be salvaged; paperless-gpt removes the auto tag (to break the processing loop) and applies this tag; (3) **repeated OCR failure** — OCR processing of the document failed `OCR_MAX_RETRIES` times in a row; paperless-gpt removes the auto OCR tag and applies this tag. The tag is created automatically in paperless-ngx at startup if it does not exist. | No       | paperless-gpt-failed       |
-| `AUTO_TAG_COMPLETE`                 | Tag added to documents after auto-processing is complete. Only applied during auto-processing, not manual review. Set to an empty string (`AUTO_TAG_COMPLETE=""`) to disable. When the variable is unset, the default tag is used. | No       | paperless-gpt-auto-complete |
+| `AUTO_TAG_MAX_RETRIES`              | How many times suggestion generation (title/tags/correspondent/document type) may fail for a document in the auto-tag poll before paperless-gpt gives up: the auto tag is removed and `FAIL_TAG` applied, so the document stops being retried (and re-billed) every cycle and stops occupying a slot in the poll's page of 25. Counted in memory — a restart resets the count. Set to `0` to keep retrying forever. | No       | 3                          |
+| `FAIL_TAG`                          | Tag applied to a document when paperless-gpt could not apply the full LLM suggestion. Two cases trigger it: (1) **partial success** — paperless-ngx rejected one or more fields (e.g. a suggested value a custom field's type cannot accept); paperless-gpt drops the rejected fields, retries the update with the rest, and applies this tag so the user knows the document needs review; (2) **hard failure** — the update could not be salvaged; paperless-gpt removes the auto tag (to break the processing loop) and applies this tag; (3) **repeated OCR failure** — OCR processing of the document failed `OCR_MAX_RETRIES` times in a row; paperless-gpt removes the auto OCR tag and applies this tag. The tag is created automatically in paperless-ngx at startup if it does not exist. | No       | paperless-gpt-failed       |
+| `AUTO_TAG_COMPLETE`                 | Tag added to documents after auto-processing is complete. Only applied during auto-processing, not manual review. Set to an empty string (`AUTO_TAG_COMPLETE=""`) to disable. When the variable is unset, the default tag is used. The tag is created automatically in paperless-ngx at startup if it does not exist. | No       | paperless-gpt-auto-complete |
 | `LLM_PROVIDER`                      | AI backend (`openai`, `atlas`, `ollama`, `googleai`, `mistral`, or `anthropic`).                                                                                                              | Yes      |                            |
 | `LLM_MODEL`                         | AI model name (e.g., `gpt-4o`, `mistral-large-latest`, `qwen3:8b`, `claude-sonnet-4-5`).                                                                                               | Yes      |                            |
 | `OPENAI_API_KEY`                    | OpenAI API key (required if using OpenAI).                                                                                                                                                    | Cond.    |                            |
 | `ATLAS_API_KEY`                     | Atlas Cloud API key (required if using `LLM_PROVIDER=atlas` or `VISION_LLM_PROVIDER=atlas`).                                                                                                  | Cond.    |                            |
 | `MISTRAL_API_KEY`                   | Mistral API key (required if using Mistral).                                                                                                                                                  | Cond.    |                            |
+| `MISTRAL_OCR_IMAGE_LIMIT`           | Max images Mistral OCR extracts per document when `OCR_PROVIDER` is `mistral_ocr`. Unset uses the API default.                                                                               | No       |                            |
+| `MISTRAL_OCR_IMAGE_MIN_SIZE`        | Min height/width (px) for a region to be extracted as an image rather than transcribed, when `OCR_PROVIDER` is `mistral_ocr`. Raise this to stop small boxed fields (e.g. handwritten form entries) from being skipped as images. | No       |                            |
 | `ANTHROPIC_API_KEY`                 | Anthropic API key (required if using Anthropic/Claude).                                                                                                                                       | Cond.    |                            |
 | `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                                   | No       |                            |
-| `OPENAI_BASE_URL`                   | Base URL for OpenAI API. Use it to point to an OpenAI-compatible endpoint (e.g. OpenRouter, LiteLLM, vLLM). For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                            |
+| `OPENAI_BASE_URL`                   | Base URL for OpenAI API. Use it to point to any OpenAI-compatible endpoint (OpenRouter, LM Studio, vLLM, LiteLLM, llama.cpp, Groq, …) — see [OpenAI-compatible providers](docs/openai_compatible_providers.md) for ready-made configurations. For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                            |
+| `OPENAI_HEADERS`                    | Comma-separated `Key=Value` pairs added as HTTP headers to every OpenAI-compatible request (e.g. `OPENAI_HEADERS=User-Agent=paperless-gpt/1.0`).                                                                                     | No       |                            |
+| `OPENROUTER_ENFORCE_ZDR`            | When `true` and `OPENAI_BASE_URL` points at openrouter.ai, adds `"provider": {"data_collection": "deny", "zdr": true}` to every LLM/VisionLLM/OCR request so OpenRouter only routes to upstream providers offering a Zero Data Retention guarantee. Requests to any other endpoint are unaffected. Narrows the provider pool for the configured model — check `https://openrouter.ai/<model>/providers` for multiple ZDR-capable providers before enabling this with a single-provider model, or a 429/5xx with no fallback can result. | No       | false                      |
 | `LLM_LANGUAGE`                      | Likely language for documents (e.g. `English`). Appears in the prompt to help the LLM.                                                                                                                                               | No       | English                    |
+| `LLM_TEMPERATURE`                   | (Ollama metadata only) Sampling temperature for title, tag, and other metadata generation. A non-negative finite value supplies the global setting; invalid, negative, `NaN`, and `Inf` values are ignored with a warning. The base fallback is `0`. An explicit per-call option still wins. It does not apply to other LLM providers or Vision OCR; use `VISION_LLM_TEMPERATURE` for supported vision providers. | No       | 0                          |
+| `LLM_MAX_TOKENS`                    | (Ollama metadata only) Positive integer or `-1`, mapped to Ollama `num_predict` as the output-token budget. When unset, paperless-gpt preserves the model/base setting. It is independent of `TOKEN_LIMIT` and `OLLAMA_CONTEXT_LENGTH`. | No | Model/base setting |
 | `GOOGLEAI_API_KEY`                  | Google Gemini API key (required if using `LLM_PROVIDER=googleai`).                                                                                                                            | Cond.    |                            |
 | `GOOGLEAI_THINKING_BUDGET`          | (Optional, googleai only) Integer. Controls Gemini "thinking" budget. If unset, model default is used (thinking enabled if supported). Set to `0` to disable thinking (if model supports it). | No       |                            |
 | `OLLAMA_HOST`                       | Ollama server URL (e.g. `http://host.docker.internal:11434`).                                                                                                                                 | No       |                            |
-| `OLLAMA_THINK`                      | (Ollama only) Set to `false` to disable Ollama reasoning ("think") mode, `true` to force it on. Recommended `false` for thinking-mode models (e.g. Qwen 3, Gemma 3) on tasks that need strict output formats — with thinking left on, these models can spend the whole token budget reasoning and return empty content. If unset, the model's default applies. | No       |                            |
+| `OLLAMA_KEEP_ALIVE`                 | (Ollama metadata only) Ollama duration such as `10m` or `1h`, `0` to unload after a request, or `-1` to keep the model loaded indefinitely. Keeping models loaded consumes RAM/VRAM. | No | Model/base setting |
+| `OLLAMA_THINK`                      | (Ollama metadata only) `true` or `false`, or `low`, `medium`, or `high` for models that support thinking levels. The value is forwarded to the selected Ollama model, which may reject or ignore an unsupported setting or level. Thinking consumes output budget on models that generate a reasoning trace. | No | Model/base setting |
 | `LLM_REQUESTS_PER_MINUTE`           | Maximum requests per minute for the main LLM. Useful for managing API costs or local LLM load.                                                                                                | No       | 120                        |
 | `LLM_MAX_RETRIES`                   | Maximum retry attempts for failed main LLM requests.                                                                                                                                          | No       | 3                          |
 | `LLM_BACKOFF_MAX_WAIT`              | Maximum wait time between retries for the main LLM (e.g., `30s`).                                                                                                                             | No       | 30s                        |
 | `SUGGESTION_WORKERS`                | Number of async manual suggestion workers. Keep this at `1` for slow or local LLM backends to avoid concurrent generation overload.                                                           | No       | 1                          |
 | `SUGGESTION_JOB_TIMEOUT_SECONDS`    | Optional timeout for async manual suggestion jobs. Leave unset to disable; set a bounded value for slow local inference when jobs must not run forever.                                      | No       |                            |
-| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, or `google_docai`).                                                                                                                                      | No       | llm                        |
+| `OCR_PROVIDER`                      | OCR provider to use (`llm`, `azure`, `google_docai`, `docling`, or `mistral_ocr`).                                                                                                             | No       | llm                        |
 | `OCR_PROCESS_MODE`                  | Method for processing documents: `image` (convert to images first), `pdf` (process PDF pages directly), or `whole_pdf` (entire PDF at once).                                                  | No       | image                      |
 | `VISION_LLM_PROVIDER`               | AI backend for LLM OCR (`openai`, `atlas`, `ollama`, `googleai`, `mistral`, or `anthropic`). Required if OCR_PROVIDER is `llm`.                                                               | Cond.    |                            |
 | `VISION_LLM_MODEL`                  | Model name for LLM OCR (e.g. `minicpm-v`). Required if OCR_PROVIDER is `llm`.                                                                                                                 | Cond.    |                            |
 | `VISION_LLM_REQUESTS_PER_MINUTE`    | Maximum requests per minute for the Vision LLM. Useful for managing API costs or local LLM load.                                                                                              | No       | 120                        |
-| `VISION_LLM_MAX_RETRIES`            | Maximum retry attempts for failed Vision LLM requests.                                                                                                                                        | No       | 3                          |
-| `VISION_LLM_BACKOFF_MAX_WAIT`       | Maximum wait time between retries for the Vision LLM (e.g., `30s`).                                                                                                                           | No       | 30s                        |
+| `VISION_LLM_MAX_RETRIES`            | Maximum retry attempts for failed Vision LLM requests. For OCR, only transient errors (HTTP 429/5xx) are retried, per page; `0` disables OCR retries.                                         | No       | 3 (suggestions), 8 (OCR)   |
+| `VISION_LLM_BACKOFF_MAX_WAIT`       | Maximum wait time between retries for the Vision LLM (e.g., `30s`).                                                                                                                           | No       | 30s (suggestions), 90s (OCR) |
 | `VISION_LLM_MAX_TOKENS`             | Maximum tokens for Vision LLM OCR output.                                                                                                                                                     | No       |                            |
 | `VISION_LLM_TEMPERATURE`            | Sampling temperature for Vision OCR generation. Lower is more deterministic. Important: For OpenAI GPT-5 it must be explicitly set to `1.0`.                                                  | No       |                            |
 | `OLLAMA_CONTEXT_LENGTH`             | (Ollama only) Integer. Sets NumCtx (context window) for the Ollama runner. If unset or 0, the model default is used.                                                                          | No       |                            |
+| `OLLAMA_TIMEOUT_SECONDS`            | (Ollama only) Per-request HTTP timeout in seconds for calls to the Ollama server. Prevents a single stalled generation from hanging the background auto-tagging/OCR loop indefinitely. Set to `0` (or negative) to disable the timeout. | No       | `300`                      |
 | `OLLAMA_OCR_TOP_K`                  | (Ollama only) Top-k token sampling for Vision OCR. Lower favors more likely tokens; higher increases diversity.                                                                               | No       |                            |
 | `OLLAMA_HEADERS`                    | (Ollama only) Comma-separated `Key=Value` pairs added as HTTP headers to every Ollama request. Useful for authorization when Ollama is behind a reverse proxy (e.g. `Authorization=Bearer mytoken`). | No       |                            |
 | `AZURE_DOCAI_ENDPOINT`              | Azure Document Intelligence endpoint. Required if OCR_PROVIDER is `azure`.                                                                                                                    | Cond.    |                            |
@@ -614,16 +726,20 @@ For best results with the enhanced OCR features:
 | `DOCLING_IMAGE_EXPORT_MODE`         | Mode for image export. Optional; defaults to `embedded` if unset.                                                                                                                             | No       | embedded                   |
 | `DOCLING_OCR_PIPELINE`              | Sets the pipeline type. Optional; defaults to `vlm` if unset.                                                                                                                                 | No       | vlm                        |
 | `DOCLING_OCR_ENGINE`                | Sets the ocr engine, if `DOCLING_OCR_PIPELINE` is set to `standard`. Optional; defaults to `easyocr`                                                                                          | No       | easyocr                    |
+| `DOCLING_OUTPUT_FORMAT`             | Output format requested from Docling (`to_formats`): `md` (Markdown, keeps tables and headings) or `text` (plain text). Optional; defaults to `md`.                                           | No       | md                         |
 | `CREATE_LOCAL_HOCR`                 | Whether to save hOCR files locally.                                                                                                                                                           | No       | false                      |
 | `LOCAL_HOCR_PATH`                   | Path where hOCR files will be saved when hOCR generation is enabled.                                                                                                                          | No       | /app/hocr                  |
 | `CREATE_LOCAL_PDF`                  | Whether to save enhanced PDFs locally.                                                                                                                                                        | No       | false                      |
 | `LOCAL_PDF_PATH`                    | Path where PDF files will be saved when PDF generation is enabled.                                                                                                                            | No       | /app/pdf                   |
 | `PDF_UPLOAD`                        | Whether to upload enhanced PDFs to paperless-ngx.                                                                                                                                             | No       | false                      |
+| `PDF_UPLOAD_MODE`                   | How `PDF_UPLOAD` hands back the PDF: `new` uploads a new document (optionally replacing the original); `version` adds it as a new version of the same document (paperless-ngx 3.0+), keeping id and metadata. `PDF_REPLACE` is ignored in `version` mode. | No       | new                        |
 | `PDF_REPLACE`                       | Whether to delete the original document after uploading the enhanced version (DANGEROUS).                                                                                                     | No       | false                      |
 | `PDF_COPY_METADATA`                 | Whether to copy metadata from the original document to the uploaded PDF. Only applicable when using PDF_UPLOAD.                                                                               | No       | true                       |
 | `PDF_OCR_TAGGING`                   | Whether to add a tag to mark documents as OCR-processed.                                                                                                                                      | No       | true                       |
-| `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed.                                                                                                                                                  | No       | paperless-gpt-ocr-complete |
+| `PDF_OCR_COMPLETE_TAG`              | Tag used to mark documents as OCR-processed. The tag is created automatically in paperless-ngx at startup if it does not exist (when `PDF_OCR_TAGGING` is enabled).                                                                                                                                                  | No       | paperless-gpt-ocr-complete |
 | `PDF_SKIP_EXISTING_OCR`             | Whether to skip OCR processing for PDFs that already have OCR. Works with `pdf` and `whole_pdf` processing modes (`OCR_PROCESS_MODE`).                                                        | No       | false                      |
+| `OCR_SKIP_DIGITAL_PAGES`            | Skip OCR for pages whose original already has a clean, visible text layer and use that text (image mode; off when a searchable PDF or hOCR is produced). See [Skip OCR for pages that already have text](#skip-ocr-for-pages-that-already-have-text). | No       | false                      |
+| `PRESERVE_EXISTING_METADATA`        | Keep a correspondent or document type that is already set on the document instead of overwriting it with the suggestion. Useful when paperless-ngx' own classifier or manual corrections should stay in charge and the LLM should only fill the gaps. | No       | false                      |
 | `AUTO_OCR_TAG`                      | Tag for automatically processing docs with OCR.                                                                                                                                               | No       | paperless-gpt-ocr-auto     |
 | `OCR_LIMIT_PAGES`                   | Limit the number of pages for OCR. Set to `0` for no limit. Not applied in `whole_pdf` mode (see [Whole PDF Mode](#whole-pdf-mode)), which always processes the entire document.              | No       | 5                          |
 | `OCR_MAX_RETRIES`                   | How many times OCR processing may fail for a document before paperless-gpt gives up on it: the auto OCR tag is removed and `FAIL_TAG` applied, so the document stops being retried (and re-billed) every poll cycle. Counted in memory — a restart resets the count. Set to `0` to keep the old retry-forever behavior.                                | No       | 3                          |
@@ -643,9 +759,37 @@ For best results with the enhanced OCR features:
 | `IMAGE_MAX_RENDER_DPI`              | Maximum DPI used when rendering document pages to images.                                                                                                                                     | No       | 600                        |
 | `IMAGE_MAX_FILE_BYTES`              | Maximum JPEG file size in bytes for rendered page images. Images exceeding this are compressed or resized.                                                                                     | No       | 10485760                   |
 | `CORRESPONDENT_BLACK_LIST`          | A comma-separated list of names to exclude from the correspondents suggestions. Example: `John Doe, Jane Smith`.                                                                              | No       |                            |
+| `CORRESPONDENT_PROMPT_LIMIT`        | Maximum number of existing correspondents embedded into the correspondent suggestion prompt; names occurring in the document are preferred. `0` (default) sends the full list. Useful for large installations and local LLMs with small context windows. | No       | 0                          |
 
 > [!NOTE]
-> `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs. The **Active Configuration** panel on the Settings page shows each value's effective source (env / saved / default).
+> `PDF_UPLOAD`, `PDF_REPLACE`, `PDF_COPY_METADATA`, `OCR_LIMIT_PAGES` and `OCR_PROCESS_MODE` act as *defaults*. `PDF_UPLOAD_MODE` is set by the environment only. The OCR Playground can override them per run, and "Save as defaults" in the UI persists tuned values to `config/settings.json`, which then takes precedence for Auto-OCR and future runs. The **Active Configuration** panel on the Settings page shows each value's effective source (env / saved / default).
+
+### Using a Different AI Provider
+
+`LLM_PROVIDER` accepts `openai`, `ollama`, `googleai`, `mistral` and
+`anthropic`. That list is shorter than it looks: **any service that speaks the
+OpenAI chat-completions API works via `LLM_PROVIDER=openai` plus
+`OPENAI_BASE_URL`**, without a code change or a new release.
+
+```yaml
+environment:
+  LLM_PROVIDER: "openai"
+  OPENAI_BASE_URL: "https://openrouter.ai/api/v1" # any compatible endpoint
+  OPENAI_API_KEY: "<that vendor's key>"
+  LLM_MODEL: "<a model name that vendor accepts>"
+```
+
+This covers OpenRouter, LM Studio, vLLM, LiteLLM, llama.cpp, Groq, Together,
+Azure OpenAI and most other hosted or self-hosted gateways.
+
+See **[OpenAI-compatible providers](docs/openai_compatible_providers.md)** for
+copy-pasteable configurations per service, plus fixes for the common errors
+(`404 model not found`, `413`, SSE decode failures, `temperature` rejections).
+
+> [!TIP]
+> For Ollama, prefer the native `LLM_PROVIDER=ollama` over its OpenAI shim — the
+> native path exposes `OLLAMA_CONTEXT_LENGTH` and `OLLAMA_THINK`, which the shim
+> does not.
 
 ### Custom Prompt Templates
 
@@ -654,6 +798,9 @@ paperless-gpt's flexible **prompt templates** let you shape how AI responds. Whi
 The application uses two directories for management:
 - **`default_prompts/`**: Contains the built-in, default templates. These should not be modified.
 - **`prompts/`**: Your working directory. On first run, the default templates are copied here. All edits made in the UI are saved to the files in this directory.
+- **`prompts/workflows/`**: One folder per [AI workflow](docs/workflows.md), with that workflow's settings and the prompts it changes.
+
+A prompt in `prompts/` that you never changed is updated to the current default on startup, so improvements to the default prompts reach existing installations. Prompts you edited are never touched.
 
 To ensure your custom prompts persist across container restarts, you must mount the `prompts` directory as a volume in your `docker-compose.yml`:
 
@@ -983,10 +1130,13 @@ Common issues and solutions:
 - If PDFs aren't being generated, check that `OCR_LIMIT_PAGES` isn't set too low compared to your document page count
 - Ensure volumes are properly mounted if using `CREATE_LOCAL_PDF` or `CREATE_LOCAL_HOCR`
 - When using `PDF_REPLACE: "true"`, verify you have recent backups of your paperless-ngx data
+- With `PDF_UPLOAD_MODE: "version"`, an error saying the document was not found "or paperless-ngx is older than 3.0" means your paperless-ngx has no document versions yet: upgrade it, or use `new` mode. The OCR text is written either way.
+- With `PDF_UPLOAD_MODE: "version"`, a run that is shown as a warning means paperless-ngx accepted the new version but had not finished importing it within a minute. Check the task in paperless-ngx; running OCR again would add another version.
 
 ### Custom Field Generation Issues
 
 - **Feature Not Working**: If custom field suggestions are not being generated even though the feature is enabled, ensure you have selected at least one custom field in the settings. The feature requires at least one field to be selected to know what to process.
+- **Settings Reset After an Update**: The custom field settings are stored in `/app/config/settings.json`. Mount `./config:/app/config` as a volume, otherwise they are lost whenever the container is recreated. paperless-gpt logs a warning at startup, and shows one on the Settings page, when this directory is not persisted.
 
 ---
 
@@ -1006,6 +1156,27 @@ services:
       - PGID=10001
       # ... other variables
 ```
+
+#### Container Entrypoint Behavior
+
+The entrypoint behaves differently depending on whether the container
+runs as root or as a non-root user:
+
+**When running as root (default Docker behavior):**
+1. Creates the `paperless-gpt` user and group with the specified `PUID`/`PGID`
+2. Sets up required directories (`/app/config`, `/app/db`, `/app/prompts`, `/home/paperless-gpt`)
+3. Drops privileges to the unprivileged user via `su-exec`
+4. Starts the Go binary as `PUID`:`PGID`
+
+**When running as non-root** (e.g. `docker run --user`, Kubernetes
+`securityContext.runAsNonRoot: true`): the entrypoint detects it is not
+running as root, ensures required directories exist (`/app/config`,
+`/app/db`, `/app/prompts`), then starts the binary directly — skipping
+user/group creation and privilege drop. `PUID` and `PGID` are not used;
+the binary runs with the container's existing user/group (e.g.
+`securityContext.runAsUser`/`runAsGroup` in Kubernetes). The `/app`
+directory must be writable by that user for the directories to be
+created; any mounted volumes must also be writable by that user.
 
 ## Contributing
 
@@ -1030,6 +1201,10 @@ If paperless-gpt is saving you time and making your document management easier, 
 - **Contribute** code, documentation, or bug reports
 
 Your support helps ensure paperless-gpt remains actively maintained and continues to improve!
+
+### Support paperless-gpt through Fair Hosting
+
+GitHub Sponsors is the way to support the project directly. If you're looking for managed paperless-gpt hosting in Germany, Austria or Switzerland anyway, choosing our Fair Hosting Partner [server.camp](https://server.camp/product/paperless-ngx) supports the project too: server.camp shares part of the revenue it generates with paperless-gpt with the open source project. No referral code or special link is needed.
 
 ---
 

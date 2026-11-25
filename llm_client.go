@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/llms/anthropic"
+	"github.com/tmc/langchaingo/llms/openai"
 	"golang.org/x/time/rate"
 )
 
@@ -18,6 +23,43 @@ type RateLimitedLLM struct {
 	backoffMin   time.Duration
 	backoffMax   time.Duration
 	backoffScale float64
+}
+
+const maxProviderRetryDelay = 15 * time.Minute
+
+// retryAfterError is implemented by provider clients that preserve an
+// upstream Retry-After response header. The wrapper uses that server-provided
+// floor instead of issuing another request during the provider cooldown.
+type retryAfterError interface {
+	RetryAfter() time.Duration
+}
+
+func retryDelay(err error, backoff time.Duration) time.Duration {
+	var retryErr retryAfterError
+	if errors.As(err, &retryErr) {
+		if delay := retryErr.RetryAfter(); delay > backoff {
+			return delay
+		}
+	}
+	// langchaingo sanitizes transport errors and discards their headers. The
+	// OpenAI-compatible transport preserves only the parsed cooldown in this
+	// private marker, without exposing the upstream response or credentials.
+	const marker = "retry-after-ms:"
+	errText := err.Error()
+	if index := strings.Index(strings.ToLower(errText), marker); index >= 0 {
+		value := errText[index+len(marker):]
+		end := 0
+		for end < len(value) && value[end] >= '0' && value[end] <= '9' {
+			end++
+		}
+		maxMilliseconds := int64((1<<63 - 1) / int64(time.Millisecond))
+		if milliseconds, parseErr := strconv.ParseInt(value[:end], 10, 64); parseErr == nil && milliseconds >= 0 && milliseconds <= maxMilliseconds {
+			if delay := time.Duration(milliseconds) * time.Millisecond; delay > backoff {
+				return delay
+			}
+		}
+	}
+	return backoff
 }
 
 // Call implements the llms.Model interface
@@ -52,6 +94,12 @@ func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llm
 		}
 		// Add jitter by randomly adjusting +/- 20%
 		jitter := time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
+		// Retry-After is a server-provided lower bound; apply it after jitter so
+		// the randomized delay can never wake before the provider's cooldown.
+		jitter = retryDelay(err, jitter)
+		if jitter > maxProviderRetryDelay {
+			return "", fmt.Errorf("provider retry delay %s exceeds limit", jitter)
+		}
 
 		select {
 		case <-ctx.Done():
@@ -62,6 +110,12 @@ func (r *RateLimitedLLM) Call(ctx context.Context, prompt string, options ...llm
 			lastErr = err
 		}
 	}
+}
+
+// isEmptyLLMResponse reports whether err is langchaingo's "no response" error,
+// returned when the provider answered successfully but without any content.
+func isEmptyLLMResponse(err error) bool {
+	return errors.Is(err, anthropic.ErrEmptyResponse) || errors.Is(err, openai.ErrEmptyResponse)
 }
 
 // RateLimitConfig holds configuration for rate limiting and retries
@@ -129,6 +183,17 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 			// Return the pointer response directly
 			return resp, nil
 		}
+		if isEmptyLLMResponse(err) {
+			// The model answered with no content at all, which Claude does
+			// for e.g. a document whose text is just "67". That is an answer,
+			// not a transport failure: retrying re-bills the same prompt for
+			// the same result, and failing would fail the whole document.
+			// Hand callers an empty reply instead, the same thing they get
+			// when an OpenAI-compatible model returns empty content, so the
+			// field is skipped like any other empty suggestion.
+			log.Warn("LLM returned an empty response; treating it as an empty suggestion")
+			return &llms.ContentResponse{Choices: []*llms.ContentChoice{{}}}, nil
+		}
 
 		// Check if we should retry
 		if attempt >= r.maxRetries {
@@ -145,6 +210,10 @@ func (r *RateLimitedLLM) GenerateContent(ctx context.Context, messages []llms.Me
 		}
 		// Add jitter by randomly adjusting +/- 20%
 		jitter := time.Duration(float64(backoff) * (0.8 + 0.4*rand.Float64()))
+		jitter = retryDelay(err, jitter)
+		if jitter > maxProviderRetryDelay {
+			return nil, fmt.Errorf("provider retry delay %s exceeds limit", jitter)
+		}
 
 		select {
 		case <-ctx.Done():

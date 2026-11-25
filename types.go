@@ -76,11 +76,18 @@ type GetDocumentApiResponse struct {
 
 // Document is a stripped down version of the document object from paperless-ngx.
 // Response payload for /documents endpoint and part of request payload for /generate-suggestions endpoint
+//
+// Tags holds the names of the document's tags that are visible to the
+// configured API user, while TagIDs holds the raw tag IDs paperless-ngx
+// reports — including tags the API user cannot see, which resolve to no
+// name. Keeping the IDs around lets updates preserve invisible tags instead
+// of silently dropping them.
 type Document struct {
 	ID               int                   `json:"id"`
 	Title            string                `json:"title"`
 	Content          string                `json:"content"`
 	Tags             []string              `json:"tags"`
+	TagIDs           []int                 `json:"tag_ids,omitempty"`
 	Correspondent    string                `json:"correspondent"`
 	CreatedDate      string                `json:"created_date"`
 	OriginalFileName string                `json:"original_file_name"`
@@ -98,6 +105,12 @@ type GenerateSuggestionsRequest struct {
 	GenerateCustomFields   bool       `json:"generate_custom_fields,omitempty"`
 	GenerateDocumentTypes  bool       `json:"generate_document_types,omitempty"`
 	IsAutoProcessing       bool       `json:"-"` // internal flag; not exposed via API
+	// Workflow, when set, overrides the global prompts and generation flags.
+	// Set by the background processor and the workflow preview.
+	Workflow *WorkflowConfig `json:"-"`
+	// TriggerTag is the tag the background processor found the document
+	// under; it comes off once processing succeeds.
+	TriggerTag string `json:"-"`
 }
 
 // AnalyzeDocumentsRequest is the request payload for the ad-hoc analysis
@@ -106,12 +119,49 @@ type AnalyzeDocumentsRequest struct {
 	Prompt      string `json:"prompt"`
 }
 
+// WorkflowConfig defines a named processing workflow triggered by a specific paperless-ngx tag.
+// Each workflow can override the global generation flags and carry its own prompt templates.
+type WorkflowConfig struct {
+	// ID is a stable, URL-safe identifier (e.g. "invoices"). Auto-generated when empty.
+	ID string `json:"id"`
+	// Name is a human-readable label shown in the UI.
+	Name string `json:"name"`
+	// TriggerTag is the paperless-ngx tag that activates this workflow (e.g. "paperless-gpt-invoices").
+	TriggerTag string `json:"trigger_tag"`
+	// CompletionTag is optionally added to a document after successful processing.
+	CompletionTag string `json:"completion_tag,omitempty"`
+	// Generation flags – nil means "inherit the global default".
+	GenerateTitles         *bool `json:"generate_titles,omitempty"`
+	GenerateTags           *bool `json:"generate_tags,omitempty"`
+	GenerateCorrespondents *bool `json:"generate_correspondents,omitempty"`
+	GenerateCreatedDate    *bool `json:"generate_created_date,omitempty"`
+	GenerateDocumentTypes  *bool `json:"generate_document_types,omitempty"`
+	GenerateCustomFields   *bool `json:"generate_custom_fields,omitempty"`
+	// CustomFieldIDs are the custom fields this workflow fills. Empty means the
+	// global selection from Settings.
+	CustomFieldIDs []int `json:"custom_field_ids,omitempty"`
+	// RequireApproval holds the workflow's suggestions until the user
+	// approves them in the review queue instead of writing them right away.
+	RequireApproval bool `json:"require_approval,omitempty"`
+	// EnableOCR, when true, runs OCR on the document before metadata generation.
+	// nil or false means OCR is skipped for this workflow.
+	EnableOCR *bool `json:"enable_ocr,omitempty"`
+	// OCRLimitPages overrides the effective OCR page limit for this workflow.
+	// nil = use effective defaults (settings over env); 0 = no limit.
+	OCRLimitPages *int `json:"ocr_limit_pages,omitempty"`
+	// Prompts maps prompt-file names (e.g. "title_prompt") to their template content.
+	// An absent key means the global default prompt is used.
+	// "ocr_prompt" overrides the OCR template when EnableOCR is true.
+	Prompts map[string]string `json:"prompts,omitempty"`
+}
+
 // Settings defines the structure for server-side UI settings
 type Settings struct {
-	CustomFieldsEnable      bool        `json:"custom_fields_enable"`
-	CustomFieldsSelectedIDs []int       `json:"custom_fields_selected_ids"`
-	CustomFieldsWriteMode   string      `json:"custom_fields_write_mode"` // "append" or "replace"
-	OCR                     OCRDefaults `json:"ocr"`
+	CustomFieldsEnable      bool             `json:"custom_fields_enable"`
+	CustomFieldsSelectedIDs []int            `json:"custom_fields_selected_ids"`
+	CustomFieldsWriteMode   string           `json:"custom_fields_write_mode"` // "append" or "replace"
+	OCR                     OCRDefaults      `json:"ocr"`
+	Workflows               []WorkflowConfig `json:"workflows,omitempty"`
 }
 
 // OCRDefaults are persisted run-option defaults, editable from the UI.
@@ -154,8 +204,8 @@ type Correspondent struct {
 	// produces ownerless correspondents — they still appear in the
 	// correspondents list, but documents assigned to them are shown as
 	// "private" in the UI instead of the correspondent name.
-	Owner             *int   `json:"owner,omitempty"`
-	SetPermissions    struct {
+	Owner          *int `json:"owner,omitempty"`
+	SetPermissions struct {
 		View struct {
 			Users  []int `json:"users"`
 			Groups []int `json:"groups"`
@@ -168,8 +218,19 @@ type Correspondent struct {
 }
 
 // OCROptions contains options for the OCR processing
+// Searchable-PDF upload modes (PDF_UPLOAD_MODE).
+const (
+	// PDFUploadModeNew uploads the searchable PDF as a new document.
+	PDFUploadModeNew = "new"
+	// PDFUploadModeVersion adds the searchable PDF as a new version of the same
+	// document (paperless-ngx 3.0+). The document id, its metadata and the
+	// original file are kept; nothing is deleted.
+	PDFUploadModeVersion = "version"
+)
+
 type OCROptions struct {
 	UploadPDF       bool   // Whether to upload the generated PDF
+	UploadMode      string // PDFUploadModeNew (default) or PDFUploadModeVersion
 	ReplaceOriginal bool   // Whether to delete the original document after uploading
 	CopyMetadata    bool   // Whether to copy metadata from the original document
 	LimitPages      int    // Limit on the number of pages to process (0 = no limit)
@@ -201,6 +262,7 @@ type ClientInterface interface {
 	GetDocument(ctx context.Context, documentID int) (Document, error)
 	GetDocumentThumbnail(ctx context.Context, documentID int) ([]byte, string, error)
 	SearchDocuments(ctx context.Context, query string, pageSize int) ([]Document, error)
+	FindDocumentIDsByReference(ctx context.Context, reference string, excludeID, maxMatches int) (ids []int, tooMany bool, err error)
 	GetDocumentPageImage(ctx context.Context, documentID int, pageIndex int) ([]byte, error)
 	GetAllTags(ctx context.Context) (map[string]int, error)
 	GetAllCorrespondents(ctx context.Context) (map[string]int, error)
@@ -210,6 +272,7 @@ type ClientInterface interface {
 	DownloadDocumentAsImages(ctx context.Context, documentID int, pageLimit int) ([]string, int, error)
 	DownloadDocumentAsPDF(ctx context.Context, documentID int, limitPages int, split bool) ([]string, []byte, int, error)
 	UploadDocument(ctx context.Context, data []byte, filename string, metadata map[string]interface{}) (string, error)
+	UploadDocumentVersion(ctx context.Context, documentID int, data []byte, filename string, versionLabel string) (string, error)
 	GetTaskStatus(ctx context.Context, taskID string) (map[string]interface{}, error)
 	DeleteDocument(ctx context.Context, documentID int) error
 }

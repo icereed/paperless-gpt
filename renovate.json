@@ -5,6 +5,9 @@
   ],
   "automerge": true,
   "automergeType": "pr",
+  "rebaseWhen": "conflicted",
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
   "customManagers": [
     {
       "customType": "regex",

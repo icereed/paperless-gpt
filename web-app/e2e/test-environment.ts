@@ -96,12 +96,13 @@ export async function setupTestEnvironment(config?: TestEnvironmentConfig): Prom
     started.push(postgres);
 
     console.log('Starting Paperless-ngx container...');
-    const paperlessNgx = await new GenericContainer('ghcr.io/paperless-ngx/paperless-ngx:latest')
+    const paperlessNgx = await new GenericContainer('ghcr.io/paperless-ngx/paperless-ngx:3.1.3@sha256:aa810a36942c63d4ee70d00eda7236cd3d6acfb7eb3f7987fb568ed14df8817a')
       .withNetwork(network)
       .withNetworkAliases('paperless-ngx')
       .withEnvironment({
         PAPERLESS_URL: `http://localhost:${paperlessPort}`,
-        PAPERLESS_SECRET_KEY: 'change-me',
+        // paperless-ngx rejects its documented placeholder as insecure.
+        PAPERLESS_SECRET_KEY: 'paperless-gpt-e2e-test-secret-key-4c6c1d2e',
         PAPERLESS_ADMIN_USER: 'admin',
         PAPERLESS_ADMIN_PASSWORD: 'admin',
         PAPERLESS_TIME_ZONE: 'Europe/Berlin',
@@ -220,6 +221,16 @@ export interface PaperlessDocument {
   tags: number[];
 }
 
+interface PaperlessTaskStatus {
+  id?: number;
+  related_document_ids?: number[];
+  result?: string;
+  result_data?: { document_id?: number };
+  status: string;
+}
+
+const maxSuccessfulTaskWithoutDocumentIDPolls = 5;
+
 // Helper to upload a document via Paperless-ngx API
 export async function uploadDocument(
   baseUrl: string,
@@ -248,6 +259,7 @@ export async function uploadDocument(
   }
   
   const task_id = await uploadResponse.json();
+  let successfulTaskWithoutDocumentIDPolls = 0;
   
   // Poll the tasks endpoint until document is processed
   while (true) {
@@ -262,19 +274,40 @@ export async function uploadDocument(
       throw new Error(`Failed to check task status: ${taskResponse.statusText}`);
     }
 
-    const taskResultArr = await taskResponse.json();
-    console.log(`Task status: ${JSON.stringify(taskResultArr)}`);
+    const taskResultPayload: unknown = await taskResponse.json();
+    let taskResultArr: PaperlessTaskStatus[];
+    if (Array.isArray(taskResultPayload)) {
+      taskResultArr = taskResultPayload as PaperlessTaskStatus[];
+    } else if (typeof taskResultPayload === 'object' && taskResultPayload !== null &&
+      Array.isArray((taskResultPayload as { results?: unknown }).results)) {
+      taskResultArr = (taskResultPayload as { results: PaperlessTaskStatus[] }).results;
+    } else {
+      throw new Error(`Unexpected task status response: ${JSON.stringify(taskResultPayload)}`);
+    }
+    console.log(`Task status: ${JSON.stringify(taskResultPayload)}`);
 
     if (taskResultArr.length === 0) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
       continue;
     }
     const taskResult = taskResultArr[0];
     // Check if task is completed
-    if (taskResult.status === 'SUCCESS' && taskResult.id) {
-      console.log(`Document processed successfully with ID: ${taskResult.id}`);
+    if (taskResult.status.toUpperCase() === 'SUCCESS') {
+      const documentId = taskResult.result_data?.document_id ?? taskResult.related_document_ids?.[0];
+      if (!documentId) {
+        successfulTaskWithoutDocumentIDPolls++;
+        if (successfulTaskWithoutDocumentIDPolls >= maxSuccessfulTaskWithoutDocumentIDPolls) {
+          throw new Error(
+            `Document processing reported SUCCESS without a document ID after ${successfulTaskWithoutDocumentIDPolls} polls: ${JSON.stringify(taskResultPayload)}`
+          );
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+      console.log(`Document processed successfully with ID: ${documentId}`);
       
       // Fetch the complete document details
-      const documentResponse = await fetch(`${baseUrl}/api/documents/${taskResult.id}/`, {
+      const documentResponse = await fetch(`${baseUrl}/api/documents/${documentId}/`, {
         headers: {
           'Authorization': 'Basic ' + btoa(`${credentials.username}:${credentials.password}`),
         },
@@ -288,9 +321,11 @@ export async function uploadDocument(
     }
     
     // Check for failure
-    if (taskResult.status === 'FAILED') {
+    if (taskResult.status.toUpperCase() === 'FAILED') {
       throw new Error(`Document processing failed: ${taskResult.result}`);
     }
+
+    successfulTaskWithoutDocumentIDPolls = 0;
     
     // Wait before polling again
     await new Promise(resolve => setTimeout(resolve, 1000));

@@ -13,3 +13,9 @@ services:
       - PGID=10001
     env_file:
       - .env
+    volumes:
+      # Without these, prompts, AI workflows, UI settings and the undo
+      # history are lost whenever the container is recreated.
+      - ./prompts:/app/prompts
+      - ./config:/app/config
+      - ./db:/app/db
