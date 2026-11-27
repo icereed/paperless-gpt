@@ -242,3 +242,46 @@ func TestCatalogCachePreservesNewMetadata(t *testing.T) {
 		})
 	}
 }
+
+func TestCatalogCacheUnresolvableCorrespondentAndTypeRefetchedOnce(t *testing.T) {
+	tags := `{"results":[],"next":null}`
+	env, calls := catalogEnv(t, time.Minute, &tags)
+	defer env.teardown()
+	ctx := context.Background()
+
+	// Correspondent 5 and document type 5 are not visible to the API user.
+	env.setMockResponse("/api/documents/7/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":7,"title":"t","correspondent":5,"document_type":5}`))
+	})
+	for range 3 {
+		_, err := env.client.GetDocument(ctx, 7)
+		require.NoError(t, err)
+	}
+	// The fetch that filled the cache already could not resolve them.
+	assert.Equal(t, 1, calls["/api/correspondents/"])
+	assert.Equal(t, 1, calls["/api/document_types/"])
+}
+
+func TestCatalogCacheFailedRefreshKeepsCatalog(t *testing.T) {
+	tags := `{"results":[],"next":null}`
+	env, calls := catalogEnv(t, time.Minute, &tags)
+	defer env.teardown()
+	ctx := context.Background()
+
+	_, err := env.client.GetAllCorrespondents(ctx)
+	require.NoError(t, err)
+	env.setMockResponse("/api/correspondents/", func(w http.ResponseWriter, r *http.Request) {
+		calls[r.URL.Path]++
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	env.setMockResponse("/api/documents/7/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":7,"title":"t","correspondent":2}`))
+	})
+	_, err = env.client.GetDocument(ctx, 7)
+	require.Error(t, err, "an unknown ID that cannot be refreshed is an error, not an empty name")
+
+	correspondents, err := env.client.GetAllCorrespondents(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int{"Alpha": 1}, correspondents, "the cached catalog survives the failed refresh")
+	assert.Equal(t, 2, calls["/api/correspondents/"])
+}
