@@ -23,8 +23,22 @@ import (
 // If the input cannot be confidently parsed, it is returned unchanged so
 // paperless-ngx's validation surfaces the bad value rather than silently
 // corrupting it.
+var easternArabicDigitsReplacer = strings.NewReplacer(
+	"٠", "0", "١", "1", "٢", "2", "٣", "3", "٤", "4",
+	"٥", "5", "٦", "6", "٧", "7", "٨", "8", "٩", "9",
+	"۰", "0", "۱", "1", "۲", "2", "۳", "3", "۴", "4",
+	"۵", "5", "۶", "6", "۷", "7", "۸", "8", "۹", "9",
+	"٫", ".", "٬", ",",
+)
+
+var arabicCurrencyReplacer = strings.NewReplacer(
+	"ر.س", "SAR", "ريال سعودي", "SAR", "ريال", "SAR",
+	"د.إ", "AED", "درهم", "AED",
+	"ر.ق", "QAR", "د.ك", "KWD", "د.أ", "JOD", "ج.م", "EGP", "ر.ع", "OMR",
+)
+
 func normalizeMonetary(value string) string {
-	raw := strings.TrimSpace(value)
+	raw := strings.TrimSpace(arabicCurrencyReplacer.Replace(easternArabicDigitsReplacer.Replace(value)))
 	if raw == "" {
 		return value
 	}
