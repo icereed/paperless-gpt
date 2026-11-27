@@ -14,6 +14,8 @@ func TestNormalizeCreatedDate(t *testing.T) {
 		{"iso_with_time_t", "2023-01-01T15:04:05Z", "2023-01-01"},
 		{"dots_with_time_space", "2023.01.01 15:04:05", "2023-01-01"},
 		{"offset", "2023-01-01T15:04:05+01:00", "2023-01-01"},
+		{"eastern_arabic_digits", "٢٠٢٦-٠١-١٥", "2026-01-15"},
+		{"persian_digits_slashes", "۲۰۲۶/۱/۵", "2026-01-05"},
 
 		// Not a confident year-first date, or not a real day. Leave it.
 		{"impossible_day", "2023-01-79", "2023-01-79"},

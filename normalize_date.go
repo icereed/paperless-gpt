@@ -17,7 +17,7 @@ var yearFirstDatePattern = regexp.MustCompile(`^(\d{4})[./-](\d{1,2})[./-](\d{1,
 // paperless-ngx accepts. A value that is not a real calendar date is
 // returned unchanged, so the caller still sees what the model wrote.
 func normalizeCreatedDate(raw string) string {
-	s := strings.TrimSpace(raw)
+	s := strings.TrimSpace(easternArabicDigitsReplacer.Replace(raw))
 	s = strings.Trim(s, `"'`)
 	s = strings.TrimSpace(s)
 

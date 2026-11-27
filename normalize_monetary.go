@@ -23,8 +23,32 @@ import (
 // If the input cannot be confidently parsed, it is returned unchanged so
 // paperless-ngx's validation surfaces the bad value rather than silently
 // corrupting it.
+var easternArabicDigitsReplacer = strings.NewReplacer(
+	"٠", "0", "١", "1", "٢", "2", "٣", "3", "٤", "4",
+	"٥", "5", "٦", "6", "٧", "7", "٨", "8", "٩", "9",
+	"۰", "0", "۱", "1", "۲", "2", "۳", "3", "۴", "4",
+	"۵", "5", "۶", "6", "۷", "7", "۸", "8", "۹", "9",
+)
+
+// arabicCurrencyReplacer maps unambiguous Arabic currency abbreviations and
+// country-qualified names to ISO-4217 codes. Bare names shared across
+// multiple currencies ("ريال", "درهم", "دينار", "جنيه", "ليرة") are left
+// untouched so ambiguous inputs pass through unchanged instead of recording
+// the wrong currency.
+var arabicCurrencyReplacer = strings.NewReplacer(
+	"ر.س.", "SAR", "ر.س", "SAR", "ريال سعودي", "SAR",
+	"د.إ.", "AED", "د.إ", "AED", "درهم إماراتي", "AED", "درهم اماراتي", "AED",
+	"ر.ق.", "QAR", "ر.ق", "QAR", "ريال قطري", "QAR",
+	"ر.ع.", "OMR", "ر.ع", "OMR", "ريال عماني", "OMR", "ريال عُماني", "OMR",
+	"د.ك.", "KWD", "د.ك", "KWD", "دينار كويتي", "KWD",
+	"د.ب.", "BHD", "د.ب", "BHD", "دينار بحريني", "BHD",
+	"د.أ.", "JOD", "د.أ", "JOD", "دينار أردني", "JOD", "دينار اردني", "JOD",
+	"ج.م.", "EGP", "ج.م", "EGP", "جنيه مصري", "EGP",
+	"د.م.", "MAD", "د.م", "MAD", "درهم مغربي", "MAD",
+)
+
 func normalizeMonetary(value string) string {
-	raw := strings.TrimSpace(value)
+	raw := strings.TrimSpace(arabicCurrencyReplacer.Replace(easternArabicDigitsReplacer.Replace(value)))
 	if raw == "" {
 		return value
 	}
@@ -68,7 +92,7 @@ func normalizeCustomFieldValue(dataType string, value interface{}) interface{} {
 var (
 	currencyCodePrefixRe = regexp.MustCompile(`^([A-Za-z]{3})`)
 	currencyCodeSuffixRe = regexp.MustCompile(`([A-Za-z]{3})$`)
-	numericCharsRe       = regexp.MustCompile(`^[+\-]?[0-9.,\s]+$`)
+	numericCharsRe       = regexp.MustCompile(`^[+\-]?[0-9.,٫٬\s]+$`)
 )
 
 var currencySymbolToCode = map[rune]string{
@@ -146,6 +170,8 @@ func parseAmount(s string) (string, bool) {
 		return "", false
 	}
 
+	hasArabicDecimal := strings.ContainsRune(s, '٫')
+	hasArabicThousands := strings.ContainsRune(s, '٬')
 	hasComma := strings.Contains(s, ",")
 	hasDot := strings.Contains(s, ".")
 
@@ -153,6 +179,10 @@ func parseAmount(s string) (string, bool) {
 	var ok bool
 
 	switch {
+	case hasArabicDecimal:
+		intPart, fracPart, ok = parseArabicDecimal(s)
+	case hasArabicThousands:
+		intPart, fracPart, ok = parseArabicThousands(s, hasDot, hasComma)
 	case hasComma && hasDot:
 		intPart, fracPart, ok = parseBothSeparators(s)
 	case hasComma:
@@ -184,6 +214,72 @@ func parseAmount(s string) (string, bool) {
 	}
 
 	return sign + intPart + "." + fracPart, true
+}
+
+func parseArabicDecimal(s string) (intPart, fracPart string, ok bool) {
+	parts := strings.Split(s, "٫")
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	left, right := parts[0], parts[1]
+	if !isDigits(right) {
+		return "", "", false
+	}
+	switch {
+	case strings.ContainsRune(left, '٬') && !strings.ContainsAny(left, ".,"):
+		intPart, ok = parseThousandsGroups(left, '٬')
+	case strings.Contains(left, ",") && !strings.ContainsAny(left, ".٬"):
+		intPart, ok = parseThousandsGroups(left, ',')
+	case strings.Contains(left, ".") && !strings.ContainsAny(left, ",٬"):
+		intPart, ok = parseThousandsGroups(left, '.')
+	default:
+		intPart, ok = left, isDigits(left)
+	}
+	if !ok {
+		return "", "", false
+	}
+	return intPart, right, true
+}
+
+func parseArabicThousands(s string, hasDot, hasComma bool) (intPart, fracPart string, ok bool) {
+	if hasComma {
+		return "", "", false
+	}
+	if hasDot {
+		parts := strings.Split(s, ".")
+		if len(parts) != 2 || !isDigits(parts[1]) {
+			return "", "", false
+		}
+		intPart, ok = parseThousandsGroups(parts[0], '٬')
+		if !ok {
+			return "", "", false
+		}
+		return intPart, parts[1], true
+	}
+	intPart, ok = parseThousandsGroups(s, '٬')
+	if !ok {
+		return "", "", false
+	}
+	return intPart, "", true
+}
+
+func parseThousandsGroups(s string, sep rune) (string, bool) {
+	parts := strings.Split(s, string(sep))
+	if len(parts) == 1 {
+		if !isDigits(parts[0]) {
+			return "", false
+		}
+		return parts[0], true
+	}
+	if len(parts[0]) < 1 || len(parts[0]) > 3 || !isDigits(parts[0]) {
+		return "", false
+	}
+	for _, p := range parts[1:] {
+		if len(p) != 3 || !isDigits(p) {
+			return "", false
+		}
+	}
+	return strings.Join(parts, ""), true
 }
 
 func parseBothSeparators(s string) (intPart, fracPart string, ok bool) {

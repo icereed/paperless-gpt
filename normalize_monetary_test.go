@@ -69,6 +69,31 @@ func TestNormalizeMonetary(t *testing.T) {
 		// document is worse than a small precision loss).
 		{"four_digits_after_separator", "1.5299", "1.52"},
 		{"non_thousands_group_truncates", "12,3456", "12.34"},
+
+		// Eastern Arabic / Extended Arabic-Indic numerals and separators.
+		// U+066B ('٫') is unambiguously a decimal separator even with 3 fractional
+		// digits (e.g. KWD/OMR/JOD/BHD amounts), whereas U+066C ('٬') is
+		// unambiguously a thousands separator.
+		{"arabic_decimal_three_frac_digits", "١٫٢٣٤", "1.23"},
+		{"arabic_thousands_three_digits", "١٬٢٣٤", "1234.00"},
+		{"arabic_both_separators", "١٬٢٣٤٫٥٦", "1234.56"},
+		{"arabic_both_separators_three_frac", "١٬٢٣٤٫٥٦٧", "1234.56"},
+		{"arabic_malformed_thousands_passthrough", "١٬٢٣", "١٬٢٣"},
+		{"persian_digits_with_currency", "۱٬۰۵۳٫۵۰ SAR", "SAR1053.50"},
+
+		// Unambiguous Arabic currency abbreviations and country-qualified names.
+		{"arabic_sar_abbrev", "١٬٢٥٠٫٥٠ ر.س", "SAR1250.50"},
+		{"arabic_sar_abbrev_trailing_dot", "١٠٠ ر.س.", "SAR100.00"},
+		{"arabic_sar_full_name", "٢٥٠ ريال سعودي", "SAR250.00"},
+		{"arabic_aed_abbrev", "د.إ ١٬٠٥٣٫٥٢", "AED1053.52"},
+		{"arabic_aed_full_name", "٥٠٠ درهم إماراتي", "AED500.00"},
+		{"arabic_kwd_three_decimals", "١٢٫٣٤٥ د.ك", "KWD12.34"},
+		{"arabic_egp_abbrev", "٧٥٠ ج.م", "EGP750.00"},
+
+		// Ambiguous bare currency names ("ريال", "درهم") must pass through unchanged
+		// rather than guessing SAR or AED.
+		{"arabic_ambiguous_riyal_unchanged", "١٠ ريال", "١٠ ريال"},
+		{"arabic_ambiguous_dirham_unchanged", "١٠ درهم", "١٠ درهم"},
 	}
 
 	for _, tc := range cases {
