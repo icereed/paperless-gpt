@@ -27,6 +27,11 @@ func (p *recordingOCRProvider) ProcessImage(_ context.Context, _ []byte, pageNum
 	return &ocr.OCRResult{Text: fmt.Sprintf("page %d", pageNumber)}, nil
 }
 
+// ProcessMultiImage is not supported by the recording provider.
+func (p *recordingOCRProvider) ProcessMultiImage(_ context.Context, _ [][]byte) (*ocr.OCRResult, error) {
+	return nil, fmt.Errorf("ProcessMultiImage is not supported by the recording provider")
+}
+
 func TestProcessDocumentOCR_ExplicitZeroPageLimitProcessesAllPages(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()

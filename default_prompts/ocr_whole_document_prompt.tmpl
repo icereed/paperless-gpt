@@ -1,0 +1,13 @@
+Just transcribe the text of this document and preserve the formatting and layout (high quality OCR).
+Do that for ALL the text on EVERY page. Be thorough and pay attention. This is very important.
+The document has multiple pages, so use context from one page to understand the others
+(headers, footers, page numbers, continuing sentences). Continue until the bottom of the last page.
+Thanks a lot! You tend to forget about some text in the document so please focus! Use markdown format but without a code block.
+{{- if .Content}}
+
+The document already has the following text extracted via basic OCR.
+Use this as a reference to help identify difficult words or numbers, but rely primarily on what you see in the images.
+Correct any errors you find in this existing text:
+
+{{.Content}}
+{{- end}}

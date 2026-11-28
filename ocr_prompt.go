@@ -35,6 +35,28 @@ func renderOCRPrompt(existingContent string) (string, error) {
 	return buf.String(), nil
 }
 
+// renderOCRWholeDocumentPrompt renders the whole-document OCR template with
+// per-document data, for image_whole_document mode where all page images are
+// sent in a single LLM request.
+func renderOCRWholeDocumentPrompt(existingContent string) (string, error) {
+	if len(existingContent) > maxOCRExistingContentLen {
+		existingContent = existingContent[:maxOCRExistingContentLen]
+	}
+
+	templateMutex.RLock()
+	defer templateMutex.RUnlock()
+
+	var buf bytes.Buffer
+	err := ocrWholeDocTemplate.Execute(&buf, map[string]interface{}{
+		"Language": getLikelyLanguage(),
+		"Content":  existingContent,
+	})
+	if err != nil {
+		return "", fmt.Errorf("error executing OCR whole-document template: %w", err)
+	}
+	return buf.String(), nil
+}
+
 // renderOCRPromptOverride renders a run-scoped prompt template (Prompt
 // Override) with the same data the saved template gets. The override never
 // touches the saved template.

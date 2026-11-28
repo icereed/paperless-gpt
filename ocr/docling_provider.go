@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -51,6 +52,11 @@ func newDoclingProvider(config Config) (*DoclingProvider, error) {
 }
 
 // ProcessImage sends the image content to the Docling server for OCR
+// ProcessMultiImage is not supported by Docling.
+func (p *DoclingProvider) ProcessMultiImage(ctx context.Context, images [][]byte) (*OCRResult, error) {
+	return nil, errors.New("ProcessMultiImage is not supported by the Docling provider")
+}
+
 func (p *DoclingProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error) {
 	logger := log.WithFields(logrus.Fields{
 		"provider": "docling",
