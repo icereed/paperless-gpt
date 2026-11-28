@@ -105,6 +105,7 @@ var (
 	createdDateTemplate   *template.Template
 	customFieldTemplate   *template.Template
 	ocrTemplate           *template.Template
+	ocrWholeDocTemplate   *template.Template
 	adhocAnalysisTemplate *template.Template
 	templateMutex         sync.RWMutex
 
@@ -762,16 +763,16 @@ func ocrProviderLabel() string {
 func validateOCRProviderModeCompatibility(provider, mode, visionProvider string) error {
 	// Define which providers support which modes
 	supportedModes := map[string][]string{
-		"llm":          {"image"},                     // LLM-based OCR only supports image mode (except googleai)
-		"azure":        {"image"},                     // Azure Document Intelligence only supports image mode
-		"google_docai": {"image", "pdf", "whole_pdf"}, // Google Document AI supports all modes
-		"mistral_ocr":  {"image", "pdf", "whole_pdf"}, // Mistral OCR supports all modes
-		"docling":      {"image", "pdf", "whole_pdf"}, // Docling supports image and PDF modes
+		"llm":          {"image", "image_whole_document"}, // LLM-based OCR supports image modes (except googleai)
+		"azure":        {"image"},                         // Azure Document Intelligence only supports image mode
+		"google_docai": {"image", "pdf", "whole_pdf"},     // Google Document AI supports all modes
+		"mistral_ocr":  {"image", "pdf", "whole_pdf"},     // Mistral OCR supports all modes
+		"docling":      {"image", "pdf", "whole_pdf"},     // Docling supports image and PDF modes
 	}
 
 	// Google Gemini API natively handles PDF documents
 	if provider == "llm" && strings.ToLower(visionProvider) == "googleai" {
-		supportedModes["llm"] = []string{"image", "pdf", "whole_pdf"}
+		supportedModes["llm"] = []string{"image", "image_whole_document", "pdf", "whole_pdf"}
 	}
 
 	modes, exists := supportedModes[provider]
@@ -935,7 +936,7 @@ func validateOrDefaultEnvVars() {
 		log.Infof("OCR_PROCESS_MODE not set, defaulting to %s", ocrProcessMode)
 	} else if (ocrProcessMode == "pdf" || ocrProcessMode == "whole_pdf") && os.Getenv("PDF_SKIP_EXISTING_OCR") == "true" {
 		log.Infof("PDF OCR detection enabled, will skip OCR for PDFs with existing text layers")
-	} else if ocrProcessMode != "image" && ocrProcessMode != "pdf" && ocrProcessMode != "whole_pdf" {
+	} else if ocrProcessMode != "image" && ocrProcessMode != "pdf" && ocrProcessMode != "whole_pdf" && ocrProcessMode != "image_whole_document" {
 		log.Warnf("Invalid OCR_PROCESS_MODE value: %s, defaulting to image", ocrProcessMode)
 		ocrProcessMode = "image"
 	}
@@ -1218,6 +1219,10 @@ func loadTemplates() error {
 		return err
 	}
 	ocrTemplate, err = loadTemplate("ocr_prompt.tmpl")
+	if err != nil {
+		return err
+	}
+	ocrWholeDocTemplate, err = loadTemplate("ocr_whole_document_prompt.tmpl")
 	if err != nil {
 		return err
 	}

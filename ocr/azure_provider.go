@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -86,6 +87,11 @@ func newAzureProvider(config Config) (*AzureProvider, error) {
 
 	logger.Info("Successfully initialized Azure Document Intelligence provider")
 	return provider, nil
+}
+
+// ProcessMultiImage is not supported by Azure Document Intelligence.
+func (p *AzureProvider) ProcessMultiImage(ctx context.Context, images [][]byte) (*OCRResult, error) {
+	return nil, errors.New("ProcessMultiImage is not supported by the Azure provider")
 }
 
 func (p *AzureProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error) {

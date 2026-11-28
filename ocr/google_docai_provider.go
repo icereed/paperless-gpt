@@ -2,6 +2,7 @@ package ocr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -52,6 +53,11 @@ func newGoogleDocAIProvider(config Config) (*GoogleDocAIProvider, error) {
 
 	logger.WithField("enable_hocr", config.EnableHOCR).Info("Successfully initialized Google Document AI provider")
 	return provider, nil
+}
+
+// ProcessMultiImage is not supported by Google Document AI.
+func (p *GoogleDocAIProvider) ProcessMultiImage(ctx context.Context, images [][]byte) (*OCRResult, error) {
+	return nil, errors.New("ProcessMultiImage is not supported by the Google Document AI provider")
 }
 
 func (p *GoogleDocAIProvider) ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error) {

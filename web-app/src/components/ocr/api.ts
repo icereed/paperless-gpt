@@ -3,7 +3,7 @@ import { Document } from "../../DocumentProcessor";
 
 export interface OCRRunOptions {
   limit_pages: number;
-  process_mode: "image" | "pdf" | "whole_pdf";
+  process_mode: "image" | "pdf" | "whole_pdf" | "image_whole_document";
   upload_pdf: boolean;
   replace_original: boolean;
   copy_metadata: boolean;
@@ -184,6 +184,19 @@ export async function fetchOCRPromptTemplate(): Promise<string> {
 export async function saveOCRPromptTemplate(content: string): Promise<void> {
   await axios.post("./api/prompts", {
     filename: "ocr_prompt.tmpl",
+    content,
+  });
+}
+
+/** Template used by image_whole_document mode (all pages in one request). */
+export async function fetchOCRWholeDocumentPromptTemplate(): Promise<string> {
+  const { data } = await axios.get<Record<string, string>>("./api/prompts");
+  return data["ocr_whole_document_prompt.tmpl"] || "";
+}
+
+export async function saveOCRWholeDocumentPromptTemplate(content: string): Promise<void> {
+  await axios.post("./api/prompts", {
+    filename: "ocr_whole_document_prompt.tmpl",
     content,
   });
 }

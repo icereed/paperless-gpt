@@ -11,9 +11,11 @@ import {
   OCRConfig,
   OCRRunOptions,
   fetchOCRPromptTemplate,
+  fetchOCRWholeDocumentPromptTemplate,
   resetOCRDefaults,
   saveOCRDefaults,
   saveOCRPromptTemplate,
+  saveOCRWholeDocumentPromptTemplate,
 } from "./api";
 
 interface RunOptionsPanelProps {
@@ -58,11 +60,16 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [savingPrompt, setSavingPrompt] = useState(false);
 
-  // Opening the prompt editor for the first time seeds it with the saved template.
+  // Opening the prompt editor for the first time seeds it with the saved
+  // template for the selected process mode (whole-document mode has its own).
+  const wholeDocumentMode = options.process_mode === "image_whole_document";
   useEffect(() => {
     if (!promptOpen || templateLoaded || promptOverride !== null) return;
     let cancelled = false;
-    fetchOCRPromptTemplate()
+    const fetchTemplate = wholeDocumentMode
+      ? fetchOCRWholeDocumentPromptTemplate
+      : fetchOCRPromptTemplate;
+    fetchTemplate()
       .then((template) => {
         if (!cancelled) {
           onPromptOverrideChange(template);
@@ -73,7 +80,7 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [promptOpen, templateLoaded, promptOverride, onPromptOverrideChange]);
+  }, [promptOpen, templateLoaded, promptOverride, onPromptOverrideChange, wholeDocumentMode]);
 
   const pdfChoice = pdfChoiceOf(options);
 
@@ -124,8 +131,13 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
     if (promptOverride === null) return;
     setSavingPrompt(true);
     try {
-      await saveOCRPromptTemplate(promptOverride);
-      onToast("Prompt saved as the global OCR template.");
+      const saveTemplate = wholeDocumentMode
+        ? saveOCRWholeDocumentPromptTemplate
+        : saveOCRPromptTemplate;
+      await saveTemplate(promptOverride);
+      onToast(wholeDocumentMode
+        ? "Prompt saved as the global whole-document OCR template."
+        : "Prompt saved as the global OCR template.");
     } catch (err) {
       console.error("Failed to save OCR prompt:", err);
       onToast("Saving the prompt failed — check the backend connection.");
@@ -215,6 +227,7 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
               <option value="image">Image per page</option>
               <option value="pdf">PDF per page</option>
               <option value="whole_pdf">Whole PDF at once</option>
+              <option value="image_whole_document">All pages in one request</option>
             </select>
             <span className="mt-1 block text-xs text-faint">
               How pages reach the model
@@ -319,6 +332,11 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
             aria-hidden="true"
           />
           Prompt
+          {wholeDocumentMode && (
+            <span className="rounded-full bg-primary-tint px-2 py-0.5 text-xs font-medium">
+              whole document
+            </span>
+          )}
           {promptOverride !== null && templateLoaded && (
             <span className="rounded-full bg-primary-tint px-2 py-0.5 text-xs font-medium">
               customized for this run
@@ -333,7 +351,7 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
               onChange={(e) => onPromptOverrideChange(e.target.value)}
               disabled={running}
               rows={8}
-              aria-label="OCR prompt for this run"
+              aria-label={wholeDocumentMode ? "Whole-document OCR prompt for this run" : "OCR prompt for this run"}
               spellCheck={false}
               className="w-full rounded-md border border-line bg-surface px-3 py-2 font-mono text-xs leading-relaxed text-ink"
             />
@@ -361,7 +379,7 @@ const RunOptionsPanel: React.FC<RunOptionsPanelProps> = ({
                   onClick={handleSavePromptAsDefault}
                   loading={savingPrompt}
                   disabled={running || promptOverride === null}
-                  title="Writes the global OCR prompt template"
+                  title={wholeDocumentMode ? "Writes the global whole-document OCR prompt template" : "Writes the global OCR prompt template"}
                 >
                   Save as default prompt
                 </Button>

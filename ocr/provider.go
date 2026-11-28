@@ -32,6 +32,9 @@ type OCRResult struct {
 // Provider defines the interface for OCR processing
 type Provider interface {
 	ProcessImage(ctx context.Context, imageContent []byte, pageNumber int) (*OCRResult, error)
+	// ProcessMultiImage transcribes all page images in a single request.
+	// Only providers that accept multiple images per call implement this.
+	ProcessMultiImage(ctx context.Context, images [][]byte) (*OCRResult, error)
 }
 
 // Config holds the OCR provider configuration

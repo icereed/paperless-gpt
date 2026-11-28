@@ -382,8 +382,8 @@ func (app *App) submitOCRJobHandler(c *gin.Context) {
 	}
 	if req.ProcessMode != nil && *req.ProcessMode != "" {
 		mode := *req.ProcessMode
-		if mode != "image" && mode != "pdf" && mode != "whole_pdf" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "process_mode must be one of: image, pdf, whole_pdf"})
+		if mode != "image" && mode != "pdf" && mode != "whole_pdf" && mode != "image_whole_document" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "process_mode must be one of: image, pdf, whole_pdf, image_whole_document"})
 			return
 		}
 		options.ProcessMode = mode
@@ -545,8 +545,8 @@ func (app *App) updateOCRDefaultsHandler(c *gin.Context) {
 	}
 	if defaults.ProcessMode != nil && *defaults.ProcessMode != "" {
 		mode := *defaults.ProcessMode
-		if mode != "image" && mode != "pdf" && mode != "whole_pdf" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "process_mode must be one of: image, pdf, whole_pdf"})
+		if mode != "image" && mode != "pdf" && mode != "whole_pdf" && mode != "image_whole_document" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "process_mode must be one of: image, pdf, whole_pdf, image_whole_document"})
 			return
 		}
 	}

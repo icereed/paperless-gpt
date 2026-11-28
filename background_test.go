@@ -28,6 +28,13 @@ type mockOCRProvider struct {
 	text string
 }
 
+func (m *mockOCRProvider) ProcessMultiImage(ctx context.Context, images [][]byte) (*ocr.OCRResult, error) {
+	return &ocr.OCRResult{
+		Text:     m.text,
+		Metadata: map[string]string{"language": "eng"},
+	}, nil
+}
+
 func (m *mockOCRProvider) ProcessImage(ctx context.Context, imageData []byte, pageNumber int) (*ocr.OCRResult, error) {
 	return &ocr.OCRResult{
 		Text:     m.text,

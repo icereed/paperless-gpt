@@ -72,3 +72,45 @@ func TestRenderOCRPrompt_LanguageIncluded(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Language: German", result)
 }
+
+func TestRenderOCRWholeDocumentPrompt_WithContent(t *testing.T) {
+	tmpl, err := template.New("test").Funcs(sprig.FuncMap()).Parse(
+		`Whole document OCR.{{- if .Content}} Existing text: {{.Content}}{{- end}}`)
+	require.NoError(t, err)
+
+	templateMutex.Lock()
+	origTemplate := ocrWholeDocTemplate
+	ocrWholeDocTemplate = tmpl
+	templateMutex.Unlock()
+	defer func() {
+		templateMutex.Lock()
+		ocrWholeDocTemplate = origTemplate
+		templateMutex.Unlock()
+	}()
+
+	result, err := renderOCRWholeDocumentPrompt("existing tesseract text")
+	require.NoError(t, err)
+	assert.Contains(t, result, "existing tesseract text")
+	assert.Contains(t, result, "Whole document OCR.")
+}
+
+func TestRenderOCRWholeDocumentPrompt_WithoutContent(t *testing.T) {
+	tmpl, err := template.New("test").Funcs(sprig.FuncMap()).Parse(
+		`Whole document OCR.{{- if .Content}} Existing text: {{.Content}}{{- end}}`)
+	require.NoError(t, err)
+
+	templateMutex.Lock()
+	origTemplate := ocrWholeDocTemplate
+	ocrWholeDocTemplate = tmpl
+	templateMutex.Unlock()
+	defer func() {
+		templateMutex.Lock()
+		ocrWholeDocTemplate = origTemplate
+		templateMutex.Unlock()
+	}()
+
+	result, err := renderOCRWholeDocumentPrompt("")
+	require.NoError(t, err)
+	assert.Equal(t, "Whole document OCR.", result)
+	assert.NotContains(t, result, "Existing text")
+}

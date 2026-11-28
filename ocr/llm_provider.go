@@ -113,24 +113,14 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	mtype := mimetype.Detect(imageContent)
 	contentType := mtype.String()
 	isPDF := contentType == "application/pdf"
-	providerName := strings.ToLower(p.provider)
 
 	logger.WithField("content_type", contentType).Debug("Detected content type")
 
 	if isPDF {
 		logger.WithField("pdf_size", len(imageContent)).Debug("Processing PDF content")
-	} else {
-		// Log image dimensions for image content
-		img, _, err := image.Decode(bytes.NewReader(imageContent))
-		if err != nil {
-			logger.WithError(err).Error("Failed to decode image")
-			return nil, fmt.Errorf("error decoding image: %w", err)
-		}
-		bounds := img.Bounds()
-		logger.WithFields(logrus.Fields{
-			"width":  bounds.Dx(),
-			"height": bounds.Dy(),
-		}).Debug("Image dimensions")
+	} else if err := checkImage(imageContent); err != nil {
+		logger.WithError(err).Error("Failed to decode image")
+		return nil, err
 	}
 
 	logger.Debugf("Prompt length: %d", len(p.prompt))
@@ -139,6 +129,7 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 	var parts []llms.ContentPart
 	var contentPart llms.ContentPart
 
+	providerName := strings.ToLower(p.provider)
 	if providerName == "openai" || providerName == "mistral" {
 		logger.Info("Using OpenAI image format")
 		contentPart = llms.ImageURLPart("data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageContent))
@@ -160,6 +151,70 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		contentPart,
 		llms.TextPart(sanitize.Sanitize(p.prompt)),
 	}
+
+	result, err := p.generateForParts(ctx, parts)
+	if err != nil {
+		return nil, err
+	}
+	logger.WithField("content_length", len(result.Text)).WithFields(result.GenerationInfo).Info("Successfully processed image")
+	return result, nil
+}
+
+// ProcessMultiImage sends all page images in a single request so the model can
+// transcribe the whole document with cross-page context.
+func (p *LLMProvider) ProcessMultiImage(ctx context.Context, images [][]byte) (*OCRResult, error) {
+	if len(images) == 0 {
+		return nil, errors.New("no images provided")
+	}
+	logger := log.WithFields(logrus.Fields{
+		"provider": p.provider,
+		"model":    p.model,
+		"pages":    len(images),
+	})
+	logger.Debug("Starting whole-document LLM OCR processing")
+
+	var parts []llms.ContentPart
+	for i, img := range images {
+		if err := checkImage(img); err != nil {
+			return nil, fmt.Errorf("page %d: %w", i+1, err)
+		}
+		parts = append(parts, llms.ImageURLPart("data:image/jpeg;base64,"+base64.StdEncoding.EncodeToString(img)))
+	}
+	parts = append(parts, llms.TextPart(sanitize.Sanitize(p.prompt)))
+
+	result, err := p.generateForParts(ctx, parts)
+	if err != nil {
+		return nil, err
+	}
+	result.Metadata["pages"] = strconv.Itoa(len(images))
+	logger.WithField("content_length", len(result.Text)).WithFields(result.GenerationInfo).Info("Successfully processed whole document")
+	return result, nil
+}
+
+// checkImage verifies that the bytes decode as an image.
+func checkImage(imageContent []byte) error {
+	img, _, err := image.Decode(bytes.NewReader(imageContent))
+	if err != nil {
+		return fmt.Errorf("error decoding image: %w", err)
+	}
+	bounds := img.Bounds()
+	log.WithFields(logrus.Fields{
+		"width":  bounds.Dx(),
+		"height": bounds.Dy(),
+	}).Debug("Image dimensions")
+	return nil
+}
+
+// generateForParts runs the vision model with the given content parts, applying
+// the same options and transient-error retry loop as ProcessImage.
+func (p *LLMProvider) generateForParts(ctx context.Context, parts []llms.ContentPart) (*OCRResult, error) {
+	logger := log.WithFields(logrus.Fields{
+		"provider": p.provider,
+		"model":    p.model,
+	})
+	logger.Debugf("Prompt length: %d", len(p.prompt))
+
+	providerName := strings.ToLower(p.provider)
 
 	var callOpts []llms.CallOption
 	if p.maxTokens > 0 {
@@ -265,8 +320,6 @@ func (p *LLMProvider) ProcessImage(ctx context.Context, imageContent []byte, pag
 		OcrLimitHit:    limitHit,
 		GenerationInfo: completion.Choices[0].GenerationInfo,
 	}
-
-	logger.WithField("content_length", len(result.Text)).WithFields(completion.Choices[0].GenerationInfo).Info("Successfully processed image")
 	return result, nil
 }
 

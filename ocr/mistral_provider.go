@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -89,6 +90,11 @@ func newMistralOCRProvider(config Config) (Provider, error) {
 }
 
 // ProcessImage implements the OCR Provider interface
+// ProcessMultiImage is not supported by Mistral OCR.
+func (p *MistralOCRProvider) ProcessMultiImage(ctx context.Context, images [][]byte) (*OCRResult, error) {
+	return nil, errors.New("ProcessMultiImage is not supported by the Mistral provider")
+}
+
 func (p *MistralOCRProvider) ProcessImage(ctx context.Context, data []byte, pageNumber int) (*OCRResult, error) {
 	logger := log.WithFields(logrus.Fields{
 		"page_number": pageNumber,

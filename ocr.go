@@ -91,7 +91,11 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 			return nil, fmt.Errorf("prompt override failed to render: %w", err)
 		}
 	} else {
-		ocrPrompt, err = renderOCRPrompt(options.ExistingContent)
+		if options.ProcessMode == "image_whole_document" {
+			ocrPrompt, err = renderOCRWholeDocumentPrompt(options.ExistingContent)
+		} else {
+			ocrPrompt, err = renderOCRPrompt(options.ExistingContent)
+		}
 		if err != nil {
 			docLogger.WithError(err).Warn("Failed to render per-document OCR prompt, using provider default")
 			ocrPrompt = ""
@@ -107,8 +111,8 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 	processMode := options.ProcessMode
 	if processMode == "" {
 		processMode = app.ocrProcessMode
-	} else if processMode != "image" && processMode != "pdf" && processMode != "whole_pdf" {
-		return nil, fmt.Errorf("invalid ProcessMode: %s, must be one of: image, pdf, whole_pdf", processMode)
+	} else if processMode != "image" && processMode != "pdf" && processMode != "whole_pdf" && processMode != "image_whole_document" {
+		return nil, fmt.Errorf("invalid ProcessMode: %s, must be one of: image, pdf, whole_pdf, image_whole_document", processMode)
 	}
 
 	// Skip OCR if PDF already has OCR
@@ -236,6 +240,78 @@ func (app *App) ProcessDocumentOCR(ctx context.Context, documentID int, options 
 
 		// whole_pdf yields one combined text; store it as a single page result
 		// so the Playground can show and compare it like any other run.
+		var genInfoJSON string
+		if result.GenerationInfo != nil {
+			if b, err := json.Marshal(result.GenerationInfo); err == nil {
+				genInfoJSON = string(b)
+			}
+		}
+		if saveErr := SaveSingleOcrPageResult(app.Database, documentID, jobID, 0, result.Text, result.OcrLimitHit, genInfoJSON); saveErr != nil {
+			docLogger.WithError(saveErr).Error("Failed to save OCR result to database")
+		}
+		if jobID != "" {
+			jobStore.updatePagesDone(jobID, totalPdfPages)
+		}
+	} else if processMode == "image_whole_document" {
+		// Render every page exactly like image mode, then send all images in one request.
+		var imgPageCount int
+		imagePaths, imgPageCount, err = app.Client.DownloadDocumentAsImages(ctx, documentID, pageLimit)
+		defer func() {
+			for _, imagePath := range imagePaths {
+				if err := os.Remove(imagePath); err != nil {
+					docLogger.WithError(err).WithField("image_path", imagePath).Warn("Failed to remove temporary image file")
+				}
+			}
+		}()
+		if err != nil {
+			return nil, fmt.Errorf("error downloading document images for document %d: %w", documentID, err)
+		}
+
+		totalPdfPages = imgPageCount
+
+		if jobID != "" {
+			jobStore.Lock()
+			if job, exists := jobStore.jobs[jobID]; exists {
+				job.TotalPages = totalPdfPages
+			}
+			jobStore.Unlock()
+		}
+
+		docLogger.WithFields(logrus.Fields{
+			"processed_page_count": len(imagePaths),
+			"total_page_count":     totalPdfPages,
+			"limit_pages":          pageLimit,
+		}).Debug("Downloaded document images for whole-document processing")
+
+		multiImageProvider, ok := provider.(interface {
+			ProcessMultiImage(ctx context.Context, images [][]byte) (*ocr.OCRResult, error)
+		})
+		if !ok {
+			return nil, fmt.Errorf("process mode image_whole_document is not supported by OCR provider %s", os.Getenv("OCR_PROVIDER"))
+		}
+
+		imageDataList = make([][]byte, 0, len(imagePaths))
+		for _, imagePath := range imagePaths {
+			imageContent, err := os.ReadFile(imagePath)
+			if err != nil {
+				return nil, fmt.Errorf("error reading image file for document %d: %w", documentID, err)
+			}
+			imageDataList = append(imageDataList, imageContent)
+		}
+
+		result, err := multiImageProvider.ProcessMultiImage(ctx, imageDataList)
+		if err != nil {
+			return nil, fmt.Errorf("error performing whole-document OCR for document %d: %w", documentID, err)
+		}
+		if result == nil {
+			docLogger.Error("Got nil result from OCR provider")
+			return nil, fmt.Errorf("error performing whole-document OCR for document %d: nil result", documentID)
+		}
+
+		docLogger.WithField("content_length", len(result.Text)).Debug("OCR completed for full document")
+
+		ocrTexts = append(ocrTexts, result.Text)
+
 		var genInfoJSON string
 		if result.GenerationInfo != nil {
 			if b, err := json.Marshal(result.GenerationInfo); err == nil {

@@ -227,6 +227,12 @@ func (p *hocrStubProvider) ProcessImage(_ context.Context, _ []byte, pageNumber 
 	})
 	return &ocr.OCRResult{Text: "Invoice"}, nil
 }
+
+// ProcessMultiImage is not supported by the hOCR stub provider.
+func (p *hocrStubProvider) ProcessMultiImage(_ context.Context, _ [][]byte) (*ocr.OCRResult, error) {
+	return nil, fmt.Errorf("ProcessMultiImage is not supported by the hOCR stub provider")
+}
+
 func (p *hocrStubProvider) IsHOCREnabled() bool       { return true }
 func (p *hocrStubProvider) GetHOCRPages() []hocr.Page { return p.pages }
 func (p *hocrStubProvider) GetHOCRDocument() (*hocr.HOCR, error) {
