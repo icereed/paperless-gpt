@@ -767,6 +767,20 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 		docLogger.Infof("Using workflow %q (trigger: %s)", activeWorkflow.Name, activeWorkflow.TriggerTag)
 	}
 
+	// Single-request metadata path: one LLM call returns every requested field
+	// as a JSON object instead of one call per field. It is only used on the
+	// default path — workflows override each field's prompt individually and
+	// have no combined template, so they always use the per-field path.
+	if llmSingleRequestMetadata && !hasWorkflow {
+		templateMutex.RLock()
+		tmplReady := metadataTemplate != nil
+		templateMutex.RUnlock()
+		if tmplReady {
+			return app.generateSingleDocumentSuggestionSingleRequest(ctx, suggestionRequest, doc, generationContext, logger)
+		}
+		docLogger.Warnf("Single-request metadata enabled but template not loaded – falling back to per-field path")
+	}
+
 	// Helper to look up a workflow template override (nil when no override or no workflow).
 	wfTemplate := func(promptName string, globalTmpl *template.Template) *template.Template {
 		if !hasWorkflow {
@@ -916,6 +930,275 @@ func (app *App) generateSingleDocumentSuggestion(ctx context.Context, suggestion
 	runtime := time.Unix(0, elapsed.Nanoseconds()).UTC()
 	docLogger.Printf("Document %d processed successfully. Runtime: %s",
 		documentID, runtime.Format("15:04:05"))
+
+	return suggestion, nil
+}
+
+// generateSingleDocumentSuggestionSingleRequest extracts all requested metadata
+// fields in a single LLM call and returns them as one DocumentSuggestion.
+// It is used when LLM_SINGLE_REQUEST_METADATA=true and no workflow is active.
+func (app *App) generateSingleDocumentSuggestionSingleRequest(ctx context.Context, suggestionRequest GenerateSuggestionsRequest, doc Document, generationContext suggestionGenerationContext, logger *logrus.Entry) (DocumentSuggestion, error) {
+	documentID := doc.ID
+	docLogger := documentLogger(documentID)
+	startTime := time.Now()
+	docLogger.Printf("Processing Document ID %d (single-request metadata)...", documentID)
+
+	content := sanitize.Sanitize(doc.Content)
+	likelyLanguage := getLikelyLanguage()
+
+	// Filter correspondents the same way the per-field path does.
+	promptCorrespondents := filterCorrespondentsForPrompt(generationContext.availableCorrespondentNames, content, doc.Title, correspondentPromptLimit)
+
+	// Build custom-fields XML if requested (same logic as getSuggestedCustomFields).
+	var customFieldsXML string
+	var selectedCustomFields []CustomField
+	if suggestionRequest.GenerateCustomFields {
+		selectedIDs := customFieldIDsFor(suggestionRequest.Workflow)
+		if len(selectedIDs) > 0 {
+			allCustomFields, err := app.Client.GetCustomFields(ctx)
+			if err != nil {
+				return DocumentSuggestion{}, fmt.Errorf("error fetching all custom fields: %v", err)
+			}
+			for _, field := range allCustomFields {
+				if slices.Contains(selectedIDs, field.ID) {
+					selectedCustomFields = append(selectedCustomFields, field)
+				}
+			}
+			if len(selectedCustomFields) > 0 {
+				var xmlBuilder strings.Builder
+				xmlBuilder.WriteString("<custom_fields>\n")
+				for _, field := range selectedCustomFields {
+					if field.DataType == "select" && field.ExtraData != nil && len(field.ExtraData.SelectOptions) > 0 {
+						xmlBuilder.WriteString(fmt.Sprintf("  <field name=\"%s\" type=\"%s\">\n", escapeXMLAttr(field.Name), escapeXMLAttr(field.DataType)))
+						for _, opt := range field.ExtraData.SelectOptions {
+							xmlBuilder.WriteString(fmt.Sprintf("    <option id=\"%s\">%s</option>\n", escapeXMLAttr(opt.ID), escapeXMLText(opt.Label)))
+						}
+						xmlBuilder.WriteString("  </field>\n")
+					} else if field.DataType == documentLinkFieldType {
+						xmlBuilder.WriteString(fmt.Sprintf("  <field name=\"%s\" type=\"%s\">\n", escapeXMLAttr(field.Name), escapeXMLAttr(field.DataType)))
+						xmlBuilder.WriteString(fmt.Sprintf("    <description>%s</description>\n", escapeXMLText(documentLinkFieldHint)))
+						xmlBuilder.WriteString("  </field>\n")
+					} else {
+						xmlBuilder.WriteString(fmt.Sprintf("  <field name=\"%s\" type=\"%s\"></field>\n", escapeXMLAttr(field.Name), escapeXMLAttr(field.DataType)))
+					}
+				}
+				xmlBuilder.WriteString("</custom_fields>")
+				customFieldsXML = xmlBuilder.String()
+			}
+		} else {
+			log.Warnf("Custom field generation is enabled, but no custom fields are selected.")
+		}
+	}
+
+	// Remove system tags from available tags (same as getSuggestedTags).
+	availableTags := removeSystemTags(generationContext.availableTagNames)
+
+	templateMutex.RLock()
+	activeTmpl := metadataTemplate
+	templateMutex.RUnlock()
+
+	templateData := map[string]interface{}{
+		"Language":                likelyLanguage,
+		"Title":                   doc.Title,
+		"AvailableTags":           availableTags,
+		"AvailableCorrespondents": promptCorrespondents,
+		"BlackList":               correspondentBlackList,
+		"AvailableDocumentTypes":  generationContext.availableDocumentTypeNames,
+		"CustomFieldsXML":         customFieldsXML,
+		"CreateNewTags":           createNewTags,
+		"Today":                   getTodayDate(),
+	}
+
+	availableTokens, err := getAvailableTokensForContent(activeTmpl, templateData)
+	if err != nil {
+		return DocumentSuggestion{}, fmt.Errorf("error calculating available tokens: %v", err)
+	}
+
+	truncatedContent, err := truncateContentByTokens(content, availableTokens)
+	if err != nil {
+		return DocumentSuggestion{}, fmt.Errorf("error truncating content: %v", err)
+	}
+
+	var promptBuffer bytes.Buffer
+	templateData["Content"] = truncatedContent
+	err = activeTmpl.Execute(&promptBuffer, templateData)
+	if err != nil {
+		return DocumentSuggestion{}, fmt.Errorf("error executing metadata template: %v", err)
+	}
+
+	prompt := promptBuffer.String()
+	docLogger.Debugf("Single-request metadata prompt: %s", prompt)
+
+	completion, err := app.LLM.GenerateContent(ctx, []llms.MessageContent{
+		{
+			Role: llms.ChatMessageTypeHuman,
+			Parts: []llms.ContentPart{
+				llms.TextContent{Text: prompt},
+			},
+		},
+	})
+	if err != nil {
+		return DocumentSuggestion{}, fmt.Errorf("error getting response from LLM: %v", err)
+	}
+
+	rawResponse := textsanitize.StripReasoning(completion.Choices[0].Content)
+	docLogger.Debugf("Single-request metadata LLM response: %s", rawResponse)
+
+	cleaned := cleanLLMJSON(rawResponse)
+	if cleaned == "" {
+		return DocumentSuggestion{}, fmt.Errorf("empty LLM response for single-request metadata")
+	}
+
+	var metadata struct {
+		Title         string                   `json:"title"`
+		Tags          []string                 `json:"tags"`
+		Correspondent string                   `json:"correspondent"`
+		DocumentType  string                   `json:"document_type"`
+		CreatedDate   string                   `json:"created_date"`
+		CustomFields  []llmCustomFieldResponse `json:"custom_fields"`
+	}
+	if err := json.Unmarshal([]byte(cleaned), &metadata); err != nil {
+		return DocumentSuggestion{}, fmt.Errorf("failed to parse single-request metadata JSON: %v (response: %s)", err, truncateForLog(rawResponse, 200))
+	}
+
+	suggestion := DocumentSuggestion{
+		ID:               documentID,
+		OriginalDocument: doc,
+	}
+	settingsMutex.RLock()
+	suggestion.CustomFieldsWriteMode = settings.CustomFieldsWriteMode
+	suggestion.CustomFieldsEnable = settings.CustomFieldsEnable
+	settingsMutex.RUnlock()
+
+	// Title
+	if suggestionRequest.GenerateTitles {
+		suggestion.SuggestedTitle = strings.TrimSpace(strings.Trim(metadata.Title, "\""))
+		docLogger.Printf("Suggested title for document %d: %s", documentID, suggestion.SuggestedTitle)
+	} else {
+		suggestion.SuggestedTitle = doc.Title
+	}
+
+	// Tags — same validation as getSuggestedTags
+	if suggestionRequest.GenerateTags {
+		suggestedTags := metadata.Tags
+		suggestedTags = append(suggestedTags, doc.Tags...)
+		slices.Sort(suggestedTags)
+		suggestedTags = slices.Compact(suggestedTags)
+
+		var filteredTags []string
+		if createNewTags {
+			for _, tag := range suggestedTags {
+				if tag == "" {
+					continue
+				}
+				matched := false
+				for _, availableTag := range availableTags {
+					if strings.EqualFold(tag, availableTag) {
+						filteredTags = append(filteredTags, availableTag)
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					filteredTags = append(filteredTags, tag)
+				}
+			}
+		} else {
+			for _, tag := range suggestedTags {
+				for _, availableTag := range availableTags {
+					if strings.EqualFold(tag, availableTag) {
+						filteredTags = append(filteredTags, availableTag)
+						break
+					}
+				}
+			}
+		}
+		suggestion.SuggestedTags = removeSystemTags(filteredTags)
+		docLogger.Printf("Suggested tags for document %d: %v", documentID, suggestion.SuggestedTags)
+	} else {
+		suggestion.SuggestedTags = doc.Tags
+	}
+
+	// Correspondent — returned as-is (same as getSuggestedCorrespondent)
+	if suggestionRequest.GenerateCorrespondents {
+		suggestion.SuggestedCorrespondent = strings.TrimSpace(metadata.Correspondent)
+		log.Printf("Suggested correspondent for document %d: %s", documentID, suggestion.SuggestedCorrespondent)
+	} else {
+		suggestion.SuggestedCorrespondent = ""
+	}
+
+	// Document type — validate against available types (same as getSuggestedDocumentType)
+	if suggestionRequest.GenerateDocumentTypes {
+		docType := strings.TrimSpace(metadata.DocumentType)
+		for _, availableDocType := range generationContext.availableDocumentTypeNames {
+			if strings.EqualFold(docType, availableDocType) {
+				suggestion.SuggestedDocumentType = availableDocType
+				break
+			}
+		}
+		log.Printf("Suggested document type for document %d: %s", documentID, suggestion.SuggestedDocumentType)
+	} else {
+		suggestion.SuggestedDocumentType = ""
+	}
+
+	// Created date — normalize (same as getSuggestedCreatedDate)
+	if suggestionRequest.GenerateCreatedDate {
+		suggestion.SuggestedCreatedDate = normalizeCreatedDate(strings.TrimSpace(strings.Trim(metadata.CreatedDate, "\"")))
+		log.Printf("Suggested createdDate for document %d: %s", documentID, suggestion.SuggestedCreatedDate)
+	} else {
+		suggestion.SuggestedCreatedDate = ""
+	}
+
+	// Custom fields — map names to IDs (same as getSuggestedCustomFields)
+	if suggestionRequest.GenerateCustomFields && len(selectedCustomFields) > 0 {
+		fieldsByName := make(map[string]CustomField)
+		for _, field := range selectedCustomFields {
+			fieldsByName[field.Name] = field
+		}
+
+		var finalSuggestedFields []CustomFieldSuggestion
+		for _, llmField := range metadata.CustomFields {
+			field, found := fieldsByName[llmField.Field]
+			if !found {
+				for _, candidate := range selectedCustomFields {
+					if strings.EqualFold(candidate.Name, llmField.Field) {
+						field, found = candidate, true
+						break
+					}
+				}
+			}
+			if !found {
+				docLogger.Warnf("Single-request metadata: LLM returned custom field '%s', which was not requested, skipping.", llmField.Field)
+				continue
+			}
+			value := llmField.Value
+			if field.DataType == documentLinkFieldType {
+				linkedIDs := app.resolveDocumentLinks(ctx, doc.ID, value, docLogger)
+				if len(linkedIDs) == 0 {
+					docLogger.Infof("None of the references %v for custom field '%s' matched another document, skipping the field.", value, field.Name)
+					continue
+				}
+				value = linkedIDs
+			}
+			finalSuggestedFields = append(finalSuggestedFields, CustomFieldSuggestion{
+				ID:    field.ID,
+				Name:  field.Name,
+				Value: value,
+			})
+		}
+		suggestion.SuggestedCustomFields = finalSuggestedFields
+		log.Printf("Suggested custom fields for document %d: %v", documentID, suggestion.SuggestedCustomFields)
+	}
+
+	// Tag handover (same as per-field path)
+	suggestion.RemoveTags, suggestion.AddTags = handoverTags(app.autoTagComplete, suggestionRequest.IsAutoProcessing, suggestionRequest.TriggerTag, suggestionRequest.Workflow)
+	if len(suggestion.AddTags) > 0 {
+		docLogger.Debugf("Adding completion tags %v", suggestion.AddTags)
+	}
+
+	elapsed := time.Since(startTime)
+	runtime := time.Unix(0, elapsed.Nanoseconds()).UTC()
+	docLogger.Printf("Document %d processed successfully (single-request). Runtime: %s", documentID, runtime.Format("15:04:05"))
 
 	return suggestion, nil
 }

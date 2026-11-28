@@ -46,6 +46,7 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 		"custom_field_prompt.tmpl",
 		"ocr_prompt.tmpl",
 		"adhoc-analysis_prompt.tmpl",
+		"metadata_prompt.tmpl",
 	}
 	for _, file := range promptFiles {
 		require.NoError(
