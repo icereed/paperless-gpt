@@ -224,6 +224,9 @@ services:
       LLM_PROVIDER: "openai"
       LLM_MODEL: "gpt-4o"
       OPENAI_API_KEY: "your_openai_api_key"
+      # Optional: JSON object merged into every chat completion request body,
+      # e.g. to set the reasoning effort on generic OpenAI-compatible endpoints
+      # OPENAI_EXTRA_PARAMS: '{"reasoning_effort":"high"}'
 
       # Option 2: Mistral
       # LLM_PROVIDER: "mistral"
@@ -680,6 +683,7 @@ For best results with the enhanced OCR features:
 | `OPENAI_API_TYPE`                   | Set to `azure` to use Azure OpenAI Service.                                                                                                                                                   | No       |                            |
 | `OPENAI_BASE_URL`                   | Base URL for OpenAI API. Use it to point to any OpenAI-compatible endpoint (OpenRouter, LM Studio, vLLM, LiteLLM, llama.cpp, Groq, …) — see [OpenAI-compatible providers](docs/openai_compatible_providers.md) for ready-made configurations. For Azure OpenAI, set to your deployment URL (e.g., `https://your-resource.openai.azure.com`). | No       |                            |
 | `OPENAI_HEADERS`                    | Comma-separated `Key=Value` pairs added as HTTP headers to every OpenAI-compatible request (e.g. `OPENAI_HEADERS=User-Agent=paperless-gpt/1.0`).                                                                                     | No       |                            |
+| `OPENAI_EXTRA_PARAMS`               | JSON object merged into every OpenAI-compatible chat completion request body (e.g. `OPENAI_EXTRA_PARAMS={"reasoning_effort":"high","temperature":0.2}`). Values override client defaults; non-chat requests are untouched. If unset, nothing is added. | No       |                            |
 | `OPENROUTER_ENFORCE_ZDR`            | When `true` and `OPENAI_BASE_URL` points at openrouter.ai, adds `"provider": {"data_collection": "deny", "zdr": true}` to every LLM/VisionLLM/OCR request so OpenRouter only routes to upstream providers offering a Zero Data Retention guarantee. Requests to any other endpoint are unaffected. Narrows the provider pool for the configured model — check `https://openrouter.ai/<model>/providers` for multiple ZDR-capable providers before enabling this with a single-provider model, or a 429/5xx with no fallback can result. | No       | false                      |
 | `LLM_LANGUAGE`                      | Likely language for documents (e.g. `English`). Appears in the prompt to help the LLM.                                                                                                                                               | No       | English                    |
 | `LLM_TEMPERATURE`                   | (Ollama metadata only) Sampling temperature for title, tag, and other metadata generation. A non-negative finite value supplies the global setting; invalid, negative, `NaN`, and `Inf` values are ignored with a warning. The base fallback is `0`. An explicit per-call option still wins. It does not apply to other LLM providers or Vision OCR; use `VISION_LLM_TEMPERATURE` for supported vision providers. | No       | 0                          |
